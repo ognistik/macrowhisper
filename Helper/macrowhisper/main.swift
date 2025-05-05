@@ -580,8 +580,8 @@ func setupServerRoutes(server: HttpServer) {
             return .badRequest(.text("Missing model"))
         }
         
-        // If doesn't start with proxy#, forward unchanged to original endpoint (Ollama)
-        if !model.hasPrefix("proxy#") {
+        // If doesn't start with mw|, forward unchanged to original endpoint (Ollama)
+        if !model.hasPrefix("mw|") {
             // Forward request to original endpoint (e.g., Ollama)
             let ollamaURL = "http://localhost:11435/v1/chat/completions"
             
@@ -601,9 +601,8 @@ func setupServerRoutes(server: HttpServer) {
             }
         }
         
-        // If starts with proxy#, strip and process
-        // If starts with proxy#, strip and process
-        model.removeFirst("proxy#".count)
+        // If starts with mw|, strip and process
+        model.removeFirst("mw|".count)
         guard let proxyRule = currentProxies[model] else {
             return .badRequest(.text("No proxy rule for model \(model)"))
         }
@@ -643,6 +642,13 @@ func setupServerRoutes(server: HttpServer) {
 
         newBody = mergeBody(original: newBody, modifications: bodyMods)
 
+        // Special handling for OpenRouter
+        if targetURL.contains("openrouter.ai/api/v1/chat/completions") {
+            // Force set these headers for OpenRouter, overriding any user settings
+            headers["HTTP-Referer"] = "https://by.afadingthought.com/macrowhisper"
+            headers["X-Title"] = "Macrowhisper"
+        }
+        
         let streamDisabled = (proxyRule["-d stream"] as? Bool == false)
         let outgoingReq = buildRequest(url: targetURL, headers: headers, json: newBody)
 
@@ -714,6 +720,7 @@ func setupServerRoutes(server: HttpServer) {
         let ollamaURL = "http://localhost:11435/api/tags"
         var request = URLRequest(url: URL(string: ollamaURL)!)
         request.httpMethod = "GET"
+        request.timeoutInterval = 0.5 // Short timeout of 0.5 seconds
         
         // Create a special version that doesn't crash on network errors
         func safeNetworkRequest(_ request: URLRequest) -> (Data?, URLResponse?, Error?) {
@@ -722,17 +729,18 @@ func setupServerRoutes(server: HttpServer) {
             var resultResponse: URLResponse? = nil
             var resultError: Error? = nil
             
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                // Use the main thread to avoid concurrency issues
-                DispatchQueue.main.async {
-                    resultData = data
-                    resultResponse = response
-                    resultError = error
-                    semaphore.signal()
-                }
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForResource = request.timeoutInterval
+            let session = URLSession(configuration: config)
+            
+            session.dataTask(with: request) { data, response, error in
+                resultData = data
+                resultResponse = response
+                resultError = error
+                semaphore.signal()
             }.resume()
             
-            semaphore.wait()
+            _ = semaphore.wait(timeout: .now() + request.timeoutInterval + 0.1)
             return (resultData, resultResponse, resultError)
         }
         
@@ -745,7 +753,7 @@ func setupServerRoutes(server: HttpServer) {
         } else if let data = data,
                   let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 {
-            // Try to parse the response
+            // Parse the response as before
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let models = json["models"] as? [[String: Any]] {
@@ -779,10 +787,10 @@ func setupServerRoutes(server: HttpServer) {
         // For each proxy in your proxies dictionary, add an entry
         for (proxyName, _) in getProxies() {
             let customProxyModel: [String: Any] = [
-                "name": "proxy#\(proxyName)",
+                "name": "mw|\(proxyName)",
                 "modified_at": ISO8601DateFormatter().string(from: Date()),
                 "size": 0,
-                "digest": "proxy-\(proxyName)",
+                "digest": "mw-\(proxyName)",
                 "details": [
                     "format": "proxy",
                     "family": "proxy",
