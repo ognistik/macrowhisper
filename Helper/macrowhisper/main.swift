@@ -599,22 +599,29 @@ func setupServerRoutes(server: HttpServer) {
         // We'll override/replace any keys with what is in proxies.json below
         var bodyMods = [String: Any]()
         
+        // Remove proxy# from model in body
+        var newBody = jsonBody
+
+        // First set the model to the top-level key (default behavior)
+        newBody["model"] = model
+
+        // Process all the rule fields
         for (k, v) in proxyRule {
             if k == "url" { continue }
             if k == "key", let token = v as? String {
                 headers["Authorization"] = "Bearer \(token)"
+            } else if k == "model" {
+                // Special case: if there's a "model" field, use it to override the model
+                newBody["model"] = v
             } else if k.hasPrefix("-H "), let val = v as? String {
                 let hk = String(k.dropFirst(3))
                 headers[hk] = val
             } else if k.hasPrefix("-d ") {
-                // Fix the unnecessary cast
                 let bk = String(k.dropFirst(3))
                 bodyMods[bk] = v
             }
         }
-        // Remove proxy# from model in body
-        var newBody = jsonBody
-        newBody["model"] = model
+
         // Apply any -d overrides
         newBody = mergeBody(original: newBody, modifications: bodyMods)
         
