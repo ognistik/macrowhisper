@@ -623,14 +623,22 @@ func setupServerRoutes(server: HttpServer) {
 
         var bodyMods = [String: Any]()
         var newBody = jsonBody
-        newBody["model"] = model
+        newBody["model"] = model // Set the default model to be the proxy name (top-level key)
+        
+        // Process common parameters without requiring "-d " prefix
+        let commonBodyParams = ["temperature", "stream"]
+        for param in commonBodyParams {
+            if let value = proxyRule[param] {
+                bodyMods[param] = value
+            }
+        }
 
         for (k, v) in proxyRule {
             if k == "url" { continue }
             if k == "key", let token = v as? String {
                 headers["Authorization"] = "Bearer \(token)"
             } else if k == "model" {
-                newBody["model"] = v
+                newBody["model"] = v // This overrides the default if specified
             } else if k.hasPrefix("-H "), let val = v as? String {
                 let hk = String(k.dropFirst(3))
                 headers[hk] = val
