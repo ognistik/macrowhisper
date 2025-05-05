@@ -444,6 +444,34 @@ func isPortAvailable(_ port: UInt16) -> Bool {
     return bind_result == 0
 }
 
+func mergeAnnotationsIntoContent(_ data: Data) -> Data {
+    guard var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          var choices = root["choices"] as? [[String: Any]] else {
+        print("Couldn't parse completion JSON, returning original data.")
+        return data
+    }
+    for i in choices.indices {
+        guard var message = choices[i]["message"] as? [String: Any] else { continue }
+        if let annotations = message["annotations"] as? [[String: Any]], !annotations.isEmpty {
+            print("Found \(annotations.count) annotations, merging into content for choice[\(i)].")
+            var content = message["content"] as? String ?? ""
+            content += "\n\n---\n"
+            for ann in annotations {
+                if let urlCitation = ann["url_citation"] as? [String: Any] {
+                    let title = urlCitation["title"] as? String ?? "Link"
+                    let url = urlCitation["url"] as? String ?? ""
+                    content += "- [\(title)](\(url))\n"
+                }
+            }
+            message["content"] = content
+            message.removeValue(forKey: "annotations")
+            choices[i]["message"] = message
+        }
+    }
+    root["choices"] = choices
+    return (try? JSONSerialization.data(withJSONObject: root)) ?? data
+}
+
 // MARK: - Main
 
 // Parse CLI arguments
@@ -574,6 +602,7 @@ func setupServerRoutes(server: HttpServer) {
         }
         
         // If starts with proxy#, strip and process
+        // If starts with proxy#, strip and process
         model.removeFirst("proxy#".count)
         guard let proxyRule = currentProxies[model] else {
             return .badRequest(.text("No proxy rule for model \(model)"))
@@ -581,12 +610,9 @@ func setupServerRoutes(server: HttpServer) {
         guard let targetURL = proxyRule["url"] as? String else {
             return .badRequest(.text("No url in proxies.json for \(model)"))
         }
-        
-        // Prepare headers and body
-        // Start headers with ALL incoming headers
-        var headers = req.headers
 
-        // IM REMOVING SOME STUFF
+        // Prepare headers and body (as already done above)
+        var headers = req.headers
         headers.removeValue(forKey: "Content-Length")
         headers.removeValue(forKey: "content-length")
         headers.removeValue(forKey: "Host")
@@ -596,22 +622,15 @@ func setupServerRoutes(server: HttpServer) {
         headers.removeValue(forKey: "User-Agent")
         headers.removeValue(forKey: "user-agent")
 
-        // We'll override/replace any keys with what is in proxies.json below
         var bodyMods = [String: Any]()
-        
-        // Remove proxy# from model in body
         var newBody = jsonBody
-
-        // First set the model to the top-level key (default behavior)
         newBody["model"] = model
 
-        // Process all the rule fields
         for (k, v) in proxyRule {
             if k == "url" { continue }
             if k == "key", let token = v as? String {
                 headers["Authorization"] = "Bearer \(token)"
             } else if k == "model" {
-                // Special case: if there's a "model" field, use it to override the model
                 newBody["model"] = v
             } else if k.hasPrefix("-H "), let val = v as? String {
                 let hk = String(k.dropFirst(3))
@@ -622,18 +641,68 @@ func setupServerRoutes(server: HttpServer) {
             }
         }
 
-        // Apply any -d overrides
         newBody = mergeBody(original: newBody, modifications: bodyMods)
-        
-        // Send to targetURL
+
+        let streamDisabled = (proxyRule["-d stream"] as? Bool == false)
         let outgoingReq = buildRequest(url: targetURL, headers: headers, json: newBody)
-        return HttpResponse.raw(200, "OK", ["Content-Type": "application/json"]) { writer in
-            let semaphore = DispatchSemaphore(value: 0)
-            let delegate = ProxyStreamDelegate(writer: writer, semaphore: semaphore)
-            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-            let task = session.dataTask(with: outgoingReq)
-            task.resume()
-            semaphore.wait()
+
+        if streamDisabled {
+            return HttpResponse.raw(200, "OK", ["Content-Type": "text/event-stream"]) { writer in
+                let session = URLSession(configuration: .default)
+                let semaphore = DispatchSemaphore(value: 0)
+                session.dataTask(with: outgoingReq) { data, _, _ in
+                    if let data = data {
+                        let processed = mergeAnnotationsIntoContent(data)
+                        // Parse response
+                        if let root = try? JSONSerialization.jsonObject(with: processed) as? [String: Any],
+                           let choices = root["choices"] as? [[String: Any]],
+                           let message = choices.first?["message"] as? [String: Any],
+                           let content = message["content"] as? String {
+                            // Stream word by word as OpenAI delta-style
+                            var _ = ""
+                            // Assume 'content' is your string to stream
+                            let deltaChunk: [String: Any] = [
+                                "id": root["id"] ?? "chatcmpl-xxx",
+                                "object": "chat.completion.chunk",
+                                "choices": [[
+                                    "delta": ["content": content],
+                                    "index": 0,
+                                    "finish_reason": nil
+                                ]],
+                                "model": root["model"] ?? "unknown"
+                            ]
+
+                            if let chunkData = try? JSONSerialization.data(withJSONObject: deltaChunk),
+                               let chunkString = String(data: chunkData, encoding: .utf8) {
+                                let sse = "data: \(chunkString)\n\n"
+                                try? writer.write(sse.data(using: .utf8)!)
+                                // No sleep, just send it all at once
+                            }
+
+                            let done = "data: [DONE]\n\n"
+                            try? writer.write(done.data(using: .utf8)!)
+                        } else {
+                            // If can't parse, fallback, but this may crash some clients
+                            let chunk = "data: \(String(data: processed, encoding: .utf8) ?? "")\n\n"
+                            let done = "data: [DONE]\n\n"
+                            try? writer.write(chunk.data(using: .utf8)!)
+                            try? writer.write(done.data(using: .utf8)!)
+                        }
+                    }
+                    semaphore.signal()
+                }.resume()
+                semaphore.wait()
+            }
+        } else {
+            // Usual streaming passthrough
+            return HttpResponse.raw(200, "OK", ["Content-Type": "application/json"]) { writer in
+                let semaphore = DispatchSemaphore(value: 0)
+                let delegate = ProxyStreamDelegate(writer: writer, semaphore: semaphore)
+                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+                let task = session.dataTask(with: outgoingReq)
+                task.resume()
+                semaphore.wait()
+            }
         }
     }
 
