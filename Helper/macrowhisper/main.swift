@@ -70,16 +70,18 @@ func mergeBody(original: [String: Any], modifications: [String: Any]) -> [String
 
 final class FileChangeWatcher {
     private let filePath: String
-    private let callback: () -> Void
+    private let onChanged: () -> Void
+    private let onMissing: () -> Void
     private let queue = DispatchQueue(label: "com.macrowhisper.filewatcher", qos: .utility)
 
     private var fileDescriptor: Int32 = -1
     private var dispatchSource: DispatchSourceFileSystemObject?
     private var rewatchTimer: DispatchSourceTimer?
 
-    init(filePath: String, callback: @escaping () -> Void) {
+    init(filePath: String, onChanged: @escaping () -> Void, onMissing: @escaping () -> Void) {
         self.filePath = filePath
-        self.callback = callback
+        self.onChanged = onChanged
+        self.onMissing = onMissing
         startWatching()
     }
 
@@ -106,10 +108,12 @@ final class FileChangeWatcher {
             guard let self = self else { return }
             // If file is deleted or renamed, stop watcher and schedule rewatch
             if !FileManager.default.fileExists(atPath: self.filePath) {
+                print("Warning: proxies.json was deleted or replaced! Proxy functionality is now disabled until the file is restored.")
+                self.onMissing()
                 self.stopWatching()
                 self.scheduleRewatch()
             } else {
-                self.callback()
+                self.onChanged()
             }
         }
 
@@ -142,9 +146,11 @@ final class FileChangeWatcher {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             if FileManager.default.fileExists(atPath: self.filePath) {
+                print("proxies.json has been restored. Reloading configuration.")
                 self.rewatchTimer?.cancel()
                 self.rewatchTimer = nil
                 self.startWatching()
+                self.onChanged() // Reload proxies now
             }
         }
         timer.resume()
@@ -472,66 +478,169 @@ func mergeAnnotationsIntoContent(_ data: Data) -> Data {
     return (try? JSONSerialization.data(withJSONObject: root)) ?? data
 }
 
-// MARK: - Main
+// MARK: - Argument Parsing and Startup
 
-// Parse CLI arguments
-var jsonPath: String? = nil
+let defaultSuperwhisperPath = ("~/Documents/superwhisper" as NSString).expandingTildeInPath
+let defaultProxiesPath = "\(defaultSuperwhisperPath)/proxies.json"
+let defaultRecordingsPath = "\(defaultSuperwhisperPath)/recordings"
+
+func promptYesNo(_ message: String) -> Bool {
+    print("\(message) [y/N]: ", terminator: "")
+    guard let input = readLine()?.lowercased() else { return false }
+    return input == "y" || input == "yes"
+}
+
+func createExampleProxiesJson(at path: String) {
+    let example: [String: Any] = [
+        "4oMini": [
+            "model": "openai/gpt-4o-mini",
+            "key": "sk-...",
+            "url": "https://openrouter.ai/api/v1/chat/completions"
+        ],
+        "GPT4.1": [
+            "model": "gpt-4.1",
+            "key": "sk-...",
+            "url": "https://api.openai.com/v1/chat/completions"
+        ]
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: example, options: .prettyPrinted),
+       var jsonString = String(data: data, encoding: .utf8) {
+        // Remove all unnecessary escaping on forward slashes for readability
+        jsonString = jsonString.replacingOccurrences(of: "\\/", with: "/")
+        try? jsonString.write(toFile: path, atomically: true, encoding: .utf8)
+        print("Example proxies.json created at \(path)")
+    } else {
+        print("Failed to create example proxies.json")
+    }
+}
+
+func printHelp() {
+    print("""
+    Usage: macrowhisper [OPTIONS]
+
+    Server and/or folder watcher for Superwhisper integration.
+
+    OPTIONS:
+      -s, --server <path>   Path to proxies.json (default: \(defaultProxiesPath))
+      -w, --watch  <path>   Path to superwhisper folder (default: \(defaultSuperwhisperPath))
+          --server-only     Only run proxy server (no folder watching)
+          --watch-only      Only run folder watcher (no server)
+      -h, --help            Show this help message
+
+    Examples:
+      macrowhisper
+        # Uses defaults for both server and watch modes
+
+      macrowhisper --server ~/myproxies.json --watch ~/otherfolder/superwhisper
+
+      macrowhisper --watch-only
+
+    """)
+}
+
+// Argument parsing
+var serverPath: String? = nil
 var watchPath: String? = nil
+var runServer = true
+var runWatcher = true
 
 let args = CommandLine.arguments
 var i = 1
 while i < args.count {
     switch args[i] {
-    case "-j", "--json":
-        if i + 1 < args.count {
-            jsonPath = args[i + 1]
-            i += 2
-        } else {
-            exitWithError("Missing path after -j/--json")
+    case "-s", "--server":
+        guard i + 1 < args.count else {
+            print("Missing value after \(args[i])")
+            exit(1)
         }
+        serverPath = args[i + 1]
+        i += 2
     case "-w", "--watch":
-        if i + 1 < args.count {
-            watchPath = args[i + 1]
-            i += 2
-        } else {
-            exitWithError("Missing path after -w/--watch")
+        guard i + 1 < args.count else {
+            print("Missing value after \(args[i])")
+            exit(1)
         }
+        watchPath = args[i + 1]
+        i += 2
+    case "--server-only":
+        runWatcher = false
+        i += 1
+    case "--watch-only":
+        runServer = false
+        i += 1
+    case "-h", "--help":
+        printHelp()
+        exit(0)
     default:
-        // For backward compatibility, treat lone argument as json path
-        if jsonPath == nil && !args[i].hasPrefix("-") {
-            jsonPath = args[i]
-            i += 1
+        print("Unknown argument: \(args[i])")
+        printHelp()
+        exit(1)
+    }
+}
+
+// Set defaults if not provided
+if serverPath == nil { serverPath = defaultProxiesPath }
+if watchPath == nil { watchPath = defaultSuperwhisperPath }
+
+// Validate required folders
+func folderExistsOrExit(_ path: String, what: String) {
+    if !FileManager.default.fileExists(atPath: path) {
+        print("Error: \(what) not found: \(path)")
+        print("Please launch Superwhisper at least once or specify with --watch.")
+        exit(1)
+    }
+}
+
+if runWatcher {
+    folderExistsOrExit(watchPath!, what: "Superwhisper folder")
+    let recordingsPath = "\(watchPath!)/recordings"
+    folderExistsOrExit(recordingsPath, what: "Recordings folder")
+}
+
+if runServer {
+    let proxiesPath = serverPath!
+    let proxiesFolder = (proxiesPath as NSString).deletingLastPathComponent
+    folderExistsOrExit(proxiesFolder, what: "Superwhisper folder for proxies.json")
+
+    if !FileManager.default.fileExists(atPath: proxiesPath) {
+        print("Error: proxies.json not found at \(proxiesPath)")
+        if promptYesNo("Would you like to create an example proxies.json file here?") {
+            createExampleProxiesJson(at: proxiesPath)
         } else {
-            exitWithError("Unknown argument: \(args[i])")
+            print("You can create this file yourself, or run with --watch-only if you only want watcher functionality.")
+            exit(1)
         }
     }
 }
 
-// Check that at least one feature is enabled
-if jsonPath == nil && watchPath == nil {
-    exitWithError("At least one feature must be enabled. Use -j for server or -w for folder watching.")
-}
+// ---
+// At this point, continue with initializing server and/or watcher as usual...
+print("macrowhisper starting with:")
+if runServer { print("  Server: \(serverPath!)") }
+if runWatcher { print("  Watcher: \(watchPath!)/recordings") }
 
 // Server setup - only if jsonPath is provided
 var server: HttpServer? = nil
 var proxies: [String: [String: Any]] = [:]
 var fileWatcher: FileChangeWatcher? = nil
 
-if let jsonPath = jsonPath {
-    // Validate JSON configuration file exists
-    guard FileManager.default.fileExists(atPath: jsonPath) else {
-        exitWithError("Configuration file not found: \(jsonPath)")
-    }
-    
-    // Load proxies from the JSON path
+if runServer, let jsonPath = serverPath {
+    // The proxies.json existence is already checked earlier!
     proxies = loadProxies(from: jsonPath)
     
     // Create file watcher to reload configuration when it changes
-    fileWatcher = FileChangeWatcher(filePath: jsonPath) {
-        print("proxies.json changed, reloading configuration...")
-        proxies = loadProxies(from: jsonPath)
-        print("Configuration reloaded successfully - changes will apply to new requests")
-    }
+    fileWatcher = FileChangeWatcher(
+        filePath: jsonPath,
+        onChanged: {
+            print("proxies.json changed, reloading configuration...")
+            proxies = loadProxies(from: jsonPath)
+            print("Configuration reloaded successfully - changes will apply to new requests")
+        },
+        onMissing: {
+            proxies = [:]
+            print("All proxy rules cleared. Restore proxies.json to re-enable proxy functionality.")
+        }
+    )
     
     // Start HTTP server
     server = HttpServer()
@@ -549,17 +658,13 @@ if let jsonPath = jsonPath {
 
 // Initialize the recordings folder watcher if path provided
 var recordingsWatcher: RecordingsFolderWatcher? = nil
-if let watchPath = watchPath {
-    // Validate the watch folder exists
-    guard FileManager.default.fileExists(atPath: watchPath) else {
-        exitWithError("Watch folder not found: \(watchPath)")
-    }
-    
-    recordingsWatcher = RecordingsFolderWatcher(basePath: watchPath)
+if runWatcher, let baseWatchPath = watchPath {
+    // The existence of the watchPath and recordings folder is already checked earlier!
+    recordingsWatcher = RecordingsFolderWatcher(basePath: baseWatchPath)
     if recordingsWatcher == nil {
         print("Warning: Failed to initialize recordings folder watcher")
     } else {
-        print("Watching recordings folder at \(watchPath)/recordings")
+        print("Watching recordings folder at \(baseWatchPath)/recordings")
     }
 }
 
@@ -626,7 +731,7 @@ func setupServerRoutes(server: HttpServer) {
         newBody["model"] = model // Set the default model to be the proxy name (top-level key)
         
         // Process common parameters without requiring "-d " prefix
-        let commonBodyParams = ["temperature", "stream"]
+        let commonBodyParams = ["temperature", "stream", "max_tokens"]
         for param in commonBodyParams {
             if let value = proxyRule[param] {
                 bodyMods[param] = value
