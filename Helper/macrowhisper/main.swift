@@ -3,8 +3,27 @@
 import Foundation
 import Swifter
 import Dispatch
+import Darwin
 
 // MARK: - Helpers
+
+func acquireSingleInstanceLock(lockFilePath: String) {
+    let fd = open(lockFilePath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    if fd == -1 {
+        print("Could not open lock file: \(lockFilePath)")
+        exit(1)
+    }
+    // Try to acquire exclusive lock, non-blocking
+    if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+        print("Another instance is already running.")
+        exit(1)
+    }
+    // Keep fd open for the lifetime of the process to hold the lock
+}
+
+// Use this at the very top of your main.swift:
+let lockPath = "/tmp/macrowhisper.lock"
+acquireSingleInstanceLock(lockFilePath: lockPath)
 
 @preconcurrency
 final class ProxyStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
@@ -173,18 +192,38 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     private var processedMetaJsons = Set<String>()
     private let fileDescriptorQueue = DispatchQueue(label: "com.macrowhisper.filedescriptor", qos: .userInteractive)
     private var metaJsonFileDescriptor: Int32 = -1
+    private var recordingsFolderDescriptor: Int32 = -1
+    private var basePathWatcher: FileChangeWatcher?
     
     deinit {
         closeFileDescriptor()
+        stopWatchingRecordingsFolder()
     }
     
     init?(basePath: String) {
         self.basePath = basePath
         self.recordingsPath = basePath + "/recordings"
         
-        // Verify recordings folder exists
-        guard FileManager.default.fileExists(atPath: recordingsPath) else {
+        // Set up watcher for the base path to detect if recordings folder is deleted/renamed
+        self.basePathWatcher = FileChangeWatcher(
+            filePath: basePath,
+            onChanged: { [weak self] in
+                if let self = self, !self.checkRecordingsFolder() {
+                    // Folder doesn't exist, schedule a check for its return
+                    self.scheduleRecordingsFolderCheck()
+                }
+            },
+            onMissing: { [weak self] in
+                print("Warning: Base superwhisper folder was deleted or replaced!")
+                self?.stopWatchingRecordingsFolder()
+                self?.scheduleRecordingsFolderCheck()
+            }
+        )
+        
+        // Initial check for recordings folder
+        if !checkRecordingsFolder() {
             print("Error: recordings folder not found at \(recordingsPath)")
+            scheduleRecordingsFolderCheck()
             return nil
         }
         
@@ -201,8 +240,44 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             }
         }
         
-        // Start watching recordings folder using FSEvents for better performance
+        // Start watching recordings folder
         startWatchingRecordingsFolder()
+    }
+    
+    private func checkRecordingsFolder() -> Bool {
+        if !FileManager.default.fileExists(atPath: recordingsPath) {
+            print("Warning: recordings folder not found at \(recordingsPath). Waiting for it to be restored.")
+            stopWatchingRecordingsFolder()
+            return false
+        }
+        return true
+    }
+    
+    private func scheduleRecordingsFolderCheck() {
+        let timer = DispatchSource.makeTimerSource(queue: fileDescriptorQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1) // Check every 1 second
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            if self.checkRecordingsFolder() {
+                print("recordings folder has been restored. Resuming watching.")
+                timer.cancel()
+                self.startWatchingRecordingsFolder()
+            }
+        }
+        timer.resume()
+    }
+    
+    private func stopWatchingRecordingsFolder() {
+        folderDispatchSource?.cancel()
+        folderDispatchSource = nil
+        
+        if recordingsFolderDescriptor >= 0 {
+            close(recordingsFolderDescriptor)
+            recordingsFolderDescriptor = -1
+        }
+        
+        // Also stop watching any current file
+        cancelFileWatcher()
     }
     
     private func startWatchingRecordingsFolder() {
@@ -210,24 +285,41 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         fileDescriptorQueue.async { [weak self] in
             guard let self = self else { return }
             
-            let fileDescriptor = open(self.recordingsPath, O_EVTONLY)
-            if fileDescriptor < 0 {
+            // Stop any existing watcher first
+            self.stopWatchingRecordingsFolder()
+            
+            self.recordingsFolderDescriptor = open(self.recordingsPath, O_EVTONLY)
+            if self.recordingsFolderDescriptor < 0 {
                 print("Error: Unable to open file descriptor for recordings folder")
+                self.scheduleRecordingsFolderCheck()
                 return
             }
             
             let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fileDescriptor,
-                eventMask: [.write, .link, .rename],
+                fileDescriptor: self.recordingsFolderDescriptor,
+                eventMask: [.write, .link, .rename, .delete],
                 queue: self.fileDescriptorQueue
             )
             
             source.setEventHandler { [weak self] in
-                self?.checkForNewFolder()
+                guard let self = self else { return }
+                
+                // Check if recordings folder still exists
+                if !FileManager.default.fileExists(atPath: self.recordingsPath) {
+                    print("Warning: recordings folder was deleted or replaced!")
+                    self.stopWatchingRecordingsFolder()
+                    self.scheduleRecordingsFolderCheck()
+                    return
+                }
+                
+                self.checkForNewFolder()
             }
             
-            source.setCancelHandler {
-                close(fileDescriptor)
+            source.setCancelHandler { [weak self] in
+                if let fd = self?.recordingsFolderDescriptor, fd >= 0 {
+                    close(fd)
+                    self?.recordingsFolderDescriptor = -1
+                }
             }
             
             source.resume()
@@ -394,7 +486,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         if let result = json["result"],
            !(result is NSNull),
            !String(describing: result).isEmpty {
-            print("Found valid result in meta.json: \(result)")
+            print("Found valid result in meta.json. Triggering Macro.")
             
             // Mark this file as processed so we don't trigger again
             processedMetaJsons.insert(path)
@@ -586,7 +678,7 @@ if watchPath == nil { watchPath = defaultSuperwhisperPath }
 func folderExistsOrExit(_ path: String, what: String) {
     if !FileManager.default.fileExists(atPath: path) {
         print("Error: \(what) not found: \(path)")
-        print("Please launch Superwhisper at least once or specify with --watch.")
+        print("If folder is in a different location specify with --watch.")
         exit(1)
     }
 }
