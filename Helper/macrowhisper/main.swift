@@ -230,7 +230,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         // Mark current newest folder as "already processed"
         if let newestFolder = findNewestFolder() {
             currentWatchedFolder = newestFolder
-            print("Initial run: Marking current newest folder as already processed: \(newestFolder)")
+            print("Initial run: Marking current newest folder as already processed")
             
             // Also mark existing meta.json as processed if it exists
             let metaJsonPath = newestFolder + "/meta.json"
@@ -368,7 +368,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             return
         }
         
-        print("New folder detected: \(newestFolder)")
+        print("New folder detected: \(URL(fileURLWithPath: newestFolder).lastPathComponent)")
         currentWatchedFolder = newestFolder
         
         // Stop watching old folder
