@@ -4,18 +4,147 @@ import Foundation
 import Swifter
 import Dispatch
 import Darwin
+import UserNotifications
+
+// MARK: - Logging System
+
+class Logger {
+    private let logFilePath: String
+    private let maxLogSize: Int = 5 * 1024 * 1024 // 5 MB in bytes
+    private let dateFormatter: DateFormatter
+    private let fileManager = FileManager.default
+    
+    init(logDirectory: String) {
+        // Create logs directory if it doesn't exist
+        if !fileManager.fileExists(atPath: logDirectory) {
+            try? fileManager.createDirectory(atPath: logDirectory, withIntermediateDirectories: true)
+        }
+        
+        self.logFilePath = "\(logDirectory)/macrowhisper.log"
+        
+        // Setup date formatter for log entries
+        dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        
+        // Rotate log if needed
+        checkAndRotateLog()
+    }
+    
+    func log(_ message: String, level: LogLevel = .info) {
+        let timestamp = dateFormatter.string(from: Date())
+        let logEntry = "[\(timestamp)] [\(level.rawValue)] \(message)\n"
+        
+        // Print to console when running interactively
+        if isatty(STDOUT_FILENO) != 0 {
+            print(logEntry, terminator: "")
+        }
+        
+        // Append to log file
+        if let data = logEntry.data(using: .utf8) {
+            if let fileHandle = FileHandle(forWritingAtPath: logFilePath) {
+                defer { fileHandle.closeFile() }
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(data)
+            } else {
+                // Create file if it doesn't exist
+                try? data.write(to: URL(fileURLWithPath: logFilePath), options: .atomic)
+            }
+        }
+        
+        // Check if we need to rotate logs after writing
+        checkAndRotateLog()
+    }
+    
+    private func checkAndRotateLog() {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: logFilePath),
+              let fileSize = attributes[.size] as? Int else {
+            return
+        }
+        
+        if fileSize > maxLogSize {
+            // Rename current log to include timestamp
+            let dateStr = dateFormatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let rotatedLogPath = "\(logFilePath).\(dateStr)"
+            
+            try? fileManager.moveItem(atPath: logFilePath, toPath: rotatedLogPath)
+            
+            // Log the rotation
+            log("Log file rotated due to size limit", level: .info)
+        }
+    }
+    
+    enum LogLevel: String {
+        case debug = "DEBUG"
+        case info = "INFO"
+        case warning = "WARNING"
+        case error = "ERROR"
+    }
+}
+
+// MARK: - Notification System
+
+class NotificationManager {
+    func sendNotification(title: String, body: String) {
+        // Just log instead if notifications aren't available
+        print("NOTIFICATION: \(title) - \(body)")
+        
+        // Use AppleScript for notifications
+        let escapedTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedBody = body.replacingOccurrences(of: "\"", with: "\\\"")
+        
+        let script = "display notification \"\(escapedBody)\" with title \"\(escapedTitle)\""
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", script]
+        try? task.run()
+    }
+}
+
+// MARK: - Global instances
+
+// Create default paths for logs
+let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
+
+// Initialize logger and notification manager
+let logger = Logger(logDirectory: logDirectory)
+let notificationManager = NotificationManager()
+
+// MARK: - Helper functions for logging and notifications
+
+func logInfo(_ message: String) {
+    logger.log(message, level: .info)
+}
+
+func logWarning(_ message: String) {
+    logger.log(message, level: .warning)
+}
+
+func logError(_ message: String) {
+    logger.log(message, level: .error)
+}
+
+func logDebug(_ message: String) {
+    logger.log(message, level: .debug)
+}
+
+func notify(title: String, message: String) {
+    notificationManager.sendNotification(title: title, body: message)
+    logInfo("Notification: \(title) - \(message)")
+}
 
 // MARK: - Helpers
 
 func acquireSingleInstanceLock(lockFilePath: String) {
     let fd = open(lockFilePath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
     if fd == -1 {
-        print("Could not open lock file: \(lockFilePath)")
+        logWarning("Could not open lock file: \(lockFilePath)")
+        notify(title: "Macrowhisper", message: "Could not open lock file.")
         exit(1)
     }
     // Try to acquire exclusive lock, non-blocking
     if flock(fd, LOCK_EX | LOCK_NB) != 0 {
-        print("Another instance is already running.")
+        logWarning("Another instance is already running.")
+        notify(title: "Macrowhisper", message: "Another instance is already running.")
         exit(1)
     }
     // Keep fd open for the lifetime of the process to hold the lock
@@ -47,27 +176,28 @@ final class ProxyStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Se
 }
 
 func exitWithError(_ message: String) -> Never {
-    print("Error: \(message)")
+    logError("Error: \(message)")
+    notify(title: "Macrowhisper", message: "Error: \(message)")
     exit(1)
 }
 
 func loadProxies(from path: String) -> [String: [String: Any]] {
     let proxiesFile = URL(fileURLWithPath: path)
     guard FileManager.default.fileExists(atPath: proxiesFile.path) else {
-        print("Warning: proxies.json not found.")
+        logWarning("Warning: proxies.json not found.")
         return [:]
     }
     
     do {
         let data = try Data(contentsOf: proxiesFile)
         guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else {
-            print("Warning: Malformed proxies.json")
+            logWarning("Warning: Malformed proxies.json")
             return [:]
         }
-        print("Successfully loaded proxies configuration")
+        logInfo("Successfully loaded proxies configuration")
         return dict
     } catch {
-        print("Error reading proxies.json: \(error.localizedDescription)")
+        logError("Error reading proxies.json: \(error.localizedDescription)")
         return [:]
     }
 }
@@ -112,7 +242,7 @@ final class FileChangeWatcher {
 
         fileDescriptor = open(filePath, O_EVTONLY)
         if fileDescriptor < 0 {
-            print("FileChangeWatcher: Failed to open file descriptor for \(filePath)")
+            logWarning("FileChangeWatcher: Failed to open file descriptor for \(filePath)")
             scheduleRewatch()
             return
         }
@@ -127,7 +257,8 @@ final class FileChangeWatcher {
             guard let self = self else { return }
             // If file is deleted or renamed, stop watcher and schedule rewatch
             if !FileManager.default.fileExists(atPath: self.filePath) {
-                print("Warning: proxies.json was deleted or replaced! Proxy functionality is now disabled until the file is restored.")
+                logWarning("Warning: proxies.json was deleted or replaced! Proxy functionality is now disabled until the file is restored.")
+                notify(title: "Macrowhisper", message: "Warning: proxies.json was deleted or replaced! Proxy functionality is now disabled until the file is restored.")
                 self.onMissing()
                 self.stopWatching()
                 self.scheduleRewatch()
@@ -165,7 +296,8 @@ final class FileChangeWatcher {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             if FileManager.default.fileExists(atPath: self.filePath) {
-                print("proxies.json has been restored. Reloading configuration.")
+                logInfo("proxies.json has been restored. Reloading configuration.")
+                notify(title: "Macrowhisper", message: "proxies.json has been restored. Reloading configuration.")
                 self.rewatchTimer?.cancel()
                 self.rewatchTimer = nil
                 self.startWatching()
@@ -214,7 +346,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 }
             },
             onMissing: { [weak self] in
-                print("Warning: Base superwhisper folder was deleted or replaced!")
+                logWarning("Warning: Base superwhisper folder was deleted or replaced!")
+                notify(title: "Macrowhisper", message: "Base superwhisper folder was deleted or replaced!")
                 self?.stopWatchingRecordingsFolder()
                 self?.scheduleRecordingsFolderCheck()
             }
@@ -222,7 +355,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         
         // Initial check for recordings folder
         if !checkRecordingsFolder() {
-            print("Error: recordings folder not found at \(recordingsPath)")
+            logError("Error: recordings folder not found at \(recordingsPath)")
+            notify(title: "Macrowhisper", message: "Error: recordings folder not found at \(recordingsPath)")
             scheduleRecordingsFolderCheck()
             return nil
         }
@@ -230,13 +364,13 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         // Mark current newest folder as "already processed"
         if let newestFolder = findNewestFolder() {
             currentWatchedFolder = newestFolder
-            print("Initial run: Marking current newest folder as already processed")
+            logInfo("Initial run: Marking current newest folder as already processed")
             
             // Also mark existing meta.json as processed if it exists
             let metaJsonPath = newestFolder + "/meta.json"
             if FileManager.default.fileExists(atPath: metaJsonPath) {
                 processedMetaJsons.insert(metaJsonPath)
-                print("Initial run: Marking existing meta.json as already processed")
+                logInfo("Initial run: Marking existing meta.json as already processed")
             }
         }
         
@@ -246,7 +380,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     
     private func checkRecordingsFolder() -> Bool {
         if !FileManager.default.fileExists(atPath: recordingsPath) {
-            print("Warning: recordings folder not found at \(recordingsPath). Waiting for it to be restored.")
+            logWarning("Warning: recordings folder not found at \(recordingsPath). Waiting for it to be restored.")
+            notify(title: "Macrowhisper", message: "Warning: recordings folder not found. Waiting for it to be restored.")
             stopWatchingRecordingsFolder()
             return false
         }
@@ -259,7 +394,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             if self.checkRecordingsFolder() {
-                print("recordings folder has been restored. Resuming watching.")
+                logInfo("recordings folder has been restored. Resuming watching.")
+                notify(title: "Macrowhisper", message: "recordings folder has been restored. Resuming watching.")
                 timer.cancel()
                 self.startWatchingRecordingsFolder()
             }
@@ -290,7 +426,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             
             self.recordingsFolderDescriptor = open(self.recordingsPath, O_EVTONLY)
             if self.recordingsFolderDescriptor < 0 {
-                print("Error: Unable to open file descriptor for recordings folder")
+                logError("Error: Unable to open file descriptor for recordings folder")
                 self.scheduleRecordingsFolderCheck()
                 return
             }
@@ -306,7 +442,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 
                 // Check if recordings folder still exists
                 if !FileManager.default.fileExists(atPath: self.recordingsPath) {
-                    print("Warning: recordings folder was deleted or replaced!")
+                    logWarning("Warning: recordings folder was deleted or replaced!")
+                    notify(title: "Macrowhisper", message: "Warning: recordings folder was deleted or replaced!")
                     self.stopWatchingRecordingsFolder()
                     self.scheduleRecordingsFolderCheck()
                     return
@@ -337,7 +474,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey],
             options: .skipsHiddenFiles
         ) else {
-            print("Error: Failed to read contents of recordings folder")
+            logError("Error: Failed to read contents of recordings folder")
+            notify(title: "Macrowhisper", message: "Error: Failed to read contents of recordings folder")
             return nil
         }
         
@@ -359,7 +497,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     
     private func checkForNewFolder() {
         guard let newestFolder = findNewestFolder() else {
-            print("No subdirectories found in recordings folder")
+            logInfo("No subdirectories found in recordings folder")
             return
         }
         
@@ -368,7 +506,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             return
         }
         
-        print("New folder detected: \(URL(fileURLWithPath: newestFolder).lastPathComponent)")
+        logInfo("New folder detected: \(URL(fileURLWithPath: newestFolder).lastPathComponent)")
         currentWatchedFolder = newestFolder
         
         // Stop watching old folder
@@ -401,7 +539,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             
             let fileDescriptor = open(folderPath, O_EVTONLY)
             if fileDescriptor < 0 {
-                print("Error: Unable to open file descriptor for folder")
+                logError("Error: Unable to open file descriptor for folder")
                 return
             }
             
@@ -471,14 +609,14 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         
         // Check if file still exists
         if !FileManager.default.fileExists(atPath: path) {
-            print("meta.json was deleted")
+            logInfo("meta.json was deleted")
             return
         }
         
         // Read file with low-level APIs for speed
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .uncached),
               let json = try? JSONSerialization.jsonObject(with: data, options: .allowFragments) as? [String: Any] else {
-            print("Error: Failed to read meta.json or invalid JSON format")
+            logError("Error: Failed to read meta.json or invalid JSON format")
             return
         }
         
@@ -486,7 +624,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         if let result = json["result"],
            !(result is NSNull),
            !String(describing: result).isEmpty {
-            print("Found valid result in meta.json. Triggering Macro.")
+            logInfo("Found valid result in meta.json. Triggering Macro.")
             
             // Mark this file as processed so we don't trigger again
             processedMetaJsons.insert(path)
@@ -517,7 +655,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         do {
             try task.run()
         } catch {
-            print("Failed to launch Keyboard Maestro trigger: \(error)")
+            logError("Failed to launch Keyboard Maestro trigger: \(error)")
+            notify(title: "Macrowhisper", message: "Failed to launch Keyboard Maestro trigger.")
         }
     }
 }
@@ -545,13 +684,13 @@ func isPortAvailable(_ port: UInt16) -> Bool {
 func mergeAnnotationsIntoContent(_ data: Data) -> Data {
     guard var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           var choices = root["choices"] as? [[String: Any]] else {
-        print("Couldn't parse completion JSON, returning original data.")
+        logInfo("Couldn't parse completion JSON, returning original data.")
         return data
     }
     for i in choices.indices {
         guard var message = choices[i]["message"] as? [String: Any] else { continue }
         if let annotations = message["annotations"] as? [[String: Any]], !annotations.isEmpty {
-            print("Found \(annotations.count) annotations, merging into content for choice[\(i)].")
+            logInfo("Found \(annotations.count) annotations, merging into content for choice[\(i)].")
             var content = message["content"] as? String ?? ""
             content += "\n\n---\n"
             for ann in annotations {
@@ -577,9 +716,17 @@ let defaultProxiesPath = "\(defaultSuperwhisperPath)/proxies.json"
 let defaultRecordingsPath = "\(defaultSuperwhisperPath)/recordings"
 
 func promptYesNo(_ message: String) -> Bool {
-    print("\(message) [y/N]: ", terminator: "")
-    guard let input = readLine()?.lowercased() else { return false }
-    return input == "y" || input == "yes"
+    // When running in terminal
+    if isatty(STDOUT_FILENO) != 0 {
+        print("\(message) [y/N]: ", terminator: "")
+        guard let input = readLine()?.lowercased() else { return false }
+        return input == "y" || input == "yes"
+    } else {
+        // When running as a background process, default to false and notify
+        notify(title: "Macrowhisper Needs Input",
+               message: "\(message) - Edit configuration files manually to proceed.")
+        return false
+    }
 }
 
 func createExampleProxiesJson(at path: String) {
@@ -597,12 +744,13 @@ func createExampleProxiesJson(at path: String) {
     ]
     if let data = try? JSONSerialization.data(withJSONObject: example, options: .prettyPrinted),
        var jsonString = String(data: data, encoding: .utf8) {
-        // Remove all unnecessary escaping on forward slashes for readability
         jsonString = jsonString.replacingOccurrences(of: "\\/", with: "/")
         try? jsonString.write(toFile: path, atomically: true, encoding: .utf8)
-        print("Example proxies.json created at \(path)")
+        logInfo("Example proxies.json created at \(path)")
+        notify(title: "Macrowhisper Setup", message: "Example proxies.json was created successfully")
     } else {
-        print("Failed to create example proxies.json")
+        logError("Failed to create example proxies.json")
+        notify(title: "Macrowhisper Error", message: "Failed to create example proxies.json")
     }
 }
 
@@ -642,14 +790,16 @@ while i < args.count {
     switch args[i] {
     case "-s", "--server":
         guard i + 1 < args.count else {
-            print("Missing value after \(args[i])")
+            logError("Missing value after \(args[i])")
+            notify(title: "Macrowhisper", message: "Missing value after \(args[i])")
             exit(1)
         }
         serverPath = args[i + 1]
         i += 2
     case "-w", "--watch":
         guard i + 1 < args.count else {
-            print("Missing value after \(args[i])")
+            logError("Missing value after \(args[i])")
+            notify(title: "Macrowhisper", message: "Missing value after \(args[i])")
             exit(1)
         }
         watchPath = args[i + 1]
@@ -664,7 +814,8 @@ while i < args.count {
         printHelp()
         exit(0)
     default:
-        print("Unknown argument: \(args[i])")
+        logError("Unknown argument: \(args[i])")
+        notify(title: "Macrowhisper", message: "Unknown argument: \(args[i])")
         printHelp()
         exit(1)
     }
@@ -677,8 +828,9 @@ if watchPath == nil { watchPath = defaultSuperwhisperPath }
 // Validate required folders
 func folderExistsOrExit(_ path: String, what: String) {
     if !FileManager.default.fileExists(atPath: path) {
-        print("Error: \(what) not found: \(path)")
-        print("If folder is in a different location specify with --watch.")
+        logError("Error: \(what) not found: \(path)")
+        logError("If folder is in a different location specify with --watch.")
+        notify(title: "Macrowhisper", message: "Error: \(what) not found: \(path)")
         exit(1)
     }
 }
@@ -695,11 +847,11 @@ if runServer {
     folderExistsOrExit(proxiesFolder, what: "Superwhisper folder for proxies.json")
 
     if !FileManager.default.fileExists(atPath: proxiesPath) {
-        print("Error: proxies.json not found at \(proxiesPath)")
+        logError("Error: proxies.json not found at \(proxiesPath)")
         if promptYesNo("Would you like to create an example proxies.json file here?") {
             createExampleProxiesJson(at: proxiesPath)
         } else {
-            print("You can create this file yourself, or run with --watch-only if you only want watcher functionality.")
+            logInfo("You can create this file yourself, or run with --watch-only if you only want watcher functionality.")
             exit(1)
         }
     }
@@ -707,9 +859,9 @@ if runServer {
 
 // ---
 // At this point, continue with initializing server and/or watcher as usual...
-print("macrowhisper starting with:")
-if runServer { print("  Server: \(serverPath!)") }
-if runWatcher { print("  Watcher: \(watchPath!)/recordings") }
+logInfo("macrowhisper starting with:")
+if runServer { logInfo("  Server: \(serverPath!)") }
+if runWatcher { logInfo("  Watcher: \(watchPath!)/recordings") }
 
 // Server setup - only if jsonPath is provided
 var server: HttpServer? = nil
@@ -724,13 +876,13 @@ if runServer, let jsonPath = serverPath {
     fileWatcher = FileChangeWatcher(
         filePath: jsonPath,
         onChanged: {
-            print("proxies.json changed, reloading configuration...")
+            logInfo("proxies.json changed, reloading configuration...")
             proxies = loadProxies(from: jsonPath)
-            print("Configuration reloaded successfully - changes will apply to new requests")
+            logInfo("Configuration reloaded successfully - changes will apply to new requests")
         },
         onMissing: {
             proxies = [:]
-            print("All proxy rules cleared. Restore proxies.json to re-enable proxy functionality.")
+            logInfo("All proxy rules cleared. Restore proxies.json to re-enable proxy functionality.")
         }
     )
     
@@ -738,13 +890,15 @@ if runServer, let jsonPath = serverPath {
     server = HttpServer()
     let port: in_port_t = 11434
     guard isPortAvailable(port) else {
+        notify(title: "Macrowhisper", message: "Error: Port \(port) is already in use.")
         exitWithError("Port \(port) is already in use.")
     }
     
     // Set up server routes
     setupServerRoutes(server: server!)
     
-    print("Proxy server running on http://localhost:\(port)")
+    logInfo("Proxy server running on http://localhost:\(port)")
+    notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
     try! server!.start(port, forceIPv4: true)
 }
 
@@ -754,9 +908,10 @@ if runWatcher, let baseWatchPath = watchPath {
     // The existence of the watchPath and recordings folder is already checked earlier!
     recordingsWatcher = RecordingsFolderWatcher(basePath: baseWatchPath)
     if recordingsWatcher == nil {
-        print("Warning: Failed to initialize recordings folder watcher")
+        logWarning("Warning: Failed to initialize recordings folder watcher")
+        notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")
     } else {
-        print("Watching recordings folder at \(baseWatchPath)/recordings")
+        logInfo("Watching recordings folder at \(baseWatchPath)/recordings")
     }
 }
 
@@ -953,7 +1108,7 @@ func setupServerRoutes(server: HttpServer) {
         let (data, response, error) = safeNetworkRequest(request)
         
         if let error = error {
-            print("Error connecting to Ollama: \(error.localizedDescription)")
+            logError("Error connecting to Ollama: \(error.localizedDescription)")
             // Continue with empty tagsList - Ollama is probably not running
         } else if let data = data,
                   let httpResponse = response as? HTTPURLResponse,
@@ -963,13 +1118,13 @@ func setupServerRoutes(server: HttpServer) {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let models = json["models"] as? [[String: Any]] {
                     tagsList = models
-                    print("Successfully retrieved \(models.count) models from Ollama")
+                    logInfo("Successfully retrieved \(models.count) models from Ollama")
                 }
             } catch {
-                print("Error parsing Ollama response: \(error)")
+                logError("Error parsing Ollama response: \(error)")
             }
         } else {
-            print("Failed to get models from Ollama: status code \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            logError("Failed to get models from Ollama: status code \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         }
         
         // Add a default placeholder model if Ollama/LMStudio is running but returned no models
