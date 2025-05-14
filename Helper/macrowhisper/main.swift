@@ -723,7 +723,7 @@ func promptYesNo(_ message: String) -> Bool {
         return input == "y" || input == "yes"
     } else {
         // When running as a background process, default to false and notify
-        notify(title: "Macrowhisper Needs Input",
+        notify(title: "Macrowhisper",
                message: "\(message) - Edit configuration files manually to proceed.")
         return false
     }
@@ -747,10 +747,10 @@ func createExampleProxiesJson(at path: String) {
         jsonString = jsonString.replacingOccurrences(of: "\\/", with: "/")
         try? jsonString.write(toFile: path, atomically: true, encoding: .utf8)
         logInfo("Example proxies.json created at \(path)")
-        notify(title: "Macrowhisper Setup", message: "Example proxies.json was created successfully")
+        notify(title: "Macrowhisper Setup", message: "Sample proxies.json was created successfully")
     } else {
         logError("Failed to create example proxies.json")
-        notify(title: "Macrowhisper Error", message: "Failed to create example proxies.json")
+        notify(title: "Macrowhisper Error", message: "Failed to create proxies.json")
     }
 }
 
@@ -848,7 +848,7 @@ if runServer {
 
     if !FileManager.default.fileExists(atPath: proxiesPath) {
         logError("Error: proxies.json not found at \(proxiesPath)")
-        if promptYesNo("Would you like to create an example proxies.json file here?") {
+        if promptYesNo("Would you like to create a sample proxies.json?") {
             createExampleProxiesJson(at: proxiesPath)
         } else {
             logInfo("You can create this file yourself, or run with --watch-only if you only want watcher functionality.")
