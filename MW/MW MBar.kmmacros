@@ -331,7 +331,7 @@
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>Grab Active Mode from SW Menu</string>
+						<string>1.45.14 and below - Grab Active Mode from SW Menu</string>
 						<key>ActionUID</key>
 						<integer>15609662</integer>
 						<key>DisplayKind</key>
@@ -344,6 +344,8 @@
 						<array>
 							<string>9999</string>
 						</array>
+						<key>IsActive</key>
+						<false/>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -374,13 +376,15 @@
 						<key>Action</key>
 						<string>IgnoreCaseRegEx</string>
 						<key>ActionName</key>
-						<string>Clean up parentheses from active mode from SW Menu</string>
+						<string>1.45.14 and below - Clean up parentheses from active mode from SW Menu</string>
 						<key>ActionUID</key>
 						<integer>15609663</integer>
 						<key>Destination</key>
 						<string>Variable</string>
 						<key>DestinationVariable</key>
 						<string>sw_currentMode</string>
+						<key>IsActive</key>
+						<false/>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -395,6 +399,62 @@
 						<string>localPreMenuBar</string>
 						<key>Which</key>
 						<string>All</string>
+					</dict>
+					<dict>
+						<key>ActionName</key>
+						<string>1.46.0 and above - Grab Active Mode from SW Menu</string>
+						<key>ActionUID</key>
+						<integer>15619671</integer>
+						<key>DisplayKind</key>
+						<string>Variable</string>
+						<key>HonourFailureSettings</key>
+						<true/>
+						<key>IncludeStdErr</key>
+						<false/>
+						<key>IncludedVariables</key>
+						<array>
+							<string>9999</string>
+						</array>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>ExecuteAppleScript</string>
+						<key>Path</key>
+						<string></string>
+						<key>StopOnFailure</key>
+						<false/>
+						<key>Text</key>
+						<string>tell application "System Events"
+	tell process "superwhisper"
+		try
+			-- Get the submenu
+			set theSubmenu to menu 1 of menu item 7 of menu "superwhisper" of menu bar item 1 of menu bar 2
+			
+			-- Look through all items in the submenu to find one with a checkmark
+			set checkedItem to ""
+			repeat with menuItem in menu items of theSubmenu
+				if value of attribute "AXMenuItemMarkChar" of menuItem is not missing value then
+					set checkedItem to name of menuItem
+					exit repeat
+				end if
+			end repeat
+			
+			return checkedItem
+		end try
+	end tell
+end tell</string>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+						<key>TimeOutPeriod</key>
+						<real>3600</real>
+						<key>TrimResults</key>
+						<true/>
+						<key>TrimResultsNew</key>
+						<true/>
+						<key>UseText</key>
+						<true/>
+						<key>Variable</key>
+						<string>sw_currentMode</string>
 					</dict>
 					<dict>
 						<key>ActionColor</key>
@@ -430,7 +490,7 @@
 				<key>CustomIconData</key>
 				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💡=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>766533564.85570002</real>
+				<real>770064633.95526302</real>
 				<key>Name</key>
 				<string>MW MBar</string>
 				<key>Triggers</key>

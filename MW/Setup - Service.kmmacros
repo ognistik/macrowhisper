@@ -193,6 +193,8 @@ fi</string>
 								<array>
 									<string>9999</string>
 								</array>
+								<key>IsDisclosed</key>
+								<false/>
 								<key>MacroActionType</key>
 								<string>ExecuteShellScript</string>
 								<key>Path</key>
@@ -226,6 +228,8 @@ fi</string>
 								<integer>15611268</integer>
 								<key>Asynchronously</key>
 								<true/>
+								<key>IsDisclosed</key>
+								<false/>
 								<key>MacroActionType</key>
 								<string>ExecuteMacro</string>
 								<key>MacroUID</key>
@@ -242,6 +246,8 @@ fi</string>
 								<string>Variable</string>
 								<key>DestinationVariable</key>
 								<string>localAction</string>
+								<key>IsDisclosed</key>
+								<false/>
 								<key>MacroActionType</key>
 								<string>PromptWithList</string>
 								<key>NotifyOnFailure</key>
@@ -403,6 +409,8 @@ fi</string>
 										<true/>
 									</dict>
 								</array>
+								<key>IsDisclosed</key>
+								<false/>
 								<key>MacroActionType</key>
 								<string>IfThenElse</string>
 								<key>ThenActions</key>
@@ -771,6 +779,8 @@ echo "Launch agent unloaded and files deleted successfully."</string>
 								<array>
 									<string>9999</string>
 								</array>
+								<key>IsDisclosed</key>
+								<false/>
 								<key>MacroActionType</key>
 								<string>ExecuteShellScript</string>
 								<key>Path</key>
@@ -786,7 +796,7 @@ if [ ! -x "$FSWATCH_DIR" ]; then
     echo "ERROR: FSWatch executable not found at $FSWATCH_DIR"
     osascript -e "display notification \"FSWatch not found at specified path. Please check configuration.\" with title \"SW Watcher\""
     exit 1
-fi
+fi d
 
 # Validate Recordings Directory
 if [ ! -d "$HOME$KMVAR_localDir/recordings" ]; then
@@ -886,14 +896,14 @@ rotate_log
 trap '
     error_line=\$LINENO
     echo "\$(date): ERROR - Script has quit on line \$error_line" &gt;&gt; "\$LOG_FILE"
-    kill $(jobs -p) 2&gt;/dev/null
+    [ -n "$heartbeat_pid" ] &amp;&amp; kill "$heartbeat_pid" 2&gt;/dev/null
     exit 1
 ' ERR
 
 # Normal termination trap
 trap '
     echo "\$(date): INFO - Script received termination signal" &gt;&gt; "\$LOG_FILE"
-    kill \$(jobs -p) 2&gt;/dev/null
+    [ -n "$heartbeat_pid" ] &amp;&amp; kill "$heartbeat_pid" 2&gt;/dev/null
     exit 0
 ' SIGINT SIGTERM EXIT
 
@@ -1000,7 +1010,7 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>CustomIconData</key>
 				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=🔮=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>766788616.31540298</real>
+				<real>768880456.25074995</real>
 				<key>Name</key>
 				<string>Setup - Service</string>
 				<key>Triggers</key>

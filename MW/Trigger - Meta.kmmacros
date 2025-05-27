@@ -1321,8 +1321,6 @@ function execute() {
 										<string>Execute</string>
 										<key>IncludeStdErr</key>
 										<false/>
-										<key>IsDisclosed</key>
-										<false/>
 										<key>MacroActionType</key>
 										<string>ExecuteShortcut</string>
 										<key>Shortcut</key>
@@ -1518,7 +1516,7 @@ function execute() {
 						<key>Path</key>
 						<string></string>
 						<key>Text</key>
-						<string>tell application "System Events"	key code 53 -- 53 is the key code for the Escape keyend tellset kmInst to system attribute "KMINSTANCE"tell application "Keyboard Maestro Engine"	set sw_actionMode to getvariable "sw_actionMode"	set sw_autoReturn to getvariable "sw_autoReturn"	set voice to getvariable "localVoice" instance kmInst	set result to getvariable "localResult" instance kmInstend tellif sw_actionMode is "pasteChat" then	set textToPaste to "## USER" &amp; return &amp; voice &amp; return &amp; return &amp; "## AI" &amp; return &amp; result &amp; return &amp; return &amp; "---" &amp; returnelse if sw_actionMode is "pasteResult" or sw_actionMode is "" then	set textToPaste to resultelse if sw_actionMode is "textChat" then	set textToPaste to return &amp; "## AI" &amp; return &amp; result &amp; return &amp; return &amp; "---" &amp; return &amp; "## USER" &amp; returnend ifset the clipboard to textToPastedelay 0.02tell application "System Events" to keystroke "v" using command downif sw_autoReturn is "on" then	delay 0.02	tell application "System Events" to keystroke return	tell application "Keyboard Maestro Engine" to setvariable "sw_autoReturn" to "off"end if</string>
+						<string>tell application "System Events"	key code 53 -- 53 is the key code for the Escape keyend tellset kmInst to system attribute "KMINSTANCE"tell application "Keyboard Maestro Engine"	set sw_actionMode to getvariable "sw_actionMode"	set sw_autoReturn to getvariable "sw_autoReturn"	set voice to getvariable "localVoice" instance kmInst	set result to getvariable "localResult" instance kmInstend tellif sw_actionMode is "pasteChat" then	set textToPaste to "## USER" &amp; return &amp; voice &amp; return &amp; return &amp; "## AI" &amp; return &amp; result &amp; return &amp; return &amp; "---" &amp; returnelse if sw_actionMode is "pasteResult" or sw_actionMode is "" then	set textToPaste to resultelse if sw_actionMode is "textChat" then	set textToPaste to return &amp; "## AI" &amp; return &amp; result &amp; return &amp; return &amp; "---" &amp; return &amp; "## USER" &amp; returnend ifset the clipboard to textToPastedelay 0.02tell application "System Events" to keystroke "v" using command downif sw_autoReturn is "on" then	delay 0.15	tell application "System Events" to keystroke return	tell application "Keyboard Maestro Engine" to setvariable "sw_autoReturn" to "off"end if</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 						<key>TrimResults</key>
@@ -1586,7 +1584,7 @@ function execute() {
 				<key>CustomIconData</key>
 				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=🔆=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>766725634.37291801</real>
+				<real>770064647.49335599</real>
 				<key>Name</key>
 				<string>Trigger - Meta</string>
 				<key>Triggers</key>
