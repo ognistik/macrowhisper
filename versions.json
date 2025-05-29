@@ -1,8 +1,8 @@
 {
   "cli": {
-    "latest": "1.0.1"
+    "latest": "1.0.0"
   },
   "km_macros": {
-    "latest": "1.0.3"
+    "latest": "1.0.4"
   }
 }
