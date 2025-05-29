@@ -225,7 +225,7 @@ class VersionChecker {
             }
             
             // Check Keyboard Maestro version
-            if let kmInfo = json["keyboard_maestro"] as? [String: Any],
+            if let kmInfo = json["km_macros"] as? [String: Any],
                let latestKM = kmInfo["latest"] as? String {
                 let currentKMVersion = getCurrentKeyboardMaestroVersion()
                 if !currentKMVersion.isEmpty && isNewerVersion(latest: latestKM, current: currentKMVersion) {
@@ -309,14 +309,14 @@ class VersionChecker {
             self.lastReminderDate = Date()
             
             let title = "Macrowhisper Updates Available"
-            let fullMessage = "New versions available:\n\n\(message)\n\nWould you like to open the download page?"
+            let fullMessage = "New versions available:\n\n\(message)\n\nWould you like to open the release page?"
             
             // Use AppleScript for interactive dialog
             let script = """
             display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
                 with title "\(title)" ¬
-                buttons {"Remind Later", "Open Downloads"} ¬
-                default button "Open Downloads" ¬
+                buttons {"Remind Later", "Open Release"} ¬
+                default button "Open Release" ¬
                 with icon note
             """
             
@@ -334,7 +334,7 @@ class VersionChecker {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 
-                if output.contains("Open Downloads") {
+                if output.contains("Open Release") {
                     self.openDownloadPage()
                 }
             } catch {
@@ -345,7 +345,7 @@ class VersionChecker {
     }
     
     private func openDownloadPage() {
-        let script = "open \"https://github.com/yourusername/macrowhisper/releases\""
+        let script = "open \"https://github.com/ognistik/macrowhisper/releases/latest\""
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", script]
