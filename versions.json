@@ -1,0 +1,10 @@
+{
+  "cli": {
+    "latest": "1.0.0",
+    "download_url": "https://github.com/ognistik/macrowhisper/releases/latest"
+  },
+  "km_macros": {
+    "latest": "1.0.3", 
+    "download_url": "https://github.com/ognistik/macrowhisper-cli/releases/latest"
+  }
+}

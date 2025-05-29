@@ -6,6 +6,8 @@ import Dispatch
 import Darwin
 import UserNotifications
 
+let APP_VERSION = "1.0.0"
+
 // MARK: - Logging System
 
 class Logger {
@@ -129,8 +131,228 @@ func logDebug(_ message: String) {
 
 func notify(title: String, message: String) {
     notificationManager.sendNotification(title: title, body: message)
-    logInfo("Notification: \(title) - \(message)")
+    // logInfo("Notification: \(title) - \(message)")
 }
+
+// MARK: - Updater
+
+class VersionChecker {
+    private let currentCLIVersion = APP_VERSION
+    private let versionsURL = "https://raw.githubusercontent.com/ognistik/macrowhisper-cli/main/versions.json"
+    private var lastCheckDate: Date?
+    private let checkInterval: TimeInterval = 24 * 60 * 60 // 24 hours
+    private let reminderInterval: TimeInterval = 4 * 24 * 60 * 60 // 4 days
+    private var lastReminderDate: Date?
+    
+    func shouldCheckForUpdates() -> Bool {
+        guard let lastCheck = lastCheckDate else { return true }
+        return Date().timeIntervalSince(lastCheck) >= checkInterval
+    }
+    
+    func checkForUpdates() {
+        guard shouldCheckForUpdates() else { return }
+        
+        logInfo("Checking for updates...")
+        
+        // Create request with timeout
+        guard let url = URL(string: versionsURL) else {
+            logError("Invalid versions URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10.0 // 10 second timeout
+        
+        // Use background queue for network request
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            self?.performVersionCheck(request: request)
+        }
+    }
+    
+    private func performVersionCheck(request: URLRequest) {
+        let semaphore = DispatchSemaphore(value: 0)
+        var resultData: Data?
+        var resultError: Error?
+        
+        let session = URLSession(configuration: .default)
+        session.dataTask(with: request) { data, response, error in
+            resultData = data
+            resultError = error
+            semaphore.signal()
+        }.resume()
+        
+        // Wait with timeout
+        let result = semaphore.wait(timeout: .now() + 15.0)
+        
+        if result == .timedOut {
+            logInfo("Version check timed out - continuing offline")
+            return
+        }
+        
+        if let error = resultError {
+            logInfo("Version check failed: \(error.localizedDescription) - continuing offline")
+            return
+        }
+        
+        guard let data = resultData else {
+            logInfo("No data received from version check - continuing offline")
+            return
+        }
+        
+        processVersionResponse( data)
+    }
+    
+    private func processVersionResponse(_ data: Data) {
+        do {
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                logError("Invalid JSON in versions response")
+                return
+            }
+            
+            // Update last check date
+            lastCheckDate = Date()
+            
+            // Check CLI version
+            var hasUpdates = false
+            var updateMessage = ""
+            
+            if let cliInfo = json["cli"] as? [String: Any],
+               let latestCLI = cliInfo["latest"] as? String {
+                if isNewerVersion(latest: latestCLI, current: currentCLIVersion) {
+                    hasUpdates = true
+                    updateMessage += "CLI: \(currentCLIVersion) → \(latestCLI)\n"
+                }
+            }
+            
+            // Check Keyboard Maestro version
+            if let kmInfo = json["keyboard_maestro"] as? [String: Any],
+               let latestKM = kmInfo["latest"] as? String {
+                let currentKMVersion = getCurrentKeyboardMaestroVersion()
+                if !currentKMVersion.isEmpty && isNewerVersion(latest: latestKM, current: currentKMVersion) {
+                    hasUpdates = true
+                    updateMessage += "Keyboard Maestro Macros: \(currentKMVersion) → \(latestKM)"
+                }
+            }
+            
+            if hasUpdates {
+                showUpdateNotification(message: updateMessage)
+            } else {
+                logInfo("All components are up to date")
+            }
+            
+        } catch {
+            logError("Error parsing versions JSON: \(error)")
+        }
+    }
+    
+    private func getCurrentKeyboardMaestroVersion() -> String {
+        let script = """
+        tell application "Keyboard Maestro Engine"
+            try
+                set result to do script "Setup - Service" with parameter "versionCheck"
+                return result
+            on error
+                return ""
+            end try
+        end tell
+        """
+        
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", script]
+        
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        
+        do {
+            try task.run()
+            task.waitUntilExit()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return output
+        } catch {
+            logError("Failed to get Keyboard Maestro version: \(error)")
+            return ""
+        }
+    }
+    
+    private func isNewerVersion(latest: String, current: String) -> Bool {
+        let latestComponents = latest.split(separator: ".").compactMap { Int($0) }
+        let currentComponents = current.split(separator: ".").compactMap { Int($0) }
+        
+        let maxCount = max(latestComponents.count, currentComponents.count)
+        
+        for i in 0..<maxCount {
+            let latestPart = i < latestComponents.count ? latestComponents[i] : 0
+            let currentPart = i < currentComponents.count ? currentComponents[i] : 0
+            
+            if latestPart > currentPart {
+                return true
+            } else if latestPart < currentPart {
+                return false
+            }
+        }
+        
+        return false
+    }
+    
+    private func showUpdateNotification(message: String) {
+        DispatchQueue.main.async {
+            // Check if we should show reminder (not too frequent)
+            if let lastReminder = self.lastReminderDate,
+               Date().timeIntervalSince(lastReminder) < self.reminderInterval {
+                return
+            }
+            
+            self.lastReminderDate = Date()
+            
+            let title = "Macrowhisper Updates Available"
+            let fullMessage = "New versions available:\n\n\(message)\n\nWould you like to open the download page?"
+            
+            // Use AppleScript for interactive dialog
+            let script = """
+            display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
+                with title "\(title)" ¬
+                buttons {"Remind Later", "Open Downloads"} ¬
+                default button "Open Downloads" ¬
+                with icon note
+            """
+            
+            let task = Process()
+            task.launchPath = "/usr/bin/osascript"
+            task.arguments = ["-e", script]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            
+            do {
+                try task.run()
+                task.waitUntilExit()
+                
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                
+                if output.contains("Open Downloads") {
+                    self.openDownloadPage()
+                }
+            } catch {
+                // User cancelled or error occurred
+                logInfo("Update dialog cancelled or failed")
+            }
+        }
+    }
+    
+    private func openDownloadPage() {
+        let script = "open \"https://github.com/yourusername/macrowhisper/releases\""
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", script]
+        try? task.run()
+    }
+}
+
 
 // MARK: - Helpers
 
@@ -185,6 +407,7 @@ func loadProxies(from path: String) -> [String: [String: Any]] {
     let proxiesFile = URL(fileURLWithPath: path)
     guard FileManager.default.fileExists(atPath: proxiesFile.path) else {
         logWarning("Warning: proxies.json not found.")
+        notify(title: "Macrowhisper", message: "Warning: proxies.json not found.")
         return [:]
     }
     
@@ -192,12 +415,15 @@ func loadProxies(from path: String) -> [String: [String: Any]] {
         let data = try Data(contentsOf: proxiesFile)
         guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else {
             logWarning("Warning: Malformed proxies.json")
+            notify(title: "Macrowhisper", message: "Warning: Malformed proxies.json")
             return [:]
         }
         logInfo("Successfully loaded proxies configuration")
+        notify(title: "Macrowhisper", message: "Successfully loaded proxies configuration")
         return dict
     } catch {
         logError("Error reading proxies.json: \(error.localizedDescription)")
+        notify(title: "Macrowhisper", message: "Error reading proxies.json")
         return [:]
     }
 }
@@ -629,6 +855,9 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             // Mark this file as processed so we don't trigger again
             processedMetaJsons.insert(path)
             
+            // Trigger version check when user activity is detected
+            versionChecker.checkForUpdates()
+            
             // Cancel file watcher since we're done with this file
             cancelFileWatcher()
             
@@ -766,6 +995,7 @@ func printHelp() {
           --server-only     Only run proxy server (no folder watching)
           --watch-only      Only run folder watcher (no server)
       -h, --help            Show this help message
+      -v, --version         Show version information
 
     Examples:
       macrowhisper
@@ -812,6 +1042,9 @@ while i < args.count {
         i += 1
     case "-h", "--help":
         printHelp()
+        exit(0)
+    case "-v", "--version":
+        print("macrowhisper version \(APP_VERSION)")
         exit(0)
     default:
         logError("Unknown argument: \(args[i])")
@@ -1197,6 +1430,9 @@ func setupServerRoutes(server: HttpServer) {
 func getProxies() -> [String: [String: Any]] {
     return proxies
 }
+
+// Initialize version checker
+let versionChecker = VersionChecker()
 
 // Keep the main thread running
 RunLoop.main.run()
