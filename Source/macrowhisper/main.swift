@@ -213,14 +213,16 @@ class VersionChecker {
             lastCheckDate = Date()
             
             // Check CLI version
-            var hasUpdates = false
-            var updateMessage = ""
+            var cliUpdateAvailable = false
+            var kmUpdateAvailable = false
+            var cliMessage = ""
+            var kmMessage = ""
             
             if let cliInfo = json["cli"] as? [String: Any],
                let latestCLI = cliInfo["latest"] as? String {
                 if isNewerVersion(latest: latestCLI, current: currentCLIVersion) {
-                    hasUpdates = true
-                    updateMessage += "CLI: \(currentCLIVersion) → \(latestCLI)\n"
+                    cliUpdateAvailable = true
+                    cliMessage = "CLI: \(currentCLIVersion) → \(latestCLI)"
                 }
             }
             
@@ -229,17 +231,25 @@ class VersionChecker {
                let latestKM = kmInfo["latest"] as? String {
                 let currentKMVersion = getCurrentKeyboardMaestroVersion()
                 if !currentKMVersion.isEmpty && isNewerVersion(latest: latestKM, current: currentKMVersion) {
-                    hasUpdates = true
-                    updateMessage += "Keyboard Maestro Macros: \(currentKMVersion) → \(latestKM)"
+                    kmUpdateAvailable = true
+                    kmMessage = "KM Macros: \(currentKMVersion) → \(latestKM)"
                 }
             }
             
-            if hasUpdates {
-                showUpdateNotification(message: updateMessage)
+            // Now show the appropriate notification
+            if cliUpdateAvailable && !kmUpdateAvailable {
+                // CLI only: show terminal command
+                showCLIUpdateNotification(message: cliMessage)
+            } else if !cliUpdateAvailable && kmUpdateAvailable {
+                // KM only: show open releases dialog
+                showKMUpdateNotification(message: kmMessage)
+            } else if cliUpdateAvailable && kmUpdateAvailable {
+                // Both: show both messages, offer both instructions and button
+                showBothUpdatesNotification(cliMessage: cliMessage, kmMessage: kmMessage)
             } else {
+                // No update
                 logInfo("All components are up to date")
             }
-            
         } catch {
             logError("Error parsing versions JSON: \(error)")
         }
@@ -298,6 +308,23 @@ class VersionChecker {
         return false
     }
     
+    private func showCLIUpdateNotification(message: String) {
+        let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
+        notify(title: "Macrowhisper", message: "\(message)\n\nTo update, run:\n\(brewCommand)")
+    }
+
+    private func showKMUpdateNotification(message: String) {
+        // Your current dialog logic with Open Release button
+        showUpdateNotification(message: message)
+    }
+
+    private func showBothUpdatesNotification(cliMessage: String, kmMessage: String) {
+        let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
+        let fullMessage = "\(cliMessage)\n\(kmMessage)\n\nTo update CLI: \(brewCommand)\n\nWould you like to open the releases page for the KM Macros?"
+        // Show dialog with Open Release button and brew instructions
+        showUpdateNotification(message: fullMessage)
+    }
+    
     private func showUpdateNotification(message: String) {
         DispatchQueue.main.async {
             // Check if we should show reminder (not too frequent)
@@ -308,8 +335,8 @@ class VersionChecker {
             
             self.lastReminderDate = Date()
             
-            let title = "Macrowhisper Updates Available"
-            let fullMessage = "New versions available:\n\n\(message)\n\nWould you like to open the release page?"
+            let title = "Macrowhisper"
+            let fullMessage = "Macrowhisper update available:\n\n\(message)\n\nWould you like to open the release page?"
             
             // Use AppleScript for interactive dialog
             let script = """
@@ -345,10 +372,9 @@ class VersionChecker {
     }
     
     private func openDownloadPage() {
-        let script = "open \"https://github.com/ognistik/macrowhisper/releases/latest\""
         let task = Process()
-        task.launchPath = "/usr/bin/osascript"
-        task.arguments = ["-e", script]
+        task.launchPath = "/usr/bin/open"
+        task.arguments = ["https://github.com/ognistik/macrowhisper/releases/latest"]
         try? task.run()
     }
 }
