@@ -239,7 +239,7 @@ class VersionChecker {
             // Now show the appropriate notification
             if cliUpdateAvailable && !kmUpdateAvailable {
                 // CLI only: show terminal command
-                showCLIUpdateNotification(message: cliMessage)
+                showCLIUpdateDialog(message: cliMessage)
             } else if !cliUpdateAvailable && kmUpdateAvailable {
                 // KM only: show open releases dialog
                 showKMUpdateNotification(message: kmMessage)
@@ -307,11 +307,6 @@ class VersionChecker {
         
         return false
     }
-    
-    private func showCLIUpdateNotification(message: String) {
-        let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
-        notify(title: "Macrowhisper", message: "\(message)\n\nTo update, run:\n\(brewCommand)")
-    }
 
     private func showKMUpdateNotification(message: String) {
         // Your current dialog logic with Open Release button
@@ -320,7 +315,7 @@ class VersionChecker {
 
     private func showBothUpdatesNotification(cliMessage: String, kmMessage: String) {
         let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
-        let fullMessage = "\(cliMessage)\n\(kmMessage)\n\nTo update CLI: \(brewCommand)\n\nWould you like to open the releases page for the KM Macros?"
+        let fullMessage = "\(cliMessage)\n\(kmMessage)\n\nTo update CLI:\n\(brewCommand)\n\nWould you like to open the KM Macros release page?"
         // Show dialog with Open Release button and brew instructions
         showUpdateNotification(message: fullMessage)
     }
@@ -336,7 +331,7 @@ class VersionChecker {
             self.lastReminderDate = Date()
             
             let title = "Macrowhisper"
-            let fullMessage = "Macrowhisper update available:\n\n\(message)\n\nWould you like to open the release page?"
+            let fullMessage = "Macrowhisper update available:\n\n\(message)"
             
             // Use AppleScript for interactive dialog
             let script = """
@@ -344,7 +339,6 @@ class VersionChecker {
                 with title "\(title)" ¬
                 buttons {"Remind Later", "Open Release"} ¬
                 default button "Open Release" ¬
-                with icon note
             """
             
             let task = Process()
@@ -376,6 +370,51 @@ class VersionChecker {
         task.launchPath = "/usr/bin/open"
         task.arguments = ["https://github.com/ognistik/macrowhisper/releases/latest"]
         try? task.run()
+    }
+    
+    private func showCLIUpdateDialog(message: String) {
+        let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
+        let fullMessage = """
+        Macrowhisper update available:
+        \(message)
+
+        To update, run:
+        \(brewCommand)
+        """
+        let script = """
+        display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
+            with title "Macrowhisper" ¬
+            buttons {"Remind Later", "Copy Command"} ¬
+            default button "Copy Command" ¬
+        """
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", script]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+
+            if output.contains("Copy Command") {
+                // Copy command to clipboard
+                let pbTask = Process()
+                pbTask.launchPath = "/usr/bin/pbcopy"
+                let inputPipe = Pipe()
+                pbTask.standardInput = inputPipe
+                pbTask.launch()
+                inputPipe.fileHandleForWriting.write(brewCommand.data(using: .utf8)!)
+                inputPipe.fileHandleForWriting.closeFile()
+            }
+            // If "Remind Later" is pressed, do nothing (optionally, implement snooze logic)
+        } catch {
+            logError("Failed to show CLI update dialog: \(error)")
+        }
     }
 }
 
