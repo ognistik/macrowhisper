@@ -130,8 +130,9 @@ func logDebug(_ message: String) {
 }
 
 func notify(title: String, message: String) {
-    notificationManager.sendNotification(title: title, body: message)
-    // logInfo("Notification: \(title) - \(message)")
+    if !disableNotifications {
+            notificationManager.sendNotification(title: title, body: message)
+        }
 }
 
 // MARK: - Updater
@@ -150,6 +151,7 @@ class VersionChecker {
     }
     
     func checkForUpdates() {
+        guard !disableUpdates else { return }
         guard shouldCheckForUpdates() else { return }
         
         logInfo("Checking for updates...")
@@ -1059,6 +1061,8 @@ func printHelp() {
       -w, --watch  <path>   Path to superwhisper folder (default: \(defaultSuperwhisperPath))
           --server-only     Only run proxy server (no folder watching)
           --watch-only      Only run folder watcher (no server)
+          --no-updates      Disable automatic update checking
+          --no-noti         Disable all notifications
       -h, --help            Show this help message
       -v, --version         Show version information
 
@@ -1078,6 +1082,8 @@ var serverPath: String? = nil
 var watchPath: String? = nil
 var runServer = true
 var runWatcher = true
+var disableUpdates = false
+var disableNotifications = false
 
 let args = CommandLine.arguments
 var i = 1
@@ -1104,6 +1110,12 @@ while i < args.count {
         i += 1
     case "--watch-only":
         runServer = false
+        i += 1
+    case "--no-updates":
+        disableUpdates = true
+        i += 1
+    case "--no-noti":
+        disableNotifications = true
         i += 1
     case "-h", "--help":
         printHelp()
