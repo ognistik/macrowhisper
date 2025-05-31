@@ -782,6 +782,11 @@ final class FileChangeWatcher {
     }
     
     private func hasFileChanged() -> Bool {
+        // First check if file exists
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            return false
+        }
+        
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: filePath) else {
             return false
         }
@@ -789,21 +794,30 @@ final class FileChangeWatcher {
         let currentModDate = attributes[.modificationDate] as? Date ?? Date()
         let currentSize = attributes[.size] as? UInt64 ?? 0
         
-        // If we haven't checked before, update metadata and return false
+        // If we haven't checked before, update metadata and return true
+        // This is critical for the file creation case
         if lastModificationDate == nil {
             lastModificationDate = currentModDate
             lastFileSize = currentSize
-            return false
+            return true // Important: Return true for newly created files
         }
         
         // Check if either modification date or size has changed
         let dateChanged = lastModificationDate != currentModDate
         let sizeChanged = lastFileSize != currentSize
         
-        // IMPORTANT: Also check file content if size is the same but we're doing an initial check
-        let contentChanged = sizeChanged || (FileManager.default.contents(atPath: filePath) != nil &&
-                                            !FileManager.default.contentsEqual(atPath: filePath,
-                                                                              andPath: filePath + ".temp"))
+        // Only do expensive content check if necessary
+        let contentChanged = if dateChanged || sizeChanged {
+            // For files with changed metadata, do a content check
+            if FileManager.default.fileExists(atPath: filePath + ".temp") {
+                !FileManager.default.contentsEqual(atPath: filePath, andPath: filePath + ".temp")
+            } else {
+                // If no temp file to compare against, assume content changed
+                true
+            }
+        } else {
+            false // No metadata changes, no need to check content
+        }
         
         // Log detailed information for debugging
         if dateChanged || sizeChanged || contentChanged {
@@ -1365,7 +1379,18 @@ class ConfigurationManager {
             let decoder = JSONDecoder()
             return try decoder.decode(AppConfiguration.self, from: data)
         } catch {
+            // Log the error as before
             logError("Error loading configuration: \(error.localizedDescription)")
+            
+            // Add notification for invalid JSON format
+            if error is DecodingError {
+                notify(title: "Macrowhisper",
+                       message: "The configuration file contains invalid JSON. Please check the format.")
+            } else {
+                notify(title: "Macrowhisper",
+                       message: "Failed to load configuration: \(error.localizedDescription)")
+            }
+            
             return nil
         }
     }
