@@ -1324,9 +1324,32 @@ class ConfigurationManager {
             }
         )
         
-        // Force an immediate check of the file metadata after setting up the watcher
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            self?.fileWatcher?.forceInitialMetadataCheck()
+        // Check if file doesn't exist initially - we'll need to reinitialize the watcher after creating it
+        let fileExists = FileManager.default.fileExists(atPath: self.configFilePath)
+        if !fileExists {
+            // Schedule a check to detect when the file is created
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+            timer.setEventHandler { [weak self] in
+                guard let self = self else {
+                    timer.cancel()
+                    return
+                }
+                
+                if FileManager.default.fileExists(atPath: self.configFilePath) {
+                    // File now exists, reinitialize the watcher
+                    self.fileWatcher = nil
+                    self.setupFileWatcher()
+                    logInfo("File watcher reinitialized after config file creation")
+                    timer.cancel()
+                }
+            }
+            timer.resume()
+        } else {
+            // Force an immediate check of the file metadata after setting up the watcher
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                self?.fileWatcher?.forceInitialMetadataCheck()
+            }
         }
     }
     
@@ -1348,11 +1371,19 @@ class ConfigurationManager {
     }
     
     func saveConfig() {
+        let fileExistedBefore = FileManager.default.fileExists(atPath: configFilePath)
+        
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
             let data = try encoder.encode(config)
             try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
+            
+            // If file didn't exist before but now does, reinitialize the watcher
+            if !fileExistedBefore && FileManager.default.fileExists(atPath: configFilePath) {
+                setupFileWatcher()
+                logInfo("File watcher reinitialized after creating config file")
+            }
         } catch {
             logError("Error saving configuration: \(error.localizedDescription)")
         }
