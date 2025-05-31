@@ -796,7 +796,7 @@ if [ ! -x "$FSWATCH_DIR" ]; then
     echo "ERROR: FSWatch executable not found at $FSWATCH_DIR"
     osascript -e "display notification \"FSWatch not found at specified path. Please check configuration.\" with title \"SW Watcher\""
     exit 1
-fi d
+fi
 
 # Validate Recordings Directory
 if [ ! -d "$HOME$KMVAR_localDir/recordings" ]; then
