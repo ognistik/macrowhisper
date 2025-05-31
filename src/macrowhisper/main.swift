@@ -5,7 +5,6 @@ import Swifter
 import Dispatch
 import Darwin
 import UserNotifications
-
 let APP_VERSION = "1.0.0"
 
 // MARK: - Logging System
@@ -103,6 +102,9 @@ class NotificationManager {
 }
 
 // MARK: - Global instances
+// Global variables
+var disableUpdates: Bool = false
+var disableNotifications: Bool = false
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -420,6 +422,58 @@ class VersionChecker {
     }
 }
 
+// MARK: - Configuration Manager
+
+struct AppConfiguration: Codable {
+    struct Defaults: Codable {
+        var watch: String
+        var serverOnly: Bool
+        var watchOnly: Bool
+        var noUpdates: Bool
+        var noNoti: Bool
+        
+        static func defaultValues() -> Defaults {
+            return Defaults(
+                watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
+                serverOnly: false,
+                watchOnly: true, // Default to watch-only as specified
+                noUpdates: false,
+                noNoti: false
+            )
+        }
+    }
+    
+    struct Proxy: Codable {
+        var name: String
+        var model: String
+        var key: String
+        var url: String
+        
+        // Additional proxy properties can be added here
+        // For backward compatibility with existing code
+        func toDictionary() -> [String: Any] {
+            return [
+                "model": model,
+                "key": key,
+                "url": url
+            ]
+        }
+    }
+    
+    var defaults: Defaults
+    var proxies: [Proxy]
+    
+    static func defaultConfig() -> AppConfiguration {
+        return AppConfiguration(
+            defaults: Defaults.defaultValues(),
+            proxies: [
+                Proxy(name: "4oMini", model: "openai/gpt-4o-mini", key: "sk-...", url: "https://openrouter.ai/api/v1/chat/completions"),
+                Proxy(name: "GPT4.1", model: "gpt-4.1", key: "sk-...", url: "https://api.openai.com/v1/chat/completions"),
+                Proxy(name: "Claude", model: "anthropic/claude-3-sonnet", key: "sk-...", url: "https://openrouter.ai/api/v1/chat/completions")
+            ]
+        )
+    }
+}
 
 // MARK: - Helpers
 
@@ -515,96 +569,137 @@ final class FileChangeWatcher {
     private let onChanged: () -> Void
     private let onMissing: () -> Void
     private let queue = DispatchQueue(label: "com.macrowhisper.filewatcher", qos: .utility)
-
+    
+    private var lastModificationDate: Date?
+    private var lastFileSize: UInt64 = 0
+    private var pollingTimer: DispatchSourceTimer?
     private var fileDescriptor: Int32 = -1
     private var dispatchSource: DispatchSourceFileSystemObject?
-    private var rewatchTimer: DispatchSourceTimer?
-
+    
     init(filePath: String, onChanged: @escaping () -> Void, onMissing: @escaping () -> Void) {
         self.filePath = filePath
         self.onChanged = onChanged
         self.onMissing = onMissing
-        startWatching()
+        
+        // Start with both methods
+        setupEventBasedWatcher()
+        setupPollingWatcher()
+        
+        // Initial check
+        updateFileMetadata()
     }
-
-    private func startWatching() {
-        guard FileManager.default.fileExists(atPath: filePath) else {
-            scheduleRewatch()
-            return
-        }
-
-        fileDescriptor = open(filePath, O_EVTONLY)
-        if fileDescriptor < 0 {
-            logWarning("FileChangeWatcher: Failed to open file descriptor for \(filePath)")
-            scheduleRewatch()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .delete, .rename],
-            queue: queue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            // If file is deleted or renamed, stop watcher and schedule rewatch
-            if !FileManager.default.fileExists(atPath: self.filePath) {
-                logWarning("Warning: proxies.json was deleted or replaced! Proxy functionality is now disabled until the file is restored.")
-                notify(title: "Macrowhisper", message: "Warning: proxies.json was deleted or replaced! Proxy functionality is now disabled until the file is restored.")
-                self.onMissing()
-                self.stopWatching()
-                self.scheduleRewatch()
-            } else {
-                self.onChanged()
-            }
-        }
-
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.fileDescriptor, fd >= 0 {
-                close(fd)
-            }
-        }
-
-        source.resume()
-        self.dispatchSource = source
-    }
-
-    private func stopWatching() {
-        dispatchSource?.cancel()
-        dispatchSource = nil
+    
+    private func setupEventBasedWatcher() {
+        // Clean up existing watcher if any
         if fileDescriptor >= 0 {
+            dispatchSource?.cancel()
             close(fileDescriptor)
             fileDescriptor = -1
+            dispatchSource = nil
         }
-    }
-
-    private func scheduleRewatch() {
-        // Cancel existing timer if any
-        rewatchTimer?.cancel()
-        rewatchTimer = nil
-
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 1, repeating: 1) // Check every 1 second
-        timer.setEventHandler { [weak self] in
+        
+        // Open file for event-only monitoring
+        fileDescriptor = open(filePath, O_EVTONLY)
+        if fileDescriptor < 0 {
+            logWarning("Failed to open file descriptor for \(filePath), falling back to polling only")
+            return
+        }
+        
+        // Create dispatch source for file events
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename, .attrib],
+            queue: queue
+        )
+        
+        source.setEventHandler { [weak self] in
             guard let self = self else { return }
-            if FileManager.default.fileExists(atPath: self.filePath) {
-                logInfo("proxies.json has been restored. Reloading configuration.")
-                notify(title: "Macrowhisper", message: "proxies.json has been restored. Reloading configuration.")
-                self.rewatchTimer?.cancel()
-                self.rewatchTimer = nil
-                self.startWatching()
-                self.onChanged() // Reload proxies now
-            }
+            logInfo("File event detected for: \(self.filePath)")
+            self.checkFile()
+        }
+        
+        source.setCancelHandler { [weak self] in
+            guard let self = self, self.fileDescriptor >= 0 else { return }
+            close(self.fileDescriptor)
+            self.fileDescriptor = -1
+        }
+        
+        source.resume()
+        dispatchSource = source
+        logInfo("Event-based watcher set up for: \(filePath)")
+    }
+    
+    private func setupPollingWatcher() {
+        // Cancel existing timer if any
+        pollingTimer?.cancel()
+        pollingTimer = nil
+        
+        // Create a timer that checks the file every second
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
+        timer.setEventHandler { [weak self] in
+            self?.checkFile()
         }
         timer.resume()
-        self.rewatchTimer = timer
+        pollingTimer = timer
+        logInfo("Polling watcher set up for: \(filePath)")
     }
-
+    
+    private func checkFile() {
+        let fileExists = FileManager.default.fileExists(atPath: filePath)
+        
+        if !fileExists {
+            // File doesn't exist anymore
+            logInfo("File no longer exists: \(filePath)")
+            onMissing()
+            return
+        }
+        
+        // Check if file has changed
+        if hasFileChanged() {
+            logInfo("File has changed: \(filePath)")
+            onChanged()
+            updateFileMetadata()
+        }
+    }
+    
+    private func hasFileChanged() -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: filePath) else {
+            return false
+        }
+        
+        let currentModDate = attributes[.modificationDate] as? Date ?? Date()
+        let currentSize = attributes[.size] as? UInt64 ?? 0
+        
+        // If we haven't checked before, update metadata and return false
+        if lastModificationDate == nil {
+            lastModificationDate = currentModDate
+            lastFileSize = currentSize
+            return false
+        }
+        
+        // Check if either modification date or size has changed
+        let dateChanged = lastModificationDate != currentModDate
+        let sizeChanged = lastFileSize != currentSize
+        
+        return dateChanged || sizeChanged
+    }
+    
+    private func updateFileMetadata() {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: filePath) else {
+            return
+        }
+        
+        lastModificationDate = attributes[.modificationDate] as? Date
+        lastFileSize = attributes[.size] as? UInt64 ?? 0
+    }
+    
     deinit {
-        stopWatching()
-        rewatchTimer?.cancel()
-        rewatchTimer = nil
+        if fileDescriptor >= 0 {
+            dispatchSource?.cancel()
+            close(fileDescriptor)
+        }
+        pollingTimer?.cancel()
     }
 }
 
@@ -1005,6 +1100,178 @@ func mergeAnnotationsIntoContent(_ data: Data) -> Data {
     return (try? JSONSerialization.data(withJSONObject: root)) ?? data
 }
 
+class ConfigurationManager {
+    private let configFilePath: String
+    
+    // Make configPath accessible
+    var configPath: String {
+        return self.configFilePath
+    }
+    
+    private let fileManager = FileManager.default
+    private let syncQueue = DispatchQueue(label: "com.macrowhisper.configsync")
+    private var fileWatcher: FileChangeWatcher?
+    
+    private(set) var config: AppConfiguration
+    
+    // Callback for configuration changes
+    var onConfigChanged: (() -> Void)?
+    
+    init(configPath: String? = nil) {
+            // Initialize ALL stored properties first
+            if let path = configPath {
+                self.configFilePath = path
+            } else {
+                let configDir = ("~/.config/macrowhisper" as NSString).expandingTildeInPath
+                self.configFilePath = "\(configDir)/macrowhisper.json"
+            }
+            
+            // Initialize config with a default value first
+            self.config = AppConfiguration.defaultConfig()
+            
+            // Create directory if it doesn't exist
+            let directory = (self.configFilePath as NSString).deletingLastPathComponent
+            if !fileManager.fileExists(atPath: directory) {
+                try? fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            }
+            
+            // NOW you can call instance methods since all properties are initialized
+            if let loadedConfig = loadConfig() {
+                self.config = loadedConfig
+                logInfo("Configuration loaded from \(self.configFilePath)")
+            } else {
+                // Keep the default config we already set
+                saveConfig()
+                logInfo("Default configuration created at \(self.configFilePath)")
+            }
+            
+            // Set up file watcher for config changes
+            setupFileWatcher()
+    }
+    
+    private func setupFileWatcher() {
+        // First, log the exact path we're trying to watch
+        logInfo("Setting up file watcher for: \(configFilePath)")
+        
+        fileWatcher = FileChangeWatcher(
+            filePath: configFilePath,
+            onChanged: { [weak self] in
+                guard let self = self else { return }
+                logInfo("Change detected in configuration file")
+                
+                // Add a small delay to ensure file is completely written
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+                    if let updatedConfig = self.loadConfig() {
+                        self.syncQueue.async {
+                            self.config = updatedConfig
+                            DispatchQueue.main.async {
+                                logInfo("Configuration successfully reloaded")
+                                self.onConfigChanged?()
+                                NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
+                                notify(title: "Macrowhisper", message: "Configuration updated from file change")
+                            }
+                        }
+                    } else {
+                        logError("Failed to reload configuration after file change")
+                        notify(title: "Macrowhisper", message: "Failed to reload configuration")
+                    }
+                }
+            },
+            onMissing: { [weak self] in
+                logWarning("Configuration file was deleted or moved")
+                notify(title: "Macrowhisper", message: "Configuration file was deleted or moved")
+                
+                // Wait a moment and then recreate the config file
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                    self?.saveConfig() // Recreate the config file
+                    notify(title: "Macrowhisper", message: "Configuration file recreated")
+                }
+            }
+        )
+    }
+    
+    private func loadConfig() -> AppConfiguration? {
+        guard fileManager.fileExists(atPath: configFilePath) else {
+            return nil
+        }
+        
+        do {
+            // Create a fresh URL with no caching
+            let url = URL(fileURLWithPath: configFilePath)
+            let data = try Data(contentsOf: url, options: .uncached)
+            let decoder = JSONDecoder()
+            return try decoder.decode(AppConfiguration.self, from: data)
+        } catch {
+            logError("Error loading configuration: \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
+    func saveConfig() {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
+            let data = try encoder.encode(config)
+            try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
+        } catch {
+            logError("Error saving configuration: \(error.localizedDescription)")
+        }
+    }
+
+    // Update configuration with command line arguments and save
+    func updateFromCommandLine(
+        watchPath: String? = nil,
+        serverOnly: Bool? = nil,
+        watchOnly: Bool? = nil,
+        noUpdates: Bool? = nil,
+        noNoti: Bool? = nil
+    ) {
+        syncQueue.sync {
+            if let watchPath = watchPath {
+                config.defaults.watch = watchPath
+            }
+            if let serverOnly = serverOnly {
+                config.defaults.serverOnly = serverOnly
+            }
+            if let watchOnly = watchOnly {
+                config.defaults.watchOnly = watchOnly
+            }
+            if let noUpdates = noUpdates {
+                config.defaults.noUpdates = noUpdates
+            }
+            if let noNoti = noNoti {
+                config.defaults.noNoti = noNoti
+            }
+            
+            // Call the non-synced version inside the current sync block
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
+                let data = try encoder.encode(config)
+                try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
+                
+                // Send notification immediately after successful save
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
+                    logInfo("Configuration updated from command line")
+                    notify(title: "Macrowhisper", message: "Configuration updated")
+                }
+            } catch {
+                logError("Error saving configuration: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    // Convert proxies to the format expected by the existing code
+    func getProxiesDict() -> [String: [String: Any]] {
+        var result: [String: [String: Any]] = [:]
+        for proxy in config.proxies {
+            result[proxy.name] = proxy.toDictionary()
+        }
+        return result
+    }
+}
+
 // MARK: - Argument Parsing and Startup
 
 let defaultSuperwhisperPath = ("~/Documents/superwhisper" as NSString).expandingTildeInPath
@@ -1025,31 +1292,6 @@ func promptYesNo(_ message: String) -> Bool {
     }
 }
 
-func createExampleProxiesJson(at path: String) {
-    let example: [String: Any] = [
-        "4oMini": [
-            "model": "openai/gpt-4o-mini",
-            "key": "sk-...",
-            "url": "https://openrouter.ai/api/v1/chat/completions"
-        ],
-        "GPT4.1": [
-            "model": "gpt-4.1",
-            "key": "sk-...",
-            "url": "https://api.openai.com/v1/chat/completions"
-        ]
-    ]
-    if let data = try? JSONSerialization.data(withJSONObject: example, options: .prettyPrinted),
-       var jsonString = String(data: data, encoding: .utf8) {
-        jsonString = jsonString.replacingOccurrences(of: "\\/", with: "/")
-        try? jsonString.write(toFile: path, atomically: true, encoding: .utf8)
-        logInfo("Example proxies.json created at \(path)")
-        notify(title: "Macrowhisper Setup", message: "Sample proxies.json was created successfully")
-    } else {
-        logError("Failed to create example proxies.json")
-        notify(title: "Macrowhisper Error", message: "Failed to create proxies.json")
-    }
-}
-
 func printHelp() {
     print("""
     Usage: macrowhisper [OPTIONS]
@@ -1057,8 +1299,8 @@ func printHelp() {
     Server and/or folder watcher for Superwhisper integration.
 
     OPTIONS:
-      -s, --server <path>   Path to proxies.json (default: \(defaultProxiesPath))
-      -w, --watch  <path>   Path to superwhisper folder (default: \(defaultSuperwhisperPath))
+      -c, --config <path>   Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
+      -w, --watch  <path>   Path to superwhisper folder (overrides config)
           --server-only     Only run proxy server (no folder watching)
           --watch-only      Only run folder watcher (no server)
           --no-updates      Disable automatic update checking
@@ -1068,34 +1310,33 @@ func printHelp() {
 
     Examples:
       macrowhisper
-        # Uses defaults for both server and watch modes
+        # Uses defaults from config file
 
-      macrowhisper --server ~/myproxies.json --watch ~/otherfolder/superwhisper
+      macrowhisper --config ~/custom-config.json
 
-      macrowhisper --watch-only
+      macrowhisper --watch ~/otherfolder/superwhisper --watch-only
 
     """)
 }
 
 // Argument parsing
-var serverPath: String? = nil
+let configManager: ConfigurationManager
+var configPath: String? = nil
 var watchPath: String? = nil
-var runServer = true
-var runWatcher = true
-var disableUpdates = false
-var disableNotifications = false
+var serverOnly: Bool? = nil
+var watchOnly: Bool? = nil
 
 let args = CommandLine.arguments
 var i = 1
 while i < args.count {
     switch args[i] {
-    case "-s", "--server":
+    case "-c", "--config":
         guard i + 1 < args.count else {
             logError("Missing value after \(args[i])")
             notify(title: "Macrowhisper", message: "Missing value after \(args[i])")
             exit(1)
         }
-        serverPath = args[i + 1]
+        configPath = args[i + 1]
         i += 2
     case "-w", "--watch":
         guard i + 1 < args.count else {
@@ -1106,10 +1347,10 @@ while i < args.count {
         watchPath = args[i + 1]
         i += 2
     case "--server-only":
-        runWatcher = false
+        serverOnly = true
         i += 1
     case "--watch-only":
-        runServer = false
+        watchOnly = true
         i += 1
     case "--no-updates":
         disableUpdates = true
@@ -1131,72 +1372,59 @@ while i < args.count {
     }
 }
 
-// Set defaults if not provided
-if serverPath == nil { serverPath = defaultProxiesPath }
-if watchPath == nil { watchPath = defaultSuperwhisperPath }
+// Initialize configuration manager with the specified path
+configManager = ConfigurationManager(configPath: configPath)
 
-// Validate required folders
-func folderExistsOrExit(_ path: String, what: String) {
-    if !FileManager.default.fileExists(atPath: path) {
-        logError("Error: \(what) not found: \(path)")
-        logError("If folder is in a different location specify with --watch.")
-        notify(title: "Macrowhisper", message: "Error: \(what) not found: \(path)")
-        exit(1)
-    }
-}
+// Update config with command line arguments
+configManager.updateFromCommandLine(
+    watchPath: watchPath,
+    serverOnly: serverOnly,
+    watchOnly: watchOnly,
+    noUpdates: disableUpdates,
+    noNoti: disableNotifications
+)
+
+// Apply configuration to global variables
+let config = configManager.config
+let watchFolderPath = config.defaults.watch
+var runServer = !config.defaults.watchOnly
+var runWatcher = !config.defaults.serverOnly
+disableUpdates = config.defaults.noUpdates
+disableNotifications = config.defaults.noNoti
 
 if runWatcher {
-    folderExistsOrExit(watchPath!, what: "Superwhisper folder")
-    let recordingsPath = "\(watchPath!)/recordings"
+    folderExistsOrExit(watchFolderPath, what: "Superwhisper folder")
+    let recordingsPath = "\(watchFolderPath)/recordings"
     folderExistsOrExit(recordingsPath, what: "Recordings folder")
-}
-
-if runServer {
-    let proxiesPath = serverPath!
-    let proxiesFolder = (proxiesPath as NSString).deletingLastPathComponent
-    folderExistsOrExit(proxiesFolder, what: "Superwhisper folder for proxies.json")
-
-    if !FileManager.default.fileExists(atPath: proxiesPath) {
-        logError("Error: proxies.json not found at \(proxiesPath)")
-        if promptYesNo("Would you like to create a sample proxies.json?") {
-            createExampleProxiesJson(at: proxiesPath)
-        } else {
-            logInfo("You can create this file yourself, or run with --watch-only if you only want watcher functionality.")
-            exit(1)
-        }
-    }
 }
 
 // ---
 // At this point, continue with initializing server and/or watcher as usual...
 logInfo("macrowhisper starting with:")
-if runServer { logInfo("  Server: \(serverPath!)") }
-if runWatcher { logInfo("  Watcher: \(watchPath!)/recordings") }
+if runServer { logInfo("  Server: Using configuration at \(configManager.configPath)") }
+if runWatcher { logInfo("  Watcher: \(watchFolderPath)/recordings") }
 
 // Server setup - only if jsonPath is provided
-var server: HttpServer? = nil
+// MARK: - Server and Watcher Setup
+
+// Setup proxy server if enabled
 var proxies: [String: [String: Any]] = [:]
+var server: HttpServer? = nil
 var fileWatcher: FileChangeWatcher? = nil
 
-if runServer, let jsonPath = serverPath {
-    // The proxies.json existence is already checked earlier!
-    proxies = loadProxies(from: jsonPath)
+func folderExistsOrExit(_ path: String, what: String) {
+    if !FileManager.default.fileExists(atPath: path) {
+        logError("Error: \(what) not found: \(path)")
+        notify(title: "Macrowhisper", message: "Error: \(what) not found: \(path)")
+        exit(1)
+    }
+}
+
+if runServer {
+    // Get proxies from configuration
+    proxies = configManager.getProxiesDict()
     
-    // Create file watcher to reload configuration when it changes
-    fileWatcher = FileChangeWatcher(
-        filePath: jsonPath,
-        onChanged: {
-            logInfo("proxies.json changed, reloading configuration...")
-            proxies = loadProxies(from: jsonPath)
-            logInfo("Configuration reloaded successfully - changes will apply to new requests")
-        },
-        onMissing: {
-            proxies = [:]
-            logInfo("All proxy rules cleared. Restore proxies.json to re-enable proxy functionality.")
-        }
-    )
-    
-    // Start HTTP server
+    // Create server
     server = HttpServer()
     let port: in_port_t = 11434
     guard isPortAvailable(port) else {
@@ -1210,18 +1438,93 @@ if runServer, let jsonPath = serverPath {
     logInfo("Proxy server running on http://localhost:\(port)")
     notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
     try! server!.start(port, forceIPv4: true)
+    
+    // Update getProxies function to use configuration manager
+    func getProxies() -> [String: [String: Any]] {
+        return configManager.getProxiesDict()
+    }
+    
+    // Set up observer for configuration changes
+    NotificationCenter.default.addObserver(forName: .init("ConfigurationUpdated"),
+                                          object: nil,
+                                          queue: .main) { _ in
+        // Only update if server is running
+        if runServer && server != nil {
+            // Update proxies from configuration
+            proxies = configManager.getProxiesDict()
+            logInfo("Proxies updated from configuration change")
+            notify(title: "Macrowhisper", message: "Proxies configuration reloaded")
+        }
+    }
 }
 
-// Initialize the recordings folder watcher if path provided
+// Initialize the recordings folder watcher if enabled
 var recordingsWatcher: RecordingsFolderWatcher? = nil
-if runWatcher, let baseWatchPath = watchPath {
-    // The existence of the watchPath and recordings folder is already checked earlier!
-    recordingsWatcher = RecordingsFolderWatcher(basePath: baseWatchPath)
+if runWatcher {
+    // Validate the watch folder exists
+    let recordingsPath = "\(watchFolderPath)/recordings"
+    if !FileManager.default.fileExists(atPath: recordingsPath) {
+        logError("Error: Recordings folder not found at \(recordingsPath)")
+        notify(title: "Macrowhisper", message: "Error: Recordings folder not found at \(recordingsPath)")
+        exit(1)
+    }
+    
+    recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath)
     if recordingsWatcher == nil {
         logWarning("Warning: Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")
     } else {
-        logInfo("Watching recordings folder at \(baseWatchPath)/recordings")
+        logInfo("Watching recordings folder at \(recordingsPath)")
+    }
+}
+
+// Set up configuration change handler
+configManager.onConfigChanged = {
+    // Update global variables
+    disableUpdates = configManager.config.defaults.noUpdates
+    disableNotifications = configManager.config.defaults.noNoti
+    
+    // Handle changes to watch/server modes
+    let newRunServer = !configManager.config.defaults.watchOnly
+    let newRunWatcher = !configManager.config.defaults.serverOnly
+    
+    // Handle server changes
+    if runServer != newRunServer {
+        if newRunServer && server == nil {
+            // Start server if it was off
+            server = HttpServer()
+            let port: in_port_t = 11434
+            if isPortAvailable(port) {
+                setupServerRoutes(server: server!)
+                try? server!.start(port, forceIPv4: true)
+                logInfo("Proxy server started due to configuration change")
+            }
+        } else if !newRunServer && server != nil {
+            // Stop server if it was on
+            server?.stop()
+            server = nil
+            logInfo("Proxy server stopped due to configuration change")
+        }
+        runServer = newRunServer
+    }
+    
+    // Handle watcher changes
+    if runWatcher != newRunWatcher {
+        if newRunWatcher && recordingsWatcher == nil {
+            let watchPath = configManager.config.defaults.watch
+            recordingsWatcher = RecordingsFolderWatcher(basePath: watchPath)
+            logInfo("Recordings watcher started due to configuration change")
+        } else if !newRunWatcher && recordingsWatcher != nil {
+            recordingsWatcher = nil
+            logInfo("Recordings watcher stopped due to configuration change")
+        }
+        runWatcher = newRunWatcher
+    }
+    
+    // If watch path changed, restart watcher
+    if runWatcher && recordingsWatcher != nil && configManager.config.defaults.watch != watchFolderPath {
+        recordingsWatcher = RecordingsFolderWatcher(basePath: configManager.config.defaults.watch)
+        logInfo("Recordings watcher restarted with new path: \(configManager.config.defaults.watch)")
     }
 }
 
