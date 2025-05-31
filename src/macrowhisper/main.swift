@@ -572,77 +572,189 @@ final class FileChangeWatcher {
     
     private var lastModificationDate: Date?
     private var lastFileSize: UInt64 = 0
-    private var pollingTimer: DispatchSourceTimer?
+    private var directoryDescriptor: Int32 = -1
     private var fileDescriptor: Int32 = -1
-    private var dispatchSource: DispatchSourceFileSystemObject?
+    private var directorySource: DispatchSourceFileSystemObject?
+    private var fileSource: DispatchSourceFileSystemObject?
+    private var fileName: String
+    private var directoryPath: String
     
     init(filePath: String, onChanged: @escaping () -> Void, onMissing: @escaping () -> Void) {
         self.filePath = filePath
         self.onChanged = onChanged
         self.onMissing = onMissing
         
-        // Start with both methods
-        setupEventBasedWatcher()
-        setupPollingWatcher()
+        // Get directory and filename
+        self.directoryPath = (filePath as NSString).deletingLastPathComponent
+        self.fileName = (filePath as NSString).lastPathComponent
         
         // Initial check
         updateFileMetadata()
-    }
-    
-    private func setupEventBasedWatcher() {
-        // Clean up existing watcher if any
-        if fileDescriptor >= 0 {
-            dispatchSource?.cancel()
-            close(fileDescriptor)
-            fileDescriptor = -1
-            dispatchSource = nil
-        }
         
-        // Open file for event-only monitoring
-        fileDescriptor = open(filePath, O_EVTONLY)
-        if fileDescriptor < 0 {
-            logWarning("Failed to open file descriptor for \(filePath), falling back to polling only")
-            return
-        }
+        // Set up both watchers
+        setupDirectoryWatcher()
+        setupFileWatcher()
         
-        // Create dispatch source for file events
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .delete, .rename, .attrib],
-            queue: queue
-        )
-        
-        source.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            logInfo("File event detected for: \(self.filePath)")
-            self.checkFile()
-        }
-        
-        source.setCancelHandler { [weak self] in
-            guard let self = self, self.fileDescriptor >= 0 else { return }
-            close(self.fileDescriptor)
-            self.fileDescriptor = -1
-        }
-        
-        source.resume()
-        dispatchSource = source
-        logInfo("Event-based watcher set up for: \(filePath)")
-    }
-    
-    private func setupPollingWatcher() {
-        // Cancel existing timer if any
-        pollingTimer?.cancel()
-        pollingTimer = nil
-        
-        // Create a timer that checks the file every second
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
-        timer.setEventHandler { [weak self] in
+        // Force an immediate content check after setup
+        queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.checkFile()
         }
-        timer.resume()
-        pollingTimer = timer
-        logInfo("Polling watcher set up for: \(filePath)")
+    }
+    
+    func forceInitialMetadataCheck() {
+        queue.async {
+            // Make sure file exists
+            guard FileManager.default.fileExists(atPath: self.filePath) else {
+                return
+            }
+            
+            // Force update the file metadata to establish baseline
+            self.updateFileMetadata()
+            
+            // Check for changes immediately
+            self.checkFile()
+            
+            // Log this action
+            logInfo("Established initial file metadata baseline for: \(self.filePath)")
+        }
+    }
+    
+    private func setupDirectoryWatcher() {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Clean up existing watcher if any
+            if self.directoryDescriptor >= 0 {
+                self.directorySource?.cancel()
+                close(self.directoryDescriptor)
+                self.directoryDescriptor = -1
+                self.directorySource = nil
+            }
+            
+            // Open directory for monitoring
+            self.directoryDescriptor = open(self.directoryPath, O_RDONLY)
+            if self.directoryDescriptor < 0 {
+                logWarning("Failed to open directory for watching: \(self.directoryPath)")
+                return
+            }
+            
+            // Create dispatch source for directory events
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: self.directoryDescriptor,
+                eventMask: [.write, .delete, .rename, .link],
+                queue: self.queue
+            )
+            
+            source.setEventHandler { [weak self] in
+                guard let self = self else { return }
+                logInfo("Directory event detected for: \(self.directoryPath)")
+                
+                // Check if our file exists
+                let fileExists = FileManager.default.fileExists(atPath: self.filePath)
+                
+                // If file doesn't exist and we were previously watching it
+                if !fileExists && self.fileDescriptor >= 0 {
+                    logInfo("File no longer exists: \(self.filePath)")
+                    self.onMissing()
+                    
+                    // Clean up file watcher
+                    self.fileSource?.cancel()
+                    close(self.fileDescriptor)
+                    self.fileDescriptor = -1
+                    self.fileSource = nil
+                }
+                // If file exists but we weren't watching it (it was restored)
+                else if fileExists && self.fileDescriptor < 0 {
+                    logInfo("File has been restored: \(self.filePath)")
+                    self.setupFileWatcher()
+                    self.onChanged() // Trigger the change callback
+                }
+                // If file exists and we're already watching it
+                else if fileExists {
+                    // Reset file watcher since the file might have been replaced
+                    self.setupFileWatcher()
+                }
+            }
+            
+            source.setCancelHandler { [weak self] in
+                guard let self = self, self.directoryDescriptor >= 0 else { return }
+                close(self.directoryDescriptor)
+                self.directoryDescriptor = -1
+            }
+            
+            source.resume()
+            self.directorySource = source
+            logInfo("Directory watcher set up for: \(self.directoryPath)")
+        }
+    }
+    
+    private func setupFileWatcher() {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Clean up existing file watcher if any
+            if self.fileDescriptor >= 0 {
+                self.fileSource?.cancel()
+                close(self.fileDescriptor)
+                self.fileDescriptor = -1
+                self.fileSource = nil
+            }
+            
+            // Make sure file exists before trying to watch it
+            guard FileManager.default.fileExists(atPath: self.filePath) else {
+                logWarning("File doesn't exist, can't set up file watcher: \(self.filePath)")
+                return
+            }
+            
+            // Update file metadata for initial state
+            self.updateFileMetadata()
+            
+            // Open file for monitoring
+            self.fileDescriptor = open(self.filePath, O_RDONLY)
+            if self.fileDescriptor < 0 {
+                logWarning("Failed to open file for watching: \(self.filePath)")
+                return
+            }
+            
+            // Create dispatch source for file events
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: self.fileDescriptor,
+                eventMask: [.write, .delete, .extend, .attrib, .rename],
+                queue: self.queue
+            )
+            
+            source.setEventHandler { [weak self] in
+                guard let self = self else { return }
+                
+                // Add a small delay to ensure file is completely written
+                self.queue.asyncAfter(deadline: .now() + 0.1) {
+                    if FileManager.default.fileExists(atPath: self.filePath) {
+                        logInfo("File event detected for: \(self.filePath)")
+                        
+                        // Check if content has actually changed
+                        if self.hasFileChanged() {
+                            logInfo("File content has changed: \(self.filePath)")
+                            self.updateFileMetadata()
+                            self.onChanged()
+                        }
+                    } else {
+                        // File doesn't exist anymore
+                        logInfo("File no longer exists in file watcher: \(self.filePath)")
+                        self.onMissing()
+                    }
+                }
+            }
+            
+            source.setCancelHandler { [weak self] in
+                guard let self = self, self.fileDescriptor >= 0 else { return }
+                close(self.fileDescriptor)
+                self.fileDescriptor = -1
+            }
+            
+            source.resume()
+            self.fileSource = source
+            logInfo("File watcher set up for: \(self.filePath)")
+        }
     }
     
     private func checkFile() {
@@ -682,6 +794,17 @@ final class FileChangeWatcher {
         let dateChanged = lastModificationDate != currentModDate
         let sizeChanged = lastFileSize != currentSize
         
+        // Log detailed information for debugging
+        if dateChanged || sizeChanged {
+            logInfo("File change detected: \(filePath)")
+            if dateChanged {
+                logInfo("  - Modification date changed: \(String(describing: lastModificationDate)) -> \(currentModDate)")
+            }
+            if sizeChanged {
+                logInfo("  - File size changed: \(lastFileSize) -> \(currentSize)")
+            }
+        }
+        
         return dateChanged || sizeChanged
     }
     
@@ -695,11 +818,14 @@ final class FileChangeWatcher {
     }
     
     deinit {
+        if directoryDescriptor >= 0 {
+            directorySource?.cancel()
+            close(directoryDescriptor)
+        }
         if fileDescriptor >= 0 {
-            dispatchSource?.cancel()
+            fileSource?.cancel()
             close(fileDescriptor)
         }
-        pollingTimer?.cancel()
     }
 }
 
@@ -1111,83 +1237,75 @@ class ConfigurationManager {
     private let fileManager = FileManager.default
     private let syncQueue = DispatchQueue(label: "com.macrowhisper.configsync")
     private var fileWatcher: FileChangeWatcher?
-    
     private(set) var config: AppConfiguration
     
     // Callback for configuration changes
     var onConfigChanged: (() -> Void)?
     
     init(configPath: String? = nil) {
-            // Initialize ALL stored properties first
-            if let path = configPath {
-                self.configFilePath = path
-            } else {
-                let configDir = ("~/.config/macrowhisper" as NSString).expandingTildeInPath
-                self.configFilePath = "\(configDir)/macrowhisper.json"
-            }
-            
-            // Initialize config with a default value first
-            self.config = AppConfiguration.defaultConfig()
-            
-            // Create directory if it doesn't exist
-            let directory = (self.configFilePath as NSString).deletingLastPathComponent
-            if !fileManager.fileExists(atPath: directory) {
-                try? fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
-            }
-            
-            // NOW you can call instance methods since all properties are initialized
-            if let loadedConfig = loadConfig() {
-                self.config = loadedConfig
-                logInfo("Configuration loaded from \(self.configFilePath)")
-            } else {
-                // Keep the default config we already set
-                saveConfig()
-                logInfo("Default configuration created at \(self.configFilePath)")
-            }
-            
-            // Set up file watcher for config changes
-            setupFileWatcher()
+        // Initialize ALL stored properties first
+        if let path = configPath {
+            self.configFilePath = path
+        } else {
+            let configDir = ("~/.config/macrowhisper" as NSString).expandingTildeInPath
+            self.configFilePath = "\(configDir)/macrowhisper.json"
+        }
+        
+        // Initialize config with a default value first
+        self.config = AppConfiguration.defaultConfig()
+        
+        // Create directory if it doesn't exist
+        let directory = (self.configFilePath as NSString).deletingLastPathComponent
+        if !fileManager.fileExists(atPath: directory) {
+            try? fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        }
+        
+        // NOW you can call instance methods since all properties are initialized
+        if let loadedConfig = loadConfig() {
+            self.config = loadedConfig
+            logInfo("Configuration loaded from \(self.configFilePath)")
+        } else {
+            // Keep the default config we already set
+            saveConfig()
+            logInfo("Default configuration created at \(self.configFilePath)")
+        }
+        
+        // Set up file watcher for config changes
+        setupFileWatcher()
+        
+        // After setting up the file watcher, force an initial check
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.fileWatcher?.forceInitialMetadataCheck()
+        }
     }
     
     private func setupFileWatcher() {
-        // First, log the exact path we're trying to watch
-        logInfo("Setting up file watcher for: \(configFilePath)")
-        
-        fileWatcher = FileChangeWatcher(
-            filePath: configFilePath,
+        self.fileWatcher = FileChangeWatcher(
+            filePath: self.configFilePath,
             onChanged: { [weak self] in
                 guard let self = self else { return }
-                logInfo("Change detected in configuration file")
                 
-                // Add a small delay to ensure file is completely written
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
-                    if let updatedConfig = self.loadConfig() {
-                        self.syncQueue.async {
-                            self.config = updatedConfig
-                            DispatchQueue.main.async {
-                                logInfo("Configuration successfully reloaded")
-                                self.onConfigChanged?()
-                                NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
-                                notify(title: "Macrowhisper", message: "Configuration updated from file change")
-                            }
-                        }
-                    } else {
-                        logError("Failed to reload configuration after file change")
-                        notify(title: "Macrowhisper", message: "Failed to reload configuration")
-                    }
+                // Try to reload the configuration
+                if let loadedConfig = self.loadConfig() {
+                    self.config = loadedConfig
+                    logInfo("Configuration reloaded from file change: \(self.configFilePath)")
+                    notify(title: "Macrowhisper", message: "Configuration file updated")
+                    
+                    // Call the change handler if it exists
+                    self.onConfigChanged?()
                 }
             },
             onMissing: { [weak self] in
-                logWarning("Configuration file was deleted or moved")
-                notify(title: "Macrowhisper", message: "Configuration file was deleted or moved")
-                
-                // Wait a moment and then recreate the config file
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                    self?.saveConfig() // Recreate the config file
-                    notify(title: "Macrowhisper", message: "Configuration file recreated")
-                }
+                guard let self = self else { return }
+                logWarning("Configuration file was deleted: \(self.configFilePath)")
+                notify(title: "Macrowhisper", message: "Warning: Configuration file was deleted")
             }
         )
+        
+        // Force an immediate check of the file metadata after setting up the watcher
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            self?.fileWatcher?.forceInitialMetadataCheck()
+        }
     }
     
     private func loadConfig() -> AppConfiguration? {
