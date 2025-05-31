@@ -608,11 +608,17 @@ final class FileChangeWatcher {
                 return
             }
             
+            // Create a snapshot of current content
+            self.createTemporaryContentSnapshot()
+            
             // Force update the file metadata to establish baseline
             self.updateFileMetadata()
             
             // Check for changes immediately
             self.checkFile()
+            
+            // Clean up temporary file
+            try? FileManager.default.removeItem(atPath: self.filePath + ".temp")
             
             // Log this action
             logInfo("Established initial file metadata baseline for: \(self.filePath)")
@@ -794,8 +800,13 @@ final class FileChangeWatcher {
         let dateChanged = lastModificationDate != currentModDate
         let sizeChanged = lastFileSize != currentSize
         
+        // IMPORTANT: Also check file content if size is the same but we're doing an initial check
+        let contentChanged = sizeChanged || (FileManager.default.contents(atPath: filePath) != nil &&
+                                            !FileManager.default.contentsEqual(atPath: filePath,
+                                                                              andPath: filePath + ".temp"))
+        
         // Log detailed information for debugging
-        if dateChanged || sizeChanged {
+        if dateChanged || sizeChanged || contentChanged {
             logInfo("File change detected: \(filePath)")
             if dateChanged {
                 logInfo("  - Modification date changed: \(String(describing: lastModificationDate)) -> \(currentModDate)")
@@ -803,9 +814,20 @@ final class FileChangeWatcher {
             if sizeChanged {
                 logInfo("  - File size changed: \(lastFileSize) -> \(currentSize)")
             }
+            if contentChanged {
+                logInfo("  - Content changed detected")
+            }
         }
         
-        return dateChanged || sizeChanged
+        return dateChanged || sizeChanged || contentChanged
+    }
+
+    // Add this helper method to FileChangeWatcher
+    private func createTemporaryContentSnapshot() {
+        // Create a temporary copy of the file to compare against later
+        if FileManager.default.fileExists(atPath: filePath) {
+            try? FileManager.default.copyItem(atPath: filePath, toPath: filePath + ".temp")
+        }
     }
     
     private func updateFileMetadata() {
