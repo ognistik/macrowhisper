@@ -1179,12 +1179,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             // Mark this file as processed so we don't trigger again
             processedMetaJsons.insert(path)
             
-            // Trigger version check when user activity is detected
-            versionChecker.checkForUpdates()
-            
-            // Cancel file watcher since we're done with this file
-            cancelFileWatcher()
-            
             // Trigger Keyboard Maestro on main thread for UI interaction
             // Store the method reference
             let triggerMethod = self.triggerKeyboardMaestro
@@ -1192,6 +1186,16 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             DispatchQueue.main.async {
                 triggerMethod()
             }
+            
+            // Add a delay before checking for updates
+            DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 25) {
+                // Check for updates after delay
+                versionChecker.checkForUpdates()
+                logInfo("Checking for updates after delay")
+            }
+            
+            // Cancel file watcher since we're done with this file
+            cancelFileWatcher()
         }
     }
     
@@ -1685,16 +1689,16 @@ configManager.onConfigChanged = {
     let newRunWatcher = !configManager.config.defaults.serverOnly
     
     // Handle server changes
-    if runServer != newRunServer {
-        if newRunServer && server == nil {
-            // Start server if it was off
-            server = HttpServer()
-            let port: in_port_t = 11434
-            if isPortAvailable(port) {
-                setupServerRoutes(server: server!)
-                try? server!.start(port, forceIPv4: true)
-                logInfo("Proxy server started due to configuration change")
-            }
+    if newRunServer && server == nil {
+        // Start server if it was off
+        server = HttpServer()
+        let port: in_port_t = 11434
+        if isPortAvailable(port) {
+            // Load proxies from configuration before setting up routes
+            proxies = configManager.getProxiesDict()
+            setupServerRoutes(server: server!)
+            try? server!.start(port, forceIPv4: true)
+            logInfo("Proxy server started due to configuration change")
         } else if !newRunServer && server != nil {
             // Stop server if it was on
             server?.stop()
