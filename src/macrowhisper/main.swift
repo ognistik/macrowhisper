@@ -417,8 +417,8 @@ class VersionChecker {
         let script = """
         display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
             with title "Macrowhisper" ¬
-            buttons {"Remind Later", "Copy Command"} ¬
-            default button "Copy Command" ¬
+            buttons {"Remind Later", "Copy Command", "Open Release"} ¬
+            default button "Open Release" ¬
         """
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
@@ -443,11 +443,21 @@ class VersionChecker {
                 pbTask.launch()
                 inputPipe.fileHandleForWriting.write(brewCommand.data(using: .utf8)!)
                 inputPipe.fileHandleForWriting.closeFile()
+            } else if output.contains("Open Release") {
+                // Open CLI release page
+                openCLIReleasePage()
             }
             // If "Remind Later" is pressed, do nothing (optionally, implement snooze logic)
         } catch {
             logError("Failed to show CLI update dialog: \(error)")
         }
+    }
+    
+    private func openCLIReleasePage() {
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = ["https://github.com/ognistik/macrowhisper-cli/releases/latest"]
+        try? task.run()
     }
 }
 
