@@ -140,6 +140,9 @@ func notify(title: String, message: String) {
 // MARK: - Updater
 
 class VersionChecker {
+    private var lastFailedCheckDate: Date?
+    private let failedCheckBackoffInterval: TimeInterval = 3600 // 1 hour
+    private var updateCheckInProgress = false
     private let currentCLIVersion = APP_VERSION
     private let versionsURL = "https://raw.githubusercontent.com/ognistik/macrowhisper-cli/main/versions.json"
     private var lastCheckDate: Date?
@@ -153,14 +156,29 @@ class VersionChecker {
     }
     
     func checkForUpdates() {
+        // Don't run if updates are disabled
         guard !disableUpdates else { return }
+        
+        // Don't run if we've checked recently (within 24 hours)
         guard shouldCheckForUpdates() else { return }
         
+        // Don't run if we're already checking
+        guard !updateCheckInProgress else { return }
+        
+        // Don't run if we've had a recent failure and are backing off
+        if let lastFailed = lastFailedCheckDate,
+           Date().timeIntervalSince(lastFailed) < failedCheckBackoffInterval {
+            logInfo("Skipping update check due to recent connection failure")
+            return
+        }
+        
         logInfo("Checking for updates...")
+        updateCheckInProgress = true
         
         // Create request with timeout
         guard let url = URL(string: versionsURL) else {
             logError("Invalid versions URL")
+            updateCheckInProgress = false
             return
         }
         
@@ -174,37 +192,51 @@ class VersionChecker {
     }
     
     private func performVersionCheck(request: URLRequest) {
-        let semaphore = DispatchSemaphore(value: 0)
-        var resultData: Data?
-        var resultError: Error?
-        
-        let session = URLSession(configuration: .default)
-        session.dataTask(with: request) { data, response, error in
-            resultData = data
-            resultError = error
-            semaphore.signal()
-        }.resume()
-        
-        // Wait with timeout
-        let result = semaphore.wait(timeout: .now() + 15.0)
-        
-        if result == .timedOut {
-            logInfo("Version check timed out - continuing offline")
-            return
+            defer {
+                // Always reset the in-progress flag when done
+                updateCheckInProgress = false
+            }
+            
+            let semaphore = DispatchSemaphore(value: 0)
+            var resultData: Data?
+            var resultError: Error?
+            
+            let session = URLSession(configuration: .default)
+            session.dataTask(with: request) { data, response, error in
+                resultData = data
+                resultError = error
+                semaphore.signal()
+            }.resume()
+            
+            // Wait with timeout
+            let result = semaphore.wait(timeout: .now() + 15.0)
+            
+            if result == .timedOut {
+                logInfo("Version check timed out - continuing offline")
+                lastFailedCheckDate = Date() // Track the failure
+                return
+            }
+            
+            if let error = resultError {
+                logInfo("Version check failed: \(error.localizedDescription) - continuing offline")
+                lastFailedCheckDate = Date() // Track the failure
+                return
+            }
+            
+            guard let data = resultData else {
+                logInfo("No data received from version check - continuing offline")
+                lastFailedCheckDate = Date() // Track the failure
+                return
+            }
+            
+            // Clear the failed check date since we succeeded
+            lastFailedCheckDate = nil
+            
+            // Update last check date - this is critical
+            lastCheckDate = Date()
+            
+            processVersionResponse(data)
         }
-        
-        if let error = resultError {
-            logInfo("Version check failed: \(error.localizedDescription) - continuing offline")
-            return
-        }
-        
-        guard let data = resultData else {
-            logInfo("No data received from version check - continuing offline")
-            return
-        }
-        
-        processVersionResponse( data)
-    }
     
     private func processVersionResponse(_ data: Data) {
         do {
@@ -212,9 +244,6 @@ class VersionChecker {
                 logError("Invalid JSON in versions response")
                 return
             }
-            
-            // Update last check date
-            lastCheckDate = Date()
             
             // Check CLI version
             var cliUpdateAvailable = false
@@ -1191,7 +1220,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 25) {
                 // Check for updates after delay
                 versionChecker.checkForUpdates()
-                logInfo("Checking for updates after delay")
             }
             
             // Cancel file watcher since we're done with this file
