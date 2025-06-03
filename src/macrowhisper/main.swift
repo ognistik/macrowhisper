@@ -465,21 +465,21 @@ class VersionChecker {
 
 struct AppConfiguration: Codable {
     struct Defaults: Codable {
-        var watch: String
-        var serverOnly: Bool
-        var watchOnly: Bool
-        var noUpdates: Bool
-        var noNoti: Bool
-        
-        static func defaultValues() -> Defaults {
-            return Defaults(
-                watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
-                serverOnly: false,
-                watchOnly: true, // Default to watch-only as specified
-                noUpdates: false,
-                noNoti: false
-            )
-        }
+            var watch: String
+            var server: Bool
+            var watcher: Bool
+            var noUpdates: Bool
+            var noNoti: Bool
+            
+            static func defaultValues() -> Defaults {
+                return Defaults(
+                    watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
+                    server: false,  // Default off
+                    watcher: false, // Default off
+                    noUpdates: false,
+                    noNoti: false
+                )
+            }
     }
     
     struct Proxy: Codable {
@@ -516,6 +516,54 @@ struct AppConfiguration: Codable {
 
 // MARK: - Helpers
 
+func initializeServer() {
+    // Get proxies from configuration
+    proxies = configManager.getProxiesDict()
+    
+    // Create server
+    server = HttpServer()
+    let port: in_port_t = 11434
+    
+    // Set up server routes
+    setupServerRoutes(server: server!)
+    
+    do {
+        try server!.start(port, forceIPv4: true)
+        logInfo("Proxy server running on http://localhost:\(port)")
+        notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
+    } catch {
+        logError("Failed to start server: \(error)")
+        notify(title: "Macrowhisper", message: "Failed to start server")
+        
+        // Update config to disable server
+        configManager.updateFromCommandLine(server: false)
+    }
+}
+
+func initializeWatcher(_ path: String) {
+    let recordingsPath = "\(path)/recordings"
+    
+    if !FileManager.default.fileExists(atPath: recordingsPath) {
+        logWarning("Recordings folder not found at \(recordingsPath)")
+        notify(title: "Macrowhisper", message: "Recordings folder not found")
+        
+        // Update config to disable watcher
+        configManager.updateFromCommandLine(watcher: false)
+        return
+    }
+    
+    recordingsWatcher = RecordingsFolderWatcher(basePath: path)
+    if recordingsWatcher == nil {
+        logWarning("Failed to initialize recordings folder watcher")
+        notify(title: "Macrowhisper", message: "Failed to initialize watcher")
+        
+        // Update config to disable watcher
+        configManager.updateFromCommandLine(watcher: false)
+    } else {
+        logInfo("Watching recordings folder at \(recordingsPath)")
+    }
+}
+
 func acquireSingleInstanceLock(lockFilePath: String) {
     let fd = open(lockFilePath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
     if fd == -1 {
@@ -532,7 +580,6 @@ func acquireSingleInstanceLock(lockFilePath: String) {
     // Keep fd open for the lifetime of the process to hold the lock
 }
 
-// Use this at the very top of your main.swift:
 let lockPath = "/tmp/macrowhisper.lock"
 acquireSingleInstanceLock(lockFilePath: lockPath)
 
@@ -601,6 +648,38 @@ func mergeBody(original: [String: Any], modifications: [String: Any]) -> [String
     var out = original
     for (k, v) in modifications { out[k] = v }
     return out
+}
+
+func checkWatcherAvailability() -> Bool {
+    let watchPath = configManager.config.defaults.watch
+    let exists = FileManager.default.fileExists(atPath: watchPath)
+    
+    if !exists && configManager.config.defaults.watcher {
+        logWarning("Superwhisper folder not found. Watcher has been disabled.")
+        notify(title: "Macrowhisper", message: "Superwhisper folder not found. Watcher has been disabled.")
+        
+        // Update config to disable watcher
+        configManager.updateFromCommandLine(watcher: false)
+        return false
+    }
+    
+    return exists && configManager.config.defaults.watcher
+}
+
+func checkServerAvailability() -> Bool {
+    let port: in_port_t = 11434
+    let available = isPortAvailable(port)
+    
+    if !available && configManager.config.defaults.server {
+        logWarning("Port 11434 is already in use. Server has been disabled.")
+        notify(title: "Macrowhisper", message: "Port 11434 is already in use. Server has been disabled.")
+        
+        // Update config to disable server
+        configManager.updateFromCommandLine(server: false)
+        return false
+    }
+    
+    return available && configManager.config.defaults.server
 }
 
 final class FileChangeWatcher {
@@ -1213,45 +1292,51 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         if let result = json["result"],
            !(result is NSNull),
            !String(describing: result).isEmpty {
-            logInfo("Found valid result in meta.json. Triggering Macro.")
-            
-            // Mark this file as processed so we don't trigger again
+            // Mark this file as processed immediately to prevent duplicate triggers
             processedMetaJsons.insert(path)
             
-            // Trigger Keyboard Maestro on main thread for UI interaction
-            // Store the method reference
-            let triggerMethod = self.triggerKeyboardMaestro
-            // Use it in the closure without capturing self
-            DispatchQueue.main.async {
-                triggerMethod()
+            // Trigger Keyboard Maestro with high priority
+            logInfo("Found valid result in meta.json. Triggering Macro.")
+            
+            // IMPORTANT: Trigger Keyboard Maestro IMMEDIATELY with highest priority
+            DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+                guard let self = self else { return }
+                self.triggerKeyboardMaestro()
             }
             
-            // Add a delay before checking for updates
-            DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 25) {
-                // Check for updates after delay
-                versionChecker.checkForUpdates()
+            // Move these operations to a background queue to not block the trigger
+            DispatchQueue.global(qos: .background).async { [weak self] in
+                guard let self = self else { return }
+                // Cancel file watcher since we're done with this file
+                self.cancelFileWatcher()
+                
+                // Add a delay before checking for updates
+                DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 25) {
+                    // Check for updates after delay
+                    versionChecker.checkForUpdates()
+                }
             }
-            
-            // Cancel file watcher since we're done with this file
-            cancelFileWatcher()
         }
     }
     
     private func triggerKeyboardMaestro() {
-        let task = Process()
-        task.launchPath = "/usr/bin/osascript"
-        task.arguments = [
-            "-e",
-            "tell application \"Keyboard Maestro Engine\" to do script \"Trigger - Meta\""
-        ]
-        // Discard all output, fully async
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        do {
-            try task.run()
-        } catch {
-            logError("Failed to launch Keyboard Maestro trigger: \(error)")
-            notify(title: "Macrowhisper", message: "Failed to launch Keyboard Maestro trigger.")
+        // Use a dedicated high-priority queue for KM triggers
+        DispatchQueue.global(qos: .userInteractive).async {
+            let task = Process()
+            task.launchPath = "/usr/bin/osascript"
+            task.arguments = [
+                "-e",
+                "tell application \"Keyboard Maestro Engine\" to do script \"Trigger - Meta\""
+            ]
+            // Discard all output, fully async
+            task.standardOutput = FileHandle.nullDevice
+            task.standardError = FileHandle.nullDevice
+            do {
+                try task.run()
+            } catch {
+                logError("Failed to launch Keyboard Maestro trigger: \(error)")
+                notify(title: "Macrowhisper", message: "Failed to launch Keyboard Maestro trigger.")
+            }
         }
     }
 }
@@ -1334,9 +1419,12 @@ class ConfigurationManager {
         
         // Create directory if it doesn't exist
         let directory = (self.configFilePath as NSString).deletingLastPathComponent
-        if !fileManager.fileExists(atPath: directory) {
+        if !FileManager.default.fileExists(atPath: directory) {
             try? fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
         }
+        
+        // Check if config file exists
+        let fileExistedBefore = fileManager.fileExists(atPath: self.configFilePath)
         
         // NOW you can call instance methods since all properties are initialized
         if let loadedConfig = loadConfig() {
@@ -1351,13 +1439,20 @@ class ConfigurationManager {
         // Set up file watcher for config changes
         setupFileWatcher()
         
-        // After setting up the file watcher, force an initial check
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.fileWatcher?.forceInitialMetadataCheck()
+        // If we just created the file, we need to reinitialize the watcher
+        if !fileExistedBefore && fileManager.fileExists(atPath: self.configFilePath) {
+            // Add a slight delay to ensure the file system has registered the new file
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.setupFileWatcher()
+                logInfo("File watcher reinitialized after creating config file")
+            }
         }
     }
     
     private func setupFileWatcher() {
+        // Clear any existing watcher
+        self.fileWatcher = nil
+        
         self.fileWatcher = FileChangeWatcher(
             filePath: self.configFilePath,
             onChanged: { [weak self] in
@@ -1380,10 +1475,13 @@ class ConfigurationManager {
             }
         )
         
-        // Check if file doesn't exist initially - we'll need to reinitialize the watcher after creating it
-        let fileExists = FileManager.default.fileExists(atPath: self.configFilePath)
-        if !fileExists {
-            // Schedule a check to detect when the file is created
+        // For newly created files, force an initial metadata check
+        if fileManager.fileExists(atPath: self.configFilePath) {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.fileWatcher?.forceInitialMetadataCheck()
+            }
+        } else {
+            // If file doesn't exist, set up a periodic check to detect when it's created
             let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
             timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
             timer.setEventHandler { [weak self] in
@@ -1392,20 +1490,14 @@ class ConfigurationManager {
                     return
                 }
                 
-                if FileManager.default.fileExists(atPath: self.configFilePath) {
+                if self.fileManager.fileExists(atPath: self.configFilePath) {
                     // File now exists, reinitialize the watcher
-                    self.fileWatcher = nil
                     self.setupFileWatcher()
-                    logInfo("File watcher reinitialized after config file creation")
+                    logInfo("File watcher initialized after config file was created")
                     timer.cancel()
                 }
             }
             timer.resume()
-        } else {
-            // Force an immediate check of the file metadata after setting up the watcher
-            DispatchQueue.global(qos: .utility).async { [weak self] in
-                self?.fileWatcher?.forceInitialMetadataCheck()
-            }
         }
     }
     
@@ -1438,7 +1530,7 @@ class ConfigurationManager {
     }
     
     func saveConfig() {
-        let fileExistedBefore = FileManager.default.fileExists(atPath: configFilePath)
+        let fileExistedBefore = fileManager.fileExists(atPath: configFilePath)
         
         do {
             let encoder = JSONEncoder()
@@ -1447,9 +1539,11 @@ class ConfigurationManager {
             try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
             
             // If file didn't exist before but now does, reinitialize the watcher
-            if !fileExistedBefore && FileManager.default.fileExists(atPath: configFilePath) {
-                setupFileWatcher()
-                logInfo("File watcher reinitialized after creating config file")
+            if !fileExistedBefore && fileManager.fileExists(atPath: configFilePath) {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.setupFileWatcher()
+                    logInfo("File watcher reinitialized after creating config file")
+                }
             }
         } catch {
             logError("Error saving configuration: \(error.localizedDescription)")
@@ -1459,8 +1553,8 @@ class ConfigurationManager {
     // Update configuration with command line arguments and save
     func updateFromCommandLine(
         watchPath: String? = nil,
-        serverOnly: Bool? = nil,
-        watchOnly: Bool? = nil,
+        server: Bool? = nil,
+        watcher: Bool? = nil,
         noUpdates: Bool? = nil,
         noNoti: Bool? = nil
     ) {
@@ -1468,11 +1562,11 @@ class ConfigurationManager {
             if let watchPath = watchPath {
                 config.defaults.watch = watchPath
             }
-            if let serverOnly = serverOnly {
-                config.defaults.serverOnly = serverOnly
+            if let server = server {
+                config.defaults.server = server
             }
-            if let watchOnly = watchOnly {
-                config.defaults.watchOnly = watchOnly
+            if let watcher = watcher {
+                config.defaults.watcher = watcher
             }
             if let noUpdates = noUpdates {
                 config.defaults.noUpdates = noUpdates
@@ -1481,21 +1575,14 @@ class ConfigurationManager {
                 config.defaults.noNoti = noNoti
             }
             
-            // Call the non-synced version inside the current sync block
-            do {
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
-                let data = try encoder.encode(config)
-                try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
-                
-                // Send notification immediately after successful save
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
-                    logInfo("Configuration updated from command line")
-                    notify(title: "Macrowhisper", message: "Configuration updated")
-                }
-            } catch {
-                logError("Error saving configuration: \(error.localizedDescription)")
+            // Save the configuration
+            saveConfig()
+            
+            // Send notification immediately after successful save
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
+                logInfo("Configuration updated from command line")
+                notify(title: "Macrowhisper", message: "Configuration updated")
             }
         }
     }
@@ -1537,14 +1624,14 @@ func printHelp() {
     Server and/or folder watcher for Superwhisper integration.
 
     OPTIONS:
-      -c, --config <path>   Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
-      -w, --watch  <path>   Path to superwhisper folder (overrides config)
-          --server-only     Only run proxy server (no folder watching)
-          --watch-only      Only run folder watcher (no server)
-          --no-updates      Disable automatic update checking
-          --no-noti         Disable all notifications
-      -h, --help            Show this help message
-      -v, --version         Show version information
+      -c, --config <path>     Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
+      -w, --watch <path>      Path to superwhisper folder (overrides config)
+          --server true/false Enable or disable the proxy server (overrides config)
+          --watcher true/false Enable or disable the folder watcher (overrides config)
+          --no-updates        Disable automatic update checking
+          --no-noti           Disable all notifications
+      -h, --help              Show this help message
+      -v, --version           Show version information
 
     Examples:
       macrowhisper
@@ -1552,7 +1639,7 @@ func printHelp() {
 
       macrowhisper --config ~/custom-config.json
 
-      macrowhisper --watch ~/otherfolder/superwhisper --watch-only
+      macrowhisper --watch ~/otherfolder/superwhisper --watcher true
 
     """)
 }
@@ -1561,8 +1648,8 @@ func printHelp() {
 let configManager: ConfigurationManager
 var configPath: String? = nil
 var watchPath: String? = nil
-var serverOnly: Bool? = nil
-var watchOnly: Bool? = nil
+var serverFlag: Bool? = nil
+var watcherFlag: Bool? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -1584,12 +1671,22 @@ while i < args.count {
         }
         watchPath = args[i + 1]
         i += 2
-    case "--server-only":
-        serverOnly = true
-        i += 1
-    case "--watch-only":
-        watchOnly = true
-        i += 1
+    case "--server":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        let value = args[i + 1].lowercased()
+        serverFlag = value == "true" || value == "yes" || value == "1"
+        i += 2
+    case "--watcher":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        let value = args[i + 1].lowercased()
+        watcherFlag = value == "true" || value == "yes" || value == "1"
+        i += 2
     case "--no-updates":
         disableUpdates = true
         i += 1
@@ -1616,8 +1713,8 @@ configManager = ConfigurationManager(configPath: configPath)
 // Update config with command line arguments
 configManager.updateFromCommandLine(
     watchPath: watchPath,
-    serverOnly: serverOnly,
-    watchOnly: watchOnly,
+    server: serverFlag,
+    watcher: watcherFlag,
     noUpdates: disableUpdates,
     noNoti: disableNotifications
 )
@@ -1625,15 +1722,20 @@ configManager.updateFromCommandLine(
 // Apply configuration to global variables
 let config = configManager.config
 let watchFolderPath = config.defaults.watch
-var runServer = !config.defaults.watchOnly
-var runWatcher = !config.defaults.serverOnly
 disableUpdates = config.defaults.noUpdates
 disableNotifications = config.defaults.noNoti
 
+// Check feature availability
+let runServer = checkServerAvailability()
+let runWatcher = checkWatcherAvailability()
+
+// Initialize features based on availability
+if runServer {
+    initializeServer()
+}
+
 if runWatcher {
-    folderExistsOrExit(watchFolderPath, what: "Superwhisper folder")
-    let recordingsPath = "\(watchFolderPath)/recordings"
-    folderExistsOrExit(recordingsPath, what: "Recordings folder")
+    initializeWatcher(watchFolderPath)
 }
 
 // ---
@@ -1716,53 +1818,39 @@ if runWatcher {
     }
 }
 
-// Set up configuration change handler
+// Set up configuration change handler for live updates
 configManager.onConfigChanged = {
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
     disableNotifications = configManager.config.defaults.noNoti
     
-    // Handle changes to watch/server modes
-    let newRunServer = !configManager.config.defaults.watchOnly
-    let newRunWatcher = !configManager.config.defaults.serverOnly
-    
-    // Handle server changes
-    if newRunServer && server == nil {
-        // Start server if it was off
-        server = HttpServer()
-        let port: in_port_t = 11434
-        if isPortAvailable(port) {
-            // Load proxies from configuration before setting up routes
-            proxies = configManager.getProxiesDict()
-            setupServerRoutes(server: server!)
-            try? server!.start(port, forceIPv4: true)
-            logInfo("Proxy server started due to configuration change")
-        } else if !newRunServer && server != nil {
-            // Stop server if it was on
-            server?.stop()
-            server = nil
-            logInfo("Proxy server stopped due to configuration change")
+    // Check if server should be running
+    let shouldRunServer = configManager.config.defaults.server
+    if shouldRunServer && server == nil {
+        if checkServerAvailability() {
+            initializeServer()
         }
-        runServer = newRunServer
+    } else if !shouldRunServer && server != nil {
+        server?.stop()
+        server = nil
+        logInfo("Server stopped due to configuration change")
     }
     
-    // Handle watcher changes
-    if runWatcher != newRunWatcher {
-        if newRunWatcher && recordingsWatcher == nil {
-            let watchPath = configManager.config.defaults.watch
-            recordingsWatcher = RecordingsFolderWatcher(basePath: watchPath)
-            logInfo("Recordings watcher started due to configuration change")
-        } else if !newRunWatcher && recordingsWatcher != nil {
-            recordingsWatcher = nil
-            logInfo("Recordings watcher stopped due to configuration change")
-        }
-        runWatcher = newRunWatcher
-    }
+    // Check if watcher should be running
+    let shouldRunWatcher = configManager.config.defaults.watcher
+    let currentWatchPath = configManager.config.defaults.watch
     
-    // If watch path changed, restart watcher
-    if runWatcher && recordingsWatcher != nil && configManager.config.defaults.watch != watchFolderPath {
-        recordingsWatcher = RecordingsFolderWatcher(basePath: configManager.config.defaults.watch)
-        logInfo("Recordings watcher restarted with new path: \(configManager.config.defaults.watch)")
+    if shouldRunWatcher && recordingsWatcher == nil {
+        if checkWatcherAvailability() {
+            initializeWatcher(currentWatchPath)
+        }
+    } else if !shouldRunWatcher && recordingsWatcher != nil {
+        recordingsWatcher = nil
+        logInfo("Watcher stopped due to configuration change")
+    } else if shouldRunWatcher && recordingsWatcher != nil && currentWatchPath != watchFolderPath {
+        // Restart watcher with new path
+        recordingsWatcher = nil
+        initializeWatcher(currentWatchPath)
     }
 }
 
