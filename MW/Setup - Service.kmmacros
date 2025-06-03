@@ -75,6 +75,129 @@
 						<string>About</string>
 					</dict>
 					<dict>
+						<key>ActionUID</key>
+						<integer>15620853</integer>
+						<key>IsActive</key>
+						<false/>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>SetVariableToText</string>
+						<key>Text</key>
+						<string>%TriggerValue%</string>
+						<key>Variable</key>
+						<string>localInput</string>
+					</dict>
+					<dict>
+						<key>ActionName</key>
+						<string>Macro Group Version Check</string>
+						<key>ActionUID</key>
+						<integer>15620854</integer>
+						<key>Conditions</key>
+						<dict>
+							<key>ConditionList</key>
+							<array>
+								<dict>
+									<key>ConditionType</key>
+									<string>Variable</string>
+									<key>Variable</key>
+									<string>localInput</string>
+									<key>VariableConditionType</key>
+									<string>Is</string>
+									<key>VariableValue</key>
+									<string>versionCheck</string>
+								</dict>
+							</array>
+							<key>ConditionListMatch</key>
+							<string>All</string>
+						</dict>
+						<key>ElseActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15620856</integer>
+								<key>Conditions</key>
+								<dict>
+									<key>ConditionList</key>
+									<array>
+										<dict>
+											<key>ConditionType</key>
+											<string>Variable</string>
+											<key>Variable</key>
+											<string>localInput</string>
+											<key>VariableConditionType</key>
+											<string>Is</string>
+											<key>VariableValue</key>
+											<string>updateMacros</string>
+										</dict>
+									</array>
+									<key>ConditionListMatch</key>
+									<string>All</string>
+								</dict>
+								<key>ElseActions</key>
+								<array/>
+								<key>MacroActionType</key>
+								<string>IfThenElse</string>
+								<key>ThenActions</key>
+								<array>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15620858</integer>
+										<key>IsDefaultApplication</key>
+										<true/>
+										<key>MacroActionType</key>
+										<string>OpenURL</string>
+										<key>TimeOutAbortsMacro</key>
+										<true/>
+										<key>URL</key>
+										<string>https://github.com/ognistik/macrowhisper/releases/latest/</string>
+									</dict>
+									<dict>
+										<key>Action</key>
+										<string>CancelThisMacro</string>
+										<key>ActionUID</key>
+										<integer>15620857</integer>
+										<key>MacroActionType</key>
+										<string>Cancel</string>
+									</dict>
+								</array>
+								<key>TimeOutAbortsMacro</key>
+								<true/>
+							</dict>
+						</array>
+						<key>IsActive</key>
+						<false/>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>IfThenElse</string>
+						<key>ThenActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15620855</integer>
+								<key>MacroActionType</key>
+								<string>Return</string>
+								<key>Text</key>
+								<string>1.0.3</string>
+							</dict>
+						</array>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+					</dict>
+					<dict>
+						<key>Action</key>
+						<string>CancelThisMacro</string>
+						<key>ActionUID</key>
+						<integer>15620859</integer>
+						<key>IsActive</key>
+						<false/>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Cancel</string>
+					</dict>
+					<dict>
 						<key>ActionColor</key>
 						<string>Orange</string>
 						<key>ActionName</key>
@@ -1010,7 +1133,7 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>CustomIconData</key>
 				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=🔮=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>768880456.25074995</real>
+				<real>770608026.12608004</real>
 				<key>Name</key>
 				<string>Setup - Service</string>
 				<key>Triggers</key>
