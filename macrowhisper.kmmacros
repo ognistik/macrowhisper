@@ -31,575 +31,6 @@
 				<array>
 					<dict>
 						<key>ActionUID</key>
-						<integer>15612082</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Comment</string>
-						<key>StyledText</key>
-						<data>
-						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC4fAgAAKwAAAAEA
-						AAAXAgAAe1xydGYxXGFuc2lcYW5z
-						aWNwZzEyNTJcY29jb2FydGYyODIy
-						Clxjb2NvYXRleHRzY2FsaW5nMFxj
-						b2NvYXBsYXRmb3JtMHtcZm9udHRi
-						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
-						IEhlbHZldGljYTt9CntcY29sb3J0
-						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
-						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
-						bHVlMDt9CntcKlxleHBhbmRlZGNv
-						bG9ydGJsOztcY3NzcmdiXGMwXGMw
-						XGMwXGM4NDcwNlxjbmFtZSBjb250
-						cm9sVGV4dENvbG9yO30KXHBhcmRc
-						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
-						eDIyNDBcdHgyODAwXHR4MzM2MFx0
-						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
-						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
-						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
-						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
-						Y2YyIFRoaXMgaXMgYW4gZXhhbXBs
-						ZSBvZiBob3cgdG8gY3JlYXRlIG1p
-						Y3JvcyBieSB0ZXh0IGV4cGFuc2lv
-						biB0aGF0IGFsbG93IHRoZSB1c2Vy
-						IHRvIHBhc3RlIGRpZmZlcmVudCBy
-						ZXN1bHRzIGZyb20gdGhlIG1vc3Qg
-						cmVjZW50IGV4aXN0aW5nIGludGVy
-						YWN0aW9uIHdpdGggU1cufQEAAAAj
-						AAAAAQAAAAcAAABUWFQucnRmEAAA
-						AJpq/We2AQAAAAAAAAAAAAA=
-						</data>
-						<key>Title</key>
-						<string>About</string>
-					</dict>
-					<dict>
-						<key>ActionColor</key>
-						<string>Orange</string>
-						<key>ActionName</key>
-						<string>Path to Superwhisper folder - under user's home directory</string>
-						<key>ActionUID</key>
-						<integer>15612083</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>SetVariableToText</string>
-						<key>Text</key>
-						<string>/Documents/superwhisper</string>
-						<key>Variable</key>
-						<string>localDir</string>
-					</dict>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15612084</integer>
-						<key>DisplayKind</key>
-						<string>Variable</string>
-						<key>HonourFailureSettings</key>
-						<true/>
-						<key>IncludeStdErr</key>
-						<false/>
-						<key>IncludedVariables</key>
-						<array>
-							<string>9999</string>
-						</array>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>ExecuteShellScript</string>
-						<key>Path</key>
-						<string></string>
-						<key>Source</key>
-						<string>Nothing</string>
-						<key>Text</key>
-						<string>#!/bin/bash
-
-# Directory path from KMVAR_localDir
-dir="$HOME$KMVAR_localDir/recordings"
-
-# Check if directory exists
-if [ ! -d "$dir" ]; then
-    echo "Directory does not exist"
-    exit 1
-fi
-
-# Find the 15 most recently modified subdirectories (excluding . and ..)
-recent_dirs=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -print0 | xargs -0 ls -td | head -n 15)
-
-# Flag to track if valid meta.json is found
-found=0
-
-# Iterate through recent directories
-while IFS= read -r folder
-do
-    meta_path="$folder/meta.json"
-    # If meta.json exists
-    if [ -f "$meta_path" ]; then
-        # Use grep to check if 'result' key exists and has a non-empty value
-        if grep -Eq '"result"[[:space:]]*:[[:space:]]*"[^\"]+"' "$meta_path"; then
-            echo "$meta_path"
-            found=1
-            break
-        fi
-    fi
-done &lt;&lt;&lt; "$recent_dirs"
-
-# If no valid meta.json was found
-if [ $found -eq 0 ]; then
-    echo "No meta.json with a non-empty 'result' key found in the 15 most recent directories"
-    exit 1
-fi</string>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-						<key>TrimResults</key>
-						<true/>
-						<key>TrimResultsNew</key>
-						<true/>
-						<key>UseText</key>
-						<true/>
-						<key>Variable</key>
-						<string>localDir</string>
-					</dict>
-					<dict>
-						<key>ActionName</key>
-						<string>Read JSON and assign variables</string>
-						<key>ActionUID</key>
-						<integer>15612085</integer>
-						<key>Actions</key>
-						<array>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15612086</integer>
-								<key>Destination</key>
-								<string>Variable</string>
-								<key>IsDisclosed</key>
-								<false/>
-								<key>MacroActionType</key>
-								<string>ReadFile</string>
-								<key>Source</key>
-								<string>%localDir%</string>
-								<key>Variable</key>
-								<string>localMeta</string>
-							</dict>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15612087</integer>
-								<key>IsDisclosed</key>
-								<false/>
-								<key>MacroActionType</key>
-								<string>SetVariableToText</string>
-								<key>Text</key>
-								<string>%JSONValue%localMeta.rawResult%</string>
-								<key>Variable</key>
-								<string>localRaw</string>
-							</dict>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15612088</integer>
-								<key>IsDisclosed</key>
-								<false/>
-								<key>MacroActionType</key>
-								<string>SetVariableToText</string>
-								<key>Text</key>
-								<string>%JSONValue%localMeta.result%</string>
-								<key>Variable</key>
-								<string>localVoice</string>
-							</dict>
-							<dict>
-								<key>ActionName</key>
-								<string>Set localResult - Whether there's LLM or not</string>
-								<key>ActionUID</key>
-								<integer>15612091</integer>
-								<key>Conditions</key>
-								<dict>
-									<key>ConditionList</key>
-									<array>
-										<dict>
-											<key>ConditionType</key>
-											<string>Text</string>
-											<key>Text</key>
-											<string>%JSONValue%localMeta.llmResult%</string>
-											<key>TextConditionType</key>
-											<string>IsNot</string>
-											<key>TextValue</key>
-											<string></string>
-										</dict>
-									</array>
-									<key>ConditionListMatch</key>
-									<string>All</string>
-								</dict>
-								<key>ElseActions</key>
-								<array>
-									<dict>
-										<key>Action</key>
-										<string>IgnoreCaseString</string>
-										<key>ActionColor</key>
-										<string>Red</string>
-										<key>ActionName</key>
-										<string>Temp solution for double temp space bug on Voice-only modes</string>
-										<key>ActionUID</key>
-										<integer>15612096</integer>
-										<key>Destination</key>
-										<string>Variable</string>
-										<key>DestinationVariable</key>
-										<string>localResult</string>
-										<key>IsDisclosed</key>
-										<false/>
-										<key>MacroActionType</key>
-										<string>SearchReplace</string>
-										<key>Replace</key>
-										<string>. </string>
-										<key>Search</key>
-										<string>.  </string>
-										<key>Source</key>
-										<string>Text</string>
-										<key>Text</key>
-										<string>%JSONValue%localMeta.result%</string>
-										<key>Which</key>
-										<string>All</string>
-									</dict>
-									<dict>
-										<key>ActionUID</key>
-										<integer>15612097</integer>
-										<key>IsActive</key>
-										<false/>
-										<key>IsDisclosed</key>
-										<false/>
-										<key>MacroActionType</key>
-										<string>SetVariableToText</string>
-										<key>Text</key>
-										<string>%JSONValue%localMeta.result%</string>
-										<key>Variable</key>
-										<string>localResult</string>
-									</dict>
-								</array>
-								<key>IsDisclosed</key>
-								<false/>
-								<key>MacroActionType</key>
-								<string>IfThenElse</string>
-								<key>ThenActionListDisclosed</key>
-								<false/>
-								<key>ThenActions</key>
-								<array>
-									<dict>
-										<key>ActionUID</key>
-										<integer>15612095</integer>
-										<key>MacroActionType</key>
-										<string>SetVariableToText</string>
-										<key>Text</key>
-										<string>%JSONValue%localMeta.llmResult%</string>
-										<key>Variable</key>
-										<string>localResult</string>
-									</dict>
-								</array>
-								<key>TimeOutAbortsMacro</key>
-								<true/>
-							</dict>
-							<dict>
-								<key>ActionName</key>
-								<string>Set localPrompt</string>
-								<key>ActionUID</key>
-								<integer>15612883</integer>
-								<key>Conditions</key>
-								<dict>
-									<key>ConditionList</key>
-									<array>
-										<dict>
-											<key>ConditionType</key>
-											<string>Text</string>
-											<key>Text</key>
-											<string>%JSONValue%localMeta.prompt%</string>
-											<key>TextConditionType</key>
-											<string>Is</string>
-											<key>TextValue</key>
-											<string></string>
-										</dict>
-									</array>
-									<key>ConditionListMatch</key>
-									<string>All</string>
-								</dict>
-								<key>ElseActions</key>
-								<array>
-									<dict>
-										<key>ActionUID</key>
-										<integer>15612882</integer>
-										<key>MacroActionType</key>
-										<string>SetVariableToText</string>
-										<key>Text</key>
-										<string>%JSONValue%localMeta.prompt%</string>
-										<key>Variable</key>
-										<string>localPrompt</string>
-									</dict>
-								</array>
-								<key>IsDisclosed</key>
-								<false/>
-								<key>MacroActionType</key>
-								<string>IfThenElse</string>
-								<key>ThenActions</key>
-								<array>
-									<dict>
-										<key>ActionUID</key>
-										<integer>15612884</integer>
-										<key>MacroActionType</key>
-										<string>SetVariableToText</string>
-										<key>Text</key>
-										<string>[No AI Processing Found]</string>
-										<key>Variable</key>
-										<string>localPrompt</string>
-									</dict>
-								</array>
-								<key>TimeOutAbortsMacro</key>
-								<true/>
-							</dict>
-						</array>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Group</string>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-					</dict>
-					<dict>
-						<key>ActionName</key>
-						<string>👇️ How to CUSTOMIZE 👇️</string>
-						<key>ActionUID</key>
-						<integer>15612098</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Comment</string>
-						<key>StyledText</key>
-						<data>
-						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC75AgAAKwAAAAEA
-						AADxAgAAe1xydGYxXGFuc2lcYW5z
-						aWNwZzEyNTJcY29jb2FydGYyODIy
-						Clxjb2NvYXRleHRzY2FsaW5nMFxj
-						b2NvYXBsYXRmb3JtMHtcZm9udHRi
-						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
-						IEhlbHZldGljYTt9CntcY29sb3J0
-						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
-						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
-						bHVlMDt9CntcKlxleHBhbmRlZGNv
-						bG9ydGJsOztcY3NzcmdiXGMwXGMw
-						XGMwXGM4NDcwNlxjbmFtZSBjb250
-						cm9sVGV4dENvbG9yO30KXHBhcmRc
-						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
-						eDIyNDBcdHgyODAwXHR4MzM2MFx0
-						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
-						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
-						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
-						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
-						Y2YyIE5vdyB5b3UgaGF2ZSBmb3Vy
-						IHZhcmlhYmxlcyB0aGF0IHlvdSBj
-						YW4gdXNlIGluIGFueSB3YXkgeW91
-						IHdhbnQ6IFwKXApccGFyZFx0eDU2
-						MFx0eDExMjBcdHgxNjgwXHR4MjI0
-						MFx0eDI4MDBcdHgzMzYwXHR4Mzky
-						MFx0eDQ0ODBcdHg1MDQwXHR4NTYw
-						MFx0eDYxNjBcdHg2NzIwXHBhcmRp
-						cm5hdHVyYWxccGFydGlnaHRlbmZh
-						Y3RvcjAKXGNmMiAlbG9jYWxQcm9t
-						cHQlXApccGFyZFx0eDU2MFx0eDEx
-						MjBcdHgxNjgwXHR4MjI0MFx0eDI4
-						MDBcdHgzMzYwXHR4MzkyMFx0eDQ0
-						ODBcdHg1MDQwXHR4NTYwMFx0eDYx
-						NjBcdHg2NzIwXHBhcmRpcm5hdHVy
-						YWxccGFydGlnaHRlbmZhY3RvcjAK
-						XGNmMiAlbG9jYWxSYXclXAolbG9j
-						YWxWb2ljZSVcCiVsb2NhbFJlc3Vs
-						dCV9AQAAACMAAAABAAAABwAAAFRY
-						VC5ydGYQAAAAE3X+Z7YBAAAAAAAA
-						AAAAAA==
-						</data>
-						<key>Title</key>
-						<string>CUSTOMIZE</string>
-					</dict>
-					<dict>
-						<key>Action</key>
-						<string>ByPasting</string>
-						<key>ActionColor</key>
-						<string>Green</string>
-						<key>ActionName</key>
-						<string>Insert your variable to expand</string>
-						<key>ActionUID</key>
-						<integer>15612099</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>InsertText</string>
-						<key>Text</key>
-						<string>%localResult%</string>
-					</dict>
-				</array>
-				<key>CreationDate</key>
-				<real>751740389.64320898</real>
-				<key>CustomIconData</key>
-				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=⚡=86=0=0=1=KMCOLOR:0,0,0,255</string>
-				<key>ModificationDate</key>
-				<real>766548482.44417596</real>
-				<key>Name</key>
-				<string>* TextExpand</string>
-				<key>Triggers</key>
-				<array/>
-				<key>UID</key>
-				<string>4049357B-01E4-4E23-9C7B-7822A3008D5B</string>
-			</dict>
-		</array>
-		<key>Name</key>
-		<string>MW</string>
-		<key>ToggleMacroUID</key>
-		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
-		<key>UID</key>
-		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
-	</dict>
-	<dict>
-		<key>Activate</key>
-		<string>Normal</string>
-		<key>CreationDate</key>
-		<real>766159660.83051395</real>
-		<key>CustomIconData</key>
-		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
-		<key>DisplayInMenuBar</key>
-		<dict>
-			<key>Display</key>
-			<true/>
-			<key>IconType</key>
-			<string>No</string>
-			<key>IncludeAllMacros</key>
-			<false/>
-			<key>IncludeMacroIcons</key>
-			<true/>
-			<key>TitleType</key>
-			<string>Variable</string>
-			<key>TitleVariable</key>
-			<string>sw_menubar</string>
-		</dict>
-		<key>Macros</key>
-		<array>
-			<dict>
-				<key>Actions</key>
-				<array>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15611261</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Comment</string>
-						<key>StyledText</key>
-						<data>
-						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC6xAQAAKwAAAAEA
-						AACpAQAAe1xydGYxXGFuc2lcYW5z
-						aWNwZzEyNTJcY29jb2FydGYyODIy
-						Clxjb2NvYXRleHRzY2FsaW5nMFxj
-						b2NvYXBsYXRmb3JtMHtcZm9udHRi
-						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
-						IEhlbHZldGljYTt9CntcY29sb3J0
-						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
-						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
-						bHVlMDt9CntcKlxleHBhbmRlZGNv
-						bG9ydGJsOztcY3NzcmdiXGMwXGMw
-						XGMwXGM4NDcwNlxjbmFtZSBjb250
-						cm9sVGV4dENvbG9yO30KXHBhcmRc
-						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
-						eDIyNDBcdHgyODAwXHR4MzM2MFx0
-						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
-						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
-						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
-						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
-						Y2YyIFRoaXMgbWFjcm8gY2VudGVy
-						cyBhbGVydHMgZnJvbSBrZXlib2Fy
-						ZCBtYWVzdHJvLn0BAAAAIwAAAAEA
-						AAAHAAAAVFhULnJ0ZhAAAAC4afxn
-						tgEAAAAAAAAAAAAA
-						</data>
-						<key>Title</key>
-						<string>About</string>
-					</dict>
-					<dict>
-						<key>Action</key>
-						<string>CenterWindowAt</string>
-						<key>ActionUID</key>
-						<integer>15611262</integer>
-						<key>HeightExpression</key>
-						<string>300</string>
-						<key>HorizontalExpression</key>
-						<string>SCREENVISIBLE(Front,MidX)</string>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>ManipulateWindow</string>
-						<key>TargetApplication</key>
-						<dict>
-							<key>BundleIdentifier</key>
-							<string>com.stairways.keyboardmaestro.engine</string>
-							<key>Name</key>
-							<string>Keyboard Maestro Engine</string>
-							<key>NewFile</key>
-							<string>/Applications/Keyboard Maestro.app/Contents/MacOS/Keyboard Maestro Engine.app</string>
-						</dict>
-						<key>Targeting</key>
-						<string>FrontWindow</string>
-						<key>TargetingType</key>
-						<string>Specific</string>
-						<key>VerticalExpression</key>
-						<string>SCREENVISIBLE(Front,MidY)-100</string>
-						<key>WidthExpression</key>
-						<string>300</string>
-						<key>WindowIndexExpression</key>
-						<string>2</string>
-						<key>WindowName</key>
-						<string></string>
-					</dict>
-				</array>
-				<key>CreationDate</key>
-				<real>741116854.39251399</real>
-				<key>ModificationDate</key>
-				<real>766669538.79597497</real>
-				<key>Name</key>
-				<string>Setup - CenterAlerts</string>
-				<key>Triggers</key>
-				<array/>
-				<key>UID</key>
-				<string>9F09BD21-DBAC-43A9-8D9B-E244352B520F</string>
-			</dict>
-		</array>
-		<key>Name</key>
-		<string>MW</string>
-		<key>ToggleMacroUID</key>
-		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
-		<key>UID</key>
-		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
-	</dict>
-	<dict>
-		<key>Activate</key>
-		<string>Normal</string>
-		<key>CreationDate</key>
-		<real>766159660.83051395</real>
-		<key>CustomIconData</key>
-		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
-		<key>DisplayInMenuBar</key>
-		<dict>
-			<key>Display</key>
-			<true/>
-			<key>IconType</key>
-			<string>No</string>
-			<key>IncludeAllMacros</key>
-			<false/>
-			<key>IncludeMacroIcons</key>
-			<true/>
-			<key>TitleType</key>
-			<string>Variable</string>
-			<key>TitleVariable</key>
-			<string>sw_menubar</string>
-		</dict>
-		<key>Macros</key>
-		<array>
-			<dict>
-				<key>Actions</key>
-				<array>
-					<dict>
-						<key>ActionUID</key>
 						<integer>15612079</integer>
 						<key>IsDisclosed</key>
 						<false/>
@@ -650,6 +81,8 @@ fi</string>
 						<string>Path to Superwhisper folder - under user's home directory</string>
 						<key>ActionUID</key>
 						<integer>15611258</integer>
+						<key>IsActive</key>
+						<false/>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -662,6 +95,8 @@ fi</string>
 					<dict>
 						<key>ActionUID</key>
 						<integer>15620853</integer>
+						<key>IsActive</key>
+						<false/>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -748,6 +183,8 @@ fi</string>
 								<true/>
 							</dict>
 						</array>
+						<key>IsActive</key>
+						<false/>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -771,6 +208,8 @@ fi</string>
 						<string>CancelThisMacro</string>
 						<key>ActionUID</key>
 						<integer>15620859</integer>
+						<key>IsActive</key>
+						<false/>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -1696,7 +1135,7 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>CustomIconData</key>
 				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=🔮=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>770348933.560987</real>
+				<real>770607226.38678205</real>
 				<key>Name</key>
 				<string>Setup - Service</string>
 				<key>Triggers</key>
@@ -1749,20 +1188,651 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>Actions</key>
 				<array>
 					<dict>
-						<key>ActionName</key>
-						<string>Action Mode - Paste Chat</string>
 						<key>ActionUID</key>
-						<integer>15610867</integer>
-						<key>Asynchronously</key>
+						<integer>15611261</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Comment</string>
+						<key>StyledText</key>
+						<data>
+						cnRmZAAAAAADAAAAAgAAAAcAAABU
+						WFQucnRmAQAAAC6xAQAAKwAAAAEA
+						AACpAQAAe1xydGYxXGFuc2lcYW5z
+						aWNwZzEyNTJcY29jb2FydGYyODIy
+						Clxjb2NvYXRleHRzY2FsaW5nMFxj
+						b2NvYXBsYXRmb3JtMHtcZm9udHRi
+						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
+						IEhlbHZldGljYTt9CntcY29sb3J0
+						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
+						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
+						bHVlMDt9CntcKlxleHBhbmRlZGNv
+						bG9ydGJsOztcY3NzcmdiXGMwXGMw
+						XGMwXGM4NDcwNlxjbmFtZSBjb250
+						cm9sVGV4dENvbG9yO30KXHBhcmRc
+						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
+						eDIyNDBcdHgyODAwXHR4MzM2MFx0
+						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
+						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
+						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
+						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
+						Y2YyIFRoaXMgbWFjcm8gY2VudGVy
+						cyBhbGVydHMgZnJvbSBrZXlib2Fy
+						ZCBtYWVzdHJvLn0BAAAAIwAAAAEA
+						AAAHAAAAVFhULnJ0ZhAAAAC4afxn
+						tgEAAAAAAAAAAAAA
+						</data>
+						<key>Title</key>
+						<string>About</string>
+					</dict>
+					<dict>
+						<key>Action</key>
+						<string>CenterWindowAt</string>
+						<key>ActionUID</key>
+						<integer>15611262</integer>
+						<key>HeightExpression</key>
+						<string>300</string>
+						<key>HorizontalExpression</key>
+						<string>SCREENVISIBLE(Front,MidX)</string>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>ManipulateWindow</string>
+						<key>TargetApplication</key>
+						<dict>
+							<key>BundleIdentifier</key>
+							<string>com.stairways.keyboardmaestro.engine</string>
+							<key>Name</key>
+							<string>Keyboard Maestro Engine</string>
+							<key>NewFile</key>
+							<string>/Applications/Keyboard Maestro.app/Contents/MacOS/Keyboard Maestro Engine.app</string>
+						</dict>
+						<key>Targeting</key>
+						<string>FrontWindow</string>
+						<key>TargetingType</key>
+						<string>Specific</string>
+						<key>VerticalExpression</key>
+						<string>SCREENVISIBLE(Front,MidY)-100</string>
+						<key>WidthExpression</key>
+						<string>300</string>
+						<key>WindowIndexExpression</key>
+						<string>2</string>
+						<key>WindowName</key>
+						<string></string>
+					</dict>
+				</array>
+				<key>CreationDate</key>
+				<real>741116854.39251399</real>
+				<key>ModificationDate</key>
+				<real>766669538.79597497</real>
+				<key>Name</key>
+				<string>Setup - CenterAlerts</string>
+				<key>Triggers</key>
+				<array/>
+				<key>UID</key>
+				<string>9F09BD21-DBAC-43A9-8D9B-E244352B520F</string>
+			</dict>
+		</array>
+		<key>Name</key>
+		<string>MW</string>
+		<key>ToggleMacroUID</key>
+		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
+		<key>UID</key>
+		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
+	</dict>
+	<dict>
+		<key>Activate</key>
+		<string>Normal</string>
+		<key>CreationDate</key>
+		<real>766159660.83051395</real>
+		<key>CustomIconData</key>
+		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
+		<key>DisplayInMenuBar</key>
+		<dict>
+			<key>Display</key>
+			<true/>
+			<key>IconType</key>
+			<string>No</string>
+			<key>IncludeAllMacros</key>
+			<false/>
+			<key>IncludeMacroIcons</key>
+			<true/>
+			<key>TitleType</key>
+			<string>Variable</string>
+			<key>TitleVariable</key>
+			<string>sw_menubar</string>
+		</dict>
+		<key>Macros</key>
+		<array>
+			<dict>
+				<key>Actions</key>
+				<array>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15609632</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Comment</string>
+						<key>StyledText</key>
+						<data>
+						cnRmZAAAAAADAAAAAgAAAAcAAABU
+						WFQucnRmAQAAAC7/BQAAKwAAAAEA
+						AAD3BQAAe1xydGYxXGFuc2lcYW5z
+						aWNwZzEyNTJcY29jb2FydGYyODIy
+						Clxjb2NvYXRleHRzY2FsaW5nMFxj
+						b2NvYXBsYXRmb3JtMHtcZm9udHRi
+						bFxmMFxmbmlsXGZjaGFyc2V0MCBI
+						ZWx2ZXRpY2FOZXVlO30Ke1xjb2xv
+						cnRibDtccmVkMjU1XGdyZWVuMjU1
+						XGJsdWUyNTU7fQp7XCpcZXhwYW5k
+						ZWRjb2xvcnRibDs7fQp7XCpcbGlz
+						dHRhYmxle1xsaXN0XGxpc3R0ZW1w
+						bGF0ZWlkMVxsaXN0aHlicmlke1xs
+						aXN0bGV2ZWxcbGV2ZWxuZmMyM1xs
+						ZXZlbG5mY24yM1xsZXZlbGpjMFxs
+						ZXZlbGpjbjBcbGV2ZWxmb2xsb3cw
+						XGxldmVsc3RhcnRhdDFcbGV2ZWxz
+						cGFjZTM2MFxsZXZlbGluZGVudDB7
+						XCpcbGV2ZWxtYXJrZXIgXHtkaXNj
+						XH19e1xsZXZlbHRleHRcbGV2ZWx0
+						ZW1wbGF0ZWlkMVwnMDFcdWMwXHU4
+						MjI2IDt9e1xsZXZlbG51bWJlcnM7
+						fVxmaS0zNjBcbGk3MjBcbGluNzIw
+						IH17XGxpc3RuYW1lIDt9XGxpc3Rp
+						ZDF9fQp7XCpcbGlzdG92ZXJyaWRl
+						dGFibGV7XGxpc3RvdmVycmlkZVxs
+						aXN0aWQxXGxpc3RvdmVycmlkZWNv
+						dW50MFxsczF9fQpcZGVmdGFiNzIw
+						ClxwYXJkXHBhcmRlZnRhYjcyMFxz
+						YTE0MFxwYXJ0aWdodGVuZmFjdG9y
+						MAoKXGYwXGZzMjggXGNmMCBcZXhw
+						bmQwXGV4cG5kdHcwXGtlcm5pbmcw
+						ClRoZSBtZW51IGJhciBkaXNwbGF5
+						IHVwZGF0ZXMgd2hlbjpcClxwYXJk
+						XHR4MjIwXHR4NzIwXHBhcmRlZnRh
+						YjcyMFxsaTcyMFxmaS03MjBccGFy
+						dGlnaHRlbmZhY3RvcjAKXGxzMVxp
+						bHZsMFxjZjAgXGtlcm5pbmcxXGV4
+						cG5kMFxleHBuZHR3MCB7XGxpc3R0
+						ZXh0CVx1YzBcdTgyMjYgCX1cZXhw
+						bmQwXGV4cG5kdHcwXGtlcm5pbmcw
+						CkFuIEFjdGlvbiBNb2RlIGlzIHNl
+						dCBvciBkZWFjdGl2YXRlZFwKXGxz
+						MVxpbHZsMFxrZXJuaW5nMVxleHBu
+						ZDBcZXhwbmR0dzAge1xsaXN0dGV4
+						dAlcdWMwXHU4MjI2IAl9XGV4cG5k
+						MFxleHBuZHR3MFxrZXJuaW5nMApB
+						IG5ldyByZWNvcmRpbmcgc3RhcnRz
+						XApcbHMxXGlsdmwwXGtlcm5pbmcx
+						XGV4cG5kMFxleHBuZHR3MCB7XGxp
+						c3R0ZXh0CVx1YzBcdTgyMjYgCX1V
+						c2VyIHN3aXRjaGVzIFNXIE1vZGUg
+						XGV4cG5kMFxleHBuZHR3MFxrZXJu
+						aW5nMApXSElMRSB0aGUgcmVjb3Jk
+						aW5nIHdpbmRvdyBpcyBhY3RpdmVc
+						ClxsczFcaWx2bDBca2VybmluZzFc
+						ZXhwbmQwXGV4cG5kdHcwIHtcbGlz
+						dHRleHQJXHVjMFx1ODIyNiAJfVxl
+						eHBuZDBcZXhwbmR0dzBca2Vybmlu
+						ZzAKVGhlIHVzZXIgY2hhbmdlcyBT
+						VyBNb2RlIHVzaW5nIHRoZSBBbGZy
+						ZWQgV29ya2Zsb3cgKHJlZ2FyZGxl
+						c3Mgb2YgcmVjb3JkaW5nIHdpbmRv
+						dyBhY3RpdmUpXApccGFyZFxwYXJk
+						ZWZ0YWI3MjBccGFydGlnaHRlbmZh
+						Y3RvcjAKXGNmMCBcClxwYXJkXHBh
+						cmRlZnRhYjcyMFxzYTE0MFxwYXJ0
+						aWdodGVuZmFjdG9yMApcY2YwIFRo
+						ZSBBbGZyZWQgV29ya2Zsb3cgYWxz
+						byBoYXMgYSAiY29weVNlbGVjdCIg
+						aGVscGVyIHRvb2wuIFRoaXMgdG9v
+						bCAob3B0aW9uYWxseSkgdXBkYXRl
+						cyB0aGUgbWVudSBiYXIgaWYgdGhl
+						cmUncyBzZWxlY3RlZCB0ZXh0IHdo
+						ZW4gcmVjb3JkaW5nIHN0YXJ0cy59
+						AQAAACMAAAABAAAABwAAAFRYVC5y
+						dGYQAAAAEWP9Z7YBAAAAAAAAAAAA
+						AA==
+						</data>
+						<key>Title</key>
+						<string>On Menu Bar Display</string>
+					</dict>
+					<dict>
+						<key>ActionName</key>
+						<string>Run only one instance of this macro at the time</string>
+						<key>ActionUID</key>
+						<integer>15609652</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Semaphore</string>
+						<key>SemaphoreAction</key>
+						<string>Lock</string>
+						<key>SemaphoreName</key>
+						<string>SW MBar</string>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+					</dict>
+					<dict>
+						<key>ActionColor</key>
+						<string>Purple</string>
+						<key>ActionName</key>
+						<string>ALFRED - Display or clear copySelect</string>
+						<key>ActionUID</key>
+						<integer>15609653</integer>
+						<key>Conditions</key>
+						<dict>
+							<key>ConditionList</key>
+							<array>
+								<dict>
+									<key>ConditionType</key>
+									<string>Text</string>
+									<key>Text</key>
+									<string>%TriggerValue%</string>
+									<key>TextConditionType</key>
+									<string>Is</string>
+									<key>TextValue</key>
+									<string>getCopySelect</string>
+								</dict>
+							</array>
+							<key>ConditionListMatch</key>
+							<string>All</string>
+						</dict>
+						<key>ElseActionListDisclosed</key>
+						<false/>
+						<key>ElseActions</key>
+						<array/>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>IfThenElse</string>
+						<key>ThenActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15609654</integer>
+								<key>MacroActionType</key>
+								<string>SetVariableToText</string>
+								<key>Text</key>
+								<string>%Variable%sw_copySelect%</string>
+								<key>Variable</key>
+								<string>localCopySelect</string>
+							</dict>
+						</array>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+					</dict>
+					<dict>
+						<key>ActionName</key>
+						<string>Display Action Mode if one is active, or clear if not</string>
+						<key>ActionUID</key>
+						<integer>15609655</integer>
+						<key>Conditions</key>
+						<dict>
+							<key>ConditionList</key>
+							<array>
+								<dict>
+									<key>ConditionType</key>
+									<string>Variable</string>
+									<key>Variable</key>
+									<string>sw_actionMode</string>
+									<key>VariableConditionType</key>
+									<string>IsNot</string>
+									<key>VariableValue</key>
+									<string></string>
+								</dict>
+							</array>
+							<key>ConditionListMatch</key>
+							<string>All</string>
+						</dict>
+						<key>ElseActionListDisclosed</key>
+						<false/>
+						<key>ElseActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15609661</integer>
+								<key>IsDisclosed</key>
+								<false/>
+								<key>MacroActionType</key>
+								<string>SetVariableToText</string>
+								<key>Text</key>
+								<string></string>
+								<key>Variable</key>
+								<string>localAMode</string>
+							</dict>
+						</array>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>IfThenElse</string>
+						<key>ThenActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15609656</integer>
+								<key>Conditions</key>
+								<dict>
+									<key>ConditionList</key>
+									<array>
+										<dict>
+											<key>ConditionType</key>
+											<string>Variable</string>
+											<key>Variable</key>
+											<string>sw_actionMode</string>
+											<key>VariableConditionType</key>
+											<string>Is</string>
+											<key>VariableValue</key>
+											<string>pasteResult</string>
+										</dict>
+									</array>
+									<key>ConditionListMatch</key>
+									<string>All</string>
+								</dict>
+								<key>ElseActions</key>
+								<array>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15609658</integer>
+										<key>Conditions</key>
+										<dict>
+											<key>ConditionList</key>
+											<array>
+												<dict>
+													<key>ConditionType</key>
+													<string>Variable</string>
+													<key>Variable</key>
+													<string>sw_actionMode</string>
+													<key>VariableConditionType</key>
+													<string>Is</string>
+													<key>VariableValue</key>
+													<string>pasteChat</string>
+												</dict>
+											</array>
+											<key>ConditionListMatch</key>
+											<string>All</string>
+										</dict>
+										<key>ElseActions</key>
+										<array>
+											<dict>
+												<key>ActionUID</key>
+												<integer>15609660</integer>
+												<key>MacroActionType</key>
+												<string>SetVariableToText</string>
+												<key>Text</key>
+												<string>𓇬 </string>
+												<key>Variable</key>
+												<string>localAMode</string>
+											</dict>
+										</array>
+										<key>MacroActionType</key>
+										<string>IfThenElse</string>
+										<key>ThenActions</key>
+										<array>
+											<dict>
+												<key>ActionUID</key>
+												<integer>15609659</integer>
+												<key>MacroActionType</key>
+												<string>SetVariableToText</string>
+												<key>Text</key>
+												<string>⇄ </string>
+												<key>Variable</key>
+												<string>localAMode</string>
+											</dict>
+										</array>
+										<key>TimeOutAbortsMacro</key>
+										<true/>
+									</dict>
+								</array>
+								<key>MacroActionType</key>
+								<string>IfThenElse</string>
+								<key>ThenActions</key>
+								<array>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15609657</integer>
+										<key>MacroActionType</key>
+										<string>SetVariableToText</string>
+										<key>Text</key>
+										<string>⏎ </string>
+										<key>Variable</key>
+										<string>localAMode</string>
+									</dict>
+								</array>
+								<key>TimeOutAbortsMacro</key>
+								<true/>
+							</dict>
+						</array>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+					</dict>
+					<dict>
+						<key>ActionName</key>
+						<string>1.45.14 and below - Grab Active Mode from SW Menu</string>
+						<key>ActionUID</key>
+						<integer>15609662</integer>
+						<key>DisplayKind</key>
+						<string>Variable</string>
+						<key>HonourFailureSettings</key>
+						<true/>
+						<key>IncludeStdErr</key>
+						<false/>
+						<key>IncludedVariables</key>
+						<array>
+							<string>9999</string>
+						</array>
+						<key>IsActive</key>
 						<false/>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
+						<string>ExecuteAppleScript</string>
+						<key>Path</key>
+						<string></string>
+						<key>StopOnFailure</key>
+						<false/>
+						<key>Text</key>
+						<string>tell application "System Events"	tell process "superwhisper"
+		try		set menuItemName to name of menu item 7 of menu "superwhisper" of menu bar item 1 of menu bar 2
+		return menuItemName
+		end try	end tellend tell</string>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+						<key>TimeOutPeriod</key>
+						<real>3600</real>
+						<key>TrimResults</key>
+						<true/>
+						<key>TrimResultsNew</key>
+						<true/>
+						<key>UseText</key>
+						<true/>
+						<key>Variable</key>
+						<string>localPreMenuBar</string>
+					</dict>
+					<dict>
+						<key>Action</key>
+						<string>IgnoreCaseRegEx</string>
+						<key>ActionName</key>
+						<string>1.45.14 and below - Clean up parentheses from active mode from SW Menu</string>
+						<key>ActionUID</key>
+						<integer>15609663</integer>
+						<key>Destination</key>
+						<string>Variable</string>
+						<key>DestinationVariable</key>
+						<string>sw_currentMode</string>
+						<key>IsActive</key>
+						<false/>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>SearchReplace</string>
+						<key>Replace</key>
+						<string></string>
+						<key>Search</key>
+						<string>\s*\([^()]*\)(?=[^()]*$)</string>
+						<key>Source</key>
+						<string>Variable</string>
+						<key>Variable</key>
+						<string>localPreMenuBar</string>
+						<key>Which</key>
+						<string>All</string>
+					</dict>
+					<dict>
+						<key>ActionName</key>
+						<string>1.46.0 and above - Grab Active Mode from SW Menu</string>
+						<key>ActionUID</key>
+						<integer>15619671</integer>
+						<key>DisplayKind</key>
+						<string>Variable</string>
+						<key>HonourFailureSettings</key>
+						<true/>
+						<key>IncludeStdErr</key>
+						<false/>
+						<key>IncludedVariables</key>
+						<array>
+							<string>9999</string>
+						</array>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>ExecuteAppleScript</string>
+						<key>Path</key>
+						<string></string>
+						<key>StopOnFailure</key>
+						<false/>
+						<key>Text</key>
+						<string>tell application "System Events"
+	tell process "superwhisper"
+		try
+			-- Get the submenu
+			set theSubmenu to menu 1 of menu item 7 of menu "superwhisper" of menu bar item 1 of menu bar 2
+			
+			-- Look through all items in the submenu to find one with a checkmark
+			set checkedItem to ""
+			repeat with menuItem in menu items of theSubmenu
+				if value of attribute "AXMenuItemMarkChar" of menuItem is not missing value then
+					set checkedItem to name of menuItem
+					exit repeat
+				end if
+			end repeat
+			
+			return checkedItem
+		end try
+	end tell
+end tell</string>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+						<key>TimeOutPeriod</key>
+						<real>3600</real>
+						<key>TrimResults</key>
+						<true/>
+						<key>TrimResultsNew</key>
+						<true/>
+						<key>UseText</key>
+						<true/>
+						<key>Variable</key>
+						<string>sw_currentMode</string>
+					</dict>
+					<dict>
+						<key>ActionColor</key>
+						<string>Green</string>
+						<key>ActionName</key>
+						<string>Menu Bar text</string>
+						<key>ActionUID</key>
+						<integer>15609664</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>SetVariableToText</string>
+						<key>Text</key>
+						<string>%localCopySelect%%localAMode%%sw_currentMode%</string>
+						<key>Variable</key>
+						<string>sw_menubar</string>
+					</dict>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15610469</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Semaphore</string>
+						<key>SemaphoreAction</key>
+						<string>Unlock</string>
+						<key>SemaphoreName</key>
+						<string>SW MBar</string>
+					</dict>
+				</array>
+				<key>CreationDate</key>
+				<real>766170666.06472099</real>
+				<key>CustomIconData</key>
+				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💡=86=0=0=1=KMCOLOR:0,0,0,255</string>
+				<key>ModificationDate</key>
+				<real>770143764.82828403</real>
+				<key>Name</key>
+				<string>MW MBar</string>
+				<key>Triggers</key>
+				<array>
+					<dict>
+						<key>AutoRun</key>
+						<false/>
+						<key>Display</key>
+						<string>Update MBar</string>
+						<key>MacroTriggerType</key>
+						<string>GroupStatusMenu</string>
+					</dict>
+				</array>
+				<key>UID</key>
+				<string>EBECEC76-6E27-4839-B873-3AC55158B3F4</string>
+			</dict>
+		</array>
+		<key>Name</key>
+		<string>MW</string>
+		<key>ToggleMacroUID</key>
+		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
+		<key>UID</key>
+		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
+	</dict>
+	<dict>
+		<key>Activate</key>
+		<string>Normal</string>
+		<key>CreationDate</key>
+		<real>766159660.83051395</real>
+		<key>CustomIconData</key>
+		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
+		<key>DisplayInMenuBar</key>
+		<dict>
+			<key>Display</key>
+			<true/>
+			<key>IconType</key>
+			<string>No</string>
+			<key>IncludeAllMacros</key>
+			<false/>
+			<key>IncludeMacroIcons</key>
+			<true/>
+			<key>TitleType</key>
+			<string>Variable</string>
+			<key>TitleVariable</key>
+			<string>sw_menubar</string>
+		</dict>
+		<key>Macros</key>
+		<array>
+			<dict>
+				<key>Actions</key>
+				<array>
+					<dict>
+						<key>ActionName</key>
+						<string>Action Mode - Paste Result</string>
+						<key>ActionUID</key>
+						<integer>15555622</integer>
+						<key>Asynchronously</key>
+						<false/>
+						<key>MacroActionType</key>
 						<string>ExecuteMacro</string>
 						<key>MacroUID</key>
-						<string>12C54B71-124F-4F14-A70D-4E9D1A034CB2</string>
+						<string>8EBAFA85-7DB2-427F-8CCC-9CC78E5CA6E9</string>
 						<key>Parameter</key>
-						<string>on</string>
+						<string>pasteResult</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 						<key>UseParameter</key>
@@ -1772,15 +1842,24 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>CreationDate</key>
 				<real>751740389.64320898</real>
 				<key>CustomIconData</key>
-				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=⚡=86=0=0=1=KMCOLOR:0,0,0,255</string>
+				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💎=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>768880440.71704304</real>
+				<real>770594444.69359398</real>
 				<key>Name</key>
-				<string>* AutoSend</string>
+				<string>AM - PasteResult</string>
 				<key>Triggers</key>
-				<array/>
+				<array>
+					<dict>
+						<key>AutoRun</key>
+						<false/>
+						<key>Display</key>
+						<string>AM: Paste Result</string>
+						<key>MacroTriggerType</key>
+						<string>GroupStatusMenu</string>
+					</dict>
+				</array>
 				<key>UID</key>
-				<string>F6965319-61E1-482E-A5F5-D093AEDEA12C</string>
+				<string>0A88C4F9-1ABF-4176-85BA-6E8AB65461A2</string>
 			</dict>
 		</array>
 		<key>Name</key>
@@ -1912,8 +1991,6 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 								<string>Will proceed to set action mode.</string>
 								<key>ActionUID</key>
 								<integer>15609641</integer>
-								<key>IsDisclosed</key>
-								<false/>
 								<key>MacroActionType</key>
 								<string>SetVariableToText</string>
 								<key>Text</key>
@@ -1927,8 +2004,6 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 								<key>ActionUID</key>
 								<integer>15609648</integer>
 								<key>Asynchronously</key>
-								<false/>
-								<key>IsDisclosed</key>
 								<false/>
 								<key>MacroActionType</key>
 								<string>ExecuteMacro</string>
@@ -2124,8 +2199,6 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 								<true/>
 							</dict>
 						</array>
-						<key>IsDisclosed</key>
-						<false/>
 						<key>MacroActionType</key>
 						<string>IfThenElse</string>
 						<key>ThenActions</key>
@@ -2255,7 +2328,7 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>CustomIconData</key>
 				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=📌=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>770064609.94251299</real>
+				<real>770594637.65356803</real>
 				<key>Name</key>
 				<string>MW SetAction</string>
 				<key>Triggers</key>
@@ -2665,10 +2738,543 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>Actions</key>
 				<array>
 					<dict>
-						<key>ActionName</key>
-						<string>Action Mode - Paste Result</string>
 						<key>ActionUID</key>
-						<integer>15555622</integer>
+						<integer>15609687</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Comment</string>
+						<key>StyledText</key>
+						<data>
+						cnRmZAAAAAADAAAAAgAAAAcAAABU
+						WFQucnRmAQAAAC5HBAAAKwAAAAEA
+						AAA/BAAAe1xydGYxXGFuc2lcYW5z
+						aWNwZzEyNTJcY29jb2FydGYyODIy
+						Clxjb2NvYXRleHRzY2FsaW5nMFxj
+						b2NvYXBsYXRmb3JtMHtcZm9udHRi
+						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
+						IEhlbHZldGljYTt9CntcY29sb3J0
+						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
+						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
+						bHVlMDt9CntcKlxleHBhbmRlZGNv
+						bG9ydGJsOztcY3NzcmdiXGMwXGMw
+						XGMwXGM4NDcwNlxjbmFtZSBjb250
+						cm9sVGV4dENvbG9yO30KXHBhcmRc
+						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
+						eDIyNDBcdHgyODAwXHR4MzM2MFx0
+						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
+						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
+						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
+						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
+						Y2YyIFRoaXMgbWFjcm8gaXMgbWVh
+						bnQgdG8gYmUgdXNlZCBpbiB0aG9z
+						ZSBjYXNlcyB3aGVyZSB5b3Ugd2Fu
+						dCB0byB1c2UgdGV4dCBvbmx5IHRv
+						IGNoYXQgd2l0aCBBSSB2aWEgU3Vw
+						ZXJ3aGlzcGVyLiBJdCBkb2VzIHR3
+						byB0aGluZ3MsIGl0IHdpbGwgb3Bl
+						biBhIHByZXZpb3VzbHkgcmVjb3Jk
+						ZWQgYXVkaW8gZmlsZSB3aXRoIFN1
+						cGVyd2hpc3BlciBhbmQgaXQgd2ls
+						bCBjaGFuZ2UgdGhlICJhY3Rpb24g
+						bW9kZS4iIFRoaXMgcmVxdWlyZXMg
+						eW91IHRvIHJlY29yZCBhbiBhdWRp
+						byBmaWxlIHByZXZpb3VzbHkgYW5k
+						IHNhdmUgaXQgaW4geW91ciBoYXJk
+						IGRyaXZlLiBJIGhhdmUgZm91bmQg
+						dGhhdCB0aGUgZm9sbG93aW5nIHRl
+						eHQgd29ya3MgZ3JlYXQgYW5kIGRv
+						ZXNuJ3QgY29uZmxpY3Qgd2l0aCBh
+						bGwgbXkgU1cgbW9kZXMsIGJ1dCBm
+						ZWVsIGZyZWUgdG8gZXhwZXJpbWVu
+						dC5cClwKIkluIHRoaXMgc3BlY2lm
+						aWMgY2FzZSwgdGhlIHVzZXIgbWVz
+						c2FnZSBpcyBmb3VuZCBpbnNpZGUg
+						QXBwbGljYXRpb24gQ29udGV4dC4g
+						QW5zd2VyIGluIHRoZSBzYW1lIGxh
+						bmd1YWdlIHlvdSBmaW5kIHRoZSB1
+						c2VyIGFza3MgeW91IGluIEFwcGxp
+						Y2F0aW9uIENvbnRleHQsIHVubGVz
+						cyBvdGhlcndpc2Ugc3BlY2lmaWVk
+						LiBEbyBub3QgcmVmZXIgdG8gdGhp
+						cyB1c2VyIG1lc3NhZ2UuIEV2ZXJ5
+						dGhpbmcgeW91IG5lZWQgaXMgaW4g
+						QXBwbGljYXRpb24gQ29udGV4dC4i
+						fQEAAAAjAAAAAQAAAAcAAABUWFQu
+						cnRmEAAAAOXC+me2AQAAAAAAAAAA
+						AAA=
+						</data>
+						<key>Title</key>
+						<string>About</string>
+					</dict>
+					<dict>
+						<key>ActionColor</key>
+						<string>Orange</string>
+						<key>ActionName</key>
+						<string>Path to your instruction audio file - under user's home directory</string>
+						<key>ActionUID</key>
+						<integer>15609686</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>SetVariableToText</string>
+						<key>Text</key>
+						<string>/Dropbox/2-Areas/SystemAndApps/superwhisper/swTextOnly.wav</string>
+						<key>Variable</key>
+						<string>localRec</string>
+					</dict>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15609667</integer>
+						<key>DisplayKind</key>
+						<string>Window</string>
+						<key>HonourFailureSettings</key>
+						<true/>
+						<key>IncludeStdErr</key>
+						<false/>
+						<key>IncludedVariables</key>
+						<array>
+							<string>9999</string>
+						</array>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>ExecuteShellScript</string>
+						<key>Path</key>
+						<string></string>
+						<key>Source</key>
+						<string>Nothing</string>
+						<key>Text</key>
+						<string># Store the current focused app by bundle ID
+current_app_bundle=$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true')
+
+# Open file in background
+open -g -a "superwhisper" "$HOME$KMVAR_localRec"
+
+# Activate the original app using bundle identifier
+osascript -e "tell application id \"$current_app_bundle\" to activate"</string>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+						<key>TrimResults</key>
+						<true/>
+						<key>TrimResultsNew</key>
+						<true/>
+						<key>UseText</key>
+						<true/>
+					</dict>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15609668</integer>
+						<key>Conditions</key>
+						<dict>
+							<key>ConditionList</key>
+							<array>
+								<dict>
+									<key>ConditionType</key>
+									<string>Variable</string>
+									<key>Variable</key>
+									<string>sw_actionMode</string>
+									<key>VariableConditionType</key>
+									<string>IsNot</string>
+									<key>VariableValue</key>
+									<string>textChat</string>
+								</dict>
+							</array>
+							<key>ConditionListMatch</key>
+							<string>All</string>
+						</dict>
+						<key>ElseActionListDisclosed</key>
+						<false/>
+						<key>ElseActions</key>
+						<array/>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>IfThenElse</string>
+						<key>ThenActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15609669</integer>
+								<key>Asynchronously</key>
+								<false/>
+								<key>MacroActionType</key>
+								<string>ExecuteMacro</string>
+								<key>MacroUID</key>
+								<string>8EBAFA85-7DB2-427F-8CCC-9CC78E5CA6E9</string>
+								<key>Parameter</key>
+								<string>textChat</string>
+								<key>TimeOutAbortsMacro</key>
+								<true/>
+								<key>UseParameter</key>
+								<true/>
+							</dict>
+						</array>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+					</dict>
+				</array>
+				<key>CreationDate</key>
+				<real>763660648.19431305</real>
+				<key>CustomIconData</key>
+				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💎=86=0=0=1=KMCOLOR:0,0,0,255</string>
+				<key>ModificationDate</key>
+				<real>766545635.874874</real>
+				<key>Name</key>
+				<string>AM - TextChat</string>
+				<key>Triggers</key>
+				<array/>
+				<key>UID</key>
+				<string>7C28DBE8-2EF5-4FEE-A35C-972B7A3F135B</string>
+			</dict>
+		</array>
+		<key>Name</key>
+		<string>MW</string>
+		<key>ToggleMacroUID</key>
+		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
+		<key>UID</key>
+		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
+	</dict>
+	<dict>
+		<key>Activate</key>
+		<string>Normal</string>
+		<key>CreationDate</key>
+		<real>766159660.83051395</real>
+		<key>CustomIconData</key>
+		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
+		<key>DisplayInMenuBar</key>
+		<dict>
+			<key>Display</key>
+			<true/>
+			<key>IconType</key>
+			<string>No</string>
+			<key>IncludeAllMacros</key>
+			<false/>
+			<key>IncludeMacroIcons</key>
+			<true/>
+			<key>TitleType</key>
+			<string>Variable</string>
+			<key>TitleVariable</key>
+			<string>sw_menubar</string>
+		</dict>
+		<key>Macros</key>
+		<array>
+			<dict>
+				<key>Actions</key>
+				<array>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15609594</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Comment</string>
+						<key>StyledText</key>
+						<data>
+						cnRmZAAAAAADAAAAAgAAAAcAAABU
+						WFQucnRmAQAAAC4oAwAAKwAAAAEA
+						AAAgAwAAe1xydGYxXGFuc2lcYW5z
+						aWNwZzEyNTJcY29jb2FydGYyODIy
+						Clxjb2NvYXRleHRzY2FsaW5nMFxj
+						b2NvYXBsYXRmb3JtMHtcZm9udHRi
+						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
+						IEhlbHZldGljYTt9CntcY29sb3J0
+						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
+						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
+						bHVlMDt9CntcKlxleHBhbmRlZGNv
+						bG9ydGJsOztcY3NzcmdiXGMwXGMw
+						XGMwXGM4NDcwNlxjbmFtZSBjb250
+						cm9sVGV4dENvbG9yO30KXHBhcmRc
+						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
+						eDIyNDBcdHgyODAwXHR4MzM2MFx0
+						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
+						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
+						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
+						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
+						Y2YyIFRoaXMgbWFjcm8gc2ltdWxh
+						dGVzIHRoZSAiYXV0by1zZW5kIiBh
+						Y3Rpb24gdGhhdCBpcyBpbnRlZ3Jh
+						dGVkIHdpdGhpbiBTdXBlcndoaXNw
+						ZXIgaXRzZWxmIHdoZW4gcHJlc3Np
+						bmcgc2hpZnQuIFRoZXJlJ3MgdGhl
+						IHNpZGUgYWR2YW50YWdlIHRoYXQg
+						dGhpcyBvbmUgaXMgYWN0aXZhdGVk
+						IGV4YWN0bHkgd2hlbiB0aGUgZGlj
+						dGF0aW9uIGZpbmlzaGVzXCc5N3Vu
+						bGlrZSB0aGUgU1cgaW1wbGVtZW50
+						YXRpb24gdGhhdCByZXF1aXJlcyBz
+						aGlmdCB0byBiZSBwcmVzc2VkIHdo
+						ZW4gdGhlIGVudGlyZSB2b2ljZSBw
+						cm9jZXNzaW5nIGZpbmlzaGVzLlwK
+						XApVc2VycyBjYW4gdHJpZ2dlciB0
+						aGlzIGluIHRoZSBtaWRkbGUgb2Yg
+						YSBkaWN0YXRpb24gd2l0aCB0aGUg
+						Im9uIiBvciAib2ZmIiBhcmd1bWVu
+						dC4gU2FtcGxlIG1hY3JvIGlzIHBy
+						b3ZpZGVkLn0BAAAAIwAAAAEAAAAH
+						AAAAVFhULnJ0ZhAAAACln/5ntgEA
+						AAAAAAAAAAAA
+						</data>
+						<key>Title</key>
+						<string>About</string>
+					</dict>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15609595</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Semaphore</string>
+						<key>NotifyOnTimeOut</key>
+						<false/>
+						<key>SemaphoreAction</key>
+						<string>Lock</string>
+						<key>SemaphoreName</key>
+						<string>MW PressReturn</string>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+						<key>TimeOutPeriod</key>
+						<real>0.01</real>
+					</dict>
+					<dict>
+						<key>ActionName</key>
+						<string>Triggered by "Trigger - KeyPress" macro (karabiner)</string>
+						<key>ActionUID</key>
+						<integer>15609596</integer>
+						<key>Conditions</key>
+						<dict>
+							<key>ConditionList</key>
+							<array>
+								<dict>
+									<key>ConditionType</key>
+									<string>Text</string>
+									<key>Text</key>
+									<string>%TriggerValue%</string>
+									<key>TextConditionType</key>
+									<string>Is</string>
+									<key>TextValue</key>
+									<string>lock</string>
+								</dict>
+							</array>
+							<key>ConditionListMatch</key>
+							<string>All</string>
+						</dict>
+						<key>ElseActionListDisclosed</key>
+						<false/>
+						<key>ElseActions</key>
+						<array/>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>IfThenElse</string>
+						<key>ThenActions</key>
+						<array>
+							<dict>
+								<key>ActionName</key>
+								<string>Holds macro for a window of time to ignore event that would turn the variable into "off"</string>
+								<key>ActionUID</key>
+								<integer>15609597</integer>
+								<key>Conditions</key>
+								<dict>
+									<key>ConditionList</key>
+									<array>
+										<dict>
+											<key>ConditionType</key>
+											<string>Variable</string>
+											<key>Variable</key>
+											<string>sw_autoReturn</string>
+											<key>VariableConditionType</key>
+											<string>Is</string>
+											<key>VariableValue</key>
+											<string>on</string>
+										</dict>
+									</array>
+									<key>ConditionListMatch</key>
+									<string>All</string>
+								</dict>
+								<key>ElseActionListDisclosed</key>
+								<false/>
+								<key>ElseActions</key>
+								<array/>
+								<key>IsDisclosed</key>
+								<false/>
+								<key>MacroActionType</key>
+								<string>IfThenElse</string>
+								<key>ThenActions</key>
+								<array>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15609598</integer>
+										<key>MacroActionType</key>
+										<string>Pause</string>
+										<key>Time</key>
+										<string>3</string>
+										<key>TimeOutAbortsMacro</key>
+										<true/>
+									</dict>
+								</array>
+								<key>TimeOutAbortsMacro</key>
+								<true/>
+							</dict>
+						</array>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+					</dict>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15609599</integer>
+						<key>Conditions</key>
+						<dict>
+							<key>ConditionList</key>
+							<array>
+								<dict>
+									<key>ConditionType</key>
+									<string>Text</string>
+									<key>Text</key>
+									<string>%TriggerValue%</string>
+									<key>TextConditionType</key>
+									<string>Is</string>
+									<key>TextValue</key>
+									<string>on</string>
+								</dict>
+							</array>
+							<key>ConditionListMatch</key>
+							<string>All</string>
+						</dict>
+						<key>ElseActionListDisclosed</key>
+						<false/>
+						<key>ElseActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15609601</integer>
+								<key>Conditions</key>
+								<dict>
+									<key>ConditionList</key>
+									<array>
+										<dict>
+											<key>ConditionType</key>
+											<string>Text</string>
+											<key>Text</key>
+											<string>%TriggerValue%</string>
+											<key>TextConditionType</key>
+											<string>Is</string>
+											<key>TextValue</key>
+											<string>off</string>
+										</dict>
+									</array>
+									<key>ConditionListMatch</key>
+									<string>All</string>
+								</dict>
+								<key>ElseActionListDisclosed</key>
+								<false/>
+								<key>ElseActions</key>
+								<array/>
+								<key>MacroActionType</key>
+								<string>IfThenElse</string>
+								<key>ThenActions</key>
+								<array>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15609602</integer>
+										<key>MacroActionType</key>
+										<string>SetVariableToText</string>
+										<key>Text</key>
+										<string>off</string>
+										<key>Variable</key>
+										<string>sw_autoReturn</string>
+									</dict>
+								</array>
+								<key>TimeOutAbortsMacro</key>
+								<true/>
+							</dict>
+						</array>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>IfThenElse</string>
+						<key>ThenActions</key>
+						<array>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15609600</integer>
+								<key>MacroActionType</key>
+								<string>SetVariableToText</string>
+								<key>Text</key>
+								<string>on</string>
+								<key>Variable</key>
+								<string>sw_autoReturn</string>
+							</dict>
+						</array>
+						<key>TimeOutAbortsMacro</key>
+						<true/>
+					</dict>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15610474</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>Semaphore</string>
+						<key>SemaphoreAction</key>
+						<string>Unlock</string>
+						<key>SemaphoreName</key>
+						<string>MW PressReturn</string>
+					</dict>
+				</array>
+				<key>CreationDate</key>
+				<real>762512193.27991295</real>
+				<key>CustomIconData</key>
+				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=📐=86=0=0=1=KMCOLOR:0,0,0,255</string>
+				<key>ModificationDate</key>
+				<real>766606400.05147099</real>
+				<key>Name</key>
+				<string>MW PressReturn</string>
+				<key>Triggers</key>
+				<array/>
+				<key>UID</key>
+				<string>12C54B71-124F-4F14-A70D-4E9D1A034CB2</string>
+			</dict>
+		</array>
+		<key>Name</key>
+		<string>MW</string>
+		<key>ToggleMacroUID</key>
+		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
+		<key>UID</key>
+		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
+	</dict>
+	<dict>
+		<key>Activate</key>
+		<string>Normal</string>
+		<key>CreationDate</key>
+		<real>766159660.83051395</real>
+		<key>CustomIconData</key>
+		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
+		<key>DisplayInMenuBar</key>
+		<dict>
+			<key>Display</key>
+			<true/>
+			<key>IconType</key>
+			<string>No</string>
+			<key>IncludeAllMacros</key>
+			<false/>
+			<key>IncludeMacroIcons</key>
+			<true/>
+			<key>TitleType</key>
+			<string>Variable</string>
+			<key>TitleVariable</key>
+			<string>sw_menubar</string>
+		</dict>
+		<key>Macros</key>
+		<array>
+			<dict>
+				<key>Actions</key>
+				<array>
+					<dict>
+						<key>ActionName</key>
+						<string>Action Mode - Paste Chat</string>
+						<key>ActionUID</key>
+						<integer>15555623</integer>
 						<key>Asynchronously</key>
 						<false/>
 						<key>IsDisclosed</key>
@@ -2678,7 +3284,7 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 						<key>MacroUID</key>
 						<string>8EBAFA85-7DB2-427F-8CCC-9CC78E5CA6E9</string>
 						<key>Parameter</key>
-						<string>pasteResult</string>
+						<string>pasteChat</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 						<key>UseParameter</key>
@@ -2690,22 +3296,22 @@ echo "To check logs: cat /tmp/sw-watcher.log"</string>
 				<key>CustomIconData</key>
 				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💎=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>766669552.12941396</real>
+				<real>766669554.34725595</real>
 				<key>Name</key>
-				<string>AM - PasteResult</string>
+				<string>AM - PasteChat</string>
 				<key>Triggers</key>
 				<array>
 					<dict>
 						<key>AutoRun</key>
 						<false/>
 						<key>Display</key>
-						<string>AM: Paste Result</string>
+						<string>AM: Paste Chat</string>
 						<key>MacroTriggerType</key>
 						<string>GroupStatusMenu</string>
 					</dict>
 				</array>
 				<key>UID</key>
-				<string>0A88C4F9-1ABF-4176-85BA-6E8AB65461A2</string>
+				<string>12CD436E-7928-4DDA-9A0B-EE0E902B22AE</string>
 			</dict>
 		</array>
 		<key>Name</key>
@@ -4342,7 +4948,7 @@ function execute() {
 				<array>
 					<dict>
 						<key>ActionUID</key>
-						<integer>15609632</integer>
+						<integer>15612082</integer>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -4350,521 +4956,8 @@ function execute() {
 						<key>StyledText</key>
 						<data>
 						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC7/BQAAKwAAAAEA
-						AAD3BQAAe1xydGYxXGFuc2lcYW5z
-						aWNwZzEyNTJcY29jb2FydGYyODIy
-						Clxjb2NvYXRleHRzY2FsaW5nMFxj
-						b2NvYXBsYXRmb3JtMHtcZm9udHRi
-						bFxmMFxmbmlsXGZjaGFyc2V0MCBI
-						ZWx2ZXRpY2FOZXVlO30Ke1xjb2xv
-						cnRibDtccmVkMjU1XGdyZWVuMjU1
-						XGJsdWUyNTU7fQp7XCpcZXhwYW5k
-						ZWRjb2xvcnRibDs7fQp7XCpcbGlz
-						dHRhYmxle1xsaXN0XGxpc3R0ZW1w
-						bGF0ZWlkMVxsaXN0aHlicmlke1xs
-						aXN0bGV2ZWxcbGV2ZWxuZmMyM1xs
-						ZXZlbG5mY24yM1xsZXZlbGpjMFxs
-						ZXZlbGpjbjBcbGV2ZWxmb2xsb3cw
-						XGxldmVsc3RhcnRhdDFcbGV2ZWxz
-						cGFjZTM2MFxsZXZlbGluZGVudDB7
-						XCpcbGV2ZWxtYXJrZXIgXHtkaXNj
-						XH19e1xsZXZlbHRleHRcbGV2ZWx0
-						ZW1wbGF0ZWlkMVwnMDFcdWMwXHU4
-						MjI2IDt9e1xsZXZlbG51bWJlcnM7
-						fVxmaS0zNjBcbGk3MjBcbGluNzIw
-						IH17XGxpc3RuYW1lIDt9XGxpc3Rp
-						ZDF9fQp7XCpcbGlzdG92ZXJyaWRl
-						dGFibGV7XGxpc3RvdmVycmlkZVxs
-						aXN0aWQxXGxpc3RvdmVycmlkZWNv
-						dW50MFxsczF9fQpcZGVmdGFiNzIw
-						ClxwYXJkXHBhcmRlZnRhYjcyMFxz
-						YTE0MFxwYXJ0aWdodGVuZmFjdG9y
-						MAoKXGYwXGZzMjggXGNmMCBcZXhw
-						bmQwXGV4cG5kdHcwXGtlcm5pbmcw
-						ClRoZSBtZW51IGJhciBkaXNwbGF5
-						IHVwZGF0ZXMgd2hlbjpcClxwYXJk
-						XHR4MjIwXHR4NzIwXHBhcmRlZnRh
-						YjcyMFxsaTcyMFxmaS03MjBccGFy
-						dGlnaHRlbmZhY3RvcjAKXGxzMVxp
-						bHZsMFxjZjAgXGtlcm5pbmcxXGV4
-						cG5kMFxleHBuZHR3MCB7XGxpc3R0
-						ZXh0CVx1YzBcdTgyMjYgCX1cZXhw
-						bmQwXGV4cG5kdHcwXGtlcm5pbmcw
-						CkFuIEFjdGlvbiBNb2RlIGlzIHNl
-						dCBvciBkZWFjdGl2YXRlZFwKXGxz
-						MVxpbHZsMFxrZXJuaW5nMVxleHBu
-						ZDBcZXhwbmR0dzAge1xsaXN0dGV4
-						dAlcdWMwXHU4MjI2IAl9XGV4cG5k
-						MFxleHBuZHR3MFxrZXJuaW5nMApB
-						IG5ldyByZWNvcmRpbmcgc3RhcnRz
-						XApcbHMxXGlsdmwwXGtlcm5pbmcx
-						XGV4cG5kMFxleHBuZHR3MCB7XGxp
-						c3R0ZXh0CVx1YzBcdTgyMjYgCX1V
-						c2VyIHN3aXRjaGVzIFNXIE1vZGUg
-						XGV4cG5kMFxleHBuZHR3MFxrZXJu
-						aW5nMApXSElMRSB0aGUgcmVjb3Jk
-						aW5nIHdpbmRvdyBpcyBhY3RpdmVc
-						ClxsczFcaWx2bDBca2VybmluZzFc
-						ZXhwbmQwXGV4cG5kdHcwIHtcbGlz
-						dHRleHQJXHVjMFx1ODIyNiAJfVxl
-						eHBuZDBcZXhwbmR0dzBca2Vybmlu
-						ZzAKVGhlIHVzZXIgY2hhbmdlcyBT
-						VyBNb2RlIHVzaW5nIHRoZSBBbGZy
-						ZWQgV29ya2Zsb3cgKHJlZ2FyZGxl
-						c3Mgb2YgcmVjb3JkaW5nIHdpbmRv
-						dyBhY3RpdmUpXApccGFyZFxwYXJk
-						ZWZ0YWI3MjBccGFydGlnaHRlbmZh
-						Y3RvcjAKXGNmMCBcClxwYXJkXHBh
-						cmRlZnRhYjcyMFxzYTE0MFxwYXJ0
-						aWdodGVuZmFjdG9yMApcY2YwIFRo
-						ZSBBbGZyZWQgV29ya2Zsb3cgYWxz
-						byBoYXMgYSAiY29weVNlbGVjdCIg
-						aGVscGVyIHRvb2wuIFRoaXMgdG9v
-						bCAob3B0aW9uYWxseSkgdXBkYXRl
-						cyB0aGUgbWVudSBiYXIgaWYgdGhl
-						cmUncyBzZWxlY3RlZCB0ZXh0IHdo
-						ZW4gcmVjb3JkaW5nIHN0YXJ0cy59
-						AQAAACMAAAABAAAABwAAAFRYVC5y
-						dGYQAAAAEWP9Z7YBAAAAAAAAAAAA
-						AA==
-						</data>
-						<key>Title</key>
-						<string>On Menu Bar Display</string>
-					</dict>
-					<dict>
-						<key>ActionName</key>
-						<string>Run only one instance of this macro at the time</string>
-						<key>ActionUID</key>
-						<integer>15609652</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Semaphore</string>
-						<key>SemaphoreAction</key>
-						<string>Lock</string>
-						<key>SemaphoreName</key>
-						<string>SW MBar</string>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-					</dict>
-					<dict>
-						<key>ActionColor</key>
-						<string>Purple</string>
-						<key>ActionName</key>
-						<string>ALFRED - Display or clear copySelect</string>
-						<key>ActionUID</key>
-						<integer>15609653</integer>
-						<key>Conditions</key>
-						<dict>
-							<key>ConditionList</key>
-							<array>
-								<dict>
-									<key>ConditionType</key>
-									<string>Text</string>
-									<key>Text</key>
-									<string>%TriggerValue%</string>
-									<key>TextConditionType</key>
-									<string>Is</string>
-									<key>TextValue</key>
-									<string>getCopySelect</string>
-								</dict>
-							</array>
-							<key>ConditionListMatch</key>
-							<string>All</string>
-						</dict>
-						<key>ElseActionListDisclosed</key>
-						<false/>
-						<key>ElseActions</key>
-						<array/>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>IfThenElse</string>
-						<key>ThenActions</key>
-						<array>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15609654</integer>
-								<key>MacroActionType</key>
-								<string>SetVariableToText</string>
-								<key>Text</key>
-								<string>%Variable%sw_copySelect%</string>
-								<key>Variable</key>
-								<string>localCopySelect</string>
-							</dict>
-						</array>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-					</dict>
-					<dict>
-						<key>ActionName</key>
-						<string>Display Action Mode if one is active, or clear if not</string>
-						<key>ActionUID</key>
-						<integer>15609655</integer>
-						<key>Conditions</key>
-						<dict>
-							<key>ConditionList</key>
-							<array>
-								<dict>
-									<key>ConditionType</key>
-									<string>Variable</string>
-									<key>Variable</key>
-									<string>sw_actionMode</string>
-									<key>VariableConditionType</key>
-									<string>IsNot</string>
-									<key>VariableValue</key>
-									<string></string>
-								</dict>
-							</array>
-							<key>ConditionListMatch</key>
-							<string>All</string>
-						</dict>
-						<key>ElseActionListDisclosed</key>
-						<false/>
-						<key>ElseActions</key>
-						<array>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15609661</integer>
-								<key>IsDisclosed</key>
-								<false/>
-								<key>MacroActionType</key>
-								<string>SetVariableToText</string>
-								<key>Text</key>
-								<string></string>
-								<key>Variable</key>
-								<string>localAMode</string>
-							</dict>
-						</array>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>IfThenElse</string>
-						<key>ThenActions</key>
-						<array>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15609656</integer>
-								<key>Conditions</key>
-								<dict>
-									<key>ConditionList</key>
-									<array>
-										<dict>
-											<key>ConditionType</key>
-											<string>Variable</string>
-											<key>Variable</key>
-											<string>sw_actionMode</string>
-											<key>VariableConditionType</key>
-											<string>Is</string>
-											<key>VariableValue</key>
-											<string>pasteResult</string>
-										</dict>
-									</array>
-									<key>ConditionListMatch</key>
-									<string>All</string>
-								</dict>
-								<key>ElseActions</key>
-								<array>
-									<dict>
-										<key>ActionUID</key>
-										<integer>15609658</integer>
-										<key>Conditions</key>
-										<dict>
-											<key>ConditionList</key>
-											<array>
-												<dict>
-													<key>ConditionType</key>
-													<string>Variable</string>
-													<key>Variable</key>
-													<string>sw_actionMode</string>
-													<key>VariableConditionType</key>
-													<string>Is</string>
-													<key>VariableValue</key>
-													<string>pasteChat</string>
-												</dict>
-											</array>
-											<key>ConditionListMatch</key>
-											<string>All</string>
-										</dict>
-										<key>ElseActions</key>
-										<array>
-											<dict>
-												<key>ActionUID</key>
-												<integer>15609660</integer>
-												<key>MacroActionType</key>
-												<string>SetVariableToText</string>
-												<key>Text</key>
-												<string>𓇬 </string>
-												<key>Variable</key>
-												<string>localAMode</string>
-											</dict>
-										</array>
-										<key>MacroActionType</key>
-										<string>IfThenElse</string>
-										<key>ThenActions</key>
-										<array>
-											<dict>
-												<key>ActionUID</key>
-												<integer>15609659</integer>
-												<key>MacroActionType</key>
-												<string>SetVariableToText</string>
-												<key>Text</key>
-												<string>⇄ </string>
-												<key>Variable</key>
-												<string>localAMode</string>
-											</dict>
-										</array>
-										<key>TimeOutAbortsMacro</key>
-										<true/>
-									</dict>
-								</array>
-								<key>MacroActionType</key>
-								<string>IfThenElse</string>
-								<key>ThenActions</key>
-								<array>
-									<dict>
-										<key>ActionUID</key>
-										<integer>15609657</integer>
-										<key>MacroActionType</key>
-										<string>SetVariableToText</string>
-										<key>Text</key>
-										<string>⏎ </string>
-										<key>Variable</key>
-										<string>localAMode</string>
-									</dict>
-								</array>
-								<key>TimeOutAbortsMacro</key>
-								<true/>
-							</dict>
-						</array>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-					</dict>
-					<dict>
-						<key>ActionName</key>
-						<string>1.45.14 and below - Grab Active Mode from SW Menu</string>
-						<key>ActionUID</key>
-						<integer>15609662</integer>
-						<key>DisplayKind</key>
-						<string>Variable</string>
-						<key>HonourFailureSettings</key>
-						<true/>
-						<key>IncludeStdErr</key>
-						<false/>
-						<key>IncludedVariables</key>
-						<array>
-							<string>9999</string>
-						</array>
-						<key>IsActive</key>
-						<false/>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>ExecuteAppleScript</string>
-						<key>Path</key>
-						<string></string>
-						<key>StopOnFailure</key>
-						<false/>
-						<key>Text</key>
-						<string>tell application "System Events"	tell process "superwhisper"
-		try		set menuItemName to name of menu item 7 of menu "superwhisper" of menu bar item 1 of menu bar 2
-		return menuItemName
-		end try	end tellend tell</string>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-						<key>TimeOutPeriod</key>
-						<real>3600</real>
-						<key>TrimResults</key>
-						<true/>
-						<key>TrimResultsNew</key>
-						<true/>
-						<key>UseText</key>
-						<true/>
-						<key>Variable</key>
-						<string>localPreMenuBar</string>
-					</dict>
-					<dict>
-						<key>Action</key>
-						<string>IgnoreCaseRegEx</string>
-						<key>ActionName</key>
-						<string>1.45.14 and below - Clean up parentheses from active mode from SW Menu</string>
-						<key>ActionUID</key>
-						<integer>15609663</integer>
-						<key>Destination</key>
-						<string>Variable</string>
-						<key>DestinationVariable</key>
-						<string>sw_currentMode</string>
-						<key>IsActive</key>
-						<false/>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>SearchReplace</string>
-						<key>Replace</key>
-						<string></string>
-						<key>Search</key>
-						<string>\s*\([^()]*\)(?=[^()]*$)</string>
-						<key>Source</key>
-						<string>Variable</string>
-						<key>Variable</key>
-						<string>localPreMenuBar</string>
-						<key>Which</key>
-						<string>All</string>
-					</dict>
-					<dict>
-						<key>ActionName</key>
-						<string>1.46.0 and above - Grab Active Mode from SW Menu</string>
-						<key>ActionUID</key>
-						<integer>15619671</integer>
-						<key>DisplayKind</key>
-						<string>Variable</string>
-						<key>HonourFailureSettings</key>
-						<true/>
-						<key>IncludeStdErr</key>
-						<false/>
-						<key>IncludedVariables</key>
-						<array>
-							<string>9999</string>
-						</array>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>ExecuteAppleScript</string>
-						<key>Path</key>
-						<string></string>
-						<key>StopOnFailure</key>
-						<false/>
-						<key>Text</key>
-						<string>tell application "System Events"
-	tell process "superwhisper"
-		try
-			-- Get the submenu
-			set theSubmenu to menu 1 of menu item 7 of menu "superwhisper" of menu bar item 1 of menu bar 2
-			
-			-- Look through all items in the submenu to find one with a checkmark
-			set checkedItem to ""
-			repeat with menuItem in menu items of theSubmenu
-				if value of attribute "AXMenuItemMarkChar" of menuItem is not missing value then
-					set checkedItem to name of menuItem
-					exit repeat
-				end if
-			end repeat
-			
-			return checkedItem
-		end try
-	end tell
-end tell</string>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-						<key>TimeOutPeriod</key>
-						<real>3600</real>
-						<key>TrimResults</key>
-						<true/>
-						<key>TrimResultsNew</key>
-						<true/>
-						<key>UseText</key>
-						<true/>
-						<key>Variable</key>
-						<string>sw_currentMode</string>
-					</dict>
-					<dict>
-						<key>ActionColor</key>
-						<string>Green</string>
-						<key>ActionName</key>
-						<string>Menu Bar text</string>
-						<key>ActionUID</key>
-						<integer>15609664</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>SetVariableToText</string>
-						<key>Text</key>
-						<string>%localCopySelect%%localAMode%%sw_currentMode%</string>
-						<key>Variable</key>
-						<string>sw_menubar</string>
-					</dict>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15610469</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Semaphore</string>
-						<key>SemaphoreAction</key>
-						<string>Unlock</string>
-						<key>SemaphoreName</key>
-						<string>SW MBar</string>
-					</dict>
-				</array>
-				<key>CreationDate</key>
-				<real>766170666.06472099</real>
-				<key>CustomIconData</key>
-				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💡=86=0=0=1=KMCOLOR:0,0,0,255</string>
-				<key>ModificationDate</key>
-				<real>770143764.82828403</real>
-				<key>Name</key>
-				<string>MW MBar</string>
-				<key>Triggers</key>
-				<array>
-					<dict>
-						<key>AutoRun</key>
-						<false/>
-						<key>Display</key>
-						<string>Update MBar</string>
-						<key>MacroTriggerType</key>
-						<string>GroupStatusMenu</string>
-					</dict>
-				</array>
-				<key>UID</key>
-				<string>EBECEC76-6E27-4839-B873-3AC55158B3F4</string>
-			</dict>
-		</array>
-		<key>Name</key>
-		<string>MW</string>
-		<key>ToggleMacroUID</key>
-		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
-		<key>UID</key>
-		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
-	</dict>
-	<dict>
-		<key>Activate</key>
-		<string>Normal</string>
-		<key>CreationDate</key>
-		<real>766159660.83051395</real>
-		<key>CustomIconData</key>
-		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
-		<key>DisplayInMenuBar</key>
-		<dict>
-			<key>Display</key>
-			<true/>
-			<key>IconType</key>
-			<string>No</string>
-			<key>IncludeAllMacros</key>
-			<false/>
-			<key>IncludeMacroIcons</key>
-			<true/>
-			<key>TitleType</key>
-			<string>Variable</string>
-			<key>TitleVariable</key>
-			<string>sw_menubar</string>
-		</dict>
-		<key>Macros</key>
-		<array>
-			<dict>
-				<key>Actions</key>
-				<array>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15609594</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Comment</string>
-						<key>StyledText</key>
-						<data>
-						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC4oAwAAKwAAAAEA
-						AAAgAwAAe1xydGYxXGFuc2lcYW5z
+						WFQucnRmAQAAAC4fAgAAKwAAAAEA
+						AAAXAgAAe1xydGYxXGFuc2lcYW5z
 						aWNwZzEyNTJcY29jb2FydGYyODIy
 						Clxjb2NvYXRleHRzY2FsaW5nMFxj
 						b2NvYXBsYXRmb3JtMHtcZm9udHRi
@@ -4882,163 +4975,156 @@ end tell</string>
 						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
 						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
 						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
-						Y2YyIFRoaXMgbWFjcm8gc2ltdWxh
-						dGVzIHRoZSAiYXV0by1zZW5kIiBh
-						Y3Rpb24gdGhhdCBpcyBpbnRlZ3Jh
-						dGVkIHdpdGhpbiBTdXBlcndoaXNw
-						ZXIgaXRzZWxmIHdoZW4gcHJlc3Np
-						bmcgc2hpZnQuIFRoZXJlJ3MgdGhl
-						IHNpZGUgYWR2YW50YWdlIHRoYXQg
-						dGhpcyBvbmUgaXMgYWN0aXZhdGVk
-						IGV4YWN0bHkgd2hlbiB0aGUgZGlj
-						dGF0aW9uIGZpbmlzaGVzXCc5N3Vu
-						bGlrZSB0aGUgU1cgaW1wbGVtZW50
-						YXRpb24gdGhhdCByZXF1aXJlcyBz
-						aGlmdCB0byBiZSBwcmVzc2VkIHdo
-						ZW4gdGhlIGVudGlyZSB2b2ljZSBw
-						cm9jZXNzaW5nIGZpbmlzaGVzLlwK
-						XApVc2VycyBjYW4gdHJpZ2dlciB0
-						aGlzIGluIHRoZSBtaWRkbGUgb2Yg
-						YSBkaWN0YXRpb24gd2l0aCB0aGUg
-						Im9uIiBvciAib2ZmIiBhcmd1bWVu
-						dC4gU2FtcGxlIG1hY3JvIGlzIHBy
-						b3ZpZGVkLn0BAAAAIwAAAAEAAAAH
-						AAAAVFhULnJ0ZhAAAACln/5ntgEA
-						AAAAAAAAAAAA
+						Y2YyIFRoaXMgaXMgYW4gZXhhbXBs
+						ZSBvZiBob3cgdG8gY3JlYXRlIG1p
+						Y3JvcyBieSB0ZXh0IGV4cGFuc2lv
+						biB0aGF0IGFsbG93IHRoZSB1c2Vy
+						IHRvIHBhc3RlIGRpZmZlcmVudCBy
+						ZXN1bHRzIGZyb20gdGhlIG1vc3Qg
+						cmVjZW50IGV4aXN0aW5nIGludGVy
+						YWN0aW9uIHdpdGggU1cufQEAAAAj
+						AAAAAQAAAAcAAABUWFQucnRmEAAA
+						AJpq/We2AQAAAAAAAAAAAAA=
 						</data>
 						<key>Title</key>
 						<string>About</string>
 					</dict>
 					<dict>
+						<key>ActionColor</key>
+						<string>Orange</string>
+						<key>ActionName</key>
+						<string>Path to Superwhisper folder - under user's home directory</string>
 						<key>ActionUID</key>
-						<integer>15609595</integer>
+						<integer>15612083</integer>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
-						<string>Semaphore</string>
-						<key>NotifyOnTimeOut</key>
+						<string>SetVariableToText</string>
+						<key>Text</key>
+						<string>/Documents/superwhisper</string>
+						<key>Variable</key>
+						<string>localDir</string>
+					</dict>
+					<dict>
+						<key>ActionUID</key>
+						<integer>15612084</integer>
+						<key>DisplayKind</key>
+						<string>Variable</string>
+						<key>HonourFailureSettings</key>
+						<true/>
+						<key>IncludeStdErr</key>
 						<false/>
-						<key>SemaphoreAction</key>
-						<string>Lock</string>
-						<key>SemaphoreName</key>
-						<string>MW PressReturn</string>
+						<key>IncludedVariables</key>
+						<array>
+							<string>9999</string>
+						</array>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>ExecuteShellScript</string>
+						<key>Path</key>
+						<string></string>
+						<key>Source</key>
+						<string>Nothing</string>
+						<key>Text</key>
+						<string>#!/bin/bash
+
+# Directory path from KMVAR_localDir
+dir="$HOME$KMVAR_localDir/recordings"
+
+# Check if directory exists
+if [ ! -d "$dir" ]; then
+    echo "Directory does not exist"
+    exit 1
+fi
+
+# Find the 15 most recently modified subdirectories (excluding . and ..)
+recent_dirs=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -print0 | xargs -0 ls -td | head -n 15)
+
+# Flag to track if valid meta.json is found
+found=0
+
+# Iterate through recent directories
+while IFS= read -r folder
+do
+    meta_path="$folder/meta.json"
+    # If meta.json exists
+    if [ -f "$meta_path" ]; then
+        # Use grep to check if 'result' key exists and has a non-empty value
+        if grep -Eq '"result"[[:space:]]*:[[:space:]]*"[^\"]+"' "$meta_path"; then
+            echo "$meta_path"
+            found=1
+            break
+        fi
+    fi
+done &lt;&lt;&lt; "$recent_dirs"
+
+# If no valid meta.json was found
+if [ $found -eq 0 ]; then
+    echo "No meta.json with a non-empty 'result' key found in the 15 most recent directories"
+    exit 1
+fi</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
-						<key>TimeOutPeriod</key>
-						<real>0.01</real>
+						<key>TrimResults</key>
+						<true/>
+						<key>TrimResultsNew</key>
+						<true/>
+						<key>UseText</key>
+						<true/>
+						<key>Variable</key>
+						<string>localDir</string>
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>Triggered by "Trigger - KeyPress" macro (karabiner)</string>
+						<string>Read JSON and assign variables</string>
 						<key>ActionUID</key>
-						<integer>15609596</integer>
-						<key>Conditions</key>
-						<dict>
-							<key>ConditionList</key>
-							<array>
-								<dict>
-									<key>ConditionType</key>
-									<string>Text</string>
-									<key>Text</key>
-									<string>%TriggerValue%</string>
-									<key>TextConditionType</key>
-									<string>Is</string>
-									<key>TextValue</key>
-									<string>lock</string>
-								</dict>
-							</array>
-							<key>ConditionListMatch</key>
-							<string>All</string>
-						</dict>
-						<key>ElseActionListDisclosed</key>
-						<false/>
-						<key>ElseActions</key>
-						<array/>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>IfThenElse</string>
-						<key>ThenActions</key>
+						<integer>15612085</integer>
+						<key>Actions</key>
 						<array>
 							<dict>
-								<key>ActionName</key>
-								<string>Holds macro for a window of time to ignore event that would turn the variable into "off"</string>
 								<key>ActionUID</key>
-								<integer>15609597</integer>
-								<key>Conditions</key>
-								<dict>
-									<key>ConditionList</key>
-									<array>
-										<dict>
-											<key>ConditionType</key>
-											<string>Variable</string>
-											<key>Variable</key>
-											<string>sw_autoReturn</string>
-											<key>VariableConditionType</key>
-											<string>Is</string>
-											<key>VariableValue</key>
-											<string>on</string>
-										</dict>
-									</array>
-									<key>ConditionListMatch</key>
-									<string>All</string>
-								</dict>
-								<key>ElseActionListDisclosed</key>
-								<false/>
-								<key>ElseActions</key>
-								<array/>
+								<integer>15612086</integer>
+								<key>Destination</key>
+								<string>Variable</string>
 								<key>IsDisclosed</key>
 								<false/>
 								<key>MacroActionType</key>
-								<string>IfThenElse</string>
-								<key>ThenActions</key>
-								<array>
-									<dict>
-										<key>ActionUID</key>
-										<integer>15609598</integer>
-										<key>MacroActionType</key>
-										<string>Pause</string>
-										<key>Time</key>
-										<string>3</string>
-										<key>TimeOutAbortsMacro</key>
-										<true/>
-									</dict>
-								</array>
-								<key>TimeOutAbortsMacro</key>
-								<true/>
+								<string>ReadFile</string>
+								<key>Source</key>
+								<string>%localDir%</string>
+								<key>Variable</key>
+								<string>localMeta</string>
 							</dict>
-						</array>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-					</dict>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15609599</integer>
-						<key>Conditions</key>
-						<dict>
-							<key>ConditionList</key>
-							<array>
-								<dict>
-									<key>ConditionType</key>
-									<string>Text</string>
-									<key>Text</key>
-									<string>%TriggerValue%</string>
-									<key>TextConditionType</key>
-									<string>Is</string>
-									<key>TextValue</key>
-									<string>on</string>
-								</dict>
-							</array>
-							<key>ConditionListMatch</key>
-							<string>All</string>
-						</dict>
-						<key>ElseActionListDisclosed</key>
-						<false/>
-						<key>ElseActions</key>
-						<array>
 							<dict>
 								<key>ActionUID</key>
-								<integer>15609601</integer>
+								<integer>15612087</integer>
+								<key>IsDisclosed</key>
+								<false/>
+								<key>MacroActionType</key>
+								<string>SetVariableToText</string>
+								<key>Text</key>
+								<string>%JSONValue%localMeta.rawResult%</string>
+								<key>Variable</key>
+								<string>localRaw</string>
+							</dict>
+							<dict>
+								<key>ActionUID</key>
+								<integer>15612088</integer>
+								<key>IsDisclosed</key>
+								<false/>
+								<key>MacroActionType</key>
+								<string>SetVariableToText</string>
+								<key>Text</key>
+								<string>%JSONValue%localMeta.result%</string>
+								<key>Variable</key>
+								<string>localVoice</string>
+							</dict>
+							<dict>
+								<key>ActionName</key>
+								<string>Set localResult - Whether there's LLM or not</string>
+								<key>ActionUID</key>
+								<integer>15612091</integer>
 								<key>Conditions</key>
 								<dict>
 									<key>ConditionList</key>
@@ -5047,33 +5133,134 @@ end tell</string>
 											<key>ConditionType</key>
 											<string>Text</string>
 											<key>Text</key>
-											<string>%TriggerValue%</string>
+											<string>%JSONValue%localMeta.llmResult%</string>
 											<key>TextConditionType</key>
-											<string>Is</string>
+											<string>IsNot</string>
 											<key>TextValue</key>
-											<string>off</string>
+											<string></string>
 										</dict>
 									</array>
 									<key>ConditionListMatch</key>
 									<string>All</string>
 								</dict>
-								<key>ElseActionListDisclosed</key>
-								<false/>
 								<key>ElseActions</key>
-								<array/>
+								<array>
+									<dict>
+										<key>Action</key>
+										<string>IgnoreCaseString</string>
+										<key>ActionColor</key>
+										<string>Red</string>
+										<key>ActionName</key>
+										<string>Temp solution for double temp space bug on Voice-only modes</string>
+										<key>ActionUID</key>
+										<integer>15612096</integer>
+										<key>Destination</key>
+										<string>Variable</string>
+										<key>DestinationVariable</key>
+										<string>localResult</string>
+										<key>IsDisclosed</key>
+										<false/>
+										<key>MacroActionType</key>
+										<string>SearchReplace</string>
+										<key>Replace</key>
+										<string>. </string>
+										<key>Search</key>
+										<string>.  </string>
+										<key>Source</key>
+										<string>Text</string>
+										<key>Text</key>
+										<string>%JSONValue%localMeta.result%</string>
+										<key>Which</key>
+										<string>All</string>
+									</dict>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15612097</integer>
+										<key>IsActive</key>
+										<false/>
+										<key>IsDisclosed</key>
+										<false/>
+										<key>MacroActionType</key>
+										<string>SetVariableToText</string>
+										<key>Text</key>
+										<string>%JSONValue%localMeta.result%</string>
+										<key>Variable</key>
+										<string>localResult</string>
+									</dict>
+								</array>
+								<key>IsDisclosed</key>
+								<false/>
+								<key>MacroActionType</key>
+								<string>IfThenElse</string>
+								<key>ThenActionListDisclosed</key>
+								<false/>
+								<key>ThenActions</key>
+								<array>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15612095</integer>
+										<key>MacroActionType</key>
+										<string>SetVariableToText</string>
+										<key>Text</key>
+										<string>%JSONValue%localMeta.llmResult%</string>
+										<key>Variable</key>
+										<string>localResult</string>
+									</dict>
+								</array>
+								<key>TimeOutAbortsMacro</key>
+								<true/>
+							</dict>
+							<dict>
+								<key>ActionName</key>
+								<string>Set localPrompt</string>
+								<key>ActionUID</key>
+								<integer>15612883</integer>
+								<key>Conditions</key>
+								<dict>
+									<key>ConditionList</key>
+									<array>
+										<dict>
+											<key>ConditionType</key>
+											<string>Text</string>
+											<key>Text</key>
+											<string>%JSONValue%localMeta.prompt%</string>
+											<key>TextConditionType</key>
+											<string>Is</string>
+											<key>TextValue</key>
+											<string></string>
+										</dict>
+									</array>
+									<key>ConditionListMatch</key>
+									<string>All</string>
+								</dict>
+								<key>ElseActions</key>
+								<array>
+									<dict>
+										<key>ActionUID</key>
+										<integer>15612882</integer>
+										<key>MacroActionType</key>
+										<string>SetVariableToText</string>
+										<key>Text</key>
+										<string>%JSONValue%localMeta.prompt%</string>
+										<key>Variable</key>
+										<string>localPrompt</string>
+									</dict>
+								</array>
+								<key>IsDisclosed</key>
+								<false/>
 								<key>MacroActionType</key>
 								<string>IfThenElse</string>
 								<key>ThenActions</key>
 								<array>
 									<dict>
 										<key>ActionUID</key>
-										<integer>15609602</integer>
+										<integer>15612884</integer>
 										<key>MacroActionType</key>
 										<string>SetVariableToText</string>
 										<key>Text</key>
-										<string>off</string>
+										<string>[No AI Processing Found]</string>
 										<key>Variable</key>
-										<string>sw_autoReturn</string>
+										<string>localPrompt</string>
 									</dict>
 								</array>
 								<key>TimeOutAbortsMacro</key>
@@ -5083,48 +5270,95 @@ end tell</string>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
-						<string>IfThenElse</string>
-						<key>ThenActions</key>
-						<array>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15609600</integer>
-								<key>MacroActionType</key>
-								<string>SetVariableToText</string>
-								<key>Text</key>
-								<string>on</string>
-								<key>Variable</key>
-								<string>sw_autoReturn</string>
-							</dict>
-						</array>
+						<string>Group</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 					</dict>
 					<dict>
+						<key>ActionName</key>
+						<string>👇️ How to CUSTOMIZE 👇️</string>
 						<key>ActionUID</key>
-						<integer>15610474</integer>
+						<integer>15612098</integer>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
-						<string>Semaphore</string>
-						<key>SemaphoreAction</key>
-						<string>Unlock</string>
-						<key>SemaphoreName</key>
-						<string>MW PressReturn</string>
+						<string>Comment</string>
+						<key>StyledText</key>
+						<data>
+						cnRmZAAAAAADAAAAAgAAAAcAAABU
+						WFQucnRmAQAAAC75AgAAKwAAAAEA
+						AADxAgAAe1xydGYxXGFuc2lcYW5z
+						aWNwZzEyNTJcY29jb2FydGYyODIy
+						Clxjb2NvYXRleHRzY2FsaW5nMFxj
+						b2NvYXBsYXRmb3JtMHtcZm9udHRi
+						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
+						IEhlbHZldGljYTt9CntcY29sb3J0
+						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
+						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
+						bHVlMDt9CntcKlxleHBhbmRlZGNv
+						bG9ydGJsOztcY3NzcmdiXGMwXGMw
+						XGMwXGM4NDcwNlxjbmFtZSBjb250
+						cm9sVGV4dENvbG9yO30KXHBhcmRc
+						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
+						eDIyNDBcdHgyODAwXHR4MzM2MFx0
+						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
+						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
+						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
+						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
+						Y2YyIE5vdyB5b3UgaGF2ZSBmb3Vy
+						IHZhcmlhYmxlcyB0aGF0IHlvdSBj
+						YW4gdXNlIGluIGFueSB3YXkgeW91
+						IHdhbnQ6IFwKXApccGFyZFx0eDU2
+						MFx0eDExMjBcdHgxNjgwXHR4MjI0
+						MFx0eDI4MDBcdHgzMzYwXHR4Mzky
+						MFx0eDQ0ODBcdHg1MDQwXHR4NTYw
+						MFx0eDYxNjBcdHg2NzIwXHBhcmRp
+						cm5hdHVyYWxccGFydGlnaHRlbmZh
+						Y3RvcjAKXGNmMiAlbG9jYWxQcm9t
+						cHQlXApccGFyZFx0eDU2MFx0eDEx
+						MjBcdHgxNjgwXHR4MjI0MFx0eDI4
+						MDBcdHgzMzYwXHR4MzkyMFx0eDQ0
+						ODBcdHg1MDQwXHR4NTYwMFx0eDYx
+						NjBcdHg2NzIwXHBhcmRpcm5hdHVy
+						YWxccGFydGlnaHRlbmZhY3RvcjAK
+						XGNmMiAlbG9jYWxSYXclXAolbG9j
+						YWxWb2ljZSVcCiVsb2NhbFJlc3Vs
+						dCV9AQAAACMAAAABAAAABwAAAFRY
+						VC5ydGYQAAAAE3X+Z7YBAAAAAAAA
+						AAAAAA==
+						</data>
+						<key>Title</key>
+						<string>CUSTOMIZE</string>
+					</dict>
+					<dict>
+						<key>Action</key>
+						<string>ByPasting</string>
+						<key>ActionColor</key>
+						<string>Green</string>
+						<key>ActionName</key>
+						<string>Insert your variable to expand</string>
+						<key>ActionUID</key>
+						<integer>15612099</integer>
+						<key>IsDisclosed</key>
+						<false/>
+						<key>MacroActionType</key>
+						<string>InsertText</string>
+						<key>Text</key>
+						<string>%localResult%</string>
 					</dict>
 				</array>
 				<key>CreationDate</key>
-				<real>762512193.27991295</real>
+				<real>751740389.64320898</real>
 				<key>CustomIconData</key>
-				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=📐=86=0=0=1=KMCOLOR:0,0,0,255</string>
+				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=⚡=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>766606400.05147099</real>
+				<real>766548482.44417596</real>
 				<key>Name</key>
-				<string>MW PressReturn</string>
+				<string>* TextExpand</string>
 				<key>Triggers</key>
 				<array/>
 				<key>UID</key>
-				<string>12C54B71-124F-4F14-A70D-4E9D1A034CB2</string>
+				<string>4049357B-01E4-4E23-9C7B-7822A3008D5B</string>
 			</dict>
 		</array>
 		<key>Name</key>
@@ -5165,7 +5399,7 @@ end tell</string>
 						<key>ActionName</key>
 						<string>Action Mode - Paste Chat</string>
 						<key>ActionUID</key>
-						<integer>15555623</integer>
+						<integer>15610867</integer>
 						<key>Asynchronously</key>
 						<false/>
 						<key>IsDisclosed</key>
@@ -5173,9 +5407,9 @@ end tell</string>
 						<key>MacroActionType</key>
 						<string>ExecuteMacro</string>
 						<key>MacroUID</key>
-						<string>8EBAFA85-7DB2-427F-8CCC-9CC78E5CA6E9</string>
+						<string>12C54B71-124F-4F14-A70D-4E9D1A034CB2</string>
 						<key>Parameter</key>
-						<string>pasteChat</string>
+						<string>on</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 						<key>UseParameter</key>
@@ -5185,249 +5419,15 @@ end tell</string>
 				<key>CreationDate</key>
 				<real>751740389.64320898</real>
 				<key>CustomIconData</key>
-				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💎=86=0=0=1=KMCOLOR:0,0,0,255</string>
+				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=⚡=86=0=0=1=KMCOLOR:0,0,0,255</string>
 				<key>ModificationDate</key>
-				<real>766669554.34725595</real>
+				<real>768880440.71704304</real>
 				<key>Name</key>
-				<string>AM - PasteChat</string>
-				<key>Triggers</key>
-				<array>
-					<dict>
-						<key>AutoRun</key>
-						<false/>
-						<key>Display</key>
-						<string>AM: Paste Chat</string>
-						<key>MacroTriggerType</key>
-						<string>GroupStatusMenu</string>
-					</dict>
-				</array>
-				<key>UID</key>
-				<string>12CD436E-7928-4DDA-9A0B-EE0E902B22AE</string>
-			</dict>
-		</array>
-		<key>Name</key>
-		<string>MW</string>
-		<key>ToggleMacroUID</key>
-		<string>8BE8168C-8722-4B74-A85E-61F8CF9AF140</string>
-		<key>UID</key>
-		<string>22DB61C0-9E47-48DF-86EB-9B78B134C2F1</string>
-	</dict>
-	<dict>
-		<key>Activate</key>
-		<string>Normal</string>
-		<key>CreationDate</key>
-		<real>766159660.83051395</real>
-		<key>CustomIconData</key>
-		<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
-		<key>DisplayInMenuBar</key>
-		<dict>
-			<key>Display</key>
-			<true/>
-			<key>IconType</key>
-			<string>No</string>
-			<key>IncludeAllMacros</key>
-			<false/>
-			<key>IncludeMacroIcons</key>
-			<true/>
-			<key>TitleType</key>
-			<string>Variable</string>
-			<key>TitleVariable</key>
-			<string>sw_menubar</string>
-		</dict>
-		<key>Macros</key>
-		<array>
-			<dict>
-				<key>Actions</key>
-				<array>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15609687</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>Comment</string>
-						<key>StyledText</key>
-						<data>
-						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC5HBAAAKwAAAAEA
-						AAA/BAAAe1xydGYxXGFuc2lcYW5z
-						aWNwZzEyNTJcY29jb2FydGYyODIy
-						Clxjb2NvYXRleHRzY2FsaW5nMFxj
-						b2NvYXBsYXRmb3JtMHtcZm9udHRi
-						bFxmMFxmc3dpc3NcZmNoYXJzZXQw
-						IEhlbHZldGljYTt9CntcY29sb3J0
-						Ymw7XHJlZDI1NVxncmVlbjI1NVxi
-						bHVlMjU1O1xyZWQwXGdyZWVuMFxi
-						bHVlMDt9CntcKlxleHBhbmRlZGNv
-						bG9ydGJsOztcY3NzcmdiXGMwXGMw
-						XGMwXGM4NDcwNlxjbmFtZSBjb250
-						cm9sVGV4dENvbG9yO30KXHBhcmRc
-						dHg1NjBcdHgxMTIwXHR4MTY4MFx0
-						eDIyNDBcdHgyODAwXHR4MzM2MFx0
-						eDM5MjBcdHg0NDgwXHR4NTA0MFx0
-						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
-						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
-						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
-						Y2YyIFRoaXMgbWFjcm8gaXMgbWVh
-						bnQgdG8gYmUgdXNlZCBpbiB0aG9z
-						ZSBjYXNlcyB3aGVyZSB5b3Ugd2Fu
-						dCB0byB1c2UgdGV4dCBvbmx5IHRv
-						IGNoYXQgd2l0aCBBSSB2aWEgU3Vw
-						ZXJ3aGlzcGVyLiBJdCBkb2VzIHR3
-						byB0aGluZ3MsIGl0IHdpbGwgb3Bl
-						biBhIHByZXZpb3VzbHkgcmVjb3Jk
-						ZWQgYXVkaW8gZmlsZSB3aXRoIFN1
-						cGVyd2hpc3BlciBhbmQgaXQgd2ls
-						bCBjaGFuZ2UgdGhlICJhY3Rpb24g
-						bW9kZS4iIFRoaXMgcmVxdWlyZXMg
-						eW91IHRvIHJlY29yZCBhbiBhdWRp
-						byBmaWxlIHByZXZpb3VzbHkgYW5k
-						IHNhdmUgaXQgaW4geW91ciBoYXJk
-						IGRyaXZlLiBJIGhhdmUgZm91bmQg
-						dGhhdCB0aGUgZm9sbG93aW5nIHRl
-						eHQgd29ya3MgZ3JlYXQgYW5kIGRv
-						ZXNuJ3QgY29uZmxpY3Qgd2l0aCBh
-						bGwgbXkgU1cgbW9kZXMsIGJ1dCBm
-						ZWVsIGZyZWUgdG8gZXhwZXJpbWVu
-						dC5cClwKIkluIHRoaXMgc3BlY2lm
-						aWMgY2FzZSwgdGhlIHVzZXIgbWVz
-						c2FnZSBpcyBmb3VuZCBpbnNpZGUg
-						QXBwbGljYXRpb24gQ29udGV4dC4g
-						QW5zd2VyIGluIHRoZSBzYW1lIGxh
-						bmd1YWdlIHlvdSBmaW5kIHRoZSB1
-						c2VyIGFza3MgeW91IGluIEFwcGxp
-						Y2F0aW9uIENvbnRleHQsIHVubGVz
-						cyBvdGhlcndpc2Ugc3BlY2lmaWVk
-						LiBEbyBub3QgcmVmZXIgdG8gdGhp
-						cyB1c2VyIG1lc3NhZ2UuIEV2ZXJ5
-						dGhpbmcgeW91IG5lZWQgaXMgaW4g
-						QXBwbGljYXRpb24gQ29udGV4dC4i
-						fQEAAAAjAAAAAQAAAAcAAABUWFQu
-						cnRmEAAAAOXC+me2AQAAAAAAAAAA
-						AAA=
-						</data>
-						<key>Title</key>
-						<string>About</string>
-					</dict>
-					<dict>
-						<key>ActionColor</key>
-						<string>Orange</string>
-						<key>ActionName</key>
-						<string>Path to your instruction audio file - under user's home directory</string>
-						<key>ActionUID</key>
-						<integer>15609686</integer>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>SetVariableToText</string>
-						<key>Text</key>
-						<string>/Dropbox/2-Areas/SystemAndApps/superwhisper/swTextOnly.wav</string>
-						<key>Variable</key>
-						<string>localRec</string>
-					</dict>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15609667</integer>
-						<key>DisplayKind</key>
-						<string>Window</string>
-						<key>HonourFailureSettings</key>
-						<true/>
-						<key>IncludeStdErr</key>
-						<false/>
-						<key>IncludedVariables</key>
-						<array>
-							<string>9999</string>
-						</array>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>ExecuteShellScript</string>
-						<key>Path</key>
-						<string></string>
-						<key>Source</key>
-						<string>Nothing</string>
-						<key>Text</key>
-						<string># Store the current focused app by bundle ID
-current_app_bundle=$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true')
-
-# Open file in background
-open -g -a "superwhisper" "$HOME$KMVAR_localRec"
-
-# Activate the original app using bundle identifier
-osascript -e "tell application id \"$current_app_bundle\" to activate"</string>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-						<key>TrimResults</key>
-						<true/>
-						<key>TrimResultsNew</key>
-						<true/>
-						<key>UseText</key>
-						<true/>
-					</dict>
-					<dict>
-						<key>ActionUID</key>
-						<integer>15609668</integer>
-						<key>Conditions</key>
-						<dict>
-							<key>ConditionList</key>
-							<array>
-								<dict>
-									<key>ConditionType</key>
-									<string>Variable</string>
-									<key>Variable</key>
-									<string>sw_actionMode</string>
-									<key>VariableConditionType</key>
-									<string>IsNot</string>
-									<key>VariableValue</key>
-									<string>textChat</string>
-								</dict>
-							</array>
-							<key>ConditionListMatch</key>
-							<string>All</string>
-						</dict>
-						<key>ElseActionListDisclosed</key>
-						<false/>
-						<key>ElseActions</key>
-						<array/>
-						<key>IsDisclosed</key>
-						<false/>
-						<key>MacroActionType</key>
-						<string>IfThenElse</string>
-						<key>ThenActions</key>
-						<array>
-							<dict>
-								<key>ActionUID</key>
-								<integer>15609669</integer>
-								<key>Asynchronously</key>
-								<false/>
-								<key>MacroActionType</key>
-								<string>ExecuteMacro</string>
-								<key>MacroUID</key>
-								<string>8EBAFA85-7DB2-427F-8CCC-9CC78E5CA6E9</string>
-								<key>Parameter</key>
-								<string>textChat</string>
-								<key>TimeOutAbortsMacro</key>
-								<true/>
-								<key>UseParameter</key>
-								<true/>
-							</dict>
-						</array>
-						<key>TimeOutAbortsMacro</key>
-						<true/>
-					</dict>
-				</array>
-				<key>CreationDate</key>
-				<real>763660648.19431305</real>
-				<key>CustomIconData</key>
-				<string>KMEC=Rounded=KMCOLOR:0,0,255,0=💎=86=0=0=1=KMCOLOR:0,0,0,255</string>
-				<key>ModificationDate</key>
-				<real>766545635.874874</real>
-				<key>Name</key>
-				<string>AM - TextChat</string>
+				<string>* AutoSend</string>
 				<key>Triggers</key>
 				<array/>
 				<key>UID</key>
-				<string>7C28DBE8-2EF5-4FEE-A35C-972B7A3F135B</string>
+				<string>F6965319-61E1-482E-A5F5-D093AEDEA12C</string>
 			</dict>
 		</array>
 		<key>Name</key>
