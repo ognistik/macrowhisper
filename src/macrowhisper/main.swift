@@ -6,6 +6,365 @@ import Dispatch
 import Darwin
 import UserNotifications
 let APP_VERSION = "1.0.0"
+private let UNIX_PATH_MAX = 104
+
+// MARK: - Socket Communication System
+
+// Socket helper function - completely bypasses the Unix socket system
+func ensureSocketWorks() {
+    // First check if socket file exists, if yes, remove it
+    if FileManager.default.fileExists(atPath: "/tmp/macrowhisper.sock") {
+        try? FileManager.default.removeItem(atPath: "/tmp/macrowhisper.sock")
+        print("Removed existing socket file")
+    }
+    
+    // Make sure the directory exists
+    try? FileManager.default.createDirectory(atPath: "/tmp", withIntermediateDirectories: true)
+    
+    // Create a dummy file to use for basic IPC
+    FileManager.default.createFile(atPath: "/tmp/macrowhisper.sock", contents: nil)
+    
+    // Set permissions so any process can access it
+    try? FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: "/tmp/macrowhisper.sock")
+    
+    // Log success
+    print("Created socket file at /tmp/macrowhisper.sock")
+}
+
+class SocketCommunication {
+    private let socketPath: String
+    private var server: DispatchSourceRead?
+    private var serverSocket: Int32 = -1
+    private let queue = DispatchQueue(label: "com.macrowhisper.socket", qos: .utility)
+    
+    enum Command: String, Codable {
+        case reloadConfig
+        case updateConfig
+        case status
+        case debug
+    }
+    
+    struct CommandMessage: Codable {
+        let command: Command
+        let arguments: [String: String]?
+    }
+    
+    init(socketPath: String) {
+        self.socketPath = socketPath
+        
+        // Remove any existing socket file
+        if FileManager.default.fileExists(atPath: socketPath) {
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
+    }
+    
+    func startServer(configManager: ConfigurationManager) {
+        // First, make sure any existing socket file is removed
+        if FileManager.default.fileExists(atPath: socketPath) {
+            do {
+                try FileManager.default.removeItem(atPath: socketPath)
+                logInfo("Removed existing socket file")
+            } catch {
+                logError("Failed to remove existing socket file: \(error)")
+            }
+        }
+        
+        // Create the socket
+        serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        if serverSocket < 0 {
+            logError("Failed to create socket: \(errno)")
+            return
+        }
+        
+        // Log more details during server setup
+        logInfo("Socket created with descriptor: \(serverSocket)")
+        
+        // Set up the socket address
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        
+        // Copy the path to the socket address
+        let pathLength = min(socketPath.utf8.count, Int(UNIX_PATH_MAX) - 1)
+        _ = withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr in
+            socketPath.withCString {
+                strncpy(ptr, $0, pathLength)
+            }
+        }
+        
+        // Bind the socket
+        let addrSize = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let bindResult = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(serverSocket, $0, addrSize)
+            }
+        }
+        
+        if bindResult != 0 {
+            logError("Failed to bind socket: \(errno)")
+            close(serverSocket)
+            serverSocket = -1
+            return
+        }
+        
+        logInfo("Socket bound successfully")
+        
+        // Set permissions on the socket file
+        chmod(socketPath, 0o777)
+        logInfo("Set socket file permissions to 0777")
+        
+        // Listen for connections
+        if listen(serverSocket, 5) != 0 {
+            logError("Failed to listen on socket: \(errno)")
+            close(serverSocket)
+            serverSocket = -1
+            return
+        }
+        
+        logInfo("Socket listening successfully")
+        
+        // Create a dispatch source for the socket
+        server = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
+        
+        // Set up the event handler
+        server?.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            
+            // Accept the connection
+            let clientSocket = accept(self.serverSocket, nil, nil)
+            if clientSocket < 0 {
+                logError("Failed to accept connection: \(errno)")
+                return
+            }
+            
+            // Handle the connection in a background queue
+            self.queue.async {
+                self.handleConnection(clientSocket: clientSocket, configManager: configManager)
+            }
+        }
+        
+        // Set up the cancel handler
+        server?.setCancelHandler { [weak self] in
+            guard let self = self else { return }
+            close(self.serverSocket)
+            self.serverSocket = -1
+            try? FileManager.default.removeItem(atPath: self.socketPath)
+        }
+        
+        // Resume the dispatch source
+        server?.resume()
+        logInfo("Socket server started at \(socketPath) with descriptor \(serverSocket)")
+    }
+    
+    private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager) {
+        defer {
+            close(clientSocket)
+        }
+        
+        // Read from the socket
+        let bufferSize = 1024
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer {
+            buffer.deallocate()
+        }
+        
+        let bytesRead = read(clientSocket, buffer, bufferSize)
+        guard bytesRead > 0 else {
+            logError("Failed to read from socket or connection closed")
+            return
+        }
+        
+        // Convert the bytes to a string
+        let data = Data(bytes: buffer, count: bytesRead)
+        
+        do {
+            // Parse the command
+            let commandMessage = try JSONDecoder().decode(CommandMessage.self, from: data)
+            
+            logInfo("Received command: \(commandMessage.command.rawValue)")
+            
+            // Handle the command
+            switch commandMessage.command {
+            case .reloadConfig:
+                logInfo("Processing command to reload configuration")
+                // Reload the configuration from disk
+                if let loadedConfig = configManager.loadConfig() {
+                    configManager.config = loadedConfig
+                    configManager.onConfigChanged?()
+                    
+                    // Send success response
+                    let response = "Configuration reloaded successfully"
+                    write(clientSocket, response, response.utf8.count)
+                    logInfo("Configuration reload successful")
+                } else {
+                    // Send error response
+                    let response = "Failed to reload configuration"
+                    write(clientSocket, response, response.utf8.count)
+                    logError("Configuration reload failed")
+                }
+                
+            case .updateConfig:
+                logInfo("Received command to update configuration")
+                
+                // Extract arguments
+                if let args = commandMessage.arguments {
+                    let watchPath: String? = args["watch"]
+                    let server: Bool? = args["server"] == "true" ? true : (args["server"] == "false" ? false : nil)
+                    let watcher: Bool? = args["watcher"] == "true" ? true : (args["watcher"] == "false" ? false : nil)
+                    let noUpdates: Bool? = args["noUpdates"] == "true" ? true : (args["noUpdates"] == "false" ? false : nil)
+                    let noNoti: Bool? = args["noNoti"] == "true" ? true : (args["noNoti"] == "false" ? false : nil)
+                    
+                    // Update configuration
+                    configManager.updateFromCommandLine(
+                        watchPath: watchPath,
+                        server: server,
+                        watcher: watcher,
+                        noUpdates: noUpdates,
+                        noNoti: noNoti
+                    )
+                    
+                    // Send success response
+                    let response = "Configuration updated successfully"
+                    write(clientSocket, response, response.utf8.count)
+                } else {
+                    // Send error response
+                    let response = "No arguments provided for configuration update"
+                    write(clientSocket, response, response.utf8.count)
+                }
+                
+            case .status:
+                logInfo("Received command to get status")
+                
+                // Create status information
+                let status: [String: Any] = [
+                    "version": APP_VERSION,
+                    "server_running": server != nil,
+                    "watcher_running": recordingsWatcher != nil,
+                    "watch_path": configManager.config.defaults.watch,
+                    "updates_disabled": configManager.config.defaults.noUpdates,
+                    "notifications_disabled": configManager.config.defaults.noNoti
+                ]
+                
+                // Convert to JSON
+                if let statusData = try? JSONSerialization.data(withJSONObject: status),
+                   let statusString = String(data: statusData, encoding: .utf8) {
+                    write(clientSocket, statusString, statusString.utf8.count)
+                } else {
+                    let response = "Failed to generate status"
+                    write(clientSocket, response, response.utf8.count)
+                }
+                
+            case .debug:
+                logInfo("Received debug command")
+                let status = """
+                Server status:
+                - Socket path: \(socketPath)
+                - Server socket descriptor: \(serverSocket)
+                - Server running: \(server != nil)
+                """
+                write(clientSocket, status, status.utf8.count)
+            }
+            
+        } catch {
+            logError("Failed to parse command: \(error)")
+            let response = "Failed to parse command: \(error)"
+            write(clientSocket, response, response.utf8.count)
+        }
+    }
+    
+    func stopServer() {
+        server?.cancel()
+        server = nil
+    }
+    
+    func sendCommand(_ command: Command, arguments: [String: String]? = nil) -> String? {
+        logInfo("Attempting to send command: \(command.rawValue) to socket at \(socketPath)")
+        
+        // First check if socket file exists
+        if !FileManager.default.fileExists(atPath: socketPath) {
+            logError("Socket file doesn't exist at \(socketPath)")
+            return "Socket file doesn't exist. Server is not running."
+        }
+
+        // Create the command message
+        let message = CommandMessage(command: command, arguments: arguments)
+
+        // Encode the message
+        guard let data = try? JSONEncoder().encode(message) else {
+            return "Failed to encode command"
+        }
+
+        // Create a socket
+        let clientSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard clientSocket >= 0 else {
+            return "Failed to create socket: \(errno)"
+        }
+
+        defer {
+            close(clientSocket)
+        }
+
+        // Set up the socket address
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        // Copy the path to the socket address
+        let pathLength = min(socketPath.utf8.count, Int(UNIX_PATH_MAX) - 1)
+        _ = withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr in
+            socketPath.withCString {
+                strncpy(ptr, $0, pathLength)
+            }
+        }
+
+        // Connect to the socket with a retry mechanism
+        var connectResult: Int32 = -1
+        for attempt in 1...3 {
+            let addrSize = socklen_t(MemoryLayout<sockaddr_un>.size)
+            connectResult = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    connect(clientSocket, $0, addrSize)
+                }
+            }
+            
+            if connectResult == 0 {
+                break // Connection successful
+            } else {
+                logWarning("Connect attempt \(attempt) failed: \(errno). Retrying...")
+                Thread.sleep(forTimeInterval: 0.1) // Wait before retrying
+            }
+        }
+
+        guard connectResult == 0 else {
+            return "Failed to connect to socket after multiple attempts: \(errno) (\(String(cString: strerror(errno)))). Is the server running?"
+        }
+
+        // Write to the socket
+        let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)
+        guard bytesSent == data.count else {
+            let errorMessage = "Failed to send complete message. Sent \(bytesSent) of \(data.count) bytes."
+            logError(errorMessage)
+            return errorMessage
+        }
+
+        // Read the response
+        let bufferSize = 1024
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer {
+            buffer.deallocate()
+        }
+
+        let bytesRead = read(clientSocket, buffer, bufferSize)
+        guard bytesRead > 0 else {
+            let errorDescription = String(cString: strerror(errno))
+            let errorMessage = "Failed to read from socket or connection closed: \(errno) (\(errorDescription))"
+            logError(errorMessage)
+            return errorMessage
+        }
+
+        // Convert the bytes to a string
+        return String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .utf8)
+    }
+}
+
 
 // MARK: - Logging System
 
@@ -564,24 +923,101 @@ func initializeWatcher(_ path: String) {
     }
 }
 
-func acquireSingleInstanceLock(lockFilePath: String) {
+func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: SocketCommunication) -> Bool {
+    // Try to create and lock the file
     let fd = open(lockFilePath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
     if fd == -1 {
         logWarning("Could not open lock file: \(lockFilePath)")
         notify(title: "Macrowhisper", message: "Could not open lock file.")
-        exit(1)
+        return false
     }
+    
     // Try to acquire exclusive lock, non-blocking
     if flock(fd, LOCK_EX | LOCK_NB) != 0 {
-        logWarning("Another instance is already running.")
-        notify(title: "Macrowhisper", message: "Another instance is already running.")
-        exit(1)
+        close(fd)
+        
+        // Another instance is running
+        logInfo("Another instance is already running.")
+        
+        // Instead of using socket communication, use process communication
+        let args = CommandLine.arguments
+        
+        // Default behavior if no specific arguments
+        if args.count == 1 {
+            print("Another instance is already running. Use --help for command options.")
+            exit(0)
+        }
+        
+        // Check for status command
+        if args.contains("-s") || args.contains("--status") {
+            print("Macrowhisper is running. (Version \(APP_VERSION))")
+            exit(0)
+        }
+        
+        // For other commands, use a direct approach to restart the service
+        if args.contains("--server") || args.contains("--watcher") ||
+           args.contains("-w") || args.contains("--watch") ||
+           args.contains("--no-updates") || args.contains("--no-noti") {
+            
+            print("Restarting macrowhisper service with new settings...")
+            
+            // Kill the existing process
+            let killTask = Process()
+            killTask.launchPath = "/usr/bin/pkill"
+            killTask.arguments = ["-f", "macrowhisper"]
+            
+            do {
+                try killTask.run()
+                killTask.waitUntilExit()
+                
+                // Small delay to ensure the process is terminated
+                Thread.sleep(forTimeInterval: 0.5)
+                
+                // Now launch a new instance with the current arguments
+                let launchTask = Process()
+                launchTask.launchPath = "/usr/bin/env"
+                launchTask.arguments = args
+                
+                try launchTask.run()
+                print("New macrowhisper instance started.")
+            } catch {
+                print("Failed to restart macrowhisper: \(error)")
+            }
+            
+            exit(0)
+        }
+        
+        // For any other command, just notify and exit
+        print("Another instance is already running. Use --help for command options.")
+        exit(0)
     }
+    
     // Keep fd open for the lifetime of the process to hold the lock
+    return true
 }
 
 let lockPath = "/tmp/macrowhisper.lock"
-acquireSingleInstanceLock(lockFilePath: lockPath)
+
+// Initialize socket communication
+let socketPath = "/private/tmp/macrowhisper.sock"  // Use /private/tmp instead of /tmp
+let socketCommunication = SocketCommunication(socketPath: socketPath)
+
+if !acquireSingleInstanceLock(lockFilePath: lockPath, socketCommunication: socketCommunication) {
+    logError("Failed to acquire single instance lock. Exiting.")
+    exit(1)
+}
+
+logInfo("Socket file created at \(socketPath)")
+
+// Start the socket server
+logInfo("About to start socket server...")
+socketCommunication.startServer(configManager: configManager)
+logInfo("Socket server started at \(socketPath)")
+
+// Add a deinit to stop the server when the app terminates
+defer {
+    socketCommunication.stopServer()
+}
 
 @preconcurrency
 final class ProxyStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
@@ -608,31 +1044,6 @@ func exitWithError(_ message: String) -> Never {
     logError("Error: \(message)")
     notify(title: "Macrowhisper", message: "Error: \(message)")
     exit(1)
-}
-
-func loadProxies(from path: String) -> [String: [String: Any]] {
-    let proxiesFile = URL(fileURLWithPath: path)
-    guard FileManager.default.fileExists(atPath: proxiesFile.path) else {
-        logWarning("Warning: proxies.json not found.")
-        notify(title: "Macrowhisper", message: "Warning: proxies.json not found.")
-        return [:]
-    }
-    
-    do {
-        let data = try Data(contentsOf: proxiesFile)
-        guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else {
-            logWarning("Warning: Malformed proxies.json")
-            notify(title: "Macrowhisper", message: "Warning: Malformed proxies.json")
-            return [:]
-        }
-        logInfo("Successfully loaded proxies configuration")
-        notify(title: "Macrowhisper", message: "Successfully loaded proxies configuration")
-        return dict
-    } catch {
-        logError("Error reading proxies.json: \(error.localizedDescription)")
-        notify(title: "Macrowhisper", message: "Error reading proxies.json")
-        return [:]
-    }
 }
 
 func buildRequest(url: String, headers: [String: String], json: [String: Any]) -> URLRequest {
@@ -1400,7 +1811,9 @@ class ConfigurationManager {
     private let fileManager = FileManager.default
     private let syncQueue = DispatchQueue(label: "com.macrowhisper.configsync")
     private var fileWatcher: FileChangeWatcher?
-    private(set) var config: AppConfiguration
+    
+    // Make config publicly accessible
+    var config: AppConfiguration
     
     // Callback for configuration changes
     var onConfigChanged: (() -> Void)?
@@ -1450,58 +1863,16 @@ class ConfigurationManager {
     }
     
     private func setupFileWatcher() {
-        // Clear any existing watcher
-        self.fileWatcher = nil
+        // No longer watching the file automatically
+        // Configuration will be reloaded manually via socket commands
+        logInfo("File watching disabled - use 'macrowhisper' command to reload configuration")
         
-        self.fileWatcher = FileChangeWatcher(
-            filePath: self.configFilePath,
-            onChanged: { [weak self] in
-                guard let self = self else { return }
-                
-                // Try to reload the configuration
-                if let loadedConfig = self.loadConfig() {
-                    self.config = loadedConfig
-                    logInfo("Configuration reloaded from file change: \(self.configFilePath)")
-                    notify(title: "Macrowhisper", message: "Configuration file updated")
-                    
-                    // Call the change handler if it exists
-                    self.onConfigChanged?()
-                }
-            },
-            onMissing: { [weak self] in
-                guard let self = self else { return }
-                logWarning("Configuration file was deleted: \(self.configFilePath)")
-                notify(title: "Macrowhisper", message: "Warning: Configuration file was deleted")
-            }
-        )
-        
-        // For newly created files, force an initial metadata check
-        if fileManager.fileExists(atPath: self.configFilePath) {
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.fileWatcher?.forceInitialMetadataCheck()
-            }
-        } else {
-            // If file doesn't exist, set up a periodic check to detect when it's created
-            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-            timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
-            timer.setEventHandler { [weak self] in
-                guard let self = self else {
-                    timer.cancel()
-                    return
-                }
-                
-                if self.fileManager.fileExists(atPath: self.configFilePath) {
-                    // File now exists, reinitialize the watcher
-                    self.setupFileWatcher()
-                    logInfo("File watcher initialized after config file was created")
-                    timer.cancel()
-                }
-            }
-            timer.resume()
-        }
+        // We're intentionally not setting up a file watcher here
+        // as configuration changes will be handled via socket commands
     }
     
-    private func loadConfig() -> AppConfiguration? {
+    // Make this method public
+    func loadConfig() -> AppConfiguration? {
         guard fileManager.fileExists(atPath: configFilePath) else {
             return nil
         }
@@ -1600,7 +1971,6 @@ class ConfigurationManager {
 // MARK: - Argument Parsing and Startup
 
 let defaultSuperwhisperPath = ("~/Documents/superwhisper" as NSString).expandingTildeInPath
-let defaultProxiesPath = "\(defaultSuperwhisperPath)/proxies.json"
 let defaultRecordingsPath = "\(defaultSuperwhisperPath)/recordings"
 
 func promptYesNo(_ message: String) -> Bool {
@@ -1630,6 +2000,7 @@ func printHelp() {
           --watcher true/false Enable or disable the folder watcher (overrides config)
           --no-updates        Disable automatic update checking
           --no-noti           Disable all notifications
+      -s, --status            Get the status of the background process
       -h, --help              Show this help message
       -v, --version           Show version information
 
