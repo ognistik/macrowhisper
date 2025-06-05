@@ -51,15 +51,11 @@ class SocketCommunication {
     
     init(socketPath: String) {
         self.socketPath = socketPath
-        
-        // Remove any existing socket file
-        if FileManager.default.fileExists(atPath: socketPath) {
-            try? FileManager.default.removeItem(atPath: socketPath)
-        }
     }
     
     func startServer(configManager: ConfigurationManager) {
         // First, make sure any existing socket file is removed
+        // Only remove the socket file when we're actually starting the server
         if FileManager.default.fileExists(atPath: socketPath) {
             do {
                 try FileManager.default.removeItem(atPath: socketPath)
@@ -954,34 +950,45 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             exit(0)
         }
         
-        // For other commands, use a direct approach to restart the service
+        // For reload configuration, use socket communication to tell the running instance
         if args.contains("--server") || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") {
             
-            print("Restarting macrowhisper service with new settings...")
+            print("Sending configuration update to running instance...")
             
-            // Kill the existing process
-            let killTask = Process()
-            killTask.launchPath = "/usr/bin/pkill"
-            killTask.arguments = ["-f", "macrowhisper"]
+            // Create command arguments
+            var arguments: [String: String] = [:]
             
-            do {
-                try killTask.run()
-                killTask.waitUntilExit()
-                
-                // Small delay to ensure the process is terminated
-                Thread.sleep(forTimeInterval: 0.5)
-                
-                // Now launch a new instance with the current arguments
-                let launchTask = Process()
-                launchTask.launchPath = "/usr/bin/env"
-                launchTask.arguments = args
-                
-                try launchTask.run()
-                print("New macrowhisper instance started.")
-            } catch {
-                print("Failed to restart macrowhisper: \(error)")
+            // Extract arguments from command line
+            if let watchIndex = args.firstIndex(where: { $0 == "-w" || $0 == "--watch" }),
+               watchIndex + 1 < args.count {
+                arguments["watch"] = args[watchIndex + 1]
+            }
+            
+            if let serverIndex = args.firstIndex(where: { $0 == "--server" }),
+               serverIndex + 1 < args.count {
+                arguments["server"] = args[serverIndex + 1]
+            }
+            
+            if let watcherIndex = args.firstIndex(where: { $0 == "--watcher" }),
+               watcherIndex + 1 < args.count {
+                arguments["watcher"] = args[watcherIndex + 1]
+            }
+            
+            if args.contains("--no-updates") {
+                arguments["noUpdates"] = "true"
+            }
+            
+            if args.contains("--no-noti") {
+                arguments["noNoti"] = "true"
+            }
+            
+            // Send the update command to the running instance
+            if let response = socketCommunication.sendCommand(.updateConfig, arguments: arguments) {
+                print("Response from running instance: \(response)")
+            } else {
+                print("Failed to communicate with running instance.")
             }
             
             exit(0)
