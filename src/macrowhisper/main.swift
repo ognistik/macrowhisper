@@ -570,7 +570,6 @@ class VersionChecker {
         // Don't run if we've had a recent failure and are backing off
         if let lastFailed = lastFailedCheckDate,
            Date().timeIntervalSince(lastFailed) < failedCheckBackoffInterval {
-            logInfo("Skipping update check due to recent connection failure")
             return
         }
         
