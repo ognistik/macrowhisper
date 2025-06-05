@@ -43,6 +43,7 @@ class SocketCommunication {
         case updateConfig
         case status
         case debug
+        case version
     }
     
     struct CommandMessage: Codable {
@@ -214,50 +215,53 @@ class SocketCommunication {
                 }
                 
             case .updateConfig:
-                    logInfo("Received command to update configuration")
+                logInfo("Received command to update configuration")
+                
+                // Extract arguments
+                if let args = commandMessage.arguments {
+                    logInfo("Updating config with arguments: \(args)")
                     
-                    // Extract arguments
-                    if let args = commandMessage.arguments {
-                        logInfo("Updating config with arguments: \(args)")
-                        
-                        // Create local variables with proper null checking
-                        let watchPath = args["watch"]
-                        
-                        // Parse boolean values from strings
-                        let serverStr = args["server"]
-                        let watcherStr = args["watcher"]
-                        let noUpdatesStr = args["noUpdates"]
-                        let noNotiStr = args["noNoti"]
-                        
-                        // Log the parameters before updating
-                        logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any)")
-                        
-                        // Convert string values to boolean values
-                        let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
-                        let watcher = watcherStr == "true" ? true : (watcherStr == "false" ? false : nil)
-                        let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
-                        let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
-                        
-                        // Update configuration with null-safe values using the safe reference
-                        configMgr.updateFromCommandLine(
-                            watchPath: watchPath,
-                            server: server,
-                            watcher: watcher,
-                            noUpdates: noUpdates,
-                            noNoti: noNoti
-                        )
-                        
-                        logInfo("Configuration updated successfully")
-                        
-                        // Send success response
-                        let response = "Configuration updated successfully"
-                        write(clientSocket, response, response.utf8.count)
-                    } else {
-                        // Send error response
-                        let response = "No arguments provided for configuration update"
-                        write(clientSocket, response, response.utf8.count)
-                    }
-                    return  // Prevent fall-through
+                    // Create local variables with proper null checking
+                    let watchPath = args["watch"]
+                    
+                    // Parse boolean values from strings
+                    let serverStr = args["server"]
+                    let watcherStr = args["watcher"]
+                    let noUpdatesStr = args["noUpdates"]
+                    let noNotiStr = args["noNoti"]
+                    
+                    // Log the parameters before updating
+                    logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any)")
+                    
+                    // Convert string values to boolean values
+                    let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
+                    let watcher = watcherStr == "true" ? true : (watcherStr == "false" ? false : nil)
+                    let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
+                    let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
+                    
+                    // Update configuration with null-safe values using the safe reference
+                    configMgr.updateFromCommandLine(
+                        watchPath: watchPath,
+                        server: server,
+                        watcher: watcher,
+                        noUpdates: noUpdates,
+                        noNoti: noNoti
+                    )
+                    
+                    // IMPORTANT: After updating the config, explicitly call the onConfigChanged callback
+                    configMgr.onConfigChanged?()
+                    
+                    logInfo("Configuration updated successfully")
+                    
+                    // Send success response
+                    let response = "Configuration updated successfully"
+                    write(clientSocket, response, response.utf8.count)
+                } else {
+                    // Send error response
+                    let response = "No arguments provided for configuration update"
+                    write(clientSocket, response, response.utf8.count)
+                }
+                return  // Prevent fall-through
                 
             case .status:
                 logInfo("Received command to get status")
@@ -265,7 +269,6 @@ class SocketCommunication {
                 // Create status information
                 let status: [String: Any] = [
                     "version": APP_VERSION,
-                    "server_running": server != nil,
                     "watcher_running": recordingsWatcher != nil,
                     "watch_path": configMgr.config.defaults.watch,
                     "updates_disabled": configMgr.config.defaults.noUpdates,
@@ -280,6 +283,11 @@ class SocketCommunication {
                     let response = "Failed to generate status"
                     write(clientSocket, response, response.utf8.count)
                 }
+            
+            case .version:
+                logInfo("Received version command")
+                let versionResponse = "macrowhisper version \(APP_VERSION)"
+                write(clientSocket, versionResponse, versionResponse.utf8.count)
                 
             case .debug:
                 logInfo("Received debug command")
@@ -287,7 +295,6 @@ class SocketCommunication {
                 Server status:
                 - Socket path: \(socketPath)
                 - Server socket descriptor: \(serverSocket)
-                - Server running: \(server != nil)
                 """
                 write(clientSocket, status, status.utf8.count)
             }
@@ -422,12 +429,12 @@ class Logger {
         let timestamp = dateFormatter.string(from: Date())
         let logEntry = "[\(timestamp)] [\(level.rawValue)] \(message)\n"
         
-        // Print to console when running interactively
-        if isatty(STDOUT_FILENO) != 0 {
+        // Print to console when running interactively AND console logging is not suppressed
+        if isatty(STDOUT_FILENO) != 0 && !suppressConsoleLogging {
             print(logEntry, terminator: "")
         }
         
-        // Append to log file
+        // Append to log file (this part stays the same)
         if let data = logEntry.data(using: .utf8) {
             if let fileHandle = FileHandle(forWritingAtPath: logFilePath) {
                 defer { fileHandle.closeFile() }
@@ -493,6 +500,7 @@ class NotificationManager {
 var disableUpdates: Bool = false
 var disableNotifications: Bool = false
 var globalConfigManager: ConfigurationManager?
+var suppressConsoleLogging = false
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -859,80 +867,31 @@ class VersionChecker {
 
 struct AppConfiguration: Codable {
     struct Defaults: Codable {
-            var watch: String
-            var server: Bool
-            var watcher: Bool
-            var noUpdates: Bool
-            var noNoti: Bool
-            
-            static func defaultValues() -> Defaults {
-                return Defaults(
-                    watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
-                    server: false,  // Default off
-                    watcher: false, // Default off
-                    noUpdates: false,
-                    noNoti: false
-                )
-            }
-    }
-    
-    struct Proxy: Codable {
-        var name: String
-        var model: String
-        var key: String
-        var url: String
+        var watch: String
+        var watcher: Bool
+        var noUpdates: Bool
+        var noNoti: Bool
         
-        // Additional proxy properties can be added here
-        // For backward compatibility with existing code
-        func toDictionary() -> [String: Any] {
-            return [
-                "model": model,
-                "key": key,
-                "url": url
-            ]
+        static func defaultValues() -> Defaults {
+            return Defaults(
+                watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
+                watcher: false, // Default off
+                noUpdates: false,
+                noNoti: false
+            )
         }
     }
     
     var defaults: Defaults
-    var proxies: [Proxy]
     
     static func defaultConfig() -> AppConfiguration {
         return AppConfiguration(
-            defaults: Defaults.defaultValues(),
-            proxies: [
-                Proxy(name: "4oMini", model: "openai/gpt-4o-mini", key: "sk-...", url: "https://openrouter.ai/api/v1/chat/completions"),
-                Proxy(name: "GPT4.1", model: "gpt-4.1", key: "sk-...", url: "https://api.openai.com/v1/chat/completions"),
-                Proxy(name: "Claude", model: "anthropic/claude-3-sonnet", key: "sk-...", url: "https://openrouter.ai/api/v1/chat/completions")
-            ]
+            defaults: Defaults.defaultValues()
         )
     }
 }
 
 // MARK: - Helpers
-
-func initializeServer() {
-    // Get proxies from configuration
-    proxies = configManager.getProxiesDict()
-    
-    // Create server
-    server = HttpServer()
-    let port: in_port_t = 11434
-    
-    // Set up server routes
-    setupServerRoutes(server: server!)
-    
-    do {
-        try server!.start(port, forceIPv4: true)
-        logInfo("Proxy server running on http://localhost:\(port)")
-        notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
-    } catch {
-        logError("Failed to start server: \(error)")
-        notify(title: "Macrowhisper", message: "Failed to start server")
-        
-        // Update config to disable server
-        configManager.updateFromCommandLine(server: false)
-    }
-}
 
 func initializeWatcher(_ path: String) {
     let recordingsPath = "\(path)/recordings"
@@ -972,7 +931,7 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
         close(fd)
         
         // Another instance is running
-        logInfo("Another instance is already running.")
+        suppressConsoleLogging = true
         
         // Instead of using socket communication, use process communication
         let args = CommandLine.arguments
@@ -984,6 +943,16 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             exit(0)
         }
         
+        // Handle version command specifically
+        if args.contains("-v") || args.contains("--version") {
+            if let response = socketCommunication.sendCommand(.version) {
+                print(response)
+            } else {
+                print("macrowhisper version \(APP_VERSION)")
+            }
+            exit(0)
+        }
+        
         // Check for status command
         if args.contains("-s") || args.contains("--status") {
             print("Macrowhisper is running. (Version \(APP_VERSION))")
@@ -991,7 +960,7 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
         }
         
         // For reload configuration or no arguments, use socket communication
-        if args.count == 1 || args.contains("--server") || args.contains("--watcher") ||
+        if args.count == 1 || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") {
             
@@ -1004,11 +973,6 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             if let watchIndex = args.firstIndex(where: { $0 == "-w" || $0 == "--watch" }),
                watchIndex + 1 < args.count {
                 arguments["watch"] = args[watchIndex + 1]
-            }
-            
-            if let serverIndex = args.firstIndex(where: { $0 == "--server" }),
-               serverIndex + 1 < args.count {
-                arguments["server"] = args[serverIndex + 1]
             }
             
             if let watcherIndex = args.firstIndex(where: { $0 == "--watcher" }),
@@ -1079,46 +1043,10 @@ defer {
     socketCommunication.stopServer()
 }
 
-@preconcurrency
-final class ProxyStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    let writer: HttpResponseBodyWriter
-    let semaphore: DispatchSemaphore
-
-    init(writer: HttpResponseBodyWriter, semaphore: DispatchSemaphore) {
-        self.writer = writer
-        self.semaphore = semaphore
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        // Write each chunk as soon as it arrives
-        try? writer.write(data)
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // Done streaming
-        semaphore.signal()
-    }
-}
-
 func exitWithError(_ message: String) -> Never {
     logError("Error: \(message)")
     notify(title: "Macrowhisper", message: "Error: \(message)")
     exit(1)
-}
-
-func buildRequest(url: String, headers: [String: String], json: [String: Any]) -> URLRequest {
-    guard let urlObj = URL(string: url) else { exitWithError("Bad URL: \(url)") }
-    var req = URLRequest(url: urlObj)
-    req.httpMethod = "POST"
-    for (k, v) in headers { req.addValue(v, forHTTPHeaderField: k) }
-    req.httpBody = try? JSONSerialization.data(withJSONObject: json)
-    return req
-}
-
-func mergeBody(original: [String: Any], modifications: [String: Any]) -> [String: Any] {
-    var out = original
-    for (k, v) in modifications { out[k] = v }
-    return out
 }
 
 func checkWatcherAvailability() -> Bool {
@@ -1135,22 +1063,6 @@ func checkWatcherAvailability() -> Bool {
     }
     
     return exists && configManager.config.defaults.watcher
-}
-
-func checkServerAvailability() -> Bool {
-    let port: in_port_t = 11434
-    let available = isPortAvailable(port)
-    
-    if !available && configManager.config.defaults.server {
-        logWarning("Port 11434 is already in use. Server has been disabled.")
-        notify(title: "Macrowhisper", message: "Port 11434 is already in use. Server has been disabled.")
-        
-        // Update config to disable server
-        configManager.updateFromCommandLine(server: false)
-        return false
-    }
-    
-    return available && configManager.config.defaults.server
 }
 
 final class FileChangeWatcher {
@@ -1812,74 +1724,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     }
 }
 
-func isPortAvailable(_ port: UInt16) -> Bool {
-    // Create a socket
-    let sock = socket(AF_INET, SOCK_STREAM, 0)
-    if sock < 0 {
-        logError("Failed to create socket for port check")
-        return false
-    }
-    defer { close(sock) }
-    
-    // Set up the socket address
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = port.bigEndian
-    addr.sin_addr.s_addr = INADDR_ANY
-    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    
-    // Try to bind
-    let bindResult = withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            bind(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    
-    // If bind failed, port is in use
-    if bindResult != 0 {
-        logError("Port \(port) is already in use (Error: \(errno))")
-        return false
-    }
-    
-    // Also try to listen on the port to be double sure
-    let listenResult = listen(sock, 1)
-    if listenResult != 0 {
-        logError("Port \(port) cannot be used for listening (Error: \(errno))")
-        return false
-    }
-    
-    logInfo("Port \(port) is available")
-    return true
-}
-
-func mergeAnnotationsIntoContent(_ data: Data) -> Data {
-    guard var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          var choices = root["choices"] as? [[String: Any]] else {
-        logInfo("Couldn't parse completion JSON, returning original data.")
-        return data
-    }
-    for i in choices.indices {
-        guard var message = choices[i]["message"] as? [String: Any] else { continue }
-        if let annotations = message["annotations"] as? [[String: Any]], !annotations.isEmpty {
-            logInfo("Found \(annotations.count) annotations, merging into content for choice[\(i)].")
-            var content = message["content"] as? String ?? ""
-            content += "\n\n---\n"
-            for ann in annotations {
-                if let urlCitation = ann["url_citation"] as? [String: Any] {
-                    let title = urlCitation["title"] as? String ?? "Link"
-                    let url = urlCitation["url"] as? String ?? ""
-                    content += "- [\(title)](\(url))\n"
-                }
-            }
-            message["content"] = content
-            message.removeValue(forKey: "annotations")
-            choices[i]["message"] = message
-        }
-    }
-    root["choices"] = choices
-    return (try? JSONSerialization.data(withJSONObject: root)) ?? data
-}
-
 class ConfigurationManager {
     private let configFilePath: String
     
@@ -1943,12 +1787,7 @@ class ConfigurationManager {
     }
     
     private func setupFileWatcher() {
-        // No longer watching the file automatically
-        // Configuration will be reloaded manually via socket commands
-        logInfo("File watching disabled - use 'macrowhisper' command to reload configuration")
-        
-        // We're intentionally not setting up a file watcher here
-        // as configuration changes will be handled via socket commands
+        // Configuration changes will be handled via socket commands
     }
     
     // Make this method public
@@ -2013,9 +1852,6 @@ class ConfigurationManager {
             if let watchPath = watchPath {
                 config.defaults.watch = watchPath
             }
-            if let server = server {
-                config.defaults.server = server
-            }
             if let watcher = watcher {
                 config.defaults.watcher = watcher
             }
@@ -2036,15 +1872,6 @@ class ConfigurationManager {
                 notify(title: "Macrowhisper", message: "Configuration updated")
             }
         }
-    }
-    
-    // Convert proxies to the format expected by the existing code
-    func getProxiesDict() -> [String: [String: Any]] {
-        var result: [String: [String: Any]] = [:]
-        for proxy in config.proxies {
-            result[proxy.name] = proxy.toDictionary()
-        }
-        return result
     }
 }
 
@@ -2071,12 +1898,11 @@ func printHelp() {
     print("""
     Usage: macrowhisper [OPTIONS]
 
-    Server and/or folder watcher for Superwhisper integration.
+    Folder watcher for Superwhisper integration.
 
     OPTIONS:
       -c, --config <path>           Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
       -w, --watch <path>            Path to superwhisper folder (overrides config)
-          --server true/false       Enable or disable the proxy server (overrides config)
           --watcher true/false      Enable or disable the folder watcher (overrides config)
           --no-updates true/false   Enable or disable automatic update checking (overrides config)
           --no-noti true/false      Enable or disable all notifications (overrides config)
@@ -2099,7 +1925,6 @@ func printHelp() {
 let configManager: ConfigurationManager
 var configPath: String? = nil
 var watchPath: String? = nil
-var serverFlag: Bool? = nil
 var watcherFlag: Bool? = nil
 
 let args = CommandLine.arguments
@@ -2121,14 +1946,6 @@ while i < args.count {
             exit(1)
         }
         watchPath = args[i + 1]
-        i += 2
-    case "--server":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
-        }
-        let value = args[i + 1].lowercased()
-        serverFlag = value == "true" || value == "yes" || value == "1"
         i += 2
     case "--watcher":
         guard i + 1 < args.count else {
@@ -2180,7 +1997,6 @@ disableNotifications = config.defaults.noNoti
 // Only update config with command line arguments if they were specified
 configManager.updateFromCommandLine(
     watchPath: watchPath,
-    server: serverFlag,
     watcher: watcherFlag,
     noUpdates: args.contains("--no-updates") ? disableUpdates : nil,
     noNoti: args.contains("--no-noti") ? disableNotifications : nil
@@ -2194,13 +2010,7 @@ disableNotifications = configManager.config.defaults.noNoti
 let watchFolderPath = config.defaults.watch
 
 // Check feature availability
-let runServer = checkServerAvailability()
 let runWatcher = checkWatcherAvailability()
-
-// Initialize features based on availability
-if runServer {
-    initializeServer()
-}
 
 if runWatcher {
     initializeWatcher(watchFolderPath)
@@ -2209,15 +2019,11 @@ if runWatcher {
 // ---
 // At this point, continue with initializing server and/or watcher as usual...
 logInfo("macrowhisper starting with:")
-if runServer { logInfo("  Server: Using configuration at \(configManager.configPath)") }
 if runWatcher { logInfo("  Watcher: \(watchFolderPath)/recordings") }
 
 // Server setup - only if jsonPath is provided
 // MARK: - Server and Watcher Setup
 
-// Setup proxy server if enabled
-var proxies: [String: [String: Any]] = [:]
-var server: HttpServer? = nil
 var fileWatcher: FileChangeWatcher? = nil
 
 func folderExistsOrExit(_ path: String, what: String) {
@@ -2225,32 +2031,6 @@ func folderExistsOrExit(_ path: String, what: String) {
         logError("Error: \(what) not found: \(path)")
         notify(title: "Macrowhisper", message: "Error: \(what) not found: \(path)")
         exit(1)
-    }
-}
-
-if runServer {
-    // Get proxies from configuration
-    proxies = configManager.getProxiesDict()
-    
-    // Create server
-    server = HttpServer()
-    let port: in_port_t = 11434
-    
-    // Set up server routes
-    setupServerRoutes(server: server!)
-    
-    // Try to start the server, but don't exit if it fails
-    do {
-        try server!.start(port, forceIPv4: true)
-        logInfo("Proxy server running on http://localhost:\(port)")
-        notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
-    } catch {
-        logError("Failed to start server: \(error)")
-        notify(title: "Macrowhisper", message: "Failed to start server")
-        
-        // Update config to disable server
-        configManager.updateFromCommandLine(server: false)
-        server = nil
     }
 }
 
@@ -2291,18 +2071,6 @@ configManager.onConfigChanged = {
         versionChecker.resetLastCheckDate()
     }
     
-    // Check if server should be running
-    let shouldRunServer = configManager.config.defaults.server
-    if shouldRunServer && server == nil {
-        if checkServerAvailability() {
-            initializeServer()
-        }
-    } else if !shouldRunServer && server != nil {
-        server?.stop()
-        server = nil
-        logInfo("Server stopped due to configuration change")
-    }
-    
     // Check if watcher should be running
     let shouldRunWatcher = configManager.config.defaults.watcher
     let currentWatchPath = configManager.config.defaults.watch
@@ -2319,289 +2087,6 @@ configManager.onConfigChanged = {
         recordingsWatcher = nil
         initializeWatcher(currentWatchPath)
     }
-}
-
-// Function to set up server routes
-func setupServerRoutes(server: HttpServer) {
-    server["/v1/chat/completions"] = { req in
-        // Access the proxies through a function call to ensure it's always up-to-date
-        let currentProxies = getProxies()
-        
-        guard req.method == "POST" else { return .notFound }
-        let rawBody = req.body
-        
-        guard !rawBody.isEmpty else { return .badRequest(.text("Missing body")) }
-        guard let jsonBody = try? JSONSerialization.jsonObject(with: Data(rawBody), options: []) as? [String: Any] else {
-            return .badRequest(.text("Malformed JSON"))
-        }
-        guard var model = jsonBody["model"] as? String else {
-            return .badRequest(.text("Missing model"))
-        }
-        
-        // If doesn't start with mw|, forward unchanged to original endpoint (Ollama)
-        if !model.hasPrefix("mw|") {
-            // Forward request to original endpoint (e.g., Ollama)
-            let ollamaURL = "http://localhost:11435/v1/chat/completions"
-            
-            // I don't want to strip all the original header
-            var headers = req.headers
-            
-            if let ua = req.headers["user-agent"] { headers["User-Agent"] = ua }
-            let outgoingReq = buildRequest(url: ollamaURL, headers: headers, json: jsonBody)
-            
-            return HttpResponse.raw(200, "OK", ["Content-Type": "application/json"]) { writer in
-                let semaphore = DispatchSemaphore(value: 0)
-                let delegate = ProxyStreamDelegate(writer: writer, semaphore: semaphore)
-                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-                let task = session.dataTask(with: outgoingReq)
-                task.resume()
-                semaphore.wait() // Wait until the streaming is finished
-            }
-        }
-        
-        // If starts with mw|, strip and process
-        model.removeFirst("mw|".count)
-        guard let proxyRule = currentProxies[model] else {
-            return .badRequest(.text("No proxy rule for model \(model)"))
-        }
-        guard let targetURL = proxyRule["url"] as? String else {
-            return .badRequest(.text("No url in proxies.json for \(model)"))
-        }
-
-        // Prepare headers and body (as already done above)
-        var headers = req.headers
-        headers.removeValue(forKey: "Content-Length")
-        headers.removeValue(forKey: "content-length")
-        headers.removeValue(forKey: "Host")
-        headers.removeValue(forKey: "host")
-        headers.removeValue(forKey: "connection")
-        headers.removeValue(forKey: "Connection")
-        headers.removeValue(forKey: "User-Agent")
-        headers.removeValue(forKey: "user-agent")
-
-        var bodyMods = [String: Any]()
-        var newBody = jsonBody
-        newBody["model"] = model // Set the default model to be the proxy name (top-level key)
-        
-        // Process common parameters without requiring "-d " prefix
-        let commonBodyParams = ["temperature", "stream", "max_tokens"]
-        for param in commonBodyParams {
-            if let value = proxyRule[param] {
-                bodyMods[param] = value
-            }
-        }
-
-        for (k, v) in proxyRule {
-            if k == "url" { continue }
-            if k == "key", let token = v as? String {
-                headers["Authorization"] = "Bearer \(token)"
-            } else if k == "model" {
-                newBody["model"] = v // This overrides the default if specified
-            } else if k.hasPrefix("-H "), let val = v as? String {
-                let hk = String(k.dropFirst(3))
-                headers[hk] = val
-            } else if k.hasPrefix("-d ") {
-                let bk = String(k.dropFirst(3))
-                bodyMods[bk] = v
-            }
-        }
-
-        newBody = mergeBody(original: newBody, modifications: bodyMods)
-
-        // Special handling for OpenRouter
-        if targetURL.contains("openrouter.ai/api/v1/chat/completions") {
-            // Force set these headers for OpenRouter, overriding any user settings
-            headers["HTTP-Referer"] = "https://by.afadingthought.com/macrowhisper"
-            headers["X-Title"] = "Macrowhisper"
-        }
-        
-        let streamDisabled = (proxyRule["-d stream"] as? Bool == false)
-        let outgoingReq = buildRequest(url: targetURL, headers: headers, json: newBody)
-
-        if streamDisabled {
-            return HttpResponse.raw(200, "OK", ["Content-Type": "text/event-stream"]) { writer in
-                let session = URLSession(configuration: .default)
-                let semaphore = DispatchSemaphore(value: 0)
-                session.dataTask(with: outgoingReq) { data, _, _ in
-                    if let data = data {
-                        let processed = mergeAnnotationsIntoContent(data)
-                        // Parse response
-                        if let root = try? JSONSerialization.jsonObject(with: processed) as? [String: Any],
-                           let choices = root["choices"] as? [[String: Any]],
-                           let message = choices.first?["message"] as? [String: Any],
-                           let content = message["content"] as? String {
-                            // Stream word by word as OpenAI delta-style
-                            var _ = ""
-                            // Assume 'content' is your string to stream
-                            let deltaChunk: [String: Any] = [
-                                "id": root["id"] ?? "chatcmpl-xxx",
-                                "object": "chat.completion.chunk",
-                                "choices": [[
-                                    "delta": ["content": content],
-                                    "index": 0,
-                                    "finish_reason": nil
-                                ]],
-                                "model": root["model"] ?? "unknown"
-                            ]
-
-                            if let chunkData = try? JSONSerialization.data(withJSONObject: deltaChunk),
-                               let chunkString = String(data: chunkData, encoding: .utf8) {
-                                let sse = "data: \(chunkString)\n\n"
-                                try? writer.write(sse.data(using: .utf8)!)
-                                // No sleep, just send it all at once
-                            }
-
-                            let done = "data: [DONE]\n\n"
-                            try? writer.write(done.data(using: .utf8)!)
-                        } else {
-                            // If can't parse, fallback, but this may crash some clients
-                            let chunk = "data: \(String(data: processed, encoding: .utf8) ?? "")\n\n"
-                            let done = "data: [DONE]\n\n"
-                            try? writer.write(chunk.data(using: .utf8)!)
-                            try? writer.write(done.data(using: .utf8)!)
-                        }
-                    }
-                    semaphore.signal()
-                }.resume()
-                semaphore.wait()
-            }
-        } else {
-            // Usual streaming passthrough
-            return HttpResponse.raw(200, "OK", ["Content-Type": "application/json"]) { writer in
-                let semaphore = DispatchSemaphore(value: 0)
-                let delegate = ProxyStreamDelegate(writer: writer, semaphore: semaphore)
-                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-                let task = session.dataTask(with: outgoingReq)
-                task.resume()
-                semaphore.wait()
-            }
-        }
-    }
-
-    server["/api/tags"] = { req in
-        // First try to get the actual tags from Ollama
-        var tagsList: [[String: Any]] = []
-        
-        // Try to fetch from Ollama
-        let ollamaURL = "http://localhost:11435/api/tags"
-        var request = URLRequest(url: URL(string: ollamaURL)!)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 0.5 // Short timeout of 0.5 seconds
-        
-        // Create a special version that doesn't crash on network errors
-        func safeNetworkRequest(_ request: URLRequest) -> (Data?, URLResponse?, Error?) {
-            let semaphore = DispatchSemaphore(value: 0)
-            var resultData: Data? = nil
-            var resultResponse: URLResponse? = nil
-            var resultError: Error? = nil
-            
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForResource = request.timeoutInterval
-            let session = URLSession(configuration: config)
-            
-            session.dataTask(with: request) { data, response, error in
-                resultData = data
-                resultResponse = response
-                resultError = error
-                semaphore.signal()
-            }.resume()
-            
-            _ = semaphore.wait(timeout: .now() + request.timeoutInterval + 0.1)
-            return (resultData, resultResponse, resultError)
-        }
-        
-        // Use our safe network request function
-        let (data, response, error) = safeNetworkRequest(request)
-        
-        if let error = error {
-            logError("Error connecting to Ollama: \(error.localizedDescription)")
-            // Continue with empty tagsList - Ollama is probably not running
-        } else if let data = data,
-                  let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 {
-            // Parse the response as before
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let models = json["models"] as? [[String: Any]] {
-                    tagsList = models
-                    logInfo("Successfully retrieved \(models.count) models from Ollama")
-                }
-            } catch {
-                logError("Error parsing Ollama response: \(error)")
-            }
-        } else {
-            logError("Failed to get models from Ollama: status code \((response as? HTTPURLResponse)?.statusCode ?? 0)")
-        }
-        
-        // Add a default placeholder model if Ollama/LMStudio is running but returned no models
-        if tagsList.isEmpty && error == nil && (response as? HTTPURLResponse)?.statusCode == 200 {
-            let defaultModel: [String: Any] = [
-                "name": "-",
-                "modified_at": ISO8601DateFormatter().string(from: Date()),
-                "size": 0,
-                "digest": "default-model",
-                "details": [
-                    "format": "unknown",
-                    "family": "default",
-                    "parameter_size": "N/A",
-                    "quantization_level": "none"
-                ]
-            ]
-            tagsList.append(defaultModel)
-        }
-        
-        // For each proxy in your proxies dictionary, add an entry
-        for (proxyName, _) in getProxies() {
-            let customProxyModel: [String: Any] = [
-                "name": "mw|\(proxyName)",
-                "modified_at": ISO8601DateFormatter().string(from: Date()),
-                "size": 0,
-                "digest": "mw-\(proxyName)",
-                "details": [
-                    "format": "proxy",
-                    "family": "proxy",
-                    "parameter_size": "N/A",
-                    "quantization_level": "none"
-                ]
-            ]
-            tagsList.append(customProxyModel)
-        }
-        
-        // Return the combined list
-        let modelResponse: [String: Any] = ["models": tagsList]
-        let jsonData = try! JSONSerialization.data(withJSONObject: modelResponse)
-        
-        return .raw(200, "OK", ["Content-Type": "application/json"]) { writer in
-            try? writer.write(jsonData)
-        }
-    }
-
-
-    server.notFoundHandler = { req in
-        // Forward everything to Ollama, preserving path and method
-        let targetURL = "http://localhost:11435\(req.path)"
-        let headers = req.headers
-        var request = URLRequest(url: URL(string: targetURL)!)
-        request.httpMethod = req.method
-        for (k, v) in headers { request.addValue(v, forHTTPHeaderField: k) }
-        if !req.body.isEmpty {
-            request.httpBody = Data(req.body)
-        }
-
-        return HttpResponse.raw(200, "OK", headers) { writer in
-            let semaphore = DispatchSemaphore(value: 0)
-            let delegate = ProxyStreamDelegate(writer: writer, semaphore: semaphore)
-            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-            let task = session.dataTask(with: request)
-            task.resume()
-            semaphore.wait()
-        }
-    }
-}
-
-// Add a helper function to access the proxies
-func getProxies() -> [String: [String: Any]] {
-    return proxies
 }
 
 // Initialize version checker
