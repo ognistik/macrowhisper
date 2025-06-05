@@ -2235,44 +2235,22 @@ if runServer {
     // Create server
     server = HttpServer()
     let port: in_port_t = 11434
-    guard isPortAvailable(port) else {
-        notify(title: "Macrowhisper", message: "Error: Port \(port) is already in use.")
-        exitWithError("Port \(port) is already in use.")
-    }
     
     // Set up server routes
     setupServerRoutes(server: server!)
     
-    logInfo("Proxy server running on http://localhost:\(port)")
-    notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
+    // Try to start the server, but don't exit if it fails
     do {
         try server!.start(port, forceIPv4: true)
-        logInfo("Server successfully started on port \(port)")
+        logInfo("Proxy server running on http://localhost:\(port)")
+        notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
     } catch {
         logError("Failed to start server: \(error)")
-        notify(title: "Macrowhisper", message: "Error: Port \(port) is already in use.")
+        notify(title: "Macrowhisper", message: "Failed to start server")
         
         // Update config to disable server
         configManager.updateFromCommandLine(server: false)
         server = nil
-    }
-    
-    // Update getProxies function to use configuration manager
-    func getProxies() -> [String: [String: Any]] {
-        return configManager.getProxiesDict()
-    }
-    
-    // Set up observer for configuration changes
-    NotificationCenter.default.addObserver(forName: .init("ConfigurationUpdated"),
-                                          object: nil,
-                                          queue: .main) { _ in
-        // Only update if server is running
-        if runServer && server != nil {
-            // Update proxies from configuration
-            proxies = configManager.getProxiesDict()
-            logInfo("Proxies updated from configuration change")
-            notify(title: "Macrowhisper", message: "Proxies configuration reloaded")
-        }
     }
 }
 
