@@ -543,6 +543,12 @@ class VersionChecker {
         return Date().timeIntervalSince(lastCheck) >= checkInterval
     }
     
+    func resetLastCheckDate() {
+        // Reset the last check date to trigger a check after the next interaction
+        lastCheckDate = nil
+        logInfo("Version checker state reset - will check after next interaction")
+    }
+    
     func checkForUpdates() {
         // Don't run if updates are disabled
         guard !disableUpdates else { return }
@@ -1807,23 +1813,43 @@ class RecordingsFolderWatcher: @unchecked Sendable {
 }
 
 func isPortAvailable(_ port: UInt16) -> Bool {
+    // Create a socket
     let sock = socket(AF_INET, SOCK_STREAM, 0)
-    if sock < 0 { return false }
+    if sock < 0 {
+        logError("Failed to create socket for port check")
+        return false
+    }
     defer { close(sock) }
     
-    var addr = sockaddr_in(
-        sin_len: UInt8(MemoryLayout<sockaddr_in>.stride),
-        sin_family: sa_family_t(AF_INET),
-        sin_port: port.bigEndian,
-        sin_addr: in_addr(s_addr: inet_addr("127.0.0.1")),
-        sin_zero: (0,0,0,0,0,0,0,0)
-    )
-    let bind_result = withUnsafePointer(to: &addr) {
+    // Set up the socket address
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = port.bigEndian
+    addr.sin_addr.s_addr = INADDR_ANY
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    
+    // Try to bind
+    let bindResult = withUnsafePointer(to: &addr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            bind(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            bind(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
     }
-    return bind_result == 0
+    
+    // If bind failed, port is in use
+    if bindResult != 0 {
+        logError("Port \(port) is already in use (Error: \(errno))")
+        return false
+    }
+    
+    // Also try to listen on the port to be double sure
+    let listenResult = listen(sock, 1)
+    if listenResult != 0 {
+        logError("Port \(port) cannot be used for listening (Error: \(errno))")
+        return false
+    }
+    
+    logInfo("Port \(port) is available")
+    return true
 }
 
 func mergeAnnotationsIntoContent(_ data: Data) -> Data {
@@ -2146,20 +2172,26 @@ while i < args.count {
 configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
 
-// Update config with command line arguments
+// Read values from config first
+let config = configManager.config
+disableUpdates = config.defaults.noUpdates
+disableNotifications = config.defaults.noNoti
+
+// Only update config with command line arguments if they were specified
 configManager.updateFromCommandLine(
     watchPath: watchPath,
     server: serverFlag,
     watcher: watcherFlag,
-    noUpdates: disableUpdates,
-    noNoti: disableNotifications
+    noUpdates: args.contains("--no-updates") ? disableUpdates : nil,
+    noNoti: args.contains("--no-noti") ? disableNotifications : nil
 )
 
-// Apply configuration to global variables
-let config = configManager.config
+// Update global variables again after possible configuration changes
+disableUpdates = configManager.config.defaults.noUpdates
+disableNotifications = configManager.config.defaults.noNoti
+
+// Get the final watch path after possible updates
 let watchFolderPath = config.defaults.watch
-disableUpdates = config.defaults.noUpdates
-disableNotifications = config.defaults.noNoti
 
 // Check feature availability
 let runServer = checkServerAvailability()
@@ -2213,7 +2245,17 @@ if runServer {
     
     logInfo("Proxy server running on http://localhost:\(port)")
     notify(title: "Macrowhisper", message: "Proxy server running on http://localhost:\(port)")
-    try! server!.start(port, forceIPv4: true)
+    do {
+        try server!.start(port, forceIPv4: true)
+        logInfo("Server successfully started on port \(port)")
+    } catch {
+        logError("Failed to start server: \(error)")
+        notify(title: "Macrowhisper", message: "Error: Port \(port) is already in use.")
+        
+        // Update config to disable server
+        configManager.updateFromCommandLine(server: false)
+        server = nil
+    }
     
     // Update getProxies function to use configuration manager
     func getProxies() -> [String: [String: Any]] {
@@ -2256,9 +2298,20 @@ if runWatcher {
 
 // Set up configuration change handler for live updates
 configManager.onConfigChanged = {
+    // Store previous values to detect changes
+    let previousDisableUpdates = disableUpdates
+    
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
+    logInfo("disableUpdates now set to: \(disableUpdates)")
     disableNotifications = configManager.config.defaults.noNoti
+    logInfo("disableNotifications now set to: \(disableNotifications)")
+    
+    // If updates were disabled but are now enabled, reset the version checker state
+    if previousDisableUpdates == true && disableUpdates == false {
+        logInfo("Updates were disabled but are now enabled. Resetting update checker state.")
+        versionChecker.resetLastCheckDate()
+    }
     
     // Check if server should be running
     let shouldRunServer = configManager.config.defaults.server
