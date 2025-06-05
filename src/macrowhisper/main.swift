@@ -36,6 +36,7 @@ class SocketCommunication {
     private var server: DispatchSourceRead?
     private var serverSocket: Int32 = -1
     private let queue = DispatchQueue(label: "com.macrowhisper.socket", qos: .utility)
+    private var configManagerRef: ConfigurationManager?
     
     enum Command: String, Codable {
         case reloadConfig
@@ -54,6 +55,8 @@ class SocketCommunication {
     }
     
     func startServer(configManager: ConfigurationManager) {
+        // Store a strong reference to configManager
+        self.configManagerRef = configManager
         // First, make sure any existing socket file is removed
         // Only remove the socket file when we're actually starting the server
         if FileManager.default.fileExists(atPath: socketPath) {
@@ -121,7 +124,7 @@ class SocketCommunication {
         // Create a dispatch source for the socket
         server = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         
-        // Set up the event handler
+        // Set up the event handler with a strong capture of configManager
         server?.setEventHandler { [weak self] in
             guard let self = self else { return }
             
@@ -134,7 +137,7 @@ class SocketCommunication {
             
             // Handle the connection in a background queue
             self.queue.async {
-                self.handleConnection(clientSocket: clientSocket, configManager: configManager)
+                self.handleConnection(clientSocket: clientSocket, configManager: globalConfigManager)
             }
         }
         
@@ -151,7 +154,16 @@ class SocketCommunication {
         logInfo("Socket server started at \(socketPath) with descriptor \(serverSocket)")
     }
     
-    private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager) {
+    private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
+        let safeConfigManager = self.configManagerRef ?? configManager ?? globalConfigManager
+
+        guard let configMgr = safeConfigManager else {
+            logError("CRITICAL ERROR: No valid configuration manager available")
+            let response = "Server error: Configuration manager unavailable"
+            write(clientSocket, response, response.utf8.count)
+            return
+        }
+        
         defer {
             close(clientSocket)
         }
@@ -183,14 +195,17 @@ class SocketCommunication {
             case .reloadConfig:
                 logInfo("Processing command to reload configuration")
                 // Reload the configuration from disk
-                if let loadedConfig = configManager.loadConfig() {
-                    configManager.config = loadedConfig
-                    configManager.onConfigChanged?()
+                if let loadedConfig = configMgr.loadConfig() {
+                    configMgr.config = loadedConfig
+                    configMgr.onConfigChanged?()
                     
                     // Send success response
                     let response = "Configuration reloaded successfully"
                     write(clientSocket, response, response.utf8.count)
                     logInfo("Configuration reload successful")
+                    
+                    // Notify the user
+                    notify(title: "Macrowhisper", message: "Configuration reloaded successfully")
                 } else {
                     // Send error response
                     let response = "Failed to reload configuration"
@@ -199,33 +214,50 @@ class SocketCommunication {
                 }
                 
             case .updateConfig:
-                logInfo("Received command to update configuration")
-                
-                // Extract arguments
-                if let args = commandMessage.arguments {
-                    let watchPath: String? = args["watch"]
-                    let server: Bool? = args["server"] == "true" ? true : (args["server"] == "false" ? false : nil)
-                    let watcher: Bool? = args["watcher"] == "true" ? true : (args["watcher"] == "false" ? false : nil)
-                    let noUpdates: Bool? = args["noUpdates"] == "true" ? true : (args["noUpdates"] == "false" ? false : nil)
-                    let noNoti: Bool? = args["noNoti"] == "true" ? true : (args["noNoti"] == "false" ? false : nil)
+                    logInfo("Received command to update configuration")
                     
-                    // Update configuration
-                    configManager.updateFromCommandLine(
-                        watchPath: watchPath,
-                        server: server,
-                        watcher: watcher,
-                        noUpdates: noUpdates,
-                        noNoti: noNoti
-                    )
-                    
-                    // Send success response
-                    let response = "Configuration updated successfully"
-                    write(clientSocket, response, response.utf8.count)
-                } else {
-                    // Send error response
-                    let response = "No arguments provided for configuration update"
-                    write(clientSocket, response, response.utf8.count)
-                }
+                    // Extract arguments
+                    if let args = commandMessage.arguments {
+                        logInfo("Updating config with arguments: \(args)")
+                        
+                        // Create local variables with proper null checking
+                        let watchPath = args["watch"]
+                        
+                        // Parse boolean values from strings
+                        let serverStr = args["server"]
+                        let watcherStr = args["watcher"]
+                        let noUpdatesStr = args["noUpdates"]
+                        let noNotiStr = args["noNoti"]
+                        
+                        // Log the parameters before updating
+                        logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any)")
+                        
+                        // Convert string values to boolean values
+                        let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
+                        let watcher = watcherStr == "true" ? true : (watcherStr == "false" ? false : nil)
+                        let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
+                        let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
+                        
+                        // Update configuration with null-safe values using the safe reference
+                        configMgr.updateFromCommandLine(
+                            watchPath: watchPath,
+                            server: server,
+                            watcher: watcher,
+                            noUpdates: noUpdates,
+                            noNoti: noNoti
+                        )
+                        
+                        logInfo("Configuration updated successfully")
+                        
+                        // Send success response
+                        let response = "Configuration updated successfully"
+                        write(clientSocket, response, response.utf8.count)
+                    } else {
+                        // Send error response
+                        let response = "No arguments provided for configuration update"
+                        write(clientSocket, response, response.utf8.count)
+                    }
+                    return  // Prevent fall-through
                 
             case .status:
                 logInfo("Received command to get status")
@@ -235,9 +267,9 @@ class SocketCommunication {
                     "version": APP_VERSION,
                     "server_running": server != nil,
                     "watcher_running": recordingsWatcher != nil,
-                    "watch_path": configManager.config.defaults.watch,
-                    "updates_disabled": configManager.config.defaults.noUpdates,
-                    "notifications_disabled": configManager.config.defaults.noNoti
+                    "watch_path": configMgr.config.defaults.watch,
+                    "updates_disabled": configMgr.config.defaults.noUpdates,
+                    "notifications_disabled": configMgr.config.defaults.noNoti
                 ]
                 
                 // Convert to JSON
@@ -460,6 +492,7 @@ class NotificationManager {
 // Global variables
 var disableUpdates: Bool = false
 var disableNotifications: Bool = false
+var globalConfigManager: ConfigurationManager?
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -938,9 +971,10 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
         // Instead of using socket communication, use process communication
         let args = CommandLine.arguments
         
-        // Default behavior if no specific arguments
-        if args.count == 1 {
-            print("Another instance is already running. Use --help for command options.")
+        // Handle help command specifically
+        if args.contains("-h") || args.contains("--help") {
+            // Print help directly without trying to communicate with the running instance
+            printHelp()
             exit(0)
         }
         
@@ -950,14 +984,14 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             exit(0)
         }
         
-        // For reload configuration, use socket communication to tell the running instance
-        if args.contains("--server") || args.contains("--watcher") ||
+        // For reload configuration or no arguments, use socket communication
+        if args.count == 1 || args.contains("--server") || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") {
             
-            print("Sending configuration update to running instance...")
+            print("Reloading configuration in running instance...")
             
-            // Create command arguments
+            // Create command arguments if there are any
             var arguments: [String: String] = [:]
             
             // Extract arguments from command line
@@ -984,8 +1018,11 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 arguments["noNoti"] = "true"
             }
             
-            // Send the update command to the running instance
-            if let response = socketCommunication.sendCommand(.updateConfig, arguments: arguments) {
+            // If there are arguments, send updateConfig, otherwise send reloadConfig
+            let command = arguments.isEmpty ? SocketCommunication.Command.reloadConfig : SocketCommunication.Command.updateConfig
+            
+            // Send the command to the running instance
+            if let response = socketCommunication.sendCommand(command, arguments: arguments.isEmpty ? nil : arguments) {
                 print("Response from running instance: \(response)")
             } else {
                 print("Failed to communicate with running instance.")
@@ -2087,6 +2124,7 @@ while i < args.count {
 
 // Initialize configuration manager with the specified path
 configManager = ConfigurationManager(configPath: configPath)
+globalConfigManager = configManager
 
 // Update config with command line arguments
 configManager.updateFromCommandLine(
