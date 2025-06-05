@@ -5,6 +5,10 @@ import Swifter
 import Dispatch
 import Darwin
 import UserNotifications
+import ApplicationServices
+import Cocoa
+import Carbon.HIToolbox
+
 let APP_VERSION = "1.0.0"
 private let UNIX_PATH_MAX = 104
 
@@ -44,6 +48,10 @@ class SocketCommunication {
         case status
         case debug
         case version
+        case setActiveAction
+        case listActions
+        case addAction
+        case removeAction
     }
     
     struct CommandMessage: Codable {
@@ -193,6 +201,112 @@ class SocketCommunication {
             
             // Handle the command
             switch commandMessage.command {
+            case .setActiveAction:
+                logInfo("Received command to set active action")
+                
+                if let actionName = commandMessage.arguments?["name"] {
+                    // Check if action exists
+                    let actionExists = configMgr.config.actions.contains { $0.name == actionName }
+                    
+                    if actionName.isEmpty || actionExists {
+                        // Update the active action (empty string means disable)
+                        configMgr.updateFromCommandLine(activeAction: actionName)
+                        
+                        let response = actionName.isEmpty
+                            ? "Active action disabled"
+                            : "Active action set to: \(actionName)"
+                        write(clientSocket, response, response.utf8.count)
+                    } else {
+                        let response = "Action '\(actionName)' not found"
+                        write(clientSocket, response, response.utf8.count)
+                    }
+                } else {
+                    let response = "No action name provided"
+                    write(clientSocket, response, response.utf8.count)
+                }
+
+            case .listActions:
+                logInfo("Received command to list actions")
+                
+                let actions = configMgr.config.actions
+                let activeAction = configMgr.config.defaults.activeAction ?? "none"
+                
+                if actions.isEmpty {
+                    let response = "No actions configured. Active action: \(activeAction)"
+                    write(clientSocket, response, response.utf8.count)
+                } else {
+                    var response = "Available actions (active: \(activeAction)):\n"
+                    for action in actions {
+                        let isActive = action.name == activeAction ? " (active)" : ""
+                        response += "- \(action.name)\(isActive)\n"
+                    }
+                    write(clientSocket, response, response.utf8.count)
+                }
+
+            case .addAction:
+                logInfo("Received command to add action")
+                
+                if let name = commandMessage.arguments?["name"],
+                   let template = commandMessage.arguments?["template"] {
+                    
+                    // Check if action with this name already exists
+                    var actions = configMgr.config.actions
+                    if let index = actions.firstIndex(where: { $0.name == name }) {
+                        // Update existing action
+                        actions[index] = AppConfiguration.Action(name: name, template: template)
+                        configMgr.config.actions = actions
+                        configMgr.saveConfig()
+                        
+                        let response = "Action '\(name)' updated"
+                        write(clientSocket, response, response.utf8.count)
+                    } else {
+                        // Add new action
+                        actions.append(AppConfiguration.Action(name: name, template: template))
+                        configMgr.config.actions = actions
+                        configMgr.saveConfig()
+                        
+                        let response = "Action '\(name)' added"
+                        write(clientSocket, response, response.utf8.count)
+                    }
+                    
+                    // Trigger config changed callback
+                    configMgr.onConfigChanged?()
+                } else {
+                    let response = "Missing name or template for action"
+                    write(clientSocket, response, response.utf8.count)
+                }
+
+            case .removeAction:
+                logInfo("Received command to remove action")
+                
+                if let name = commandMessage.arguments?["name"] {
+                    var actions = configMgr.config.actions
+                    let initialCount = actions.count
+                    
+                    actions.removeAll { $0.name == name }
+                    
+                    if actions.count < initialCount {
+                        configMgr.config.actions = actions
+                        
+                        // If the removed action was active, clear the active action
+                        if configMgr.config.defaults.activeAction == name {
+                            configMgr.config.defaults.activeAction = nil
+                        }
+                        
+                        configMgr.saveConfig()
+                        configMgr.onConfigChanged?()
+                        
+                        let response = "Action '\(name)' removed"
+                        write(clientSocket, response, response.utf8.count)
+                    } else {
+                        let response = "Action '\(name)' not found"
+                        write(clientSocket, response, response.utf8.count)
+                    }
+                } else {
+                    let response = "No action name provided"
+                    write(clientSocket, response, response.utf8.count)
+                }
+                
             case .reloadConfig:
                 logInfo("Processing command to reload configuration")
                 // Reload the configuration from disk
@@ -864,28 +978,38 @@ class VersionChecker {
 
 // MARK: - Configuration Manager
 
+// First, update the AppConfiguration struct to include Actions
 struct AppConfiguration: Codable {
     struct Defaults: Codable {
         var watch: String
         var watcher: Bool
         var noUpdates: Bool
         var noNoti: Bool
+        var activeAction: String?
         
         static func defaultValues() -> Defaults {
             return Defaults(
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
                 watcher: false, // Default off
                 noUpdates: false,
-                noNoti: false
+                noNoti: false,
+                activeAction: nil // No active action by default
             )
         }
     }
     
+    struct Action: Codable {
+        var name: String
+        var template: String
+    }
+    
     var defaults: Defaults
+    var actions: [Action]
     
     static func defaultConfig() -> AppConfiguration {
         return AppConfiguration(
-            defaults: Defaults.defaultValues()
+            defaults: Defaults.defaultValues(),
+            actions: [] // Empty actions array by default
         )
     }
 }
@@ -1428,6 +1552,70 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         startWatchingRecordingsFolder()
     }
     
+    private func processTemplate(_ template: String, metaJson: [String: Any]) -> String {
+        var result = template
+        
+        // Process placeholders
+        // Handle {{swResult}} special case
+        if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
+            result = result.replacingOccurrences(of: "{{swResult}}", with: llmResult)
+        } else if let regularResult = metaJson["result"] as? String {
+            result = result.replacingOccurrences(of: "{{swResult}}", with: regularResult)
+        }
+        
+        // Process other placeholders
+        let placeholders = ["modeName", "prompt", "result", "rawResult", "llmResult"]
+        for key in placeholders {
+            if let value = metaJson[key] as? String {
+                result = result.replacingOccurrences(of: "{{\(key)}}", with: value)
+            }
+        }
+        
+        // Process newlines - convert literal "\n" to actual newlines
+        result = result.replacingOccurrences(of: "\\n", with: "\n")
+        
+        return result
+    }
+
+    private func applyAction(_ text: String) {
+        // First, simulate ESC key press
+        simulateEscKeyPress()
+        
+        // Then paste the text using accessibility APIs for reliability
+        pasteTextUsingAccessibility(text)
+    }
+
+    private func simulateEscKeyPress() {
+        // Simulate ESC key press
+        simulateKeyDown(key: 53)
+    }
+
+    private func pasteTextUsingAccessibility(_ text: String) {
+        // Set the clipboard content
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        // Simulate Cmd+V
+        simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
+    }
+    
+    private func simulateKeyDown(key: Int, flags: CGEventFlags = []) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        
+        // Convert Int to UInt16 (CGKeyCode)
+        let keyCode = CGKeyCode(key)
+        
+        let keyDownEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+        keyDownEvent?.flags = flags
+
+        let keyUpEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        keyUpEvent?.flags = flags
+
+        keyDownEvent?.post(tap: .cghidEventTap)
+        keyUpEvent?.post(tap: .cghidEventTap)
+    }
+    
     private func checkRecordingsFolder() -> Bool {
         if !FileManager.default.fileExists(atPath: recordingsPath) {
             logWarning("Warning: recordings folder not found at \(recordingsPath). Waiting for it to be restored.")
@@ -1677,12 +1865,24 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             // Mark this file as processed immediately to prevent duplicate triggers
             processedMetaJsons.insert(path)
             
-            // Trigger Keyboard Maestro with high priority
-            logInfo("Found valid result in meta.json. Triggering Macro.")
-            
-            // IMPORTANT: Trigger Keyboard Maestro IMMEDIATELY with highest priority
-            DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-                guard let self = self else { return }
+            // Get the active action from configuration
+            if let activeActionName = configManager.config.defaults.activeAction,
+               !activeActionName.isEmpty {
+                // Find the active action in the actions array
+                if let action = configManager.config.actions.first(where: { $0.name == activeActionName }) {
+                    // Process the action template with the meta.json values
+                    let processedTemplate = self.processTemplate(action.template, metaJson: json)
+                    
+                    // Apply the action (simulate ESC key press and paste the template)
+                    self.applyAction(processedTemplate)
+                    
+                    logInfo("Applied action '\(activeActionName)' with processed template")
+                } else {
+                    logWarning("Active action '\(activeActionName)' not found in configuration")
+                }
+            } else {
+                // No active action, use the old behavior (trigger Keyboard Maestro)
+                logInfo("Found valid result in meta.json. Triggering Macro.")
                 self.triggerKeyboardMaestro()
             }
             
@@ -1840,12 +2040,14 @@ class ConfigurationManager {
     }
 
     // Update configuration with command line arguments and save
+    // Add this to the updateFromCommandLine method in ConfigurationManager
     func updateFromCommandLine(
         watchPath: String? = nil,
         server: Bool? = nil,
         watcher: Bool? = nil,
         noUpdates: Bool? = nil,
-        noNoti: Bool? = nil
+        noNoti: Bool? = nil,
+        activeAction: String? = nil
     ) {
         syncQueue.sync {
             if let watchPath = watchPath {
@@ -1859,6 +2061,9 @@ class ConfigurationManager {
             }
             if let noNoti = noNoti {
                 config.defaults.noNoti = noNoti
+            }
+            if let activeAction = activeAction {
+                config.defaults.activeAction = activeAction.isEmpty ? nil : activeAction
             }
             
             // Save the configuration
@@ -1893,6 +2098,7 @@ func promptYesNo(_ message: String) -> Bool {
     }
 }
 
+// Add to the printHelp function
 func printHelp() {
     print("""
     Usage: macrowhisper [OPTIONS]
@@ -1905,9 +2111,15 @@ func printHelp() {
           --watcher true/false      Enable or disable the folder watcher (overrides config)
           --no-updates true/false   Enable or disable automatic update checking (overrides config)
           --no-noti true/false      Enable or disable all notifications (overrides config)
+          --action <name>           Set the active action (use empty string to disable)
       -s, --status                  Get the status of the background process
       -h, --help                    Show this help message
       -v, --version                 Show version information
+
+    ACTIONS COMMANDS:
+      --list-actions                List all configured actions
+      --add-action <name> <template>  Add or update an action
+      --remove-action <name>        Remove an action
 
     Examples:
       macrowhisper
@@ -1917,6 +2129,9 @@ func printHelp() {
 
       macrowhisper --watch ~/otherfolder/superwhisper --watcher true --no-updates false
 
+      macrowhisper --action pasteResult
+        # Sets the active action to pasteResult
+
     """)
 }
 
@@ -1925,6 +2140,7 @@ let configManager: ConfigurationManager
 var configPath: String? = nil
 var watchPath: String? = nil
 var watcherFlag: Bool? = nil
+var actionName: String? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -1976,6 +2192,59 @@ while i < args.count {
     case "-v", "--version":
         print("macrowhisper version \(APP_VERSION)")
         exit(0)
+    case "--action":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        actionName = args[i + 1]
+        i += 2
+    case "--list-actions":
+        if let response = socketCommunication.sendCommand(.listActions) {
+            print(response)
+        } else {
+            print("Failed to list actions")
+        }
+        exit(0)
+
+    case "--add-action":
+        guard i + 2 < args.count else {
+            logError("Missing action name or template after \(args[i])")
+            exit(1)
+        }
+        let actionName = args[i + 1]
+        let actionTemplate = args[i + 2]
+        
+        let arguments: [String: String] = [
+            "name": actionName,
+            "template": actionTemplate
+        ]
+        
+        if let response = socketCommunication.sendCommand(.addAction, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to add action")
+        }
+        exit(0)
+
+    case "--remove-action":
+        guard i + 1 < args.count else {
+            logError("Missing action name after \(args[i])")
+            exit(1)
+        }
+        let actionName = args[i + 1]
+        
+        let arguments: [String: String] = [
+            "name": actionName
+        ]
+        
+        if let response = socketCommunication.sendCommand(.removeAction, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to remove action")
+        }
+        exit(0)
+        
     default:
         logError("Unknown argument: \(args[i])")
         notify(title: "Macrowhisper", message: "Unknown argument: \(args[i])")
@@ -1998,7 +2267,8 @@ configManager.updateFromCommandLine(
     watchPath: watchPath,
     watcher: watcherFlag,
     noUpdates: args.contains("--no-updates") ? disableUpdates : nil,
-    noNoti: args.contains("--no-noti") ? disableNotifications : nil
+    noNoti: args.contains("--no-noti") ? disableNotifications : nil,
+    activeAction: actionName
 )
 
 // Update global variables again after possible configuration changes
