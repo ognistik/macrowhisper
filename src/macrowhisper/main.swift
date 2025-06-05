@@ -1011,11 +1011,21 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             }
             
             if args.contains("--no-updates") {
-                arguments["noUpdates"] = "true"
+                let noUpdatesIndex = args.firstIndex(where: { $0 == "--no-updates" })
+                if let index = noUpdatesIndex, index + 1 < args.count {
+                    arguments["noUpdates"] = args[index + 1]
+                } else {
+                    arguments["noUpdates"] = "true"
+                }
             }
-            
+
             if args.contains("--no-noti") {
-                arguments["noNoti"] = "true"
+                let noNotiIndex = args.firstIndex(where: { $0 == "--no-noti" })
+                if let index = noNotiIndex, index + 1 < args.count {
+                    arguments["noNoti"] = args[index + 1]
+                } else {
+                    arguments["noNoti"] = "true"
+                }
             }
             
             // If there are arguments, send updateConfig, otherwise send reloadConfig
@@ -2038,23 +2048,23 @@ func printHelp() {
     Server and/or folder watcher for Superwhisper integration.
 
     OPTIONS:
-      -c, --config <path>     Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
-      -w, --watch <path>      Path to superwhisper folder (overrides config)
-          --server true/false Enable or disable the proxy server (overrides config)
-          --watcher true/false Enable or disable the folder watcher (overrides config)
-          --no-updates        Disable automatic update checking
-          --no-noti           Disable all notifications
-      -s, --status            Get the status of the background process
-      -h, --help              Show this help message
-      -v, --version           Show version information
+      -c, --config <path>           Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
+      -w, --watch <path>            Path to superwhisper folder (overrides config)
+          --server true/false       Enable or disable the proxy server (overrides config)
+          --watcher true/false      Enable or disable the folder watcher (overrides config)
+          --no-updates true/false   Enable or disable automatic update checking (overrides config)
+          --no-noti true/false      Enable or disable all notifications (overrides config)
+      -s, --status                  Get the status of the background process
+      -h, --help                    Show this help message
+      -v, --version                 Show version information
 
     Examples:
       macrowhisper
-        # Uses defaults from config file
+        # Uses defaults from config file/Reloads config file
 
       macrowhisper --config ~/custom-config.json
 
-      macrowhisper --watch ~/otherfolder/superwhisper --watcher true
+      macrowhisper --watch ~/otherfolder/superwhisper --watcher true --no-updates false
 
     """)
 }
@@ -2103,11 +2113,21 @@ while i < args.count {
         watcherFlag = value == "true" || value == "yes" || value == "1"
         i += 2
     case "--no-updates":
-        disableUpdates = true
-        i += 1
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        let value = args[i + 1].lowercased()
+        disableUpdates = value == "true" || value == "yes" || value == "1"
+        i += 2
     case "--no-noti":
-        disableNotifications = true
-        i += 1
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        let value = args[i + 1].lowercased()
+        disableNotifications = value == "true" || value == "yes" || value == "1"
+        i += 2
     case "-h", "--help":
         printHelp()
         exit(0)
