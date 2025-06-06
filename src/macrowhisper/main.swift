@@ -52,6 +52,7 @@ class SocketCommunication {
         case listInserts
         case addInsert
         case removeInsert
+        case getIcon
     }
     
     struct CommandMessage: Codable {
@@ -206,7 +207,7 @@ class SocketCommunication {
                 
                 if let insertName = commandMessage.arguments?["name"] {
                     // Check if insert exists
-                    let insertExists = configMgr.config.inserts.contains { $0.name == insertName }
+                    let insertExists = insertName.isEmpty || configMgr.config.inserts.contains { $0.name == insertName }
                     
                     if insertName.isEmpty || insertExists {
                         // Update the active insert (empty string means disable)
@@ -237,9 +238,10 @@ class SocketCommunication {
                 } else {
                     var response = "Available inserts (active: \(activeInsert)):\n"
                     for insert in inserts {
-                        let isActive = insert.name == activeInsert ? " (active)" : ""
-                        response += "- \(insert.name)\(isActive)\n"
-                    }
+                               let isActive = insert.name == activeInsert ? " (active)" : ""
+                               let iconDisplay = insert.icon != nil && !insert.icon!.isEmpty ? " [icon: \(insert.icon!)]" : ""
+                               response += "- \(insert.name)\(isActive)\(iconDisplay)\n"
+                       }
                     write(clientSocket, response, response.utf8.count)
                 }
 
@@ -248,7 +250,7 @@ class SocketCommunication {
                 
                 if let name = commandMessage.arguments?["name"],
                    let action = commandMessage.arguments?["action"] {
-                    
+                                        
                     // Check if insert with this name already exists
                     var inserts = configMgr.config.inserts
                     if let index = inserts.firstIndex(where: { $0.name == name }) {
@@ -305,6 +307,39 @@ class SocketCommunication {
                 } else {
                     let response = "No insert name provided"
                     write(clientSocket, response, response.utf8.count)
+                }
+                
+            case .getIcon:
+                logInfo("Received command to get active insert icon")
+                
+                // Check if there's an active insert configured
+                if let activeInsertName = configMgr.config.defaults.activeInsert,
+                   !activeInsertName.isEmpty {
+                    
+                    // Try to find the active insert in the configuration
+                    if let activeInsert = configMgr.config.inserts.first(where: { $0.name == activeInsertName }) {
+                        // Check if the insert has an icon
+                        if let icon = activeInsert.icon, !icon.isEmpty {
+                            // Return the icon
+                            write(clientSocket, icon, icon.utf8.count)
+                            logInfo("Returned icon for active insert: \(activeInsertName)")
+                        } else {
+                            // No icon defined for this insert
+                            let response = " "
+                            write(clientSocket, response, response.utf8.count)
+                            logInfo("No icon defined for active insert: \(activeInsertName)")
+                        }
+                    } else {
+                        // Insert not found in configuration
+                        let response = "Active insert '\(activeInsertName)' not found in configuration"
+                        write(clientSocket, response, response.utf8.count)
+                        logInfo(response)
+                    }
+                } else {
+                    // No active insert configured
+                    let response = " "
+                    write(clientSocket, response, response.utf8.count)
+                    logInfo("No active insert")
                 }
                 
             case .reloadConfig:
@@ -1000,6 +1035,7 @@ struct AppConfiguration: Codable {
     struct Insert: Codable {
         var name: String
         var action: String
+        var icon: String?
     }
     
     var defaults: Defaults
@@ -1084,9 +1120,8 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
         // For reload configuration or no arguments, use socket communication
         if args.count == 1 || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
-           args.contains("--no-updates") || args.contains("--no-noti") {
-            
-            print("Reloading configuration in running instance...")
+           args.contains("--no-updates") || args.contains("--no-noti") ||
+           args.contains("--get-icon") || args.contains("--insert") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1118,6 +1153,42 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 } else {
                     arguments["noNoti"] = "true"
                 }
+            }
+            
+            // Handle --get-icon command
+            if args.contains("--get-icon") {
+                // Send the command to the running instance
+                if let response = socketCommunication.sendCommand(.getIcon) {
+                    print(response)
+                } else {
+                    print("Failed to get icon.")
+                }
+                
+                exit(0)
+            }
+            
+            if args.contains("--insert") {
+                let insertIndex = args.firstIndex(where: { $0 == "--insert" })
+                
+                // Create arguments for the setActiveInsert command
+                var arguments: [String: String] = [:]
+                
+                // Check if there's a value after --insert
+                if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    // User provided a name, use it
+                    arguments["name"] = args[index + 1]
+                } else {
+                    // No name provided or next arg is another flag, set empty string to clear
+                    arguments["name"] = ""
+                }
+                
+                // Send the setActiveInsert command specifically
+                if let response = socketCommunication.sendCommand(.setActiveInsert, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to set active insert")
+                }
+                exit(0)
             }
             
             // If there are arguments, send updateConfig, otherwise send reloadConfig
@@ -2062,7 +2133,7 @@ class ConfigurationManager {
                 config.defaults.noNoti = noNoti
             }
             if let activeInsert = activeInsert {
-                config.defaults.activeInsert = activeInsert.isEmpty ? nil : activeInsert
+                config.defaults.activeInsert = activeInsert
             }
             
             // Save the configuration
@@ -2116,9 +2187,10 @@ func printHelp() {
       -v, --version                 Show version information
 
     INSERTS COMMANDS:
-      --list-inserts                    List all configured inserts
-      --add-insert <name> <action>    Add or update an insert
-      --remove-insert <name>            Remove an insert
+      --list-inserts                List all configured inserts
+      --add-insert <name> <action>  Add or update an insert
+      --remove-insert <name>        Remove an insert
+      --get-icon                    Get the icon of the active insert
 
     Examples:
       macrowhisper
@@ -2214,10 +2286,18 @@ while i < args.count {
         let insertName = args[i + 1]
         let insertAction = args[i + 2]
         
-        let arguments: [String: String] = [
+        // Check if an icon is provided (optional)
+        var arguments: [String: String] = [
             "name": insertName,
             "action": insertAction
         ]
+        
+        if i + 3 < args.count && !args[i + 3].starts(with: "--") {
+            arguments["icon"] = args[i + 3]
+            i += 4
+        } else {
+            i += 3
+        }
         
         if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
             print(response)
@@ -2247,7 +2327,6 @@ while i < args.count {
     default:
         logError("Unknown argument: \(args[i])")
         notify(title: "Macrowhisper", message: "Unknown argument: \(args[i])")
-        printHelp()
         exit(1)
     }
 }
