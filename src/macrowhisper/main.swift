@@ -2281,10 +2281,6 @@ let watchFolderPath = config.defaults.watch
 // Check feature availability
 let runWatcher = checkWatcherAvailability()
 
-if runWatcher {
-    initializeWatcher(watchFolderPath)
-}
-
 // ---
 // At this point, continue with initializing server and/or watcher as usual...
 logInfo("macrowhisper starting with:")
@@ -2327,34 +2323,42 @@ if runWatcher {
 configManager.onConfigChanged = {
     // Store previous values to detect changes
     let previousDisableUpdates = disableUpdates
-    
+
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
     logInfo("disableUpdates now set to: \(disableUpdates)")
     disableNotifications = configManager.config.defaults.noNoti
     logInfo("disableNotifications now set to: \(disableNotifications)")
-    
+
     // If updates were disabled but are now enabled, reset the version checker state
     if previousDisableUpdates == true && disableUpdates == false {
         logInfo("Updates were disabled but are now enabled. Resetting update checker state.")
         versionChecker.resetLastCheckDate()
     }
-    
+
     // Check if watcher should be running
     let shouldRunWatcher = configManager.config.defaults.watcher
     let currentWatchPath = configManager.config.defaults.watch
-    
-    if shouldRunWatcher && recordingsWatcher == nil {
-        if checkWatcherAvailability() {
-            initializeWatcher(currentWatchPath)
+
+    if shouldRunWatcher {
+        if recordingsWatcher == nil {
+            // Start the watcher if it's not already running
+            if checkWatcherAvailability() {
+                initializeWatcher(currentWatchPath)
+            }
+        } else if currentWatchPath != watchFolderPath {
+            // The watch path has changed, restart the watcher
+            recordingsWatcher = nil
+            if checkWatcherAvailability() {
+                initializeWatcher(currentWatchPath)
+            }
         }
-    } else if !shouldRunWatcher && recordingsWatcher != nil {
-        recordingsWatcher = nil
-        logInfo("Watcher stopped due to configuration change")
-    } else if shouldRunWatcher && recordingsWatcher != nil && currentWatchPath != watchFolderPath {
-        // Restart watcher with new path
-        recordingsWatcher = nil
-        initializeWatcher(currentWatchPath)
+    } else {
+        // Stop the watcher if it's running and should not be
+        if recordingsWatcher != nil {
+            recordingsWatcher = nil
+            logInfo("Watcher stopped due to configuration change")
+        }
     }
 }
 
