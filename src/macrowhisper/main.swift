@@ -53,6 +53,7 @@ class SocketCommunication {
         case addInsert
         case removeInsert
         case getIcon
+        case getInsert
     }
     
     struct CommandMessage: Codable {
@@ -335,6 +336,22 @@ class SocketCommunication {
                         write(clientSocket, response, response.utf8.count)
                         logInfo(response)
                     }
+                } else {
+                    // No active insert configured
+                    let response = " "
+                    write(clientSocket, response, response.utf8.count)
+                    logInfo("No active insert")
+                }
+                
+            case .getInsert:
+                logInfo("Received command to get active insert name")
+                
+                // Check if there's an active insert configured
+                if let activeInsertName = configMgr.config.defaults.activeInsert,
+                   !activeInsertName.isEmpty {
+                    // Return the active insert name
+                    write(clientSocket, activeInsertName, activeInsertName.utf8.count)
+                    logInfo("Returned active insert name: \(activeInsertName)")
                 } else {
                     // No active insert configured
                     let response = " "
@@ -1121,7 +1138,7 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
         if args.count == 1 || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") ||
-           args.contains("--get-icon") || args.contains("--insert") {
+           args.contains("--get-icon") || args.contains("--get-insert") || args.contains("--insert") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1155,13 +1172,23 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 }
             }
             
-            // Handle --get-icon command
             if args.contains("--get-icon") {
                 // Send the command to the running instance
                 if let response = socketCommunication.sendCommand(.getIcon) {
                     print(response)
                 } else {
                     print("Failed to get icon.")
+                }
+                
+                exit(0)
+            }
+            
+            if args.contains("--get-insert") {
+                // Send the command to the running instance
+                if let response = socketCommunication.sendCommand(.getInsert) {
+                    print(response)
+                } else {
+                    print("Failed to get active insert.")
                 }
                 
                 exit(0)
