@@ -54,6 +54,7 @@ class SocketCommunication {
         case removeInsert
         case getIcon
         case getInsert
+        case autoReturn
     }
     
     struct CommandMessage: Codable {
@@ -380,6 +381,24 @@ class SocketCommunication {
                     logError("Configuration reload failed")
                 }
                 
+            case .autoReturn:
+                logInfo("Received command to toggle auto-return")
+                
+                if let enableStr = commandMessage.arguments?["enable"],
+                   let enable = Bool(enableStr) {
+                    autoReturnEnabled = enable
+                    
+                    let response = autoReturnEnabled
+                        ? "Auto-return enabled for next result"
+                        : "Auto-return disabled"
+                    write(clientSocket, response, response.utf8.count)
+                    logInfo(response)
+                } else {
+                    let response = "Missing or invalid enable parameter (should be 'true' or 'false')"
+                    write(clientSocket, response, response.utf8.count)
+                    logError(response)
+                }
+                
             case .updateConfig:
                 logInfo("Received command to update configuration")
                 
@@ -667,6 +686,7 @@ var disableUpdates: Bool = false
 var disableNotifications: Bool = false
 var globalConfigManager: ConfigurationManager?
 var suppressConsoleLogging = false
+var autoReturnEnabled = false
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -1138,7 +1158,8 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
         if args.count == 1 || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") ||
-           args.contains("--get-icon") || args.contains("--get-insert") || args.contains("--insert") {
+           args.contains("--get-icon") || args.contains("--get-insert") || args.contains("--insert") ||
+           args.contains("--auto-return") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1191,6 +1212,30 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     print("Failed to get active insert.")
                 }
                 
+                exit(0)
+            }
+            
+            if args.contains("--auto-return") {
+                let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
+                
+                // Create arguments for the autoReturn command
+                var arguments: [String: String] = [:]
+                
+                // Check if there's a value after --auto-return
+                if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    // User provided a value, use it
+                    arguments["enable"] = args[index + 1]
+                } else {
+                    // No value provided or next arg is another flag, default to true
+                    arguments["enable"] = "true"
+                }
+                
+                // Send the autoReturn command
+                if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to set auto-return")
+                }
                 exit(0)
             }
             
@@ -1649,6 +1694,14 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         startWatchingRecordingsFolder()
     }
     
+    private func simulateReturnKeyPress() {
+        // Add a delay before simulating the Return key press
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { // delay
+            // 36 is the keycode for Return key
+            self.simulateKeyDown(key: 36)
+        }
+    }
+    
     private func processAction(_ action: String, metaJson: [String: Any]) -> String {
         var result = action
         
@@ -1962,8 +2015,24 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             // Mark this file as processed immediately to prevent duplicate triggers
             processedMetaJsons.insert(path)
             
-            // Get the active insert from configuration
-            if let activeInsertName = configManager.config.defaults.activeInsert,
+            if autoReturnEnabled {
+                // Apply the result directly using {{swResult}}
+                let resultValue = json["result"] as? String ?? json["llmResult"] as? String ?? ""
+                
+                // Process the result
+                let processedAction = resultValue
+                
+                // Apply the result (simulate ESC key press and paste the action)
+                self.applyInsert(processedAction)
+                
+                // Simulate a return key press after pasting
+                self.simulateReturnKeyPress()
+                
+                // Reset the flag after using it once
+                autoReturnEnabled = false
+                
+                logInfo("Applied auto-return with result")
+            } else if let activeInsertName = configManager.config.defaults.activeInsert,
                !activeInsertName.isEmpty {
                 // Find the active insert in the inserts array
                 if let insert = configManager.config.inserts.first(where: { $0.name == activeInsertName }) {
