@@ -1040,7 +1040,7 @@ struct AppConfiguration: Codable {
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
                 noUpdates: false,
                 noNoti: false,
-                activeInsert: nil
+                activeInsert: ""
             )
         }
     }
@@ -1687,26 +1687,33 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     }
 
     private func applyInsert(_ text: String) {
-        // First, simulate ESC key press
+        // First, save the current clipboard content
+        let pasteboard = NSPasteboard.general
+        let originalClipboardContent = pasteboard.string(forType: .string)
+        
+        // Simulate ESC key press
         simulateEscKeyPress()
         
-        // Then paste the text using accessibility APIs for reliability
-        pasteTextUsingAccessibility(text)
+        // Set the new content and paste it
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        
+        // Paste using accessibility APIs
+        simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
+        
+        // Restore the original clipboard content after a short delay
+        // to ensure the paste operation completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            pasteboard.clearContents()
+            if let originalContent = originalClipboardContent {
+                pasteboard.setString(originalContent, forType: .string)
+            }
+        }
     }
 
     private func simulateEscKeyPress() {
         // Simulate ESC key press
         simulateKeyDown(key: 53)
-    }
-
-    private func pasteTextUsingAccessibility(_ text: String) {
-        // Set the clipboard content
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-
-        // Simulate Cmd+V
-        simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
     }
     
     private func simulateKeyDown(key: Int, flags: CGEventFlags = []) {
