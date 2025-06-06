@@ -2408,8 +2408,12 @@ disableNotifications = config.defaults.noNoti
 configManager.updateFromCommandLine(
     watchPath: watchPath,
     watcher: watcherFlag,
-    noUpdates: args.contains("--no-updates") ? disableUpdates : nil,
-    noNoti: args.contains("--no-noti") ? disableNotifications : nil,
+    noUpdates: args.contains("--no-updates") ? (args.firstIndex(where: { $0 == "--no-updates" }).flatMap { idx in
+        idx + 1 < args.count ? (args[idx + 1].lowercased() == "true") : true
+    }) : nil,
+    noNoti: args.contains("--no-noti") ? (args.firstIndex(where: { $0 == "--no-noti" }).flatMap { idx in
+        idx + 1 < args.count ? (args[idx + 1].lowercased() == "true") : true
+    }) : nil,
     activeInsert: insertName
 )
 
