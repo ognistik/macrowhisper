@@ -1031,7 +1031,6 @@ class VersionChecker {
 struct AppConfiguration: Codable {
     struct Defaults: Codable {
         var watch: String
-        var watcher: Bool
         var noUpdates: Bool
         var noNoti: Bool
         var activeInsert: String?
@@ -1039,7 +1038,6 @@ struct AppConfiguration: Codable {
         static func defaultValues() -> Defaults {
             return Defaults(
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
-                watcher: false, // Default off
                 noUpdates: false,
                 noNoti: false,
                 activeInsert: nil
@@ -1282,16 +1280,13 @@ func checkWatcherAvailability() -> Bool {
     let watchPath = configManager.config.defaults.watch
     let exists = FileManager.default.fileExists(atPath: watchPath)
     
-    if !exists && configManager.config.defaults.watcher {
-        logWarning("Superwhisper folder not found. Watcher has been disabled.")
-        notify(title: "Macrowhisper", message: "Superwhisper folder not found. Watcher has been disabled.")
-        
-        // Update config to disable watcher
-        configManager.updateFromCommandLine(watcher: false)
+    if !exists {
+        logWarning("Superwhisper folder not found at: \(watchPath)")
+        notify(title: "Macrowhisper", message: "Superwhisper folder not found. Please check the path.")
         return false
     }
     
-    return exists && configManager.config.defaults.watcher
+    return exists
 }
 
 final class FileChangeWatcher {
@@ -2183,9 +2178,6 @@ class ConfigurationManager {
             if let watchPath = watchPath {
                 config.defaults.watch = watchPath
             }
-            if let watcher = watcher {
-                config.defaults.watcher = watcher
-            }
             if let noUpdates = noUpdates {
                 config.defaults.noUpdates = noUpdates
             }
@@ -2238,7 +2230,6 @@ func printHelp() {
     OPTIONS:
       -c, --config <path>           Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
       -w, --watch <path>            Path to superwhisper folder (overrides config)
-          --watcher true/false      Enable or disable the folder watcher (overrides config)
           --no-updates true/false   Enable or disable automatic update checking (overrides config)
           --no-noti true/false      Enable or disable all notifications (overrides config)
           --insert <name>           Set the active insert (use empty string to disable)
@@ -2293,14 +2284,6 @@ while i < args.count {
             exit(1)
         }
         watchPath = args[i + 1]
-        i += 2
-    case "--watcher":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
-        }
-        let value = args[i + 1].lowercased()
-        watcherFlag = value == "true" || value == "yes" || value == "1"
         i += 2
     case "--no-updates":
         guard i + 1 < args.count else {
@@ -2472,38 +2455,28 @@ configManager.onConfigChanged = {
 
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
-    logInfo("disableUpdates now set to: \(disableUpdates)")
     disableNotifications = configManager.config.defaults.noNoti
-    logInfo("disableNotifications now set to: \(disableNotifications)")
 
     // If updates were disabled but are now enabled, reset the version checker state
     if previousDisableUpdates == true && disableUpdates == false {
-        logInfo("Updates were disabled but are now enabled. Resetting update checker state.")
         versionChecker.resetLastCheckDate()
     }
 
     // Check if watcher should be running
-    let shouldRunWatcher = configManager.config.defaults.watcher
     let currentWatchPath = configManager.config.defaults.watch
 
-    if shouldRunWatcher {
-        if recordingsWatcher == nil {
-            // Start the watcher if it's not already running
-            if checkWatcherAvailability() {
-                initializeWatcher(currentWatchPath)
-            }
-        } else if currentWatchPath != watchFolderPath {
-            // The watch path has changed, restart the watcher
+    // Always run the watcher if the folder exists
+    if FileManager.default.fileExists(atPath: currentWatchPath) {
+        if recordingsWatcher == nil || currentWatchPath != watchFolderPath {
+            // Start or restart the watcher with the new path
             recordingsWatcher = nil
-            if checkWatcherAvailability() {
-                initializeWatcher(currentWatchPath)
-            }
+            initializeWatcher(currentWatchPath)
         }
     } else {
-        // Stop the watcher if it's running and should not be
+        // Stop the watcher if the folder doesn't exist
         if recordingsWatcher != nil {
             recordingsWatcher = nil
-            logInfo("Watcher stopped due to configuration change")
+            logInfo("Watcher stopped because folder doesn't exist: \(currentWatchPath)")
         }
     }
 }
