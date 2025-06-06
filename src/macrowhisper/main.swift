@@ -48,10 +48,10 @@ class SocketCommunication {
         case status
         case debug
         case version
-        case setActiveAction
-        case listActions
-        case addAction
-        case removeAction
+        case setActiveInsert
+        case listInserts
+        case addInsert
+        case removeInsert
     }
     
     struct CommandMessage: Codable {
@@ -201,109 +201,109 @@ class SocketCommunication {
             
             // Handle the command
             switch commandMessage.command {
-            case .setActiveAction:
-                logInfo("Received command to set active action")
+            case .setActiveInsert:
+                logInfo("Received command to set active insert")
                 
-                if let actionName = commandMessage.arguments?["name"] {
-                    // Check if action exists
-                    let actionExists = configMgr.config.actions.contains { $0.name == actionName }
+                if let insertName = commandMessage.arguments?["name"] {
+                    // Check if insert exists
+                    let insertExists = configMgr.config.inserts.contains { $0.name == insertName }
                     
-                    if actionName.isEmpty || actionExists {
-                        // Update the active action (empty string means disable)
-                        configMgr.updateFromCommandLine(activeAction: actionName)
+                    if insertName.isEmpty || insertExists {
+                        // Update the active insert (empty string means disable)
+                        configMgr.updateFromCommandLine(activeInsert: insertName)
                         
-                        let response = actionName.isEmpty
-                            ? "Active action disabled"
-                            : "Active action set to: \(actionName)"
+                        let response = insertName.isEmpty
+                            ? "Active insert disabled"
+                            : "Active insert set to: \(insertName)"
                         write(clientSocket, response, response.utf8.count)
                     } else {
-                        let response = "Action '\(actionName)' not found"
+                        let response = "Insert '\(insertName)' not found"
                         write(clientSocket, response, response.utf8.count)
                     }
                 } else {
-                    let response = "No action name provided"
+                    let response = "No insert name provided"
                     write(clientSocket, response, response.utf8.count)
                 }
 
-            case .listActions:
-                logInfo("Received command to list actions")
+            case .listInserts:
+                logInfo("Received command to list inserts")
                 
-                let actions = configMgr.config.actions
-                let activeAction = configMgr.config.defaults.activeAction ?? "none"
+                let inserts = configMgr.config.inserts
+                let activeInsert = configMgr.config.defaults.activeInsert ?? "none"
                 
-                if actions.isEmpty {
-                    let response = "No actions configured. Active action: \(activeAction)"
+                if inserts.isEmpty {
+                    let response = "No inserts configured. Active insert: \(activeInsert)"
                     write(clientSocket, response, response.utf8.count)
                 } else {
-                    var response = "Available actions (active: \(activeAction)):\n"
-                    for action in actions {
-                        let isActive = action.name == activeAction ? " (active)" : ""
-                        response += "- \(action.name)\(isActive)\n"
+                    var response = "Available inserts (active: \(activeInsert)):\n"
+                    for insert in inserts {
+                        let isActive = insert.name == activeInsert ? " (active)" : ""
+                        response += "- \(insert.name)\(isActive)\n"
                     }
                     write(clientSocket, response, response.utf8.count)
                 }
 
-            case .addAction:
-                logInfo("Received command to add action")
+            case .addInsert:
+                logInfo("Received command to add insert")
                 
                 if let name = commandMessage.arguments?["name"],
-                   let template = commandMessage.arguments?["template"] {
+                   let action = commandMessage.arguments?["action"] {
                     
-                    // Check if action with this name already exists
-                    var actions = configMgr.config.actions
-                    if let index = actions.firstIndex(where: { $0.name == name }) {
-                        // Update existing action
-                        actions[index] = AppConfiguration.Action(name: name, template: template)
-                        configMgr.config.actions = actions
+                    // Check if insert with this name already exists
+                    var inserts = configMgr.config.inserts
+                    if let index = inserts.firstIndex(where: { $0.name == name }) {
+                        // Update existing insert
+                        inserts[index] = AppConfiguration.Insert(name: name, action: action)
+                        configMgr.config.inserts = inserts
                         configMgr.saveConfig()
                         
-                        let response = "Action '\(name)' updated"
+                        let response = "Insert '\(name)' updated"
                         write(clientSocket, response, response.utf8.count)
                     } else {
-                        // Add new action
-                        actions.append(AppConfiguration.Action(name: name, template: template))
-                        configMgr.config.actions = actions
+                        // Add new insert
+                        inserts.append(AppConfiguration.Insert(name: name, action: action))
+                        configMgr.config.inserts = inserts
                         configMgr.saveConfig()
                         
-                        let response = "Action '\(name)' added"
+                        let response = "Insert '\(name)' added"
                         write(clientSocket, response, response.utf8.count)
                     }
                     
                     // Trigger config changed callback
                     configMgr.onConfigChanged?()
                 } else {
-                    let response = "Missing name or template for action"
+                    let response = "Missing name or action for insert"
                     write(clientSocket, response, response.utf8.count)
                 }
 
-            case .removeAction:
-                logInfo("Received command to remove action")
+            case .removeInsert:
+                logInfo("Received command to remove insert")
                 
                 if let name = commandMessage.arguments?["name"] {
-                    var actions = configMgr.config.actions
-                    let initialCount = actions.count
+                    var inserts = configMgr.config.inserts
+                    let initialCount = inserts.count
                     
-                    actions.removeAll { $0.name == name }
+                    inserts.removeAll { $0.name == name }
                     
-                    if actions.count < initialCount {
-                        configMgr.config.actions = actions
+                    if inserts.count < initialCount {
+                        configMgr.config.inserts = inserts
                         
-                        // If the removed action was active, clear the active action
-                        if configMgr.config.defaults.activeAction == name {
-                            configMgr.config.defaults.activeAction = nil
+                        // If the removed insert was active, clear the active insert
+                        if configMgr.config.defaults.activeInsert == name {
+                            configMgr.config.defaults.activeInsert = nil
                         }
                         
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?()
                         
-                        let response = "Action '\(name)' removed"
+                        let response = "Insert '\(name)' removed"
                         write(clientSocket, response, response.utf8.count)
                     } else {
-                        let response = "Action '\(name)' not found"
+                        let response = "Insert '\(name)' not found"
                         write(clientSocket, response, response.utf8.count)
                     }
                 } else {
-                    let response = "No action name provided"
+                    let response = "No insert name provided"
                     write(clientSocket, response, response.utf8.count)
                 }
                 
@@ -978,14 +978,13 @@ class VersionChecker {
 
 // MARK: - Configuration Manager
 
-// First, update the AppConfiguration struct to include Actions
 struct AppConfiguration: Codable {
     struct Defaults: Codable {
         var watch: String
         var watcher: Bool
         var noUpdates: Bool
         var noNoti: Bool
-        var activeAction: String?
+        var activeInsert: String?
         
         static func defaultValues() -> Defaults {
             return Defaults(
@@ -993,23 +992,23 @@ struct AppConfiguration: Codable {
                 watcher: false, // Default off
                 noUpdates: false,
                 noNoti: false,
-                activeAction: nil // No active action by default
+                activeInsert: nil
             )
         }
     }
     
-    struct Action: Codable {
+    struct Insert: Codable {
         var name: String
-        var template: String
+        var action: String
     }
     
     var defaults: Defaults
-    var actions: [Action]
+    var inserts: [Insert]
     
     static func defaultConfig() -> AppConfiguration {
         return AppConfiguration(
             defaults: Defaults.defaultValues(),
-            actions: [] // Empty actions array by default
+            inserts: []
         )
     }
 }
@@ -1552,8 +1551,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         startWatchingRecordingsFolder()
     }
     
-    private func processTemplate(_ template: String, metaJson: [String: Any]) -> String {
-        var result = template
+    private func processAction(_ action: String, metaJson: [String: Any]) -> String {
+        var result = action
         
         // Process placeholders
         // Handle {{swResult}} special case
@@ -1577,7 +1576,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         return result
     }
 
-    private func applyAction(_ text: String) {
+    private func applyInsert(_ text: String) {
         // First, simulate ESC key press
         simulateEscKeyPress()
         
@@ -1865,23 +1864,23 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             // Mark this file as processed immediately to prevent duplicate triggers
             processedMetaJsons.insert(path)
             
-            // Get the active action from configuration
-            if let activeActionName = configManager.config.defaults.activeAction,
-               !activeActionName.isEmpty {
-                // Find the active action in the actions array
-                if let action = configManager.config.actions.first(where: { $0.name == activeActionName }) {
-                    // Process the action template with the meta.json values
-                    let processedTemplate = self.processTemplate(action.template, metaJson: json)
+            // Get the active insert from configuration
+            if let activeInsertName = configManager.config.defaults.activeInsert,
+               !activeInsertName.isEmpty {
+                // Find the active insert in the inserts array
+                if let insert = configManager.config.inserts.first(where: { $0.name == activeInsertName }) {
+                    // Process the insert action with the meta.json values
+                    let processedAction = self.processAction(insert.action, metaJson: json)
                     
-                    // Apply the action (simulate ESC key press and paste the template)
-                    self.applyAction(processedTemplate)
+                    // Apply the insert (simulate ESC key press and paste the action)
+                    self.applyInsert(processedAction)
                     
-                    logInfo("Applied action '\(activeActionName)' with processed template")
+                    logInfo("Applied insert '\(activeInsertName)' with processed action")
                 } else {
-                    logWarning("Active action '\(activeActionName)' not found in configuration")
+                    logWarning("Active insert '\(activeInsertName)' not found in configuration")
                 }
             } else {
-                // No active action, use the old behavior (trigger Keyboard Maestro)
+                // No active insert, use the old behavior (trigger Keyboard Maestro)
                 logInfo("Found valid result in meta.json. Triggering Macro.")
                 self.triggerKeyboardMaestro()
             }
@@ -2047,7 +2046,7 @@ class ConfigurationManager {
         watcher: Bool? = nil,
         noUpdates: Bool? = nil,
         noNoti: Bool? = nil,
-        activeAction: String? = nil
+        activeInsert: String? = nil
     ) {
         syncQueue.sync {
             if let watchPath = watchPath {
@@ -2062,8 +2061,8 @@ class ConfigurationManager {
             if let noNoti = noNoti {
                 config.defaults.noNoti = noNoti
             }
-            if let activeAction = activeAction {
-                config.defaults.activeAction = activeAction.isEmpty ? nil : activeAction
+            if let activeInsert = activeInsert {
+                config.defaults.activeInsert = activeInsert.isEmpty ? nil : activeInsert
             }
             
             // Save the configuration
@@ -2111,15 +2110,15 @@ func printHelp() {
           --watcher true/false      Enable or disable the folder watcher (overrides config)
           --no-updates true/false   Enable or disable automatic update checking (overrides config)
           --no-noti true/false      Enable or disable all notifications (overrides config)
-          --action <name>           Set the active action (use empty string to disable)
+          --insert <name>           Set the active insert (use empty string to disable)
       -s, --status                  Get the status of the background process
       -h, --help                    Show this help message
       -v, --version                 Show version information
 
-    ACTIONS COMMANDS:
-      --list-actions                List all configured actions
-      --add-action <name> <template>  Add or update an action
-      --remove-action <name>        Remove an action
+    INSERTS COMMANDS:
+      --list-inserts                    List all configured inserts
+      --add-insert <name> <action>    Add or update an insert
+      --remove-insert <name>            Remove an insert
 
     Examples:
       macrowhisper
@@ -2129,8 +2128,8 @@ func printHelp() {
 
       macrowhisper --watch ~/otherfolder/superwhisper --watcher true --no-updates false
 
-      macrowhisper --action pasteResult
-        # Sets the active action to pasteResult
+      macrowhisper --insert pasteResult
+        # Sets the active insert to pasteResult
 
     """)
 }
@@ -2140,7 +2139,7 @@ let configManager: ConfigurationManager
 var configPath: String? = nil
 var watchPath: String? = nil
 var watcherFlag: Bool? = nil
-var actionName: String? = nil
+var insertName: String? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -2192,56 +2191,56 @@ while i < args.count {
     case "-v", "--version":
         print("macrowhisper version \(APP_VERSION)")
         exit(0)
-    case "--action":
+    case "--insert":
         guard i + 1 < args.count else {
             logError("Missing value after \(args[i])")
             exit(1)
         }
-        actionName = args[i + 1]
+        insertName = args[i + 1]
         i += 2
-    case "--list-actions":
-        if let response = socketCommunication.sendCommand(.listActions) {
+    case "--list-inserts":
+        if let response = socketCommunication.sendCommand(.listInserts) {
             print(response)
         } else {
-            print("Failed to list actions")
+            print("Failed to list inserts")
         }
         exit(0)
 
-    case "--add-action":
+    case "--add-insert":
         guard i + 2 < args.count else {
-            logError("Missing action name or template after \(args[i])")
+            logError("Missing insert name or action after \(args[i])")
             exit(1)
         }
-        let actionName = args[i + 1]
-        let actionTemplate = args[i + 2]
+        let insertName = args[i + 1]
+        let insertAction = args[i + 2]
         
         let arguments: [String: String] = [
-            "name": actionName,
-            "template": actionTemplate
+            "name": insertName,
+            "action": insertAction
         ]
         
-        if let response = socketCommunication.sendCommand(.addAction, arguments: arguments) {
+        if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
             print(response)
         } else {
-            print("Failed to add action")
+            print("Failed to add insert")
         }
         exit(0)
 
-    case "--remove-action":
+    case "--remove-insert":
         guard i + 1 < args.count else {
-            logError("Missing action name after \(args[i])")
+            logError("Missing insert name after \(args[i])")
             exit(1)
         }
-        let actionName = args[i + 1]
+        let insertName = args[i + 1]
         
         let arguments: [String: String] = [
-            "name": actionName
+            "name": insertName
         ]
         
-        if let response = socketCommunication.sendCommand(.removeAction, arguments: arguments) {
+        if let response = socketCommunication.sendCommand(.removeInsert, arguments: arguments) {
             print(response)
         } else {
-            print("Failed to remove action")
+            print("Failed to remove insert")
         }
         exit(0)
         
@@ -2268,7 +2267,7 @@ configManager.updateFromCommandLine(
     watcher: watcherFlag,
     noUpdates: args.contains("--no-updates") ? disableUpdates : nil,
     noNoti: args.contains("--no-noti") ? disableNotifications : nil,
-    activeAction: actionName
+    activeInsert: insertName
 )
 
 // Update global variables again after possible configuration changes
