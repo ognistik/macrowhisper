@@ -48,7 +48,6 @@ class SocketCommunication {
         case status
         case debug
         case version
-        case setActiveInsert
         case listInserts
         case addInsert
         case removeInsert
@@ -204,29 +203,6 @@ class SocketCommunication {
             
             // Handle the command
             switch commandMessage.command {
-            case .setActiveInsert:
-                logInfo("Received command to set active insert")
-                
-                if let insertName = commandMessage.arguments?["name"] {
-                    // Check if insert exists
-                    let insertExists = insertName.isEmpty || configMgr.config.inserts.contains { $0.name == insertName }
-                    
-                    if insertName.isEmpty || insertExists {
-                        // Update the active insert (empty string means disable)
-                        configMgr.updateFromCommandLine(activeInsert: insertName)
-                        
-                        let response = insertName.isEmpty
-                            ? "Active insert disabled"
-                            : "Active insert set to: \(insertName)"
-                        write(clientSocket, response, response.utf8.count)
-                    } else {
-                        let response = "Insert '\(insertName)' not found"
-                        write(clientSocket, response, response.utf8.count)
-                    }
-                } else {
-                    let response = "No insert name provided"
-                    write(clientSocket, response, response.utf8.count)
-                }
 
             case .listInserts:
                 logInfo("Received command to list inserts")
@@ -408,6 +384,7 @@ class SocketCommunication {
                     
                     // Create local variables with proper null checking
                     let watchPath = args["watch"]
+                    let activeInsert = args["activeInsert"]
                     
                     // Parse boolean values from strings
                     let serverStr = args["server"]
@@ -416,7 +393,7 @@ class SocketCommunication {
                     let noNotiStr = args["noNoti"]
                     
                     // Log the parameters before updating
-                    logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any)")
+                    logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any), activeInsert=\(activeInsert as Any)")
                     
                     // Convert string values to boolean values
                     let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
@@ -430,7 +407,8 @@ class SocketCommunication {
                         server: server,
                         watcher: watcher,
                         noUpdates: noUpdates,
-                        noNoti: noNoti
+                        noNoti: noNoti,
+                        activeInsert: activeInsert
                     )
                     
                     // IMPORTANT: After updating the config, explicitly call the onConfigChanged callback
@@ -1158,8 +1136,8 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
         if args.count == 1 || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") ||
-           args.contains("--get-icon") || args.contains("--get-insert") || args.contains("--insert") ||
-           args.contains("--auto-return") {
+           args.contains("--get-icon") || args.contains("--get-insert") ||
+           args.contains("--insert") || args.contains("--auto-return") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1190,6 +1168,15 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     arguments["noNoti"] = args[index + 1]
                 } else {
                     arguments["noNoti"] = "true"
+                }
+            }
+            
+            if args.contains("--insert") {
+                let insertIndex = args.firstIndex(where: { $0 == "--insert" })
+                if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    arguments["activeInsert"] = args[index + 1]
+                } else {
+                    arguments["activeInsert"] = ""
                 }
             }
             
@@ -1238,30 +1225,7 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 }
                 exit(0)
             }
-            
-            if args.contains("--insert") {
-                let insertIndex = args.firstIndex(where: { $0 == "--insert" })
-                
-                // Create arguments for the setActiveInsert command
-                var arguments: [String: String] = [:]
-                
-                // Check if there's a value after --insert
-                if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-                    // User provided a name, use it
-                    arguments["name"] = args[index + 1]
-                } else {
-                    // No name provided or next arg is another flag, set empty string to clear
-                    arguments["name"] = ""
-                }
-                
-                // Send the setActiveInsert command specifically
-                if let response = socketCommunication.sendCommand(.setActiveInsert, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to set active insert")
-                }
-                exit(0)
-            }
+        
             
             // If there are arguments, send updateConfig, otherwise send reloadConfig
             let command = arguments.isEmpty ? SocketCommunication.Command.reloadConfig : SocketCommunication.Command.updateConfig
@@ -2361,12 +2325,15 @@ while i < args.count {
         print("macrowhisper version \(APP_VERSION)")
         exit(0)
     case "--insert":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
+        if i + 1 < args.count && !args[i + 1].starts(with: "--") {
+            // A value was provided
+            insertName = args[i + 1]
+            i += 2
+        } else {
+            // No value provided, set empty string to clear the active insert
+            insertName = ""
+            i += 1
         }
-        insertName = args[i + 1]
-        i += 2
     case "--list-inserts":
         if let response = socketCommunication.sendCommand(.listInserts) {
             print(response)
