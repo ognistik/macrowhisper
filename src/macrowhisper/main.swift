@@ -2286,6 +2286,7 @@ func printHelp() {
       --list-inserts                List all configured inserts
       --add-insert <name> <action>  Add or update an insert
       --remove-insert <name>        Remove an insert
+      --auto-return true/false      Insert result and simulate return for one interaction
       --get-icon                    Get the icon of the active insert
 
     Examples:
