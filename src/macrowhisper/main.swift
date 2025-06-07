@@ -479,6 +479,7 @@ class SocketCommunication {
                     let noUpdatesStr = args["noUpdates"]
                     let noNotiStr = args["noNoti"]
                     let noEscStr = args["noEsc"]
+                    let simKeypressStr = args["simKeypress"]
                     
                     // Log the parameters before updating
                     logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any), activeInsert=\(activeInsert as Any), noEsc=\(noEscStr as Any)")
@@ -489,6 +490,7 @@ class SocketCommunication {
                     let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
                     let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
                     let noEsc = noEscStr == "true" ? true : (noEscStr == "false" ? false : nil)
+                    let simKeypress = simKeypressStr == "true" ? true : (simKeypressStr == "false" ? false : nil)
                     
                     // Update configuration with null-safe values using the safe reference
                     configMgr.updateFromCommandLine(
@@ -500,7 +502,8 @@ class SocketCommunication {
                         activeInsert: activeInsert,
                         icon: icon,
                         moveTo: moveTo,
-                        noEsc: noEsc
+                        noEsc: noEsc,
+                        simKeypress: simKeypress
                     )
                     
                     // IMPORTANT: After updating the config, explicitly call the onConfigChanged callback
@@ -1147,6 +1150,7 @@ struct AppConfiguration: Codable {
         var icon: String?
         var moveTo: String?
         var noEsc: Bool
+        var simKeypress: Bool
         
         static func defaultValues() -> Defaults {
             return Defaults(
@@ -1156,7 +1160,8 @@ struct AppConfiguration: Codable {
                 activeInsert: "",
                 icon: "",
                 moveTo: "",
-                noEsc: false
+                noEsc: false,
+                simKeypress: false
             )
         }
     }
@@ -1167,6 +1172,7 @@ struct AppConfiguration: Codable {
         var icon: String?
         var moveTo: String?
         var noEsc: Bool?
+        var simKeypress: Bool?
     }
     
     var defaults: Defaults
@@ -1255,7 +1261,8 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
            args.contains("--get-icon") || args.contains("--get-insert") ||
            args.contains("--insert") || args.contains("--auto-return") ||
            args.contains("--list-inserts") || args.contains("--icon") ||
-           args.contains("--move-to") || args.contains("--no-esc") {
+           args.contains("--move-to") || args.contains("--no-esc") ||
+           args.contains("--sim-keypress") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1313,6 +1320,15 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     arguments["noEsc"] = args[index + 1]
                 } else {
                     arguments["noEsc"] = "true"
+                }
+            }
+            
+            if args.contains("--sim-keypress") {
+                let simKeyPressIndex = args.firstIndex(where: { $0 == "--sim-keypress" })
+                if let index = simKeyPressIndex, index + 1 < args.count {
+                    arguments["simKeypress"] = args[index + 1]
+                } else {
+                    arguments["simKeypress"] = "true"
                 }
             }
             
@@ -1863,14 +1879,65 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             return
         }
         
-        // First, save the current clipboard content
+        // First, simulate ESC key press
+        simulateEscKeyPress(activeInsert: activeInsert)
+        
+        // Check if we should simulate key presses
+        let shouldSimulateKeypresses: Bool
+        if let insert = activeInsert, let insertSimKeypress = insert.simKeypress {
+            // Use insert-specific setting if available
+            shouldSimulateKeypresses = insertSimKeypress
+        } else {
+            // Otherwise use the global default
+            shouldSimulateKeypresses = configManager.config.defaults.simKeypress
+        }
+        
+        if shouldSimulateKeypresses {
+            // Split the text by newlines
+            let lines = text.components(separatedBy: "\n")
+            
+            // Create an AppleScript that handles each line separately
+            let scriptLines = lines.enumerated().map { index, line -> String in
+                let escapedLine = line.replacingOccurrences(of: "\\", with: "\\\\")
+                                     .replacingOccurrences(of: "\"", with: "\\\"")
+                
+                // For all lines except the first, add a return keystroke before the text
+                if index > 0 {
+                    return "keystroke return\nkeystroke \"\(escapedLine)\""
+                } else {
+                    return "keystroke \"\(escapedLine)\""
+                }
+            }.joined(separator: "\n")
+            
+            let script = """
+            tell application "System Events"
+                \(scriptLines)
+            end tell
+            """
+            
+            let task = Process()
+            task.launchPath = "/usr/bin/osascript"
+            task.arguments = ["-e", script]
+            
+            do {
+                try task.run()
+                task.waitUntilExit()
+                logInfo("Applied text using simulated keystrokes with line breaks")
+            } catch {
+                logError("Failed to simulate keystrokes: \(error.localizedDescription)")
+                // Fall back to clipboard paste as a backup
+                pasteUsingClipboard(text)
+            }
+        } else {
+            // Use the standard clipboard paste method
+            pasteUsingClipboard(text)
+        }
+    }
+
+    private func pasteUsingClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
         let originalClipboardContent = pasteboard.string(forType: .string)
         
-        // Simulate ESC key press
-        simulateEscKeyPress(activeInsert: activeInsert)
-
-        // Set the new content and paste it
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         
@@ -1878,7 +1945,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
         
         // Restore the original clipboard content after a short delay
-        // to ensure the paste operation completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             pasteboard.clearContents()
             if let originalContent = originalClipboardContent {
@@ -2439,7 +2505,8 @@ class ConfigurationManager {
         activeInsert: String? = nil,
         icon: String? = nil,
         moveTo: String? = nil,
-        noEsc: Bool? = nil
+        noEsc: Bool? = nil,
+        simKeypress: Bool? = nil
     ) {
         syncQueue.sync {
             // First, reload the latest config from disk
@@ -2466,6 +2533,9 @@ class ConfigurationManager {
             }
             if let noEsc = noEsc {  // Add this block
                 config.defaults.noEsc = noEsc
+            }
+            if let simKeypress = simKeypress {  // Add this block
+                config.defaults.simKeypress = simKeypress
             }
             
             // Save the configuration
@@ -2515,6 +2585,8 @@ func printHelp() {
           --no-noti true/false      Enable or disable all notifications
           --no-esc true/false       Disable all ESC key simulations when set to true
           --insert <name>           Set the active insert (use empty string to disable)
+          --sim-keypress true/false Simulate key presses for text input
+                                    (note: linebreaks are treated as return presses)
           --icon <icon>             Set the default icon to use when no insert icon is available
                                     Use '.none' to explicitly use no icon
           --move-to <path>          Set the default path to move folder to after processing
@@ -2553,6 +2625,7 @@ var insertName: String? = nil
 var iconValue: String? = nil
 var moveToPath: String? = nil
 var noEscFlag: Bool? = nil
+var simKeypressFlag: Bool? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -2597,6 +2670,14 @@ while i < args.count {
         }
         let value = args[i + 1].lowercased()
         noEscFlag = value == "true" || value == "yes" || value == "1"
+        i += 2
+    case "--sim-keypress":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        let value = args[i + 1].lowercased()
+        simKeypressFlag = value == "true" || value == "yes" || value == "1"
         i += 2
     case "-h", "--help":
         printHelp()
@@ -2715,7 +2796,8 @@ configManager.updateFromCommandLine(
     activeInsert: insertName,
     icon: iconValue,
     moveTo: moveToPath,
-    noEsc: noEscFlag
+    noEsc: noEscFlag,
+    simKeypress: simKeypressFlag
 )
 
 // Update global variables again after possible configuration changes
