@@ -1826,6 +1826,11 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     }
     
     private func processAction(_ action: String, metaJson: [String: Any]) -> String {
+        // If action is ".none", return empty string
+        if action == ".none" {
+            return ""
+        }
+        
         var result = action
         
         // Process placeholders
@@ -1852,7 +1857,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
 
     private func applyInsert(_ text: String) {
         // If text is empty, just simulate ESC key press and return
-        if text.isEmpty {
+        if text.isEmpty || text == ".none" {
             simulateEscKeyPress()
             return
         }
