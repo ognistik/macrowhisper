@@ -920,9 +920,15 @@ class VersionChecker {
             if let kmInfo = json["km_macros"] as? [String: Any],
                let latestKM = kmInfo["latest"] as? String {
                 let currentKMVersion = getCurrentKeyboardMaestroVersion()
-                if !currentKMVersion.isEmpty && isNewerVersion(latest: latestKM, current: currentKMVersion) {
+                
+                // Only check for updates if we have a valid current version (not empty, not "missing value")
+                if !currentKMVersion.isEmpty &&
+                   currentKMVersion != "missing value" &&
+                   isNewerVersion(latest: latestKM, current: currentKMVersion) {
                     kmUpdateAvailable = true
                     kmMessage = "KM Macros: \(currentKMVersion) → \(latestKM)"
+                } else if currentKMVersion.isEmpty || currentKMVersion == "missing value" {
+                    logInfo("Skipping KM version check - macro not available or not installed")
                 }
             }
             
@@ -949,7 +955,7 @@ class VersionChecker {
         let script = """
         tell application "Keyboard Maestro Engine"
             try
-                set result to do script "Setup - Service" with parameter "versionCheck"
+                set result to do script "MW Mbar" with parameter "versionCheck"
                 return result
             on error
                 return ""
@@ -963,17 +969,29 @@ class VersionChecker {
         
         let pipe = Pipe()
         task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice  // Redirect error output to prevent console errors
         
         do {
             try task.run()
             task.waitUntilExit()
             
+            // Check exit status
+            if task.terminationStatus != 0 {
+                logInfo("Keyboard Maestro macro check failed - Keyboard Maestro might not be running")
+                return ""
+            }
+            
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            
+            // If the macro doesn't exist or doesn't return a proper version, we'll get empty output
+            if output.isEmpty || output == "missing value" {
+                logInfo("Keyboard Maestro macro version check returned empty result - macro might not be installed")
+            }
+            
             return output
         } catch {
-            logError("Failed to get Keyboard Maestro version: \(error)")
+            logInfo("Failed to check Keyboard Maestro macro version: \(error.localizedDescription)")
             return ""
         }
     }
