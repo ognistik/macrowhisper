@@ -211,15 +211,16 @@ class SocketCommunication {
                 let activeInsert = configMgr.config.defaults.activeInsert ?? "none"
                 
                 if inserts.isEmpty {
-                    let response = "No inserts configured. Active insert: \(activeInsert)"
+                    let response = "No inserts configured."
                     write(clientSocket, response, response.utf8.count)
                 } else {
-                    var response = "Available inserts (active: \(activeInsert)):\n"
+                    var response = ""
                     for insert in inserts {
-                               let isActive = insert.name == activeInsert ? " (active)" : ""
-                               let iconDisplay = insert.icon != nil && !insert.icon!.isEmpty ? " [icon: \(insert.icon!)]" : ""
-                               response += "- \(insert.name)\(isActive)\(iconDisplay)\n"
-                       }
+                                let isActive = insert.name == activeInsert ? " (active)" : ""
+                                response += "\(insert.name)\(isActive)\n"
+                    }
+                    // Remove the trailing newline
+                    response = String(response.dropLast())
                     write(clientSocket, response, response.utf8.count)
                 }
 
@@ -1135,7 +1136,8 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") ||
            args.contains("--get-icon") || args.contains("--get-insert") ||
-           args.contains("--insert") || args.contains("--auto-return") {
+           args.contains("--insert") || args.contains("--auto-return") ||
+            args.contains("--list-inserts") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1197,6 +1199,15 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     print("Failed to get active insert.")
                 }
                 
+                exit(0)
+            }
+            
+            if args.contains("--list-inserts") {
+                if let response = socketCommunication.sendCommand(.listInserts) {
+                    print(response)
+                } else {
+                    print("Failed to list inserts")
+                }
                 exit(0)
             }
             
@@ -2232,13 +2243,14 @@ func printHelp() {
     print("""
     Usage: macrowhisper [OPTIONS]
 
-    Folder watcher for Superwhisper integration.
+    Automation tools for Superwhisper.
 
     OPTIONS:
+      <no argument>                 Reloads configuration file on running instance
       -c, --config <path>           Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
-      -w, --watch <path>            Path to superwhisper folder (overrides config)
-          --no-updates true/false   Enable or disable automatic update checking (overrides config)
-          --no-noti true/false      Enable or disable all notifications (overrides config)
+      -w, --watch <path>            Path to superwhisper folder
+          --no-updates true/false   Enable or disable automatic update checking
+          --no-noti true/false      Enable or disable all notifications
           --insert <name>           Set the active insert (use empty string to disable)
       -s, --status                  Get the status of the background process
       -h, --help                    Show this help message
@@ -2312,7 +2324,7 @@ while i < args.count {
         printHelp()
         exit(0)
     case "-v", "--version":
-        print("macrowhisper version \(APP_VERSION)")
+        print("Macrowhisper version \(APP_VERSION)")
         exit(0)
     case "--insert":
         if i + 1 < args.count && !args[i + 1].starts(with: "--") {
