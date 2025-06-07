@@ -2214,6 +2214,10 @@ class ConfigurationManager {
         icon: String? = nil
     ) {
         syncQueue.sync {
+            // First, reload the latest config from disk
+            if let freshConfig = loadConfig() {
+                config = freshConfig
+            }
             if let watchPath = watchPath {
                 config.defaults.watch = watchPath
             }
