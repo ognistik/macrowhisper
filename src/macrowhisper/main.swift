@@ -303,22 +303,40 @@ class SocketCommunication {
                             write(clientSocket, icon, icon.utf8.count)
                             logInfo("Returned icon for active insert: \(activeInsertName)")
                         } else {
-                            // No icon defined for this insert
-                            let response = " "
-                            write(clientSocket, response, response.utf8.count)
-                            logInfo("No icon defined for active insert: \(activeInsertName)")
+                            // No icon defined for this insert, use defaultIcon if available
+                            if let defaultIcon = configMgr.config.defaults.defaultIcon, !defaultIcon.isEmpty {
+                                write(clientSocket, defaultIcon, defaultIcon.utf8.count)
+                                logInfo("Using default icon for active insert: \(activeInsertName)")
+                            } else {
+                                // No default icon available
+                                let response = " "
+                                write(clientSocket, response, response.utf8.count)
+                                logInfo("No icon defined for active insert: \(activeInsertName) and no default icon set")
+                            }
                         }
                     } else {
-                        // Insert not found in configuration
-                        let response = "Active insert '\(activeInsertName)' not found in configuration"
-                        write(clientSocket, response, response.utf8.count)
-                        logInfo(response)
+                        // Insert not found in configuration, use defaultIcon if available
+                        if let defaultIcon = configMgr.config.defaults.defaultIcon, !defaultIcon.isEmpty {
+                            write(clientSocket, defaultIcon, defaultIcon.utf8.count)
+                            logInfo("Using default icon because active insert '\(activeInsertName)' not found")
+                        } else {
+                            // No default icon available
+                            let response = " "
+                            write(clientSocket, response, response.utf8.count)
+                            logInfo("Active insert '\(activeInsertName)' not found and no default icon set")
+                        }
                     }
                 } else {
-                    // No active insert configured
-                    let response = " "
-                    write(clientSocket, response, response.utf8.count)
-                    logInfo("No active insert")
+                    // No active insert configured, use defaultIcon if available
+                    if let defaultIcon = configMgr.config.defaults.defaultIcon, !defaultIcon.isEmpty {
+                        write(clientSocket, defaultIcon, defaultIcon.utf8.count)
+                        logInfo("Using default icon because no active insert is configured")
+                    } else {
+                        // No default icon available
+                        let response = " "
+                        write(clientSocket, response, response.utf8.count)
+                        logInfo("No active insert and no default icon set")
+                    }
                 }
                 
             case .getInsert:
@@ -1035,13 +1053,15 @@ struct AppConfiguration: Codable {
         var noUpdates: Bool
         var noNoti: Bool
         var activeInsert: String?
+        var defaultIcon: String?
         
         static func defaultValues() -> Defaults {
             return Defaults(
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
                 noUpdates: false,
                 noNoti: false,
-                activeInsert: ""
+                activeInsert: "",
+                defaultIcon: ""
             )
         }
     }
@@ -2190,7 +2210,8 @@ class ConfigurationManager {
         watcher: Bool? = nil,
         noUpdates: Bool? = nil,
         noNoti: Bool? = nil,
-        activeInsert: String? = nil
+        activeInsert: String? = nil,
+        defaultIcon: String? = nil
     ) {
         syncQueue.sync {
             if let watchPath = watchPath {
@@ -2204,6 +2225,9 @@ class ConfigurationManager {
             }
             if let activeInsert = activeInsert {
                 config.defaults.activeInsert = activeInsert
+            }
+            if let defaultIcon = defaultIcon {
+                config.defaults.defaultIcon = defaultIcon
             }
             
             // Save the configuration
@@ -2252,6 +2276,7 @@ func printHelp() {
           --no-updates true/false   Enable or disable automatic update checking
           --no-noti true/false      Enable or disable all notifications
           --insert <name>           Set the active insert (use empty string to disable)
+          --default-icon <icon>     Set the default icon to use when no insert icon is available
       -s, --status                  Get the status of the background process
       -h, --help                    Show this help message
       -v, --version                 Show version information
@@ -2283,6 +2308,7 @@ var configPath: String? = nil
 var watchPath: String? = nil
 var watcherFlag: Bool? = nil
 var insertName: String? = nil
+var defaultIconValue: String? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -2334,6 +2360,16 @@ while i < args.count {
         } else {
             // No value provided, set empty string to clear the active insert
             insertName = ""
+            i += 1
+        }
+    case "--default-icon":
+        if i + 1 < args.count && !args[i + 1].starts(with: "--") {
+            // A value was provided
+            defaultIconValue = args[i + 1]
+            i += 2
+        } else {
+            // No value provided, set empty string to clear the default icon
+            defaultIconValue = ""
             i += 1
         }
     case "--list-inserts":
@@ -2416,7 +2452,8 @@ configManager.updateFromCommandLine(
     noNoti: args.contains("--no-noti") ? (args.firstIndex(where: { $0 == "--no-noti" }).flatMap { idx in
         idx + 1 < args.count ? (args[idx + 1].lowercased() == "true") : true
     }) : nil,
-    activeInsert: insertName
+    activeInsert: insertName,
+    defaultIcon: defaultIconValue
 )
 
 // Update global variables again after possible configuration changes
