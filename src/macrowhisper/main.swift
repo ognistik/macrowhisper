@@ -1054,6 +1054,7 @@ struct AppConfiguration: Codable {
         var noNoti: Bool
         var activeInsert: String?
         var icon: String?
+        var moveTo: String?
         
         static func defaultValues() -> Defaults {
             return Defaults(
@@ -1061,7 +1062,8 @@ struct AppConfiguration: Codable {
                 noUpdates: false,
                 noNoti: false,
                 activeInsert: "",
-                icon: ""
+                icon: "",
+                moveTo: ""
             )
         }
     }
@@ -1070,6 +1072,7 @@ struct AppConfiguration: Codable {
         var name: String
         var action: String
         var icon: String?
+        var moveTo: String?
     }
     
     var defaults: Defaults
@@ -1901,6 +1904,78 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         watchForMetaJson(in: newestFolder)
     }
     
+    private func handleMoveToSetting(folderPath: String, activeInsert: AppConfiguration.Insert?) {
+        // Get the appropriate moveTo setting (insert overrides default)
+        let moveToValue: String?
+        
+        if let insert = activeInsert, let insertMoveTo = insert.moveTo {
+            // Only use insert's moveTo if it's not empty
+            if !insertMoveTo.isEmpty {
+                moveToValue = insertMoveTo
+            } else {
+                // Empty string in insert should fall back to default
+                moveToValue = configManager.config.defaults.moveTo
+            }
+        } else {
+            // No insert moveTo setting, use default
+            moveToValue = configManager.config.defaults.moveTo
+        }
+        
+        // If no moveTo value is set, do nothing
+        guard let moveToPath = moveToValue, !moveToPath.isEmpty else {
+            return
+        }
+        
+        // Process the moveTo setting
+        DispatchQueue.global(qos: .background).async {
+            // Add a small delay to ensure all file operations are complete
+            Thread.sleep(forTimeInterval: 0.5)
+            
+            if moveToPath == ".delete" {
+                // Delete the folder
+                do {
+                    try FileManager.default.removeItem(atPath: folderPath)
+                    logInfo("Deleted folder: \(folderPath)")
+                } catch {
+                    logError("Failed to delete folder: \(error.localizedDescription)")
+                }
+            } else if moveToPath == ".none" {
+                // Explicitly do nothing
+                logInfo("Keeping folder in place as requested by .none setting")
+            } else {
+                // Move the folder to the specified path
+                let destinationParentPath = (moveToPath as NSString).expandingTildeInPath
+                let folderName = (folderPath as NSString).lastPathComponent
+                let destinationPath = (destinationParentPath as NSString).appendingPathComponent(folderName)
+                
+                // Create destination directory if it doesn't exist
+                if !FileManager.default.fileExists(atPath: destinationParentPath) {
+                    do {
+                        try FileManager.default.createDirectory(atPath: destinationParentPath,
+                                                              withIntermediateDirectories: true)
+                        logInfo("Created destination directory: \(destinationParentPath)")
+                    } catch {
+                        logError("Failed to create destination directory: \(error.localizedDescription)")
+                        return
+                    }
+                }
+                
+                // Move the folder
+                do {
+                    // If destination already exists, remove it first
+                    if FileManager.default.fileExists(atPath: destinationPath) {
+                        try FileManager.default.removeItem(atPath: destinationPath)
+                    }
+                    
+                    try FileManager.default.moveItem(atPath: folderPath, toPath: destinationPath)
+                    logInfo("Moved folder from \(folderPath) to \(destinationPath)")
+                } catch {
+                    logError("Failed to move folder: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
     private func cancelFileWatcher() {
         fileDispatchSource?.cancel()
         fileDispatchSource = nil
@@ -2047,13 +2122,23 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     self.applyInsert(processedAction)
                     
                     logInfo("Applied insert '\(activeInsertName)' with processed action")
+                    // Handle moveTo setting after insert is applied
+                   self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent,
+                                                           activeInsert: insert)
                 } else {
                     logWarning("Active insert '\(activeInsertName)' not found in configuration")
+                    // Even if insert not found, still handle default moveTo
+                    self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent,
+                                            activeInsert: nil)
                 }
             } else {
                 // No active insert, use the old behavior (trigger Keyboard Maestro)
                 logInfo("Found valid result in meta.json. Triggering Macro.")
                 self.triggerKeyboardMaestro()
+                
+                // Handle default moveTo setting
+                self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent,
+                                        activeInsert: nil)
             }
             
             // Move these operations to a background queue to not block the trigger
@@ -2218,7 +2303,8 @@ class ConfigurationManager {
         noUpdates: Bool? = nil,
         noNoti: Bool? = nil,
         activeInsert: String? = nil,
-        icon: String? = nil
+        icon: String? = nil,
+        moveTo: String? = nil
     ) {
         syncQueue.sync {
             // First, reload the latest config from disk
@@ -2239,6 +2325,9 @@ class ConfigurationManager {
             }
             if let icon = icon {
                 config.defaults.icon = icon
+            }
+            if let moveTo = moveTo {  // Add this block
+                config.defaults.moveTo = moveTo
             }
             
             // Save the configuration
@@ -2287,7 +2376,9 @@ func printHelp() {
           --no-updates true/false   Enable or disable automatic update checking
           --no-noti true/false      Enable or disable all notifications
           --insert <name>           Set the active insert (use empty string to disable)
-          -icon <icon>              Set the default icon to use when no insert icon is available
+          --icon <icon>             Set the default icon to use when no insert icon is available
+          --move-to <path>          Set the default path to move folder to after processing
+                                    Use '.delete' to delete folder, '.none' to not move
       -s, --status                  Get the status of the background process
       -h, --help                    Show this help message
       -v, --version                 Show version information
@@ -2320,6 +2411,7 @@ var watchPath: String? = nil
 var watcherFlag: Bool? = nil
 var insertName: String? = nil
 var iconValue: String? = nil
+var moveToPath: String? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -2383,6 +2475,14 @@ while i < args.count {
             iconValue = ""
             i += 1
         }
+    case "--move-to":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            notify(title: "Macrowhisper", message: "Missing value after \(args[i])")
+            exit(1)
+        }
+        moveToPath = args[i + 1]
+        i += 2
     case "--list-inserts":
         if let response = socketCommunication.sendCommand(.listInserts) {
             print(response)
@@ -2464,7 +2564,8 @@ configManager.updateFromCommandLine(
         idx + 1 < args.count ? (args[idx + 1].lowercased() == "true") : true
     }) : nil,
     activeInsert: insertName,
-    icon: iconValue
+    icon: iconValue,
+    moveTo: moveToPath
 )
 
 // Update global variables again after possible configuration changes
