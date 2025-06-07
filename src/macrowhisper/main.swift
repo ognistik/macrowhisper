@@ -298,15 +298,57 @@ class SocketCommunication {
                     // Try to find the active insert in the configuration
                     if let activeInsert = configMgr.config.inserts.first(where: { $0.name == activeInsertName }) {
                         // Check if the insert has an icon
-                        if let icon = activeInsert.icon, !icon.isEmpty {
-                            // Return the icon
-                            write(clientSocket, icon, icon.utf8.count)
-                            logInfo("Returned icon for active insert: \(activeInsertName)")
+                        if let icon = activeInsert.icon {
+                            if icon == ".none" {
+                                // Special value to explicitly use no icon
+                                let response = " "
+                                write(clientSocket, response, response.utf8.count)
+                                logInfo("Using explicit 'no icon' setting for active insert: \(activeInsertName)")
+                            } else if !icon.isEmpty {
+                                // Return the icon
+                                write(clientSocket, icon, icon.utf8.count)
+                                logInfo("Returned icon for active insert: \(activeInsertName)")
+                            } else {
+                                // Empty string in icon field, fall back to default icon
+                                if let defaultIcon = configMgr.config.defaults.icon {
+                                    if defaultIcon == ".none" {
+                                        // Special value to explicitly use no icon
+                                        let response = " "
+                                        write(clientSocket, response, response.utf8.count)
+                                        logInfo("Using explicit 'no icon' default setting")
+                                    } else if !defaultIcon.isEmpty {
+                                        write(clientSocket, defaultIcon, defaultIcon.utf8.count)
+                                        logInfo("Using default icon for active insert: \(activeInsertName)")
+                                    } else {
+                                        // Empty default icon
+                                        let response = " "
+                                        write(clientSocket, response, response.utf8.count)
+                                        logInfo("No icon defined for active insert: \(activeInsertName) and empty default icon")
+                                    }
+                                } else {
+                                    // No default icon available
+                                    let response = " "
+                                    write(clientSocket, response, response.utf8.count)
+                                    logInfo("No icon defined for active insert: \(activeInsertName) and no default icon set")
+                                }
+                            }
                         } else {
                             // No icon defined for this insert, use defaultIcon if available
-                            if let icon = configMgr.config.defaults.icon, !icon.isEmpty {
-                                write(clientSocket, icon, icon.utf8.count)
-                                logInfo("Using default icon for active insert: \(activeInsertName)")
+                            if let defaultIcon = configMgr.config.defaults.icon {
+                                if defaultIcon == ".none" {
+                                    // Special value to explicitly use no icon
+                                    let response = " "
+                                    write(clientSocket, response, response.utf8.count)
+                                    logInfo("Using explicit 'no icon' default setting")
+                                } else if !defaultIcon.isEmpty {
+                                    write(clientSocket, defaultIcon, defaultIcon.utf8.count)
+                                    logInfo("Using default icon for active insert: \(activeInsertName)")
+                                } else {
+                                    // Empty default icon
+                                    let response = " "
+                                    write(clientSocket, response, response.utf8.count)
+                                    logInfo("No icon defined for active insert: \(activeInsertName) and empty default icon")
+                                }
                             } else {
                                 // No default icon available
                                 let response = " "
@@ -316,9 +358,21 @@ class SocketCommunication {
                         }
                     } else {
                         // Insert not found in configuration, use defaultIcon if available
-                        if let icon = configMgr.config.defaults.icon, !icon.isEmpty {
-                            write(clientSocket, icon, icon.utf8.count)
-                            logInfo("Using default icon because active insert '\(activeInsertName)' not found")
+                        if let defaultIcon = configMgr.config.defaults.icon {
+                            if defaultIcon == ".none" {
+                                // Special value to explicitly use no icon
+                                let response = " "
+                                write(clientSocket, response, response.utf8.count)
+                                logInfo("Using explicit 'no icon' default setting")
+                            } else if !defaultIcon.isEmpty {
+                                write(clientSocket, defaultIcon, defaultIcon.utf8.count)
+                                logInfo("Using default icon because active insert '\(activeInsertName)' not found")
+                            } else {
+                                // Empty default icon
+                                let response = " "
+                                write(clientSocket, response, response.utf8.count)
+                                logInfo("Active insert '\(activeInsertName)' not found and empty default icon")
+                            }
                         } else {
                             // No default icon available
                             let response = " "
@@ -328,9 +382,21 @@ class SocketCommunication {
                     }
                 } else {
                     // No active insert configured, use defaultIcon if available
-                    if let icon = configMgr.config.defaults.icon, !icon.isEmpty {
-                        write(clientSocket, icon, icon.utf8.count)
-                        logInfo("Using default icon because no active insert is configured")
+                    if let defaultIcon = configMgr.config.defaults.icon {
+                        if defaultIcon == ".none" {
+                            // Special value to explicitly use no icon
+                            let response = " "
+                            write(clientSocket, response, response.utf8.count)
+                            logInfo("Using explicit 'no icon' default setting")
+                        } else if !defaultIcon.isEmpty {
+                            write(clientSocket, defaultIcon, defaultIcon.utf8.count)
+                            logInfo("Using default icon because no active insert is configured")
+                        } else {
+                            // Empty default icon
+                            let response = " "
+                            write(clientSocket, response, response.utf8.count)
+                            logInfo("No active insert and empty default icon")
+                        }
                     } else {
                         // No default icon available
                         let response = " "
@@ -404,6 +470,8 @@ class SocketCommunication {
                     // Create local variables with proper null checking
                     let watchPath = args["watch"]
                     let activeInsert = args["activeInsert"]
+                    let icon = args["icon"]
+                    let moveTo = args["moveTo"]
                     
                     // Parse boolean values from strings
                     let serverStr = args["server"]
@@ -427,7 +495,9 @@ class SocketCommunication {
                         watcher: watcher,
                         noUpdates: noUpdates,
                         noNoti: noNoti,
-                        activeInsert: activeInsert
+                        activeInsert: activeInsert,
+                        icon: icon,
+                        moveTo: moveTo
                     )
                     
                     // IMPORTANT: After updating the config, explicitly call the onConfigChanged callback
@@ -1160,7 +1230,8 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
            args.contains("--no-updates") || args.contains("--no-noti") ||
            args.contains("--get-icon") || args.contains("--get-insert") ||
            args.contains("--insert") || args.contains("--auto-return") ||
-            args.contains("--list-inserts") {
+           args.contains("--list-inserts") || args.contains("--icon") ||
+            args.contains("--move-to") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1200,6 +1271,24 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     arguments["activeInsert"] = args[index + 1]
                 } else {
                     arguments["activeInsert"] = ""
+                }
+            }
+            
+            if args.contains("--icon") {
+                let iconIndex = args.firstIndex(where: { $0 == "--icon" })
+                if let index = iconIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    arguments["icon"] = args[index + 1]
+                } else {
+                    arguments["icon"] = ""
+                }
+            }
+            
+            if args.contains("--move-to") {
+                let moveToIndex = args.firstIndex(where: { $0 == "--move-to" })
+                if let index = moveToIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    arguments["moveTo"] = args[index + 1]
+                } else {
+                    arguments["moveTo"] = ""
                 }
             }
             
@@ -2377,6 +2466,7 @@ func printHelp() {
           --no-noti true/false      Enable or disable all notifications
           --insert <name>           Set the active insert (use empty string to disable)
           --icon <icon>             Set the default icon to use when no insert icon is available
+                                    Use '.none' to explicitly use no icon
           --move-to <path>          Set the default path to move folder to after processing
                                     Use '.delete' to delete folder, '.none' to not move
       -s, --status                  Get the status of the background process
