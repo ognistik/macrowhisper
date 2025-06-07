@@ -426,6 +426,7 @@ class SocketCommunication {
                 // Reload the configuration from disk
                 if let loadedConfig = configMgr.loadConfig() {
                     configMgr.config = loadedConfig
+                    configMgr.configurationSuccessfullyLoaded() // Reset notification flag
                     configMgr.onConfigChanged?()
                     
                     // Send success response
@@ -2390,6 +2391,9 @@ class ConfigurationManager {
     private let syncQueue = DispatchQueue(label: "com.macrowhisper.configsync")
     private var fileWatcher: FileChangeWatcher?
     
+    // Add a property to track if we've already notified about JSON errors
+    private var hasNotifiedAboutJsonError = false
+    
     // Make config publicly accessible
     var config: AppConfiguration
     
@@ -2397,7 +2401,7 @@ class ConfigurationManager {
     var onConfigChanged: (() -> Void)?
     
     init(configPath: String? = nil) {
-        // Initialize ALL stored properties first
+        // Initialize properties first
         if let path = configPath {
             self.configFilePath = path
         } else {
@@ -2407,6 +2411,7 @@ class ConfigurationManager {
         
         // Initialize config with a default value first
         self.config = AppConfiguration.defaultConfig()
+        hasNotifiedAboutJsonError = false
         
         // Create directory if it doesn't exist
         let directory = (self.configFilePath as NSString).deletingLastPathComponent
@@ -2417,12 +2422,19 @@ class ConfigurationManager {
         // Check if config file exists
         let fileExistedBefore = fileManager.fileExists(atPath: self.configFilePath)
         
-        // NOW you can call instance methods since all properties are initialized
-        if let loadedConfig = loadConfig() {
-            self.config = loadedConfig
-            logInfo("Configuration loaded from \(self.configFilePath)")
+        if fileExistedBefore {
+            // If file exists, attempt to load it
+            if let loadedConfig = loadConfig() {
+                self.config = loadedConfig
+                logInfo("Configuration loaded from \(self.configFilePath)")
+            } else {
+                // If loading fails but file exists, don't overwrite it
+                logWarning("Failed to load configuration due to invalid JSON. Using defaults in memory only.")
+                // We're keeping the default config in memory but NOT saving it to disk
+                // Notification is already handled in loadConfig()
+            }
         } else {
-            // Keep the default config we already set
+            // File doesn't exist, create it with defaults
             saveConfig()
             logInfo("Default configuration created at \(self.configFilePath)")
         }
@@ -2430,9 +2442,8 @@ class ConfigurationManager {
         // Set up file watcher for config changes
         setupFileWatcher()
         
-        // If we just created the file, we need to reinitialize the watcher
+        // If we just created the file, reinitialize the watcher
         if !fileExistedBefore && fileManager.fileExists(atPath: self.configFilePath) {
-            // Add a slight delay to ensure the file system has registered the new file
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.setupFileWatcher()
                 logInfo("File watcher reinitialized after creating config file")
@@ -2444,7 +2455,6 @@ class ConfigurationManager {
         // Configuration changes will be handled via socket commands
     }
     
-    // Make this method public
     func loadConfig() -> AppConfiguration? {
         guard fileManager.fileExists(atPath: configFilePath) else {
             return nil
@@ -2457,16 +2467,16 @@ class ConfigurationManager {
             let decoder = JSONDecoder()
             return try decoder.decode(AppConfiguration.self, from: data)
         } catch {
-            // Log the error as before
+            // Log the error
             logError("Error loading configuration: \(error.localizedDescription)")
             
-            // Add notification for invalid JSON format
-            if error is DecodingError {
-                notify(title: "Macrowhisper",
-                       message: "The configuration file contains invalid JSON. Please check the format.")
-            } else {
-                notify(title: "Macrowhisper",
-                       message: "Failed to load configuration: \(error.localizedDescription)")
+            // Only show notification if we haven't already notified
+            if !hasNotifiedAboutJsonError {
+                hasNotifiedAboutJsonError = true
+                
+                // Show a single comprehensive notification
+                notify(title: "Macrowhisper - Configuration Error",
+                       message: "Your configuration file contains invalid JSON. The application is running with default settings. Please fix the file at \(self.configFilePath) and run 'macrowhisper' to reload.")
             }
             
             return nil
@@ -2474,7 +2484,13 @@ class ConfigurationManager {
     }
     
     func saveConfig() {
-        let fileExistedBefore = fileManager.fileExists(atPath: configFilePath)
+        // Don't overwrite an existing file that failed to load
+        if fileManager.fileExists(atPath: configFilePath) &&
+           loadConfig() == nil {
+            logWarning("Not saving configuration because the existing file has invalid JSON that needs to be fixed manually")
+            // Don't show another notification here - we've already notified in loadConfig()
+            return
+        }
         
         do {
             let encoder = JSONEncoder()
@@ -2482,16 +2498,15 @@ class ConfigurationManager {
             let data = try encoder.encode(config)
             try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
             
-            // If file didn't exist before but now does, reinitialize the watcher
-            if !fileExistedBefore && fileManager.fileExists(atPath: configFilePath) {
-                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.setupFileWatcher()
-                    logInfo("File watcher reinitialized after creating config file")
-                }
-            }
+            logInfo("Configuration saved to \(configFilePath)")
         } catch {
             logError("Error saving configuration: \(error.localizedDescription)")
         }
+    }
+
+    // Add this method to reset the notification flag when config is successfully reloaded
+    func configurationSuccessfullyLoaded() {
+        hasNotifiedAboutJsonError = false
     }
 
     // Update configuration with command line arguments and save
