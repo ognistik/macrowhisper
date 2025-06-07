@@ -478,15 +478,17 @@ class SocketCommunication {
                     let watcherStr = args["watcher"]
                     let noUpdatesStr = args["noUpdates"]
                     let noNotiStr = args["noNoti"]
+                    let noEscStr = args["noEsc"]
                     
                     // Log the parameters before updating
-                    logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any), activeInsert=\(activeInsert as Any)")
+                    logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any), activeInsert=\(activeInsert as Any), noEsc=\(noEscStr as Any)")
                     
                     // Convert string values to boolean values
                     let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
                     let watcher = watcherStr == "true" ? true : (watcherStr == "false" ? false : nil)
                     let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
                     let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
+                    let noEsc = noEscStr == "true" ? true : (noEscStr == "false" ? false : nil)
                     
                     // Update configuration with null-safe values using the safe reference
                     configMgr.updateFromCommandLine(
@@ -497,7 +499,8 @@ class SocketCommunication {
                         noNoti: noNoti,
                         activeInsert: activeInsert,
                         icon: icon,
-                        moveTo: moveTo
+                        moveTo: moveTo,
+                        noEsc: noEsc
                     )
                     
                     // IMPORTANT: After updating the config, explicitly call the onConfigChanged callback
@@ -1125,6 +1128,7 @@ struct AppConfiguration: Codable {
         var activeInsert: String?
         var icon: String?
         var moveTo: String?
+        var noEsc: Bool
         
         static func defaultValues() -> Defaults {
             return Defaults(
@@ -1133,7 +1137,8 @@ struct AppConfiguration: Codable {
                 noNoti: false,
                 activeInsert: "",
                 icon: "",
-                moveTo: ""
+                moveTo: "",
+                noEsc: false
             )
         }
     }
@@ -1231,7 +1236,7 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
            args.contains("--get-icon") || args.contains("--get-insert") ||
            args.contains("--insert") || args.contains("--auto-return") ||
            args.contains("--list-inserts") || args.contains("--icon") ||
-            args.contains("--move-to") {
+           args.contains("--move-to") || args.contains("--no-esc") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1271,6 +1276,24 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     arguments["activeInsert"] = args[index + 1]
                 } else {
                     arguments["activeInsert"] = ""
+                }
+            }
+            
+            if args.contains("--no-esc") {
+                let noEscIndex = args.firstIndex(where: { $0 == "--no-esc" })
+                if let index = noEscIndex, index + 1 < args.count {
+                    arguments["noEsc"] = args[index + 1]
+                } else {
+                    arguments["noEsc"] = "true"
+                }
+            }
+            
+            if args.contains("--no-esc") {
+                let noEscIndex = args.firstIndex(where: { $0 == "--no-esc" })
+                if let index = noEscIndex, index + 1 < args.count {
+                    arguments["noEsc"] = args[index + 1]
+                } else {
+                    arguments["noEsc"] = "true"
                 }
             }
             
@@ -1810,6 +1833,12 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     }
 
     private func applyInsert(_ text: String) {
+        // If text is empty, just simulate ESC key press and return
+        if text.isEmpty {
+            simulateEscKeyPress()
+            return
+        }
+        
         // First, save the current clipboard content
         let pasteboard = NSPasteboard.general
         let originalClipboardContent = pasteboard.string(forType: .string)
@@ -1835,6 +1864,12 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     }
 
     private func simulateEscKeyPress() {
+        // Check if ESC key simulation is disabled
+        if configManager.config.defaults.noEsc {
+            logInfo("ESC key simulation disabled by noEsc setting")
+            return
+        }
+        
         // Simulate ESC key press
         simulateKeyDown(key: 53)
     }
@@ -2221,11 +2256,10 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                                             activeInsert: nil)
                 }
             } else {
-                // No active insert, use the old behavior (trigger Keyboard Maestro)
-                logInfo("Found valid result in meta.json. Triggering Macro.")
-                self.triggerKeyboardMaestro()
+                // No active insert, do nothing
+                logInfo("Found valid result in meta.json, but no active insert configured. Taking no action.")
                 
-                // Handle default moveTo setting
+                // Still handle default moveTo setting if configured
                 self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent,
                                         activeInsert: nil)
             }
@@ -2241,27 +2275,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     // Check for updates after delay
                     versionChecker.checkForUpdates()
                 }
-            }
-        }
-    }
-    
-    private func triggerKeyboardMaestro() {
-        // Use a dedicated high-priority queue for KM triggers
-        DispatchQueue.global(qos: .userInteractive).async {
-            let task = Process()
-            task.launchPath = "/usr/bin/osascript"
-            task.arguments = [
-                "-e",
-                "tell application \"Keyboard Maestro Engine\" to do script \"Trigger - Meta\""
-            ]
-            // Discard all output, fully async
-            task.standardOutput = FileHandle.nullDevice
-            task.standardError = FileHandle.nullDevice
-            do {
-                try task.run()
-            } catch {
-                logError("Failed to launch Keyboard Maestro trigger: \(error)")
-                notify(title: "Macrowhisper", message: "Failed to launch Keyboard Maestro trigger.")
             }
         }
     }
@@ -2393,7 +2406,8 @@ class ConfigurationManager {
         noNoti: Bool? = nil,
         activeInsert: String? = nil,
         icon: String? = nil,
-        moveTo: String? = nil
+        moveTo: String? = nil,
+        noEsc: Bool? = nil
     ) {
         syncQueue.sync {
             // First, reload the latest config from disk
@@ -2415,8 +2429,11 @@ class ConfigurationManager {
             if let icon = icon {
                 config.defaults.icon = icon
             }
-            if let moveTo = moveTo {  // Add this block
+            if let moveTo = moveTo {
                 config.defaults.moveTo = moveTo
+            }
+            if let noEsc = noEsc {  // Add this block
+                config.defaults.noEsc = noEsc
             }
             
             // Save the configuration
@@ -2464,6 +2481,7 @@ func printHelp() {
       -w, --watch <path>            Path to superwhisper folder
           --no-updates true/false   Enable or disable automatic update checking
           --no-noti true/false      Enable or disable all notifications
+          --no-esc true/false       Disable all ESC key simulations when set to true
           --insert <name>           Set the active insert (use empty string to disable)
           --icon <icon>             Set the default icon to use when no insert icon is available
                                     Use '.none' to explicitly use no icon
@@ -2502,6 +2520,7 @@ var watcherFlag: Bool? = nil
 var insertName: String? = nil
 var iconValue: String? = nil
 var moveToPath: String? = nil
+var noEscFlag: Bool? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -2538,6 +2557,14 @@ while i < args.count {
         }
         let value = args[i + 1].lowercased()
         disableNotifications = value == "true" || value == "yes" || value == "1"
+        i += 2
+    case "--no-esc":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        let value = args[i + 1].lowercased()
+        noEscFlag = value == "true" || value == "yes" || value == "1"
         i += 2
     case "-h", "--help":
         printHelp()
@@ -2655,7 +2682,8 @@ configManager.updateFromCommandLine(
     }) : nil,
     activeInsert: insertName,
     icon: iconValue,
-    moveTo: moveToPath
+    moveTo: moveToPath,
+    noEsc: noEscFlag
 )
 
 // Update global variables again after possible configuration changes
