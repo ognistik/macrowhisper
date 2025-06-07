@@ -1686,7 +1686,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     
     private func simulateReturnKeyPress() {
         // Add a delay before simulating the Return key press
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { // delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) { // delay
             // 36 is the keycode for Return key
             self.simulateKeyDown(key: 36)
         }
@@ -1995,6 +1995,13 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         // Check if file still exists
         if !FileManager.default.fileExists(atPath: path) {
             logInfo("meta.json was deleted")
+            
+            // Deactivate auto-return if it was active
+            if autoReturnEnabled {
+                autoReturnEnabled = false
+                logInfo("Auto-return disabled because meta.json was deleted")
+            }
+            
             return
         }
         
