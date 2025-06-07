@@ -1166,6 +1166,7 @@ struct AppConfiguration: Codable {
         var action: String
         var icon: String?
         var moveTo: String?
+        var noEsc: Bool?
     }
     
     var defaults: Defaults
@@ -1855,10 +1856,10 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         return result
     }
 
-    private func applyInsert(_ text: String) {
+    private func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?) {
         // If text is empty, just simulate ESC key press and return
         if text.isEmpty || text == ".none" {
-            simulateEscKeyPress()
+            simulateEscKeyPress(activeInsert: activeInsert)
             return
         }
         
@@ -1867,8 +1868,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         let originalClipboardContent = pasteboard.string(forType: .string)
         
         // Simulate ESC key press
-        simulateEscKeyPress()
-        
+        simulateEscKeyPress(activeInsert: activeInsert)
+
         // Set the new content and paste it
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -1886,10 +1887,18 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         }
     }
 
-    private func simulateEscKeyPress() {
-        // Check if ESC key simulation is disabled
-        if configManager.config.defaults.noEsc {
-            logInfo("ESC key simulation disabled by noEsc setting")
+    private func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
+        // First check if there's an insert-specific noEsc setting
+        if let insert = activeInsert, let insertNoEsc = insert.noEsc {
+            // Use the insert-specific setting if available
+            if insertNoEsc {
+                logInfo("ESC key simulation disabled by insert-specific noEsc setting")
+                return
+            }
+        }
+        // Otherwise fall back to the global setting
+        else if configManager.config.defaults.noEsc {
+            logInfo("ESC key simulation disabled by global noEsc setting")
             return
         }
         
@@ -2249,7 +2258,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 let processedAction = resultValue
                 
                 // Apply the result (simulate ESC key press and paste the action)
-                self.applyInsert(processedAction)
+                self.applyInsert(processedAction, activeInsert: nil)
                 
                 // Simulate a return key press after pasting
                 self.simulateReturnKeyPress()
@@ -2266,7 +2275,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     let processedAction = self.processAction(insert.action, metaJson: json)
                     
                     // Apply the insert (simulate ESC key press and paste the action)
-                    self.applyInsert(processedAction)
+                    self.applyInsert(processedAction, activeInsert: insert)
                     
                     logInfo("Applied insert '\(activeInsertName)' with processed action")
                     // Handle moveTo setting after insert is applied
