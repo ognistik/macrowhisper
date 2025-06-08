@@ -1851,21 +1851,83 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         
         var result = action
         
-        // Process placeholders
-        // Handle {{swResult}} special case
-        if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
-            result = result.replacingOccurrences(of: "{{swResult}}", with: llmResult)
-        } else if let regularResult = metaJson["result"] as? String {
-            result = result.replacingOccurrences(of: "{{swResult}}", with: regularResult)
-        }
+        // First, process all standard placeholders - remove them if they don't exist or are empty
+        let allPlaceholders = ["llmResult", "swResult", "modeName", "prompt", "result", "rawResult"]
         
-        // Process other placeholders
-        let placeholders = ["modeName", "prompt", "result", "rawResult", "llmResult"]
-        for key in placeholders {
-            if let value = metaJson[key] as? String {
-                result = result.replacingOccurrences(of: "{{\(key)}}", with: value)
+        // Process XML tags in llmResult if present
+        var processedLlmResult = ""
+        var extractedTags: [String: String] = [:]
+        
+        if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
+            // Process XML tags and get cleaned llmResult and extracted tags
+            let processed = processXmlPlaceholders(action: action, llmResult: llmResult)
+            processedLlmResult = processed.0  // Store the cleaned result
+            extractedTags = processed.1
+            
+            // Update the metaJson with the cleaned llmResult
+            var updatedMetaJson = metaJson
+            updatedMetaJson["llmResult"] = processedLlmResult
+            
+            // If swResult would be derived from llmResult, update it too
+            if metaJson["result"] == nil || (metaJson["result"] as? String)?.isEmpty == true {
+                updatedMetaJson["swResult"] = processedLlmResult
+            }
+            
+            // Use the updated metaJson for placeholder replacements
+            for placeholder in allPlaceholders {
+                // Check if the placeholder exists in the action
+                if result.contains("{{\(placeholder)}}") {
+                    // Check if the value exists in updatedMetaJson and is not empty
+                    let value: String
+                    if placeholder == "swResult" {
+                        // swResult is special - it's either llmResult or result
+                        if let llm = updatedMetaJson["llmResult"] as? String, !llm.isEmpty {
+                            value = llm
+                        } else if let res = updatedMetaJson["result"] as? String, !res.isEmpty {
+                            value = res
+                        } else {
+                            value = ""
+                        }
+                    } else if let val = updatedMetaJson[placeholder] as? String, !val.isEmpty {
+                        value = val
+                    } else {
+                        value = ""
+                    }
+                    
+                    // Replace the placeholder with the value or remove it if empty
+                    result = result.replacingOccurrences(of: "{{\(placeholder)}}", with: value)
+                }
+            }
+        } else {
+            // No llmResult to process, just handle regular placeholders
+            for placeholder in allPlaceholders {
+                if result.contains("{{\(placeholder)}}") {
+                    let value: String
+                    if placeholder == "swResult" {
+                        if let res = metaJson["result"] as? String, !res.isEmpty {
+                            value = res
+                        } else {
+                            value = ""
+                        }
+                    } else if let val = metaJson[placeholder] as? String, !val.isEmpty {
+                        value = val
+                    } else {
+                        value = ""
+                    }
+                    
+                    result = result.replacingOccurrences(of: "{{\(placeholder)}}", with: value)
+                }
+            }
+            
+            // Process XML placeholders with regular result if llmResult doesn't exist
+            if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
+                let processed = processXmlPlaceholders(action: action, llmResult: regularResult)
+                extractedTags = processed.1
             }
         }
+        
+        // Replace XML placeholders with extracted content or remove them
+        result = replaceXmlPlaceholders(action: result, extractedTags: extractedTags)
         
         // Process newlines - convert literal "\n" to actual newlines
         result = result.replacingOccurrences(of: "\\n", with: "\n")
@@ -1873,9 +1935,10 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         return result
     }
 
+
     private func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?) {
-        // If text is empty, just simulate ESC key press and return
-        if text.isEmpty || text == ".none" {
+        // If text is empty or just whitespace, just simulate ESC key press and return
+        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
             simulateEscKeyPress(activeInsert: activeInsert)
             return
         }
@@ -1934,6 +1997,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             pasteUsingClipboard(text)
         }
     }
+
 
     private func pasteUsingClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
@@ -2629,6 +2693,95 @@ func printHelp() {
         # Sets the active insert to pasteResult
 
     """)
+}
+
+// Function to process LLM result based on XML placeholders in the action
+func processXmlPlaceholders(action: String, llmResult: String) -> (String, [String: String]) {
+    var cleanedLlmResult = llmResult
+    var extractedTags: [String: String] = [:]
+    
+    // First, identify which XML tags are requested in the action
+    let placeholderPattern = "\\{\\{xml:([A-Za-z0-9_]+)\\}\\}"
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    
+    var requestedTags: Set<String> = []
+    
+    // Find all XML placeholders in the action
+    if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+        for match in matches {
+            if let tagNameRange = Range(match.range(at: 1), in: action) {
+                let tagName = String(action[tagNameRange])
+                requestedTags.insert(tagName)
+            }
+        }
+    }
+    
+    // If no XML tags are requested, return the original LLM result
+    if requestedTags.isEmpty {
+        return (cleanedLlmResult, extractedTags)
+    }
+    
+    // For each requested tag, extract content and remove from LLM result
+    for tagName in requestedTags {
+        // Pattern to match the specific XML tag
+        let tagPattern = "<\(tagName)>(.*?)</\(tagName)>"
+        let tagRegex = try? NSRegularExpression(pattern: tagPattern, options: [.dotMatchesLineSeparators])
+        
+        // Find the tag in the LLM result
+        if let match = tagRegex?.firstMatch(in: cleanedLlmResult, options: [], range: NSRange(cleanedLlmResult.startIndex..., in: cleanedLlmResult)),
+           let contentRange = Range(match.range(at: 1), in: cleanedLlmResult),
+           let fullMatchRange = Range(match.range, in: cleanedLlmResult) {
+            
+            // Extract content and clean it
+            var content = String(cleanedLlmResult[contentRange])
+            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Store the cleaned content
+            extractedTags[tagName] = content
+            
+            // Remove the XML tag and its content from the result
+            cleanedLlmResult.replaceSubrange(fullMatchRange, with: "")
+        }
+    }
+    
+    // Clean up the LLM result after removing all requested tags
+    // Remove any consecutive empty lines
+    cleanedLlmResult = cleanedLlmResult.replacingOccurrences(of: "\n\\s*\n+", with: "\n\n", options: .regularExpression)
+    
+    // Trim leading and trailing whitespace
+    cleanedLlmResult = cleanedLlmResult.trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    return (cleanedLlmResult, extractedTags)
+}
+
+// Function to replace XML placeholders in an action string
+func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> String {
+    var result = action
+    
+    // Find all XML placeholders using regex
+    let pattern = "\\{\\{xml:([A-Za-z0-9_]+)\\}\\}"
+    let regex = try? NSRegularExpression(pattern: pattern, options: [])
+    
+    // Get all matches
+    if let matches = regex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+        for match in matches.reversed() {
+            if let tagNameRange = Range(match.range(at: 1), in: action),
+               let fullMatchRange = Range(match.range, in: action) {
+                
+                let tagName = String(action[tagNameRange])
+                
+                // Replace the placeholder with the extracted content if available and not empty
+                if let content = extractedTags[tagName], !content.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: content)
+                } else {
+                    // If content is missing or empty, remove the placeholder entirely
+                    result.replaceSubrange(fullMatchRange, with: "")
+                }
+            }
+        }
+    }
+    
+    return result
 }
 
 // Argument parsing
