@@ -490,53 +490,14 @@ class SocketCommunication {
                 if let args = commandMessage.arguments {
                     logInfo("Updating config with arguments: \(args)")
                     
-                    // Create local variables with proper null checking
-                    let watchPath = args["watch"]
-                    let activeInsert = args["activeInsert"]
-                    let icon = args["icon"]
-                    let moveTo = args["moveTo"]
-                    
-                    // Parse boolean values from strings
-                    let serverStr = args["server"]
-                    let watcherStr = args["watcher"]
-                    let noUpdatesStr = args["noUpdates"]
-                    let noNotiStr = args["noNoti"]
-                    let noEscStr = args["noEsc"]
-                    let simKeypressStr = args["simKeypress"]
-                    
-                    // Log the parameters before updating
-                    logInfo("Parameters: watchPath=\(watchPath as Any), server=\(serverStr as Any), watcher=\(watcherStr as Any), noUpdates=\(noUpdatesStr as Any), noNoti=\(noNotiStr as Any), activeInsert=\(activeInsert as Any), noEsc=\(noEscStr as Any)")
-                    
-                    // Convert string values to boolean values
-                    let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
-                    let watcher = watcherStr == "true" ? true : (watcherStr == "false" ? false : nil)
-                    let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
-                    let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
-                    let noEsc = noEscStr == "true" ? true : (noEscStr == "false" ? false : nil)
-                    let simKeypress = simKeypressStr == "true" ? true : (simKeypressStr == "false" ? false : nil)
-                    
-                    // Update configuration with null-safe values using the safe reference
-                    configMgr.updateFromCommandLine(
-                        watchPath: watchPath,
-                        server: server,
-                        watcher: watcher,
-                        noUpdates: noUpdates,
-                        noNoti: noNoti,
-                        activeInsert: activeInsert,
-                        icon: icon,
-                        moveTo: moveTo,
-                        noEsc: noEsc,
-                        simKeypress: simKeypress
-                    )
-                    
-                    // IMPORTANT: After updating the config, explicitly call the onConfigChanged callback
-                    configMgr.onConfigChanged?()
-                    
-                    logInfo("Configuration updated successfully")
-                    
-                    // Send success response
-                    let response = "Configuration updated successfully"
+                    // Send immediate success response
+                    let response = "Configuration update queued successfully"
                     write(clientSocket, response, response.utf8.count)
+                    
+                    // Process the update asynchronously
+                    configMgr.updateFromCommandLineAsync(arguments: args) {
+                        logInfo("Configuration updated successfully in background")
+                    }
                 } else {
                     // Send error response
                     let response = "No arguments provided for configuration update"
@@ -784,7 +745,6 @@ var globalConfigManager: ConfigurationManager?
 var suppressConsoleLogging = false
 var autoReturnEnabled = false
 private var lastDetectedFrontApp: NSRunningApplication?
-
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -2734,6 +2694,9 @@ class ConfigurationManager {
     private let fileManager = FileManager.default
     private let syncQueue = DispatchQueue(label: "com.macrowhisper.configsync")
     private var fileWatcher: FileChangeWatcher?
+    private let commandQueue = DispatchQueue(label: "com.macrowhisper.commandqueue", qos: .userInitiated)
+    private var pendingCommands: [(arguments: [String: String], completion: (() -> Void)?)] = []
+    private var isProcessingCommands = false
     
     // Add a property to track if we've already notified about JSON errors
     private var hasNotifiedAboutJsonError = false
@@ -2795,6 +2758,110 @@ class ConfigurationManager {
         }
     }
     
+    func updateFromCommandLineAsync(arguments: [String: String], completion: (() -> Void)? = nil) {
+        // Immediately add to queue
+        commandQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Add to pending commands
+            self.pendingCommands.append((arguments: arguments, completion: completion))
+            
+            // Start processing if not already doing so
+            if !self.isProcessingCommands {
+                self.processNextCommand()
+            }
+        }
+    }
+    
+    private func processNextCommand() {
+        commandQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // If no commands or already processing, exit
+            if self.pendingCommands.isEmpty || self.isProcessingCommands {
+                return
+            }
+            
+            // Mark as processing
+            self.isProcessingCommands = true
+            
+            // Get next command
+            let command = self.pendingCommands.removeFirst()
+            
+            // Extract arguments
+            let args = command.arguments
+            let watchPath = args["watch"]
+            let activeInsert = args["activeInsert"]
+            let icon = args["icon"]
+            let moveTo = args["moveTo"]
+            
+            // Parse boolean values from strings
+            let serverStr = args["server"]
+            let watcherStr = args["watcher"]
+            let noUpdatesStr = args["noUpdates"]
+            let noNotiStr = args["noNoti"]
+            let noEscStr = args["noEsc"]
+            let simKeypressStr = args["simKeypress"]
+            
+            // Convert string values to boolean values
+            let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
+            let watcher = watcherStr == "true" ? true : (watcherStr == "false" ? false : nil)
+            let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
+            let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
+            let noEsc = noEscStr == "true" ? true : (noEscStr == "false" ? false : nil)
+            let simKeypress = simKeypressStr == "true" ? true : (simKeypressStr == "false" ? false : nil)
+            
+            // Update configuration with values
+            self.syncQueue.sync {
+                // First, reload the latest config from disk
+                if let freshConfig = self.loadConfig() {
+                    self.config = freshConfig
+                }
+                
+                // Update config values
+                if let watchPath = watchPath {
+                    self.config.defaults.watch = watchPath
+                }
+                if let noUpdates = noUpdates {
+                    self.config.defaults.noUpdates = noUpdates
+                }
+                if let noNoti = noNoti {
+                    self.config.defaults.noNoti = noNoti
+                }
+                if let activeInsert = activeInsert {
+                    self.config.defaults.activeInsert = activeInsert
+                }
+                if let icon = icon {
+                    self.config.defaults.icon = icon
+                }
+                if let moveTo = moveTo {
+                    self.config.defaults.moveTo = moveTo
+                }
+                if let noEsc = noEsc {
+                    self.config.defaults.noEsc = noEsc
+                }
+                if let simKeypress = simKeypress {
+                    self.config.defaults.simKeypress = simKeypress
+                }
+                
+                // Save the configuration
+                self.saveConfig()
+                
+                // Call onConfigChanged callback
+                DispatchQueue.main.async {
+                    self.onConfigChanged?()
+                    
+                    // Execute completion handler if provided
+                    command.completion?()
+                    
+                    // Mark as not processing and check for more commands
+                    self.isProcessingCommands = false
+                    self.processNextCommand()
+                }
+            }
+        }
+    }
+    
     func resetFileWatcher() {
         logInfo("Resetting file watcher due to previous JSON error...")
         
@@ -2837,6 +2904,7 @@ class ConfigurationManager {
                 }
             },
             onMissing: { [weak self] in
+                guard let self = self else { return }
                 logWarning("Configuration file was deleted or moved")
             }
         )
@@ -2891,7 +2959,7 @@ class ConfigurationManager {
     func saveConfig() {
         // Don't overwrite an existing file that failed to load
         if fileManager.fileExists(atPath: configFilePath) &&
-           loadConfig() == nil {
+            loadConfig() == nil {
             logWarning("Not saving configuration because the existing file has invalid JSON that needs to be fixed manually")
             // Don't show another notification here - we've already notified in loadConfig()
             return
@@ -2908,12 +2976,12 @@ class ConfigurationManager {
             logError("Error saving configuration: \(error.localizedDescription)")
         }
     }
-
+    
     // Add this method to reset the notification flag when config is successfully reloaded
     func configurationSuccessfullyLoaded() {
         hasNotifiedAboutJsonError = false
     }
-
+    
     // Update configuration with command line arguments and save
     // Add this to the updateFromCommandLine method in ConfigurationManager
     func updateFromCommandLine(
@@ -2928,45 +2996,42 @@ class ConfigurationManager {
         noEsc: Bool? = nil,
         simKeypress: Bool? = nil
     ) {
-        syncQueue.sync {
-            // First, reload the latest config from disk
-            if let freshConfig = loadConfig() {
-                config = freshConfig
-            }
-            if let watchPath = watchPath {
-                config.defaults.watch = watchPath
-            }
-            if let noUpdates = noUpdates {
-                config.defaults.noUpdates = noUpdates
-            }
-            if let noNoti = noNoti {
-                config.defaults.noNoti = noNoti
-            }
-            if let activeInsert = activeInsert {
-                config.defaults.activeInsert = activeInsert
-            }
-            if let icon = icon {
-                config.defaults.icon = icon
-            }
-            if let moveTo = moveTo {
-                config.defaults.moveTo = moveTo
-            }
-            if let noEsc = noEsc {  // Add this block
-                config.defaults.noEsc = noEsc
-            }
-            if let simKeypress = simKeypress {  // Add this block
-                config.defaults.simKeypress = simKeypress
-            }
-            
-            // Save the configuration
-            saveConfig()
-            
-            // Send notification immediately after successful save
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
-                logInfo("Configuration updated from command line")
-            }
+        // Convert parameters to arguments dictionary
+        var arguments: [String: String] = [:]
+        
+        if let watchPath = watchPath {
+            arguments["watch"] = watchPath
         }
+        if let server = server {
+            arguments["server"] = server ? "true" : "false"
+        }
+        if let watcher = watcher {
+            arguments["watcher"] = watcher ? "true" : "false"
+        }
+        if let noUpdates = noUpdates {
+            arguments["noUpdates"] = noUpdates ? "true" : "false"
+        }
+        if let noNoti = noNoti {
+            arguments["noNoti"] = noNoti ? "true" : "false"
+        }
+        if let activeInsert = activeInsert {
+            arguments["activeInsert"] = activeInsert
+        }
+        if let icon = icon {
+            arguments["icon"] = icon
+        }
+        if let moveTo = moveTo {
+            arguments["moveTo"] = moveTo
+        }
+        if let noEsc = noEsc {
+            arguments["noEsc"] = noEsc ? "true" : "false"
+        }
+        if let simKeypress = simKeypress {
+            arguments["simKeypress"] = simKeypress ? "true" : "false"
+        }
+        
+        // Use the async version
+        updateFromCommandLineAsync(arguments: arguments)
     }
 }
 
