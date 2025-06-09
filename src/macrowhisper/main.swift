@@ -453,8 +453,6 @@ class SocketCommunication {
                     write(clientSocket, response, response.utf8.count)
                     logInfo("Configuration reload successful")
                     
-                    // Notify the user
-                    notify(title: "Macrowhisper", message: "Configuration reloaded successfully")
                 } else {
                     // Send error response
                     let response = "Failed to reload configuration"
@@ -2859,7 +2857,6 @@ class ConfigurationManager {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
                 logInfo("Configuration updated from command line")
-                notify(title: "Macrowhisper", message: "Configuration updated")
             }
         }
     }
@@ -3215,8 +3212,7 @@ let runWatcher = checkWatcherAvailability()
 
 // ---
 // At this point, continue with initializing server and/or watcher as usual...
-logInfo("macrowhisper starting with:")
-if runWatcher { logInfo("  Watcher: \(watchFolderPath)/recordings") }
+if runWatcher { logInfo("Watcher: \(watchFolderPath)/recordings") }
 
 // Server setup - only if jsonPath is provided
 // MARK: - Server and Watcher Setup
@@ -3278,6 +3274,7 @@ configManager.onConfigChanged = {
         // Folder doesn't exist - disable watcher
         recordingsWatcher = nil
         logInfo("Watcher disabled because folder doesn't exist: \(currentWatchPath)")
+        notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location & reload config.")
     }
 }
 
