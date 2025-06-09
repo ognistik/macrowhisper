@@ -440,15 +440,24 @@ class SocketCommunication {
                     logInfo("No active insert")
                 }
                 
-            // In the SocketCommunication class, modify the reloadConfig case handler:
             case .reloadConfig:
                 logInfo("Processing command to reload configuration")
-                // Use the new fast reload method
-                if configMgr.reloadConfigForCommandLine() {
+                // Reload the configuration from disk
+                if let loadedConfig = configMgr.loadConfig() {
+                    configMgr.config = loadedConfig
+                    configMgr.configurationSuccessfullyLoaded() // Reset notification flag
+                    configMgr.onConfigChanged?()
+                    
+                    // Reset the file watcher to ensure it's working properly
+                    if let configManager = configMgr as? ConfigurationManager {
+                        configManager.resetFileWatcher()
+                    }
+                    
                     // Send success response
                     let response = "Configuration reloaded successfully"
                     write(clientSocket, response, response.utf8.count)
                     logInfo("Configuration reload successful")
+                    
                 } else {
                     // Send error response
                     let response = "Failed to reload configuration"
@@ -2803,9 +2812,6 @@ class ConfigurationManager {
         }
     }
     
-    // Add a flag to track if we're in a command-triggered operation
-    private var isProcessingCommand = false
-    
     private func setupFileWatcher() {
         // First, log the exact path we're watching
         logInfo("Setting up file watcher for configuration at: \(configFilePath)")
@@ -2817,16 +2823,8 @@ class ConfigurationManager {
         fileWatcher = FileChangeWatcher(
             filePath: configFilePath,
             onChanged: { [weak self] in
-                guard let self = self else { return }
-                
-                // Skip processing if this change was triggered by a command
-                if self.isProcessingCommand {
-                    logInfo("Skipping file change event during command processing")
-                    self.isProcessingCommand = false
-                    return
-                }
-                
                 logInfo("*** CONFIG FILE CHANGE DETECTED ***")
+                guard let self = self else { return }
                 
                 logInfo("Configuration file change detected, reloading...")
                 if let loadedConfig = self.loadConfig() {
@@ -2843,22 +2841,16 @@ class ConfigurationManager {
             }
         )
         
-        // Only do the heavy initialization if not processing a command
-        if !isProcessingCommand {
-            // Force an immediate metadata check to establish proper baseline
-            fileWatcher?.forceInitialMetadataCheck()
-            
-            // Force an immediate check to establish baseline
-            DispatchQueue.global(qos: .utility).async { [weak self] in
-                // Log this action
-                logInfo("Performing manual initial file check")
-                
-                // Force the watcher to check for changes
-                self?.fileWatcher?.checkForChangesNow()
-            }
+        // Force an immediate metadata check to establish proper baseline
+        fileWatcher?.forceInitialMetadataCheck()
+        
+        // Add a delay before allowing normal operation to ensure metadata is fully established
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            // Force a second check after the delay to ensure everything is synchronized
+            self?.fileWatcher?.checkForChangesNow()
+            logInfo("Initial file monitoring baseline established")
         }
     }
-    
     
     func loadConfig() -> AppConfiguration? {
         guard fileManager.fileExists(atPath: configFilePath) else {
@@ -2921,34 +2913,6 @@ class ConfigurationManager {
     func configurationSuccessfullyLoaded() {
         hasNotifiedAboutJsonError = false
     }
-    
-    func reloadConfigForCommandLine() -> Bool {
-        // Set the flag to indicate we're processing a command
-        isProcessingCommand = true
-        
-        let success = syncQueue.sync {
-            if let loadedConfig = loadConfig() {
-                config = loadedConfig
-                configurationSuccessfullyLoaded()
-                
-                // Call onConfigChanged directly
-                DispatchQueue.main.async {
-                    self.onConfigChanged?()
-                }
-                
-                return true
-            }
-            return false
-        }
-        
-        // Reset the flag after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.isProcessingCommand = false
-        }
-        
-        return success
-    }
-
 
     // Update configuration with command line arguments and save
     // Add this to the updateFromCommandLine method in ConfigurationManager
@@ -2964,8 +2928,6 @@ class ConfigurationManager {
         noEsc: Bool? = nil,
         simKeypress: Bool? = nil
     ) {
-        isProcessingCommand = true
-        
         syncQueue.sync {
             // First, reload the latest config from disk
             if let freshConfig = loadConfig() {
@@ -3003,16 +2965,8 @@ class ConfigurationManager {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
                 logInfo("Configuration updated from command line")
-                
-                // Call onConfigChanged directly instead of waiting for file watcher
-                self.onConfigChanged?()
             }
         }
-        // Reset the flag after a short delay to allow for any pending operations
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.isProcessingCommand = false
-        }
-
     }
 }
 
