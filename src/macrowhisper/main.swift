@@ -761,6 +761,8 @@ var disableNotifications: Bool = false
 var globalConfigManager: ConfigurationManager?
 var suppressConsoleLogging = false
 var autoReturnEnabled = false
+private var lastDetectedFrontApp: NSRunningApplication?
+
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -1471,6 +1473,99 @@ func checkWatcherAvailability() -> Bool {
     return exists
 }
 
+func requestAccessibilityPermission() -> Bool {
+    let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
+    return AXIsProcessTrustedWithOptions(options)
+}
+
+func isInInputField() -> Bool {
+
+    
+    // Get the frontmost application with a small delay to ensure accuracy
+    var frontApp: NSRunningApplication?
+    
+    // Use a semaphore to make this synchronous
+    let semaphore = DispatchSemaphore(value: 0)
+    
+    DispatchQueue.main.async {
+        // Get fresh reference to frontmost app
+        frontApp = NSWorkspace.shared.frontmostApplication
+        semaphore.signal()
+    }
+    
+    // Wait for the main thread to get the frontmost app
+    _ = semaphore.wait(timeout: .now() + 0.1)
+    
+    guard let app = frontApp else {
+        lastDetectedFrontApp = nil
+        return false
+    }
+    
+    // Log the detected app
+    logWarning("App it catches: \(app)")
+    
+    // Store reference to current app
+    lastDetectedFrontApp = app
+    
+    // Get the application's process ID and create accessibility element
+    let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    
+    // Get the focused UI element in the application
+    var focusedElement: AnyObject?
+    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    
+    if focusedError != .success || focusedElement == nil {
+        return false
+    }
+    
+    let axElement = focusedElement as! AXUIElement
+    
+    // Check role (fastest check)
+    var roleValue: AnyObject?
+    if AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &roleValue) == .success,
+       let role = roleValue as? String {
+        
+        // Definitive input field roles - quick return
+        let definiteInputRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
+        if definiteInputRoles.contains(role) {
+            return true
+        }
+    }
+    
+    // Check subrole
+    var subroleValue: AnyObject?
+    if AXUIElementCopyAttributeValue(axElement, kAXSubroleAttribute as CFString, &subroleValue) == .success,
+       let subrole = subroleValue as? String {
+        
+        let definiteInputSubroles = ["AXSearchField", "AXSecureTextField", "AXTextInput"]
+        if definiteInputSubroles.contains(subrole) {
+            return true
+        }
+    }
+    
+    // Check editable attribute
+    var editableValue: AnyObject?
+    if AXUIElementCopyAttributeValue(axElement, "AXEditable" as CFString, &editableValue) == .success,
+       let isEditable = editableValue as? Bool,
+       isEditable {
+        return true
+    }
+    
+    // Only check actions if we haven't determined it's an input field yet
+    var actionsRef: CFArray?
+    if AXUIElementCopyActionNames(axElement, &actionsRef) == .success,
+       let actions = actionsRef as? [String] {
+        
+        let inputActions = ["AXInsertText", "AXDelete"]
+        if actions.contains(where: inputActions.contains) {
+            return true
+        }
+    }
+    
+    return false
+}
+
+
 final class FileChangeWatcher {
     private let filePath: String
     private let onChanged: () -> Void
@@ -1843,10 +1938,26 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         }
     }
     
-    private func processAction(_ action: String, metaJson: [String: Any]) -> String {
+    private func processAction(_ action: String, metaJson: [String: Any]) -> (String, Bool) {
+        // Check if this is the special .autoPaste action
+        let isAutoPaste = action == ".autoPaste"
+        
         // If action is ".none", return empty string
         if action == ".none" {
-            return ""
+            return ("", false)
+        }
+        
+        // For .autoPaste, we'll use the swResult value directly
+        if isAutoPaste {
+            let swResult: String
+            if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                swResult = llm
+            } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                swResult = res
+            } else {
+                swResult = ""
+            }
+            return (swResult, true)
         }
         
         var result = action
@@ -1932,15 +2043,35 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         // Process newlines - convert literal "\n" to actual newlines
         result = result.replacingOccurrences(of: "\\n", with: "\n")
         
-        return result
+        return (result, false)
     }
 
 
-    private func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?) {
+    private func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
         // If text is empty or just whitespace, just simulate ESC key press and return
         if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
             simulateEscKeyPress(activeInsert: activeInsert)
             return
+        }
+        
+        // For .autoPaste, check if we're in an input field
+        if isAutoPaste {
+            // First ensure we have accessibility permissions
+            if !requestAccessibilityPermission() {
+                logWarning("Accessibility permission denied - cannot check for input field")
+                // Mark as processed but do nothing
+                return
+            }
+            
+            // Check if we're in an input field
+            if !isInInputField() {
+                logInfo("Auto paste skipped - not in an input field")
+                // Mark as processed but do nothing
+                return
+            }
+            
+            // If we are in an input field, continue with normal paste operation
+            logInfo("Auto paste - in input field, proceeding with paste")
         }
         
         // First, simulate ESC key press
@@ -2402,16 +2533,19 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                !activeInsertName.isEmpty {
                 // Find the active insert in the inserts array
                 if let insert = configManager.config.inserts.first(where: { $0.name == activeInsertName }) {
+                    // Check for .autoPaste special case
+                    let isAutoPaste = insert.action == ".autoPaste"
+                    
                     // Process the insert action with the meta.json values
-                    let processedAction = self.processAction(insert.action, metaJson: json)
+                    let (processedAction, isAutoPasteResult) = self.processAction(insert.action, metaJson: json)
                     
                     // Apply the insert (simulate ESC key press and paste the action)
-                    self.applyInsert(processedAction, activeInsert: insert)
+                    self.applyInsert(processedAction, activeInsert: insert, isAutoPaste: isAutoPaste || isAutoPasteResult)
                     
                     logInfo("Applied insert '\(activeInsertName)' with processed action")
                     // Handle moveTo setting after insert is applied
-                   self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent,
-                                                           activeInsert: insert)
+                    self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent,
+                                             activeInsert: insert)
                 } else {
                     logWarning("Active insert '\(activeInsertName)' not found in configuration")
                     // Even if insert not found, still handle default moveTo
