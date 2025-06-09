@@ -1502,7 +1502,7 @@ func isInInputField() -> Bool {
     }
     
     // Log the detected app
-    logWarning("App it catches: \(app)")
+    logInfo("Detected app: \(app)")
     
     // Store reference to current app
     lastDetectedFrontApp = app
