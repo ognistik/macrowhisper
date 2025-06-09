@@ -440,19 +440,15 @@ class SocketCommunication {
                     logInfo("No active insert")
                 }
                 
+            // In the SocketCommunication class, modify the reloadConfig case handler:
             case .reloadConfig:
                 logInfo("Processing command to reload configuration")
-                // Reload the configuration from disk
-                if let loadedConfig = configMgr.loadConfig() {
-                    configMgr.config = loadedConfig
-                    configMgr.configurationSuccessfullyLoaded() // Reset notification flag
-                    configMgr.onConfigChanged?()
-                    
+                // Use the new fast reload method
+                if configMgr.reloadConfigForCommandLine() {
                     // Send success response
                     let response = "Configuration reloaded successfully"
                     write(clientSocket, response, response.utf8.count)
                     logInfo("Configuration reload successful")
-                    
                 } else {
                     // Send error response
                     let response = "Failed to reload configuration"
@@ -1696,6 +1692,9 @@ final class FileChangeWatcher {
         self.directoryPath = (filePath as NSString).deletingLastPathComponent
         self.fileName = (filePath as NSString).lastPathComponent
         
+        // Create initial temp file before setting up watchers
+        createInitialTempFile()
+        
         // Initial check
         updateFileMetadata()
         
@@ -1709,10 +1708,34 @@ final class FileChangeWatcher {
         }
     }
     
+    func checkForChangesNow() {
+        logInfo("Manual check for changes to file: \(filePath)")
+        
+        // Check if file exists
+        if !FileManager.default.fileExists(atPath: filePath) {
+            logInfo("File doesn't exist during manual check: \(filePath)")
+            onMissing()
+            return
+        }
+        
+        // Force a file metadata update and comparison
+        if hasFileChanged() {
+            logInfo("Manual check detected file change: \(filePath)")
+            onChanged()
+            updateFileMetadata()
+        } else {
+            logInfo("Manual check: No changes detected in file: \(filePath)")
+        }
+    }
+    
     func forceInitialMetadataCheck() {
+        // Create a dispatch semaphore to ensure synchronization
+        let semaphore = DispatchSemaphore(value: 0)
+        
         queue.async {
             // Make sure file exists
             guard FileManager.default.fileExists(atPath: self.filePath) else {
+                semaphore.signal()
                 return
             }
             
@@ -1725,12 +1748,15 @@ final class FileChangeWatcher {
             // Check for changes immediately
             self.checkFile()
             
-            // Clean up temporary file
-            try? FileManager.default.removeItem(atPath: self.filePath + ".temp")
-            
             // Log this action
             logInfo("Established initial file metadata baseline for: \(self.filePath)")
+            
+            // Signal completion
+            semaphore.signal()
         }
+        
+        // Wait for the queue operations to complete (with timeout)
+        _ = semaphore.wait(timeout: .now() + 2.0)
     }
     
     private func setupDirectoryWatcher() {
@@ -1903,7 +1929,6 @@ final class FileChangeWatcher {
         let currentSize = attributes[.size] as? UInt64 ?? 0
         
         // If we haven't checked before, update metadata and return true
-        // This is critical for the file creation case
         if lastModificationDate == nil {
             lastModificationDate = currentModDate
             lastFileSize = currentSize
@@ -1913,6 +1938,11 @@ final class FileChangeWatcher {
         // Check if either modification date or size has changed
         let dateChanged = lastModificationDate != currentModDate
         let sizeChanged = lastFileSize != currentSize
+        
+        // Create a temporary snapshot before checking content
+        if dateChanged || sizeChanged {
+            createTemporaryContentSnapshot()
+        }
         
         // Only do expensive content check if necessary
         let contentChanged = if dateChanged || sizeChanged {
@@ -1944,7 +1974,15 @@ final class FileChangeWatcher {
         return dateChanged || sizeChanged || contentChanged
     }
 
-    // Add this helper method to FileChangeWatcher
+    func createInitialTempFile() {
+        // Only create if the main file exists but temp doesn't
+        if FileManager.default.fileExists(atPath: filePath) &&
+           !FileManager.default.fileExists(atPath: filePath + ".temp") {
+            try? FileManager.default.copyItem(atPath: filePath, toPath: filePath + ".temp")
+            logInfo("Created initial .temp file for comparison at: \(filePath + ".temp")")
+        }
+    }
+    
     private func createTemporaryContentSnapshot() {
         // Create a temporary copy of the file to compare against later
         if FileManager.default.fileExists(atPath: filePath) {
@@ -2748,9 +2786,79 @@ class ConfigurationManager {
         }
     }
     
-    private func setupFileWatcher() {
-        // Configuration changes will be handled via socket commands
+    func resetFileWatcher() {
+        logInfo("Resetting file watcher due to previous JSON error...")
+        
+        // Stop and clean up the current file watcher
+        fileWatcher = nil
+        
+        // Set up a new file watcher with a small delay to ensure clean state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            self.setupFileWatcher()
+            logInfo("File watcher has been reset and reinitialized")
+            
+            // Force an immediate check
+            self.fileWatcher?.checkForChangesNow()
+        }
     }
+    
+    // Add a flag to track if we're in a command-triggered operation
+    private var isProcessingCommand = false
+    
+    private func setupFileWatcher() {
+        // First, log the exact path we're watching
+        logInfo("Setting up file watcher for configuration at: \(configFilePath)")
+        
+        // Clean up any existing watcher
+        fileWatcher = nil
+        
+        // Create a file watcher with explicit logging
+        fileWatcher = FileChangeWatcher(
+            filePath: configFilePath,
+            onChanged: { [weak self] in
+                guard let self = self else { return }
+                
+                // Skip processing if this change was triggered by a command
+                if self.isProcessingCommand {
+                    logInfo("Skipping file change event during command processing")
+                    self.isProcessingCommand = false
+                    return
+                }
+                
+                logInfo("*** CONFIG FILE CHANGE DETECTED ***")
+                
+                logInfo("Configuration file change detected, reloading...")
+                if let loadedConfig = self.loadConfig() {
+                    self.config = loadedConfig
+                    self.configurationSuccessfullyLoaded()
+                    self.onConfigChanged?()
+                    logInfo("Configuration automatically reloaded after file change")
+                } else {
+                    logError("Failed to reload configuration after file change")
+                }
+            },
+            onMissing: { [weak self] in
+                logWarning("Configuration file was deleted or moved")
+            }
+        )
+        
+        // Only do the heavy initialization if not processing a command
+        if !isProcessingCommand {
+            // Force an immediate metadata check to establish proper baseline
+            fileWatcher?.forceInitialMetadataCheck()
+            
+            // Force an immediate check to establish baseline
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                // Log this action
+                logInfo("Performing manual initial file check")
+                
+                // Force the watcher to check for changes
+                self?.fileWatcher?.checkForChangesNow()
+            }
+        }
+    }
+    
     
     func loadConfig() -> AppConfiguration? {
         guard fileManager.fileExists(atPath: configFilePath) else {
@@ -2762,7 +2870,12 @@ class ConfigurationManager {
             let url = URL(fileURLWithPath: configFilePath)
             let data = try Data(contentsOf: url, options: .uncached)
             let decoder = JSONDecoder()
-            return try decoder.decode(AppConfiguration.self, from: data)
+            let config = try decoder.decode(AppConfiguration.self, from: data)
+            
+            // JSON loaded successfully, reset notification flag
+            hasNotifiedAboutJsonError = false
+            
+            return config
         } catch {
             // Log the error
             logError("Error loading configuration: \(error.localizedDescription)")
@@ -2773,7 +2886,10 @@ class ConfigurationManager {
                 
                 // Show a single comprehensive notification
                 notify(title: "Macrowhisper - Configuration Error",
-                       message: "Your configuration file contains invalid JSON. The application is running with default settings. Please fix the file at \(self.configFilePath) and run 'macrowhisper' to reload.")
+                       message: "Your configuration file contains invalid JSON. The application is running with default settings.")
+                
+                // Reset the file watcher to recover from JSON error
+                resetFileWatcher()
             }
             
             return nil
@@ -2805,6 +2921,34 @@ class ConfigurationManager {
     func configurationSuccessfullyLoaded() {
         hasNotifiedAboutJsonError = false
     }
+    
+    func reloadConfigForCommandLine() -> Bool {
+        // Set the flag to indicate we're processing a command
+        isProcessingCommand = true
+        
+        let success = syncQueue.sync {
+            if let loadedConfig = loadConfig() {
+                config = loadedConfig
+                configurationSuccessfullyLoaded()
+                
+                // Call onConfigChanged directly
+                DispatchQueue.main.async {
+                    self.onConfigChanged?()
+                }
+                
+                return true
+            }
+            return false
+        }
+        
+        // Reset the flag after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.isProcessingCommand = false
+        }
+        
+        return success
+    }
+
 
     // Update configuration with command line arguments and save
     // Add this to the updateFromCommandLine method in ConfigurationManager
@@ -2820,6 +2964,8 @@ class ConfigurationManager {
         noEsc: Bool? = nil,
         simKeypress: Bool? = nil
     ) {
+        isProcessingCommand = true
+        
         syncQueue.sync {
             // First, reload the latest config from disk
             if let freshConfig = loadConfig() {
@@ -2857,8 +3003,16 @@ class ConfigurationManager {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .init("ConfigurationUpdated"), object: nil)
                 logInfo("Configuration updated from command line")
+                
+                // Call onConfigChanged directly instead of waiting for file watcher
+                self.onConfigChanged?()
             }
         }
+        // Reset the flag after a short delay to allow for any pending operations
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.isProcessingCommand = false
+        }
+
     }
 }
 
