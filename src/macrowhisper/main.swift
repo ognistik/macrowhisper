@@ -446,51 +446,15 @@ class SocketCommunication {
                 if let loadedConfig = configMgr.loadConfig() {
                     configMgr.config = loadedConfig
                     configMgr.configurationSuccessfullyLoaded() // Reset notification flag
+                    configMgr.onConfigChanged?()
                     
-                    // After loading config, check if the watch paths exist
-                    let watchPath = configMgr.config.defaults.watch
-                    let recordingsPath = "\(watchPath)/recordings"
+                    // Send success response
+                    let response = "Configuration reloaded successfully"
+                    write(clientSocket, response, response.utf8.count)
+                    logInfo("Configuration reload successful")
                     
-                    // Check if both paths exist
-                    let watchPathExists = FileManager.default.fileExists(atPath: watchPath)
-                    let recordingsPathExists = FileManager.default.fileExists(atPath: recordingsPath)
-                    
-                    if !watchPathExists {
-                        // Superwhisper folder missing
-                        let response = "Configuration reloaded but Superwhisper folder not found at: \(watchPath)"
-                        write(clientSocket, response, response.utf8.count)
-                        logWarning(response)
-                        
-                        // Notify the user
-                        notify(title: "Macrowhisper", message: "Configuration reloaded but Superwhisper folder not found. Please check the location.")
-                        
-                        // Disable watcher
-                        configMgr.updateFromCommandLine(watcher: false)
-                    }
-                    else if !recordingsPathExists {
-                        // Recordings folder missing
-                        let response = "Configuration reloaded but recordings folder not found. Check the location & reload config."
-                        write(clientSocket, response, response.utf8.count)
-                        logWarning(response)
-                        
-                        // Notify the user
-                        notify(title: "Macrowhisper", message: "Configuration reloaded but recordings folder not found. Check the location & reload config.")
-                        
-                        // Disable watcher
-                        configMgr.updateFromCommandLine(watcher: false)
-                    }
-                    else {
-                        // Both folders exist, try to initialize watcher
-                        configMgr.onConfigChanged?()
-                        
-                        // Send success response
-                        let response = "Configuration reloaded successfully"
-                        write(clientSocket, response, response.utf8.count)
-                        logInfo("Configuration reload successful")
-                        
-                        // Notify the user
-                        notify(title: "Macrowhisper", message: "Configuration reloaded successfully")
-                    }
+                    // Notify the user
+                    notify(title: "Macrowhisper", message: "Configuration reloaded successfully")
                 } else {
                     // Send error response
                     let response = "Failed to reload configuration"
@@ -1319,13 +1283,12 @@ func startSocketHealthMonitor() {
     RunLoop.main.add(timer, forMode: .common)
 }
 
-// Modify the initializeWatcher function around line 2170
 func initializeWatcher(_ path: String) {
     let recordingsPath = "\(path)/recordings"
     
     if !FileManager.default.fileExists(atPath: recordingsPath) {
         logWarning("Recordings folder not found at \(recordingsPath)")
-        notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location and reload configuration when fixed.")
+        notify(title: "Macrowhisper", message: "Recordings folder not found")
         
         // Update config to disable watcher
         configManager.updateFromCommandLine(watcher: false)
@@ -1335,7 +1298,7 @@ func initializeWatcher(_ path: String) {
     recordingsWatcher = RecordingsFolderWatcher(basePath: path)
     if recordingsWatcher == nil {
         logWarning("Failed to initialize recordings folder watcher")
-        notify(title: "Macrowhisper", message: "Failed to initialize watcher. Please check folder locations and reload configuration when fixed.")
+        notify(title: "Macrowhisper", message: "Failed to initialize watcher")
         
         // Update config to disable watcher
         configManager.updateFromCommandLine(watcher: false)
@@ -2032,36 +1995,30 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         self.basePath = basePath
         self.recordingsPath = basePath + "/recordings"
         
-        // Check if base path exists
-        if !FileManager.default.fileExists(atPath: basePath) {
-            logWarning("Warning: Superwhisper folder not found at \(basePath)")
-            notify(title: "Macrowhisper", message: "Superwhisper folder not found. Please check the location and reload configuration when fixed.")
-            return nil
-        }
-        
-        // Check if recordings folder exists
-        if !FileManager.default.fileExists(atPath: recordingsPath) {
-            logWarning("Warning: Recordings folder not found at \(recordingsPath)")
-            notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location and reload configuration when fixed.")
-            return nil
-        }
-        
-        // Set up watcher for the base path (but don't schedule checks if missing)
+        // Set up watcher for the base path to detect if recordings folder is deleted/renamed
         self.basePathWatcher = FileChangeWatcher(
             filePath: basePath,
             onChanged: { [weak self] in
-                // Only respond to changes, not missing folders
-                if let self = self, FileManager.default.fileExists(atPath: self.recordingsPath) {
-                    // Process changes normally
+                if let self = self, !self.checkRecordingsFolder() {
+                    // Folder doesn't exist, schedule a check for its return
+                    self.scheduleRecordingsFolderCheck()
                 }
             },
             onMissing: { [weak self] in
-                // Just log the issue once, don't schedule checks
                 logWarning("Warning: Base superwhisper folder was deleted or replaced!")
-                notify(title: "Macrowhisper", message: "Base superwhisper folder was deleted or replaced. Please reload configuration when fixed.")
+                notify(title: "Macrowhisper", message: "Base superwhisper folder was deleted or replaced!")
                 self?.stopWatchingRecordingsFolder()
+                self?.scheduleRecordingsFolderCheck()
             }
         )
+        
+        // Initial check for recordings folder
+        if !checkRecordingsFolder() {
+            logError("Error: recordings folder not found at \(recordingsPath)")
+            notify(title: "Macrowhisper", message: "Error: recordings folder not found at \(recordingsPath)")
+            scheduleRecordingsFolderCheck()
+            return nil
+        }
         
         // Mark current newest folder as "already processed"
         if let newestFolder = findNewestFolder() {
@@ -2336,11 +2293,27 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     
     private func checkRecordingsFolder() -> Bool {
         if !FileManager.default.fileExists(atPath: recordingsPath) {
-            logWarning("Warning: recordings folder not found at \(recordingsPath)")
-            // Don't schedule automatic checks - user must reload manually
+            logWarning("Warning: recordings folder not found at \(recordingsPath). Waiting for it to be restored.")
+            notify(title: "Macrowhisper", message: "Warning: recordings folder not found. Waiting for it to be restored.")
+            stopWatchingRecordingsFolder()
             return false
         }
         return true
+    }
+    
+    private func scheduleRecordingsFolderCheck() {
+        let timer = DispatchSource.makeTimerSource(queue: fileDescriptorQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1) // Check every 1 second
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            if self.checkRecordingsFolder() {
+                logInfo("recordings folder has been restored. Resuming watching.")
+                notify(title: "Macrowhisper", message: "recordings folder has been restored. Resuming watching.")
+                timer.cancel()
+                self.startWatchingRecordingsFolder()
+            }
+        }
+        timer.resume()
     }
     
     private func stopWatchingRecordingsFolder() {
@@ -2367,6 +2340,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             self.recordingsFolderDescriptor = open(self.recordingsPath, O_EVTONLY)
             if self.recordingsFolderDescriptor < 0 {
                 logError("Error: Unable to open file descriptor for recordings folder")
+                self.scheduleRecordingsFolderCheck()
                 return
             }
             
@@ -2382,8 +2356,9 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 // Check if recordings folder still exists
                 if !FileManager.default.fileExists(atPath: self.recordingsPath) {
                     logWarning("Warning: recordings folder was deleted or replaced!")
-                    notify(title: "Macrowhisper", message: "Warning: recordings folder was deleted or replaced! Reload config to fix.")
+                    notify(title: "Macrowhisper", message: "Warning: recordings folder was deleted or replaced!")
                     self.stopWatchingRecordingsFolder()
+                    self.scheduleRecordingsFolderCheck()
                     return
                 }
                 
