@@ -1288,7 +1288,7 @@ func initializeWatcher(_ path: String) {
     
     if !FileManager.default.fileExists(atPath: recordingsPath) {
         logWarning("Recordings folder not found at \(recordingsPath)")
-        notify(title: "Macrowhisper", message: "Recordings folder not found")
+        notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location and reload configuration when fixed.")
         
         // Update config to disable watcher
         configManager.updateFromCommandLine(watcher: false)
@@ -1306,6 +1306,7 @@ func initializeWatcher(_ path: String) {
         logInfo("Watching recordings folder at \(recordingsPath)")
     }
 }
+
 
 func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: SocketCommunication) -> Bool {
     // Try to create and lock the file
@@ -2302,18 +2303,11 @@ class RecordingsFolderWatcher: @unchecked Sendable {
     }
     
     private func scheduleRecordingsFolderCheck() {
-        let timer = DispatchSource.makeTimerSource(queue: fileDescriptorQueue)
-        timer.schedule(deadline: .now() + 1, repeating: 1) // Check every 1 second
-        timer.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            if self.checkRecordingsFolder() {
-                logInfo("recordings folder has been restored. Resuming watching.")
-                notify(title: "Macrowhisper", message: "recordings folder has been restored. Resuming watching.")
-                timer.cancel()
-                self.startWatchingRecordingsFolder()
-            }
-        }
-        timer.resume()
+        // Notify the user once about the missing folder
+        logWarning("Warning: recordings folder not found. Please check the location and reload configuration when fixed.")
+        notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location and reload configuration when fixed.")
+        
+        // No timer or further checks - watcher remains disabled until user manually reloads config
     }
     
     private func stopWatchingRecordingsFolder() {
@@ -3274,19 +3268,16 @@ configManager.onConfigChanged = {
     // Check if watcher should be running
     let currentWatchPath = configManager.config.defaults.watch
 
-    // Always run the watcher if the folder exists
+    // Always check if the folder exists and initialize/reinitialize watcher as needed
     if FileManager.default.fileExists(atPath: currentWatchPath) {
-        if recordingsWatcher == nil || currentWatchPath != watchFolderPath {
-            // Start or restart the watcher with the new path
-            recordingsWatcher = nil
-            initializeWatcher(currentWatchPath)
-        }
+        // Folder exists - initialize or reinitialize watcher
+        recordingsWatcher = nil  // Force clean reinitialize
+        initializeWatcher(currentWatchPath)
+        logInfo("Watcher initialized/reinitialized for folder: \(currentWatchPath)")
     } else {
-        // Stop the watcher if the folder doesn't exist
-        if recordingsWatcher != nil {
-            recordingsWatcher = nil
-            logInfo("Watcher stopped because folder doesn't exist: \(currentWatchPath)")
-        }
+        // Folder doesn't exist - disable watcher
+        recordingsWatcher = nil
+        logInfo("Watcher disabled because folder doesn't exist: \(currentWatchPath)")
     }
 }
 
