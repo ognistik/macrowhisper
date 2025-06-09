@@ -68,8 +68,18 @@ class SocketCommunication {
     func startServer(configManager: ConfigurationManager) {
         // Store a strong reference to configManager
         self.configManagerRef = configManager
+        
+        // First make sure socket directory exists
+        let socketDir = (socketPath as NSString).deletingLastPathComponent
+        if !FileManager.default.fileExists(atPath: socketDir) {
+            do {
+                try FileManager.default.createDirectory(atPath: socketDir, withIntermediateDirectories: true, attributes: nil)
+            } catch {
+                logError("Failed to create socket directory: \(error)")
+            }
+        }
+        
         // First, make sure any existing socket file is removed
-        // Only remove the socket file when we're actually starting the server
         if FileManager.default.fileExists(atPath: socketPath) {
             do {
                 try FileManager.default.removeItem(atPath: socketPath)
@@ -167,6 +177,15 @@ class SocketCommunication {
     
     private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
         let safeConfigManager = self.configManagerRef ?? configManager ?? globalConfigManager
+
+        // Check if socket is valid
+        var error = 0
+        var len = socklen_t(MemoryLayout<Int>.size)
+        if getsockopt(clientSocket, SOL_SOCKET, SO_ERROR, &error, &len) != 0 || error != 0 {
+            logError("Socket error detected in handleConnection: \(error)")
+            close(clientSocket)
+            return
+        }
 
         guard let configMgr = safeConfigManager else {
             logError("CRITICAL ERROR: No valid configuration manager available")
@@ -1191,6 +1210,79 @@ struct AppConfiguration: Codable {
 
 // MARK: - Helpers
 
+func checkSocketHealth() -> Bool {
+    // Try to send a simple status command to yourself
+    return socketCommunication.sendCommand(.status) != nil
+}
+
+func recoverSocket() {
+    logInfo("Attempting to recover socket connection...")
+    
+    // Cancel and close existing socket
+    socketCommunication.stopServer()
+    
+    // Remove socket file
+    if FileManager.default.fileExists(atPath: socketPath) {
+        do {
+            try FileManager.default.removeItem(atPath: socketPath)
+            logInfo("Removed existing socket file during recovery")
+        } catch {
+            logError("Failed to remove socket file during recovery: \(error)")
+        }
+    }
+    
+    // Recreate socket
+    ensureSocketDirectoryExists()
+    
+    // Safely unwrap the globalConfigManager
+    if let configManager = globalConfigManager {
+        socketCommunication.startServer(configManager: configManager)
+        logInfo("Socket server restarted after recovery attempt")
+    } else {
+        logError("Failed to restart socket server: globalConfigManager is nil")
+        
+        // Try to create a new configuration manager as fallback
+        let fallbackConfigManager = ConfigurationManager()
+        socketCommunication.startServer(configManager: fallbackConfigManager)
+        globalConfigManager = fallbackConfigManager
+        logInfo("Socket server restarted with fallback configuration manager")
+    }
+}
+
+func registerForSleepWakeNotifications() {
+    logInfo("Registering for sleep/wake notifications")
+    
+    NSWorkspace.shared.notificationCenter.addObserver(
+        forName: NSWorkspace.didWakeNotification,
+        object: nil,
+        queue: .main
+    ) { _ in
+        logInfo("System woke from sleep, checking socket health")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if !checkSocketHealth() {
+                logWarning("Socket unhealthy after wake, recovering")
+                recoverSocket()
+            } else {
+                logInfo("Socket is healthy after wake")
+            }
+        }
+    }
+}
+
+func startSocketHealthMonitor() {
+    logInfo("Starting periodic socket health monitor")
+    
+    let timer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { _ in
+        logInfo("Performing periodic socket health check")
+        if !checkSocketHealth() {
+            logWarning("Socket appears to be unhealthy, attempting recovery")
+            recoverSocket()
+        }
+    }
+    timer.tolerance = 10.0 // Allow some flexibility in timing
+    RunLoop.main.add(timer, forMode: .common)
+}
+
 func initializeWatcher(_ path: String) {
     let recordingsPath = "\(path)/recordings"
     
@@ -1434,7 +1526,22 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
 let lockPath = "/tmp/macrowhisper.lock"
 
 // Initialize socket communication
-let socketPath = "/private/tmp/macrowhisper.sock"  // Use /private/tmp instead of /tmp
+let configDir = ("~/.config/macrowhisper" as NSString).expandingTildeInPath
+let socketPath = "\(configDir)/macrowhisper.sock"
+
+// Make sure socket directory exists
+func ensureSocketDirectoryExists() {
+    if !FileManager.default.fileExists(atPath: configDir) {
+        do {
+            try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+            logInfo("Created socket directory at \(configDir)")
+        } catch {
+            logError("Failed to create socket directory: \(error)")
+        }
+    }
+}
+ensureSocketDirectoryExists()
+
 let socketCommunication = SocketCommunication(socketPath: socketPath)
 
 if !acquireSingleInstanceLock(lockFilePath: lockPath, socketCommunication: socketCommunication) {
@@ -3183,8 +3290,14 @@ configManager.onConfigChanged = {
     }
 }
 
+
 // Initialize version checker
 let versionChecker = VersionChecker()
+
+registerForSleepWakeNotifications()
+startSocketHealthMonitor()
+// Log that we're ready
+logInfo("Macrowhisper initialized and ready")
 
 // Keep the main thread running
 RunLoop.main.run()
