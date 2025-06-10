@@ -741,6 +741,7 @@ var globalConfigManager: ConfigurationManager?
 var suppressConsoleLogging = false
 var autoReturnEnabled = false
 private var lastDetectedFrontApp: NSRunningApplication?
+var actionDelayValue: Double? = nil
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -1132,6 +1133,7 @@ struct AppConfiguration: Codable {
         var moveTo: String?
         var noEsc: Bool
         var simKeypress: Bool
+        var actionDelay: Double
         
         static func defaultValues() -> Defaults {
             return Defaults(
@@ -1142,7 +1144,8 @@ struct AppConfiguration: Codable {
                 icon: "",
                 moveTo: "",
                 noEsc: false,
-                simKeypress: false
+                simKeypress: false,
+                actionDelay: 0.0
             )
         }
     }
@@ -1154,6 +1157,22 @@ struct AppConfiguration: Codable {
         var moveTo: String?
         var noEsc: Bool?
         var simKeypress: Bool?
+        
+        // Define coding keys
+        enum CodingKeys: String, CodingKey {
+            case name, action, icon, moveTo, noEsc, simKeypress
+        }
+        
+        // Custom encoding to preserve null values
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(name, forKey: .name)
+            try container.encode(action, forKey: .action)
+            try container.encode(icon, forKey: .icon) // Using encode instead of encodeIfPresent
+            try container.encode(moveTo, forKey: .moveTo) // This will encode nil as null
+            try container.encode(noEsc, forKey: .noEsc)
+            try container.encode(simKeypress, forKey: .simKeypress)
+        }
     }
     
     var defaults: Defaults
@@ -1317,7 +1336,7 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
            args.contains("--insert") || args.contains("--auto-return") ||
            args.contains("--list-inserts") || args.contains("--icon") ||
            args.contains("--move-to") || args.contains("--no-esc") ||
-           args.contains("--sim-keypress") {
+           args.contains("--sim-keypress") || args.contains("--action-delay") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1393,6 +1412,13 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     arguments["icon"] = args[index + 1]
                 } else {
                     arguments["icon"] = ""
+                }
+            }
+            
+            if args.contains("--action-delay") {
+                let actionDelayIndex = args.firstIndex(where: { $0 == "--action-delay" })
+                if let index = actionDelayIndex, index + 1 < args.count {
+                    arguments["actionDelay"] = args[index + 1]
                 }
             }
             
@@ -2163,6 +2189,15 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             return
         }
         
+        // Get the delay value from configuration
+        let delay = configManager.config.defaults.actionDelay
+        
+        // Apply delay if it's greater than 0
+        if delay > 0 {
+            logInfo("Applying configured delay of \(delay) seconds before action")
+            Thread.sleep(forTimeInterval: delay)
+        }
+        
         // For .autoPaste, check if we're in an input field
         if isAutoPaste {
             // First ensure we have accessibility permissions
@@ -2846,6 +2881,9 @@ class ConfigurationManager {
                 if let simKeypress = simKeypress {
                     self.config.defaults.simKeypress = simKeypress
                 }
+                if let actionDelayStr = args["actionDelay"], let actionDelay = Double(actionDelayStr) {
+                    self.config.defaults.actionDelay = actionDelay
+                }
                 
                 // Save the configuration
                 self.saveConfig()
@@ -2970,6 +3008,10 @@ class ConfigurationManager {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
+            
+            // Don't encode null values as nil - this will keep them as explicit nulls in the JSON
+            encoder.nonConformingFloatEncodingStrategy = .convertToString(positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")
+            
             let data = try encoder.encode(config)
             try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
             
@@ -2996,7 +3038,8 @@ class ConfigurationManager {
         icon: String? = nil,
         moveTo: String? = nil,
         noEsc: Bool? = nil,
-        simKeypress: Bool? = nil
+        simKeypress: Bool? = nil,
+        actionDelay: Double? = nil
     ) {
         // Convert parameters to arguments dictionary
         var arguments: [String: String] = [:]
@@ -3030,6 +3073,9 @@ class ConfigurationManager {
         }
         if let simKeypress = simKeypress {
             arguments["simKeypress"] = simKeypress ? "true" : "false"
+        }
+        if let actionDelay = actionDelay {
+                arguments["actionDelay"] = String(actionDelay)
         }
         
         // Use the async version
@@ -3070,6 +3116,7 @@ func printHelp() {
           --no-updates true/false   Enable or disable automatic update checking
           --no-noti true/false      Enable or disable all notifications
           --no-esc true/false       Disable all ESC key simulations when set to true
+          --action-delay <seconds>  Set delay in seconds before actions are executed
           --insert <name>           Set the active insert (use empty string to disable)
           --sim-keypress true/false Simulate key presses for text input
                                     (note: linebreaks are treated as return presses)
@@ -3254,6 +3301,19 @@ while i < args.count {
         let value = args[i + 1].lowercased()
         simKeypressFlag = value == "true" || value == "yes" || value == "1"
         i += 2
+    case "--action-delay":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        if let delayValue = Double(args[i + 1]) {
+            // Store the delay value in our top-level variable
+            actionDelayValue = delayValue
+        } else {
+            logError("Invalid delay value: \(args[i + 1]). Must be a number in seconds.")
+            exit(1)
+        }
+        i += 2
     case "-h", "--help":
         printHelp()
         exit(0)
@@ -3352,6 +3412,11 @@ while i < args.count {
 // Initialize configuration manager with the specified path
 configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
+
+// Apply any stored action delay value if it was set in command line arguments
+if let delayValue = actionDelayValue {
+    configManager.updateFromCommandLine(actionDelay: delayValue)
+}
 
 // Read values from config first
 let config = configManager.config
