@@ -447,11 +447,7 @@ class SocketCommunication {
                     configMgr.config = loadedConfig
                     configMgr.configurationSuccessfullyLoaded() // Reset notification flag
                     configMgr.onConfigChanged?()
-                    
-                    // Reset the file watcher to ensure it's working properly
-                    if let configManager = configMgr as? ConfigurationManager {
-                        configManager.resetFileWatcher()
-                    }
+                    configMgr.resetFileWatcher()
                     
                     // Send success response
                     let response = "Configuration reloaded successfully"
@@ -2177,14 +2173,25 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             }
             
             // Check if we're in an input field
-            if !isInInputField() {
-                logInfo("Auto paste skipped - not in an input field")
-                // Mark as processed but do nothing
-                return
+            let inInputField = isInInputField()
+            
+            if !inInputField {
+                logInfo("Auto paste - not in an input field, proceeding with direct paste only")
+                
+                // MODIFIED BEHAVIOR: For non-input fields, paste directly without ESC, key simulation or clipboard restore
+                let pasteboard = NSPasteboard.general
+                
+                pasteboard.clearContents()
+                pasteboard.setString(text, forType: .string)
+                
+                // Paste using accessibility APIs without restoring clipboard
+                simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
+                
+                return // Exit early - don't proceed with normal flow
             }
             
             // If we are in an input field, continue with normal paste operation
-            logInfo("Auto paste - in input field, proceeding with paste")
+            logInfo("Auto paste - in input field, proceeding with standard paste")
         }
         
         // First, simulate ESC key press
@@ -2796,16 +2803,12 @@ class ConfigurationManager {
             let moveTo = args["moveTo"]
             
             // Parse boolean values from strings
-            let serverStr = args["server"]
-            let watcherStr = args["watcher"]
             let noUpdatesStr = args["noUpdates"]
             let noNotiStr = args["noNoti"]
             let noEscStr = args["noEsc"]
             let simKeypressStr = args["simKeypress"]
             
             // Convert string values to boolean values
-            let server = serverStr == "true" ? true : (serverStr == "false" ? false : nil)
-            let watcher = watcherStr == "true" ? true : (watcherStr == "false" ? false : nil)
             let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
             let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
             let noEsc = noEscStr == "true" ? true : (noEscStr == "false" ? false : nil)
@@ -2903,8 +2906,7 @@ class ConfigurationManager {
                     logError("Failed to reload configuration after file change")
                 }
             },
-            onMissing: { [weak self] in
-                guard let self = self else { return }
+            onMissing: {
                 logWarning("Configuration file was deleted or moved")
             }
         )
