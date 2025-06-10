@@ -1096,6 +1096,7 @@ var autoReturnEnabled = false
 private var lastDetectedFrontApp: NSRunningApplication?
 var actionDelayValue: Double? = nil
 var socketHealthTimer: Timer?
+var historyManager: HistoryManager?
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -1488,6 +1489,27 @@ struct AppConfiguration: Codable {
         var noEsc: Bool
         var simKeypress: Bool
         var actionDelay: Double
+        var history: Int?
+        
+        // Add these coding keys and custom encoding
+        enum CodingKeys: String, CodingKey {
+            case watch, noUpdates, noNoti, activeInsert, icon, moveTo, noEsc, simKeypress, actionDelay, history
+        }
+        
+        // Custom encoding to preserve null values
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(watch, forKey: .watch)
+            try container.encode(noUpdates, forKey: .noUpdates)
+            try container.encode(noNoti, forKey: .noNoti)
+            try container.encode(activeInsert, forKey: .activeInsert)
+            try container.encode(icon, forKey: .icon)
+            try container.encode(moveTo, forKey: .moveTo)
+            try container.encode(noEsc, forKey: .noEsc)
+            try container.encode(simKeypress, forKey: .simKeypress)
+            try container.encode(actionDelay, forKey: .actionDelay)
+            try container.encode(history, forKey: .history) // This will encode nil as null
+        }
         
         static func defaultValues() -> Defaults {
             return Defaults(
@@ -1499,7 +1521,8 @@ struct AppConfiguration: Codable {
                 moveTo: "",
                 noEsc: false,
                 simKeypress: false,
-                actionDelay: 0.0
+                actionDelay: 0.0,
+                history: nil
             )
         }
     }
@@ -1763,7 +1786,8 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
            args.contains("--no-updates") || args.contains("--no-noti") ||
            args.contains("--insert") || args.contains("--icon") ||
            args.contains("--move-to") || args.contains("--no-esc") ||
-           args.contains("--sim-keypress") || args.contains("--action-delay") {
+           args.contains("--sim-keypress") || args.contains("--action-delay") ||
+           args.contains("--history") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1837,6 +1861,20 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 let actionDelayIndex = args.firstIndex(where: { $0 == "--action-delay" })
                 if let index = actionDelayIndex, index + 1 < args.count {
                     arguments["actionDelay"] = args[index + 1]
+                }
+            }
+            
+            if args.contains("--history") {
+                let historyIndex = args.firstIndex(where: { $0 == "--history" })
+                if let index = historyIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    let historyArg = args[index + 1]
+                    if historyArg.lowercased() == "null" {
+                        arguments["history"] = "null"
+                    } else {
+                        arguments["history"] = historyArg
+                    }
+                } else {
+                    arguments["history"] = "null"
                 }
             }
             
@@ -3107,6 +3145,9 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 // Cancel file watcher since we're done with this file
                 self.cancelFileWatcher()
                 
+                // Perform history cleanup if needed
+                historyManager?.performHistoryCleanup()
+                
                 // Add a delay before checking for updates
                 DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 25) {
                     // Check for updates after delay
@@ -3276,6 +3317,13 @@ class ConfigurationManager {
                 if let actionDelayStr = args["actionDelay"], let actionDelay = Double(actionDelayStr) {
                     self.config.defaults.actionDelay = actionDelay
                 }
+                if let historyStr = args["history"] {
+                    if historyStr == "null" || historyStr.isEmpty {
+                        self.config.defaults.history = nil
+                    } else if let history = Int(historyStr) {
+                        self.config.defaults.history = history
+                    }
+                }
                 
                 // Save the configuration
                 self.saveConfig()
@@ -3431,7 +3479,8 @@ class ConfigurationManager {
         moveTo: String? = nil,
         noEsc: Bool? = nil,
         simKeypress: Bool? = nil,
-        actionDelay: Double? = nil
+        actionDelay: Double? = nil,
+        history: Int? = nil
     ) {
         // Convert parameters to arguments dictionary
         var arguments: [String: String] = [:]
@@ -3467,11 +3516,129 @@ class ConfigurationManager {
             arguments["simKeypress"] = simKeypress ? "true" : "false"
         }
         if let actionDelay = actionDelay {
-                arguments["actionDelay"] = String(actionDelay)
+            arguments["actionDelay"] = String(actionDelay)
+        }
+        if let history = history {
+            arguments["history"] = String(history)
         }
         
         // Use the async version
         updateFromCommandLineAsync(arguments: arguments)
+    }
+}
+
+// MARK: - History Manager
+
+class HistoryManager {
+    private let configManager: ConfigurationManager
+    private var lastHistoryCheck: Date?
+    private let historyCheckInterval: TimeInterval = 24 * 60 * 60 // 24 hours
+    
+    init(configManager: ConfigurationManager) {
+        self.configManager = configManager
+    }
+    
+    func shouldPerformHistoryCleanup() -> Bool {
+        // Check if history management is enabled
+        guard configManager.config.defaults.history != nil else {
+            return false // History management disabled
+        }
+        
+        // Check if we've done this recently (within 24 hours)
+        if let lastCheck = lastHistoryCheck,
+           Date().timeIntervalSince(lastCheck) < historyCheckInterval {
+            return false
+        }
+        
+        return true
+    }
+    
+    func performHistoryCleanup() {
+        guard shouldPerformHistoryCleanup(),
+              let historyDays = configManager.config.defaults.history else {
+            return
+        }
+        
+        logInfo("Starting history cleanup with \(historyDays) days retention")
+        
+        let recordingsPath = configManager.config.defaults.watch + "/recordings"
+        
+        // Check if recordings folder exists
+        guard FileManager.default.fileExists(atPath: recordingsPath) else {
+            logWarning("Recordings folder not found for history cleanup: \(recordingsPath)")
+            return
+        }
+        
+        do {
+            // Get all subdirectories in recordings folder
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: URL(fileURLWithPath: recordingsPath),
+                includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey],
+                options: .skipsHiddenFiles
+            )
+            
+            // Filter for directories only
+            let directories = contents.filter {
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            }
+            
+            // Sort by creation date (newest first)
+            let sortedDirectories = directories.sorted { dir1, dir2 in
+                let date1 = try? dir1.resourceValues(forKeys: [.creationDateKey]).creationDate
+                let date2 = try? dir2.resourceValues(forKeys: [.creationDateKey]).creationDate
+                return (date1 ?? Date.distantPast) > (date2 ?? Date.distantPast)
+            }
+            
+            // If historyDays is 0, delete all except the most recent
+            if historyDays == 0 {
+                let foldersToDelete = Array(sortedDirectories.dropFirst(1)) // Keep only the first (newest)
+                deleteFolders(foldersToDelete)
+                logInfo("History cleanup (0 days): Deleted \(foldersToDelete.count) folders, kept 1 most recent")
+            } else {
+                // Delete folders older than historyDays
+                let cutoffDate = Calendar.current.date(byAdding: .day, value: -historyDays, to: Date()) ?? Date()
+                
+                let foldersToDelete = sortedDirectories.filter { directory in
+                    if let creationDate = try? directory.resourceValues(forKeys: [.creationDateKey]).creationDate {
+                        return creationDate < cutoffDate
+                    }
+                    return false
+                }
+                
+                deleteFolders(foldersToDelete)
+                logInfo("History cleanup (\(historyDays) days): Deleted \(foldersToDelete.count) folders older than \(cutoffDate)")
+            }
+            
+            // Update last check time
+            lastHistoryCheck = Date()
+            
+        } catch {
+            logError("Failed to perform history cleanup: \(error.localizedDescription)")
+        }
+    }
+    
+    private func deleteFolders(_ folders: [URL]) {
+        var deletedCount = 0
+        var failedCount = 0
+        
+        for folder in folders {
+            do {
+                try FileManager.default.removeItem(at: folder)
+                deletedCount += 1
+                // Remove this line: logInfo("Deleted folder: \(folder.lastPathComponent)")
+            } catch {
+                failedCount += 1
+                logError("Failed to delete folder \(folder.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        
+        // Add a single summary log entry
+        if deletedCount > 0 {
+            logInfo("Successfully deleted \(deletedCount) folders")
+        }
+        if failedCount > 0 {
+            logInfo("Failed to delete \(failedCount) folders")
+        }
     }
 }
 
@@ -3510,6 +3677,8 @@ func printHelp() {
           --no-esc true/false       Disable all ESC key simulations when set to true
           --action-delay <seconds>  Set delay in seconds before actions are executed
           --insert <name>           Set the active insert (use empty string to disable)
+          --history <days>          Set number of days to keep recordings (0 to keep most recent recording)
+                                    Use 'null' or no value to disable history management
           --sim-keypress true/false Simulate key presses for text input
                                     (note: linebreaks are treated as return presses)
           --icon <icon>             Set the default icon to use when no insert icon is available
@@ -3641,6 +3810,7 @@ var iconValue: String? = nil
 var moveToPath: String? = nil
 var noEscFlag: Bool? = nil
 var simKeypressFlag: Bool? = nil
+var historyValue: Int? = nil
 
 let args = CommandLine.arguments
 var i = 1
@@ -3710,6 +3880,25 @@ while i < args.count {
     case "-h", "--help":
         printHelp()
         exit(0)
+    case "--history":
+        if i + 1 < args.count && !args[i + 1].starts(with: "--") {
+            // A value was provided
+            let historyArg = args[i + 1]
+            if historyArg.lowercased() == "null" {
+                historyValue = nil  // This will be handled specially
+                i += 2
+            } else if let historyVal = Int(historyArg) {
+                historyValue = historyVal
+                i += 2
+            } else {
+                logError("Invalid history value: \(historyArg). Must be a number (days) or 'null'.")
+                exit(1)
+            }
+        } else {
+            // No value provided, set to null
+            historyValue = nil  // This will be handled specially
+            i += 1
+        }
     case "-v", "--version":
         print("Macrowhisper version \(APP_VERSION)")
         exit(0)
@@ -3823,6 +4012,9 @@ while i < args.count {
 configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
 
+// Initialize history manager
+historyManager = HistoryManager(configManager: configManager)
+
 // Apply any stored action delay value if it was set in command line arguments
 if let delayValue = actionDelayValue {
     configManager.updateFromCommandLine(actionDelay: delayValue)
@@ -3847,7 +4039,8 @@ configManager.updateFromCommandLine(
     icon: iconValue,
     moveTo: moveToPath,
     noEsc: noEscFlag,
-    simKeypress: simKeypressFlag
+    simKeypress: simKeypressFlag,
+    history: args.contains("--history") ? historyValue : nil
 )
 
 // Update global variables again after possible configuration changes
