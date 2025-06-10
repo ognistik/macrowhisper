@@ -742,6 +742,7 @@ var suppressConsoleLogging = false
 var autoReturnEnabled = false
 private var lastDetectedFrontApp: NSRunningApplication?
 var actionDelayValue: Double? = nil
+var socketHealthTimer: Timer?
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -1230,35 +1231,45 @@ func recoverSocket() {
 func registerForSleepWakeNotifications() {
     logInfo("Registering for sleep/wake notifications")
     
-    NSWorkspace.shared.notificationCenter.addObserver(
+    let center = NSWorkspace.shared.notificationCenter
+    center.addObserver(
         forName: NSWorkspace.didWakeNotification,
         object: nil,
         queue: .main
     ) { _ in
-        logInfo("System woke from sleep, checking socket health")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            if !checkSocketHealth() {
-                logWarning("Socket unhealthy after wake, recovering")
-                recoverSocket()
-            } else {
-                logInfo("Socket is healthy after wake")
-            }
-        }
+        logInfo("System woke from sleep, restarting socket health monitor")
+        startSocketHealthMonitor()
+    }
+
+    center.addObserver(
+        forName: NSWorkspace.willSleepNotification,
+        object: nil,
+        queue: .main
+    ) { _ in
+        logInfo("System going to sleep, stopping socket health monitor")
+        stopSocketHealthMonitor()
     }
 }
 
 func startSocketHealthMonitor() {
-    logInfo("Starting periodic socket health monitor")
-    
-    let timer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { _ in
+    // Invalidate previous timer if any
+    socketHealthTimer?.invalidate()
+    socketHealthTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { _ in
         logInfo("Performing periodic socket health check")
         if !checkSocketHealth() {
             logWarning("Socket appears to be unhealthy, attempting recovery")
             recoverSocket()
         }
     }
-    timer.tolerance = 10.0 // Allow some flexibility in timing
-    RunLoop.main.add(timer, forMode: .common)
+    socketHealthTimer?.tolerance = 10.0
+    RunLoop.main.add(socketHealthTimer!, forMode: .common)
+    logInfo("Socket health monitor started")
+}
+
+func stopSocketHealthMonitor() {
+    socketHealthTimer?.invalidate()
+    socketHealthTimer = nil
+    logInfo("Socket health monitor stopped")
 }
 
 func initializeWatcher(_ path: String) {
