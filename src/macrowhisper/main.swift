@@ -54,6 +54,7 @@ class SocketCommunication {
         case getIcon
         case getInsert
         case autoReturn
+        case execInsert
     }
     
     struct CommandMessage: Codable {
@@ -173,6 +174,304 @@ class SocketCommunication {
         // Resume the dispatch source
         server?.resume()
         logInfo("Socket server started at \(socketPath) with descriptor \(serverSocket)")
+    }
+
+    private func findLastValidJsonFile(configManager: ConfigurationManager) -> [String: Any]? {
+        let recordingsPath = configManager.config.defaults.watch + "/recordings"
+        
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: URL(fileURLWithPath: recordingsPath),
+            includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey],
+            options: .skipsHiddenFiles
+        ) else {
+            return nil
+        }
+        
+        // Filter for directories only and sort by creation date (newest first)
+        let directories = contents.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        }.sorted { dir1, dir2 in
+            let date1 = try? dir1.resourceValues(forKeys: [.creationDateKey]).creationDate
+            let date2 = try? dir2.resourceValues(forKeys: [.creationDateKey]).creationDate
+            return (date1 ?? Date.distantPast) > (date2 ?? Date.distantPast)
+        }
+        
+        // Look for the first directory with a valid meta.json that has results
+        for directory in directories {
+            let metaJsonPath = directory.appendingPathComponent("meta.json").path
+            
+            if FileManager.default.fileExists(atPath: metaJsonPath),
+               let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                
+                // Check if result key exists and has a non-null, non-empty value
+                if let result = json["result"],
+                   !(result is NSNull),
+                   !String(describing: result).isEmpty {
+                    return json
+                }
+            }
+        }
+        
+        return nil
+    }
+
+    private func processInsertAction(_ action: String, metaJson: [String: Any]) -> (String, Bool) {
+        // Check if this is the special .autoPaste action
+        let isAutoPaste = action == ".autoPaste"
+        
+        // If action is ".none", return empty string
+        if action == ".none" {
+            return ("", false)
+        }
+        
+        // For .autoPaste, we'll use the swResult value directly
+        if isAutoPaste {
+            let swResult: String
+            if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                swResult = llm
+            } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                swResult = res
+            } else {
+                swResult = ""
+            }
+            return (swResult, true)
+        }
+        
+        var result = action
+        
+        // Process XML tags in llmResult if present
+        var processedLlmResult = ""
+        var extractedTags: [String: String] = [:]
+        
+        if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
+            // Process XML tags and get cleaned llmResult and extracted tags
+            let processed = processXmlPlaceholders(action: action, llmResult: llmResult)
+            processedLlmResult = processed.0
+            extractedTags = processed.1
+            
+            // Update the metaJson with the cleaned llmResult
+            var updatedMetaJson = metaJson
+            updatedMetaJson["llmResult"] = processedLlmResult
+            
+            // If swResult would be derived from llmResult, update it too
+            if metaJson["result"] == nil || (metaJson["result"] as? String)?.isEmpty == true {
+                updatedMetaJson["swResult"] = processedLlmResult
+            }
+            
+            // Process all dynamic placeholders using updatedMetaJson
+            result = self.processDynamicPlaceholders(action: result, metaJson: updatedMetaJson)
+        } else {
+            // No llmResult to process, just handle regular placeholders
+            result = self.processDynamicPlaceholders(action: result, metaJson: metaJson)
+            
+            // Process XML placeholders with regular result if llmResult doesn't exist
+            if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
+                let processed = processXmlPlaceholders(action: action, llmResult: regularResult)
+                extractedTags = processed.1
+            }
+        }
+        
+        // Replace XML placeholders with extracted content or remove them
+        result = replaceXmlPlaceholders(action: result, extractedTags: extractedTags)
+        
+        // Process newlines - convert literal "\n" to actual newlines
+        result = result.replacingOccurrences(of: "\\n", with: "\n")
+        
+        return (result, false)
+    }
+
+    private func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
+        var result = action
+        
+        // Find all placeholders using regex pattern {{key}}
+        let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)\\}\\}"
+        let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+        
+        // Get all matches
+        if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+            // Process matches in reverse order to avoid range shifting issues
+            for match in matches.reversed() {
+                if let keyRange = Range(match.range(at: 1), in: action),
+                   let fullMatchRange = Range(match.range, in: action) {
+                    
+                    let key = String(action[keyRange])
+                    
+                    // Handle special swResult placeholder
+                    if key == "swResult" {
+                        let value: String
+                        if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                            value = llm
+                        } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                            value = res
+                        } else {
+                            value = ""
+                        }
+                        result.replaceSubrange(fullMatchRange, with: value)
+                    }
+                    // Handle any other key from metaJson
+                    else if let jsonValue = metaJson[key] {
+                        let value: String
+                        
+                        // Convert the JSON value to string appropriately
+                        if let stringValue = jsonValue as? String {
+                            value = stringValue
+                        } else if let numberValue = jsonValue as? NSNumber {
+                            value = numberValue.stringValue
+                        } else if let boolValue = jsonValue as? Bool {
+                            value = boolValue ? "true" : "false"
+                        } else if jsonValue is NSNull {
+                            value = ""
+                        } else {
+                            // For complex objects, convert to JSON string
+                            if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                               let jsonString = String(data: jsonData, encoding: .utf8) {
+                                value = jsonString
+                            } else {
+                                value = String(describing: jsonValue)
+                            }
+                        }
+                        
+                        // Only replace if value is not empty, otherwise remove the placeholder
+                        result.replaceSubrange(fullMatchRange, with: value)
+                    } else {
+                        // Key doesn't exist in metaJson, remove the placeholder entirely
+                        result.replaceSubrange(fullMatchRange, with: "")
+                    }
+                }
+            }
+        }
+        
+        return result
+    }
+
+    private func applyInsertDirectly(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
+        // If text is empty or just whitespace, do nothing (no ESC press as requested)
+        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
+            return
+        }
+        
+        // Get the delay value - insert-specific overrides global default
+        let delay: Double
+        if let insert = activeInsert, let insertDelay = insert.actionDelay {
+            delay = insertDelay
+        } else {
+            delay = globalConfigManager?.config.defaults.actionDelay ?? 0.0
+        }
+        
+        // Apply delay if it's greater than 0
+        if delay > 0 {
+            logInfo("Applying configured delay of \(delay) seconds before exec-insert action")
+            Thread.sleep(forTimeInterval: delay)
+        }
+        
+        // For .autoPaste, check if we're in an input field
+        if isAutoPaste {
+            // First ensure we have accessibility permissions
+            if !requestAccessibilityPermission() {
+                logWarning("Accessibility permission denied - cannot check for input field")
+                return
+            }
+            
+            // Check if we're in an input field
+            let inInputField = isInInputField()
+            
+            if !inInputField {
+                logInfo("Exec-insert auto paste - not in an input field, proceeding with direct paste only")
+                
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(text, forType: .string)
+                
+                // Paste using accessibility APIs without restoring clipboard
+                self.simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
+                return
+            }
+            
+            logInfo("Exec-insert auto paste - in input field, proceeding with standard paste")
+        }
+        
+        // NO ESC key press as requested by user
+        
+        // Check if we should simulate key presses
+        let shouldSimulateKeypresses: Bool
+        if let insert = activeInsert, let insertSimKeypress = insert.simKeypress {
+            shouldSimulateKeypresses = insertSimKeypress
+        } else {
+            shouldSimulateKeypresses = globalConfigManager?.config.defaults.simKeypress ?? false
+        }
+        
+        if shouldSimulateKeypresses {
+            // Split the text by newlines and simulate keystrokes
+            let lines = text.components(separatedBy: "\n")
+            
+            let scriptLines = lines.enumerated().map { index, line -> String in
+                let escapedLine = line.replacingOccurrences(of: "\\", with: "\\\\")
+                                     .replacingOccurrences(of: "\"", with: "\\\"")
+                
+                if index > 0 {
+                    return "keystroke return\nkeystroke \"\(escapedLine)\""
+                } else {
+                    return "keystroke \"\(escapedLine)\""
+                }
+            }.joined(separator: "\n")
+            
+            let script = """
+            tell application "System Events"
+                \(scriptLines)
+            end tell
+            """
+            
+            let task = Process()
+            task.launchPath = "/usr/bin/osascript"
+            task.arguments = ["-e", script]
+            
+            do {
+                try task.run()
+                task.waitUntilExit()
+                logInfo("Applied exec-insert text using simulated keystrokes")
+            } catch {
+                logError("Failed to simulate keystrokes for exec-insert: \(error.localizedDescription)")
+                // Fall back to clipboard paste
+                self.pasteUsingClipboardDirectly(text)
+            }
+        } else {
+            // Use the standard clipboard paste method
+            self.pasteUsingClipboardDirectly(text)
+        }
+    }
+
+    private func pasteUsingClipboardDirectly(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        let originalClipboardContent = pasteboard.string(forType: .string)
+        
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        
+        // Paste using accessibility APIs
+        self.simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
+        
+        // Restore the original clipboard content after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            pasteboard.clearContents()
+            if let originalContent = originalClipboardContent {
+                pasteboard.setString(originalContent, forType: .string)
+            }
+        }
+    }
+
+    private func simulateKeyDown(key: Int, flags: CGEventFlags = []) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let keyCode = CGKeyCode(key)
+        
+        let keyDownEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+        keyDownEvent?.flags = flags
+
+        let keyUpEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        keyUpEvent?.flags = flags
+
+        keyDownEvent?.post(tap: .cghidEventTap)
+        keyUpEvent?.post(tap: .cghidEventTap)
     }
     
     private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
@@ -477,6 +776,39 @@ class SocketCommunication {
                     let response = "Missing or invalid enable parameter (should be 'true' or 'false')"
                     write(clientSocket, response, response.utf8.count)
                     logError(response)
+                }
+                
+            case .execInsert:
+                logInfo("Received command to execute insert")
+                
+                if let insertName = commandMessage.arguments?["name"] {
+                    // Find the insert in the configuration
+                    if let insert = configMgr.config.inserts.first(where: { $0.name == insertName }) {
+                        // Find the last valid JSON file with a result
+                        if let lastValidJson = self.findLastValidJsonFile(configManager: configMgr) {
+                            // Process the insert action with the meta.json values
+                            let (processedAction, isAutoPasteResult) = self.processInsertAction(insert.action, metaJson: lastValidJson)
+                            
+                            // Apply the insert without ESC (as requested) and without moveTo
+                            self.applyInsertDirectly(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
+                            
+                            let response = "Executed insert '\(insertName)'"
+                            write(clientSocket, response, response.utf8.count)
+                            logInfo("Successfully executed insert: \(insertName)")
+                        } else {
+                            let response = "No valid JSON file found with results"
+                            write(clientSocket, response, response.utf8.count)
+                            logError("No valid JSON file found for exec-insert")
+                        }
+                    } else {
+                        let response = "Insert '\(insertName)' not found"
+                        write(clientSocket, response, response.utf8.count)
+                        logError("Insert not found: \(insertName)")
+                    }
+                } else {
+                    let response = "Missing insert name"
+                    write(clientSocket, response, response.utf8.count)
+                    logError("Missing insert name for exec-insert command")
                 }
                 
             case .updateConfig:
@@ -1341,6 +1673,23 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             exit(0)
         }
         
+        if args.contains("--exec-insert") {
+            let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
+            if let index = execInsertIndex, index + 1 < args.count {
+                let insertName = args[index + 1]
+                let arguments: [String: String] = ["name": insertName]
+                
+                if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to execute insert")
+                }
+            } else {
+                print("Missing insert name after --exec-insert")
+            }
+            exit(0)
+        }
+        
         // For reload configuration or no arguments, use socket communication
         if args.count == 1 || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
@@ -1389,15 +1738,6 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     arguments["activeInsert"] = args[index + 1]
                 } else {
                     arguments["activeInsert"] = ""
-                }
-            }
-            
-            if args.contains("--no-esc") {
-                let noEscIndex = args.firstIndex(where: { $0 == "--no-esc" })
-                if let index = noEscIndex, index + 1 < args.count {
-                    arguments["noEsc"] = args[index + 1]
-                } else {
-                    arguments["noEsc"] = "true"
                 }
             }
             
@@ -3174,6 +3514,7 @@ func printHelp() {
       --list-inserts                List all configured inserts
       --add-insert <name> <action>  Add or update an insert
       --remove-insert <name>        Remove an insert
+      --exec-insert <name>          Execute an insert action using the last valid result
       --auto-return true/false      Insert result and simulate return for one interaction
       --get-icon                    Get the icon of the active insert
 
@@ -3395,6 +3736,23 @@ while i < args.count {
             print(response)
         } else {
             print("Failed to list inserts")
+        }
+        exit(0)
+    case "--exec-insert":
+        guard i + 1 < args.count else {
+            logError("Missing insert name after \(args[i])")
+            exit(1)
+        }
+        let insertName = args[i + 1]
+        
+        let arguments: [String: String] = [
+            "name": insertName
+        ]
+        
+        if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to execute insert")
         }
         exit(0)
 
