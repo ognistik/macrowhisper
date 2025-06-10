@@ -215,6 +215,16 @@ class SocketCommunication {
         
         return nil
     }
+    
+    private func validateInsertExists(_ insertName: String, configManager: ConfigurationManager) -> Bool {
+        // Empty string is valid (means disable active insert)
+        if insertName.isEmpty {
+            return true
+        }
+        
+        // Check if insert exists in configuration
+        return configManager.config.inserts.contains { $0.name == insertName }
+    }
 
     private func processInsertAction(_ action: String, metaJson: [String: Any]) -> (String, Bool) {
         // Check if this is the special .autoPaste action
@@ -817,6 +827,17 @@ class SocketCommunication {
                 // Extract arguments
                 if let args = commandMessage.arguments {
                     logInfo("Updating config with arguments: \(args)")
+                    
+                    // Validate insert name if provided
+                    if let insertName = args["activeInsert"], !insertName.isEmpty {
+                        if !self.validateInsertExists(insertName, configManager: configMgr) {
+                            let response = "Error: Insert '\(insertName)' does not exist. Use --list-inserts to see available inserts."
+                            write(clientSocket, response, response.utf8.count)
+                            notify(title: "Macrowhisper", message: "Non-existent insert: \(insertName)")
+                            logError("Attempted to set non-existent insert: \(insertName)")
+                            return
+                        }
+                    }
                     
                     // Send immediate success response
                     let response = "Configuration update queued successfully"
@@ -1673,6 +1694,15 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             exit(0)
         }
         
+        if args.contains("--get-icon") {
+            if let response = socketCommunication.sendCommand(.getIcon) {
+                print(response)
+            } else {
+                print("Failed to get icon.")
+            }
+            exit(0)
+        }
+        
         if args.contains("--exec-insert") {
             let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
             if let index = execInsertIndex, index + 1 < args.count {
@@ -1690,13 +1720,48 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             exit(0)
         }
         
+        if args.contains("--get-insert") {
+            if let response = socketCommunication.sendCommand(.getInsert) {
+                print(response)
+            } else {
+                print("Failed to get active insert.")
+            }
+            exit(0)
+        }
+
+        if args.contains("--list-inserts") {
+            if let response = socketCommunication.sendCommand(.listInserts) {
+                print(response)
+            } else {
+                print("Failed to list inserts")
+            }
+            exit(0)
+        }
+
+        if args.contains("--auto-return") {
+            let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
+            
+            var arguments: [String: String] = [:]
+            
+            if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                arguments["enable"] = args[index + 1]
+            } else {
+                arguments["enable"] = "true"
+            }
+            
+            if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to set auto-return")
+            }
+            exit(0)
+        }
+        
         // For reload configuration or no arguments, use socket communication
         if args.count == 1 || args.contains("--watcher") ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") ||
-           args.contains("--get-icon") || args.contains("--get-insert") ||
-           args.contains("--insert") || args.contains("--auto-return") ||
-           args.contains("--list-inserts") || args.contains("--icon") ||
+           args.contains("--insert") || args.contains("--icon") ||
            args.contains("--move-to") || args.contains("--no-esc") ||
            args.contains("--sim-keypress") || args.contains("--action-delay") {
             
@@ -1784,62 +1849,6 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 }
             }
             
-            if args.contains("--get-icon") {
-                // Send the command to the running instance
-                if let response = socketCommunication.sendCommand(.getIcon) {
-                    print(response)
-                } else {
-                    print("Failed to get icon.")
-                }
-                
-                exit(0)
-            }
-            
-            if args.contains("--get-insert") {
-                // Send the command to the running instance
-                if let response = socketCommunication.sendCommand(.getInsert) {
-                    print(response)
-                } else {
-                    print("Failed to get active insert.")
-                }
-                
-                exit(0)
-            }
-            
-            if args.contains("--list-inserts") {
-                if let response = socketCommunication.sendCommand(.listInserts) {
-                    print(response)
-                } else {
-                    print("Failed to list inserts")
-                }
-                exit(0)
-            }
-            
-            if args.contains("--auto-return") {
-                let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
-                
-                // Create arguments for the autoReturn command
-                var arguments: [String: String] = [:]
-                
-                // Check if there's a value after --auto-return
-                if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-                    // User provided a value, use it
-                    arguments["enable"] = args[index + 1]
-                } else {
-                    // No value provided or next arg is another flag, default to true
-                    arguments["enable"] = "true"
-                }
-                
-                // Send the autoReturn command
-                if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to set auto-return")
-                }
-                exit(0)
-            }
-        
-            
             // If there are arguments, send updateConfig, otherwise send reloadConfig
             let command = arguments.isEmpty ? SocketCommunication.Command.reloadConfig : SocketCommunication.Command.updateConfig
             
@@ -1853,9 +1862,10 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
             exit(0)
         }
         
-        // For any other command, just notify and exit
-        print("Another instance is already running. Use --help for command options.")
-        exit(0)
+        // For any unrecognized command, provide helpful feedback
+        print("Error: Unrecognized command or invalid arguments.")
+        print("Use --help for available options.")
+        exit(1)
     }
     
     // Keep fd open for the lifetime of the process to hold the lock
