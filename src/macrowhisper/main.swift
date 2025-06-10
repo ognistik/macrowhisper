@@ -1158,10 +1158,11 @@ struct AppConfiguration: Codable {
         var moveTo: String?
         var noEsc: Bool?
         var simKeypress: Bool?
+        var actionDelay: Double?
         
         // Define coding keys
         enum CodingKeys: String, CodingKey {
-            case name, action, icon, moveTo, noEsc, simKeypress
+            case name, action, icon, moveTo, noEsc, simKeypress, actionDelay
         }
         
         // Custom encoding to preserve null values
@@ -1173,6 +1174,7 @@ struct AppConfiguration: Codable {
             try container.encode(moveTo, forKey: .moveTo) // This will encode nil as null
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(simKeypress, forKey: .simKeypress)
+            try container.encode(actionDelay, forKey: .actionDelay)
         }
     }
     
@@ -2200,8 +2202,15 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             return
         }
         
-        // Get the delay value from configuration
-        let delay = configManager.config.defaults.actionDelay
+        // Get the delay value - insert-specific overrides global default
+        let delay: Double
+        if let insert = activeInsert, let insertDelay = insert.actionDelay {
+            // Use insert-specific delay if available
+            delay = insertDelay
+        } else {
+            // Otherwise use the global default
+            delay = configManager.config.defaults.actionDelay
+        }
         
         // Apply delay if it's greater than 0
         if delay > 0 {
