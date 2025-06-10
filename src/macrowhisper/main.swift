@@ -2110,9 +2110,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         
         var result = action
         
-        // First, process all standard placeholders - remove them if they don't exist or are empty
-        let allPlaceholders = ["llmResult", "swResult", "modeName", "prompt", "result", "rawResult"]
-        
         // Process XML tags in llmResult if present
         var processedLlmResult = ""
         var extractedTags: [String: String] = [:]
@@ -2132,51 +2129,11 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 updatedMetaJson["swResult"] = processedLlmResult
             }
             
-            // Use the updated metaJson for placeholder replacements
-            for placeholder in allPlaceholders {
-                // Check if the placeholder exists in the action
-                if result.contains("{{\(placeholder)}}") {
-                    // Check if the value exists in updatedMetaJson and is not empty
-                    let value: String
-                    if placeholder == "swResult" {
-                        // swResult is special - it's either llmResult or result
-                        if let llm = updatedMetaJson["llmResult"] as? String, !llm.isEmpty {
-                            value = llm
-                        } else if let res = updatedMetaJson["result"] as? String, !res.isEmpty {
-                            value = res
-                        } else {
-                            value = ""
-                        }
-                    } else if let val = updatedMetaJson[placeholder] as? String, !val.isEmpty {
-                        value = val
-                    } else {
-                        value = ""
-                    }
-                    
-                    // Replace the placeholder with the value or remove it if empty
-                    result = result.replacingOccurrences(of: "{{\(placeholder)}}", with: value)
-                }
-            }
+            // Process all dynamic placeholders using updatedMetaJson
+            result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson)
         } else {
             // No llmResult to process, just handle regular placeholders
-            for placeholder in allPlaceholders {
-                if result.contains("{{\(placeholder)}}") {
-                    let value: String
-                    if placeholder == "swResult" {
-                        if let res = metaJson["result"] as? String, !res.isEmpty {
-                            value = res
-                        } else {
-                            value = ""
-                        }
-                    } else if let val = metaJson[placeholder] as? String, !val.isEmpty {
-                        value = val
-                    } else {
-                        value = ""
-                    }
-                    
-                    result = result.replacingOccurrences(of: "{{\(placeholder)}}", with: value)
-                }
-            }
+            result = processDynamicPlaceholders(action: result, metaJson: metaJson)
             
             // Process XML placeholders with regular result if llmResult doesn't exist
             if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
@@ -2192,6 +2149,71 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         result = result.replacingOccurrences(of: "\\n", with: "\n")
         
         return (result, false)
+    }
+
+    // New helper function to process dynamic placeholders
+    private func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
+        var result = action
+        
+        // Find all placeholders using regex pattern {{key}}
+        let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)\\}\\}"
+        let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+        
+        // Get all matches
+        if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+            // Process matches in reverse order to avoid range shifting issues
+            for match in matches.reversed() {
+                if let keyRange = Range(match.range(at: 1), in: action),
+                   let fullMatchRange = Range(match.range, in: action) {
+                    
+                    let key = String(action[keyRange])
+                    
+                    // Handle special swResult placeholder
+                    if key == "swResult" {
+                        let value: String
+                        if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                            value = llm
+                        } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                            value = res
+                        } else {
+                            value = ""
+                        }
+                        result.replaceSubrange(fullMatchRange, with: value)
+                    }
+                    // Handle any other key from metaJson
+                    else if let jsonValue = metaJson[key] {
+                        let value: String
+                        
+                        // Convert the JSON value to string appropriately
+                        if let stringValue = jsonValue as? String {
+                            value = stringValue
+                        } else if let numberValue = jsonValue as? NSNumber {
+                            value = numberValue.stringValue
+                        } else if let boolValue = jsonValue as? Bool {
+                            value = boolValue ? "true" : "false"
+                        } else if jsonValue is NSNull {
+                            value = ""
+                        } else {
+                            // For complex objects, convert to JSON string
+                            if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                               let jsonString = String(data: jsonData, encoding: .utf8) {
+                                value = jsonString
+                            } else {
+                                value = String(describing: jsonValue)
+                            }
+                        }
+                        
+                        // Only replace if value is not empty, otherwise remove the placeholder
+                        result.replaceSubrange(fullMatchRange, with: value)
+                    } else {
+                        // Key doesn't exist in metaJson, remove the placeholder entirely
+                        result.replaceSubrange(fullMatchRange, with: "")
+                    }
+                }
+            }
+        }
+        
+        return result
     }
 
 
