@@ -2931,20 +2931,30 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         // Check if pressReturn should be applied
         let shouldPressReturn: Bool
         
-        // autoReturn always takes precedence
-        if autoReturnEnabled {
-            // autoReturn will handle its own return press, so we don't interfere
-            return
-        }
-        
         // Check insert-specific pressReturn setting first
         if let insert = activeInsert, let insertPressReturn = insert.pressReturn {
             shouldPressReturn = insertPressReturn
+            // If the insert has pressReturn enabled and auto-return is enabled,
+            // we'll let the insert's pressReturn handle it and disable auto-return
+            if shouldPressReturn && autoReturnEnabled {
+                autoReturnEnabled = false
+                logInfo("Auto-return disabled because insert has pressReturn enabled")
+            }
         } else {
-            // Fall back to global default
+            // Fall back to global default if no insert-specific setting
             shouldPressReturn = configManager.config.defaults.pressReturn
         }
         
+        // If no insert pressReturn is enabled but auto-return is, use that
+        if !shouldPressReturn && autoReturnEnabled {
+            logInfo("Simulating return key press due to auto-return")
+            simulateReturnKeyPress()
+            // Reset the flag after using it
+            autoReturnEnabled = false
+            return
+        }
+        
+        // Otherwise use the regular pressReturn setting
         if shouldPressReturn {
             logInfo("Simulating return key press due to pressReturn setting")
             simulateReturnKeyPress()
@@ -3528,7 +3538,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
                 )
                 self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: insert)
-                // Do not run autoReturn or activeInsert if a trigger matched
+                // Continue processing to allow auto-return to work if enabled
                 return
             }
             // --- End Unified Trigger Matching ---
