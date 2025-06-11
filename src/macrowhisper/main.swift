@@ -3192,6 +3192,17 @@ class RecordingsFolderWatcher: @unchecked Sendable {
            !String(describing: result).isEmpty {
             // Mark this file as processed immediately to prevent duplicate triggers
             processedMetaJsons.insert(path)
+            // Always update lastDetectedFrontApp to the current frontmost app for app triggers
+            if Thread.isMainThread {
+                lastDetectedFrontApp = NSWorkspace.shared.frontmostApplication
+            } else {
+                var frontApp: NSRunningApplication?
+                DispatchQueue.main.sync {
+                    frontApp = NSWorkspace.shared.frontmostApplication
+                }
+                lastDetectedFrontApp = frontApp
+            }
+            // --- End update front app ---
             
             // --- Unified Trigger Matching (Voice, Mode, App) with AND/OR Logic ---
             // Helper to evaluate triggers for a given insert
@@ -3255,28 +3266,36 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     modeMatched = true
                 }
                 // App trigger
-                if let triggerApps = insert.triggerApps, !triggerApps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let appName = frontAppName, let bundleId = frontAppBundleId {
-                    let patterns = triggerApps.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                    var matched = false
-                    var exceptionMatched = false
-                    for pattern in patterns {
-                        let isException = pattern.hasPrefix("!")
-                        let actualPattern = isException ? String(pattern.dropFirst()) : pattern
-                        let regexPattern: String
-                        if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
-                            regexPattern = actualPattern
-                        } else {
-                            regexPattern = "(?i)" + actualPattern
+                if let triggerApps = insert.triggerApps, !triggerApps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let appName = frontAppName, let bundleId = frontAppBundleId {
+                        let patterns = triggerApps.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                        var matched = false
+                        var exceptionMatched = false
+                        logInfo("[TriggerEval] App trigger check for insert '\(insert.name)': appName=\"\(appName)\", bundleId=\"\(bundleId)\", patterns=\(patterns)")
+                        for pattern in patterns {
+                            let isException = pattern.hasPrefix("!")
+                            let actualPattern = isException ? String(pattern.dropFirst()) : pattern
+                            let regexPattern: String
+                            if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
+                                regexPattern = actualPattern
+                            } else {
+                                regexPattern = "(?i)" + actualPattern
+                            }
+                            if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                                let nameRange = NSRange(location: 0, length: appName.utf16.count)
+                                let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
+                                let found = regex.firstMatch(in: appName, options: [], range: nameRange) != nil || regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
+                                logInfo("[TriggerEval] Pattern '\(pattern)' found=\(found) in appName=\(appName), bundleId=\(bundleId)")
+                                if isException && found { exceptionMatched = true }
+                                if !isException && found { matched = true }
+                            }
                         }
-                        if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
-                            let nameRange = NSRange(location: 0, length: appName.utf16.count)
-                            let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
-                            let found = regex.firstMatch(in: appName, options: [], range: nameRange) != nil || regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
-                            if isException && found { exceptionMatched = true }
-                            if !isException && found { matched = true }
-                        }
+                        appMatched = matched && !exceptionMatched
+                        logInfo("[TriggerEval] App trigger result for insert '\(insert.name)': matched=\(appMatched)")
+                    } else {
+                        logInfo("[TriggerEval] App trigger set for insert '\(insert.name)' but appName or bundleId is nil. Not matching.")
+                        appMatched = false
                     }
-                    appMatched = matched && !exceptionMatched
                 } else {
                     // No app trigger set, treat as matched for AND logic
                     appMatched = true
@@ -3288,12 +3307,14 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     let allMatch = voiceMatched && modeMatched && appMatched
                     return (allMatch, strippedResult)
                 } else {
-                    // Any must match (but at least one trigger must be non-empty)
-                    let hasAnyTrigger =
-                        (insert.triggerVoice != nil && !insert.triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
-                        (insert.triggerModes != nil && !insert.triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
-                        (insert.triggerApps != nil && !insert.triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    let anyMatch = (voiceMatched || modeMatched || appMatched) && hasAnyTrigger
+                    // OR logic: only non-empty triggers are considered
+                    let voiceTriggerSet = insert.triggerVoice != nil && !insert.triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let modeTriggerSet = insert.triggerModes != nil && !insert.triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let appTriggerSet = insert.triggerApps != nil && !insert.triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    var anyMatch = false
+                    if voiceTriggerSet && voiceMatched { anyMatch = true }
+                    if modeTriggerSet && modeMatched { anyMatch = true }
+                    if appTriggerSet && appMatched { anyMatch = true }
                     return (anyMatch, strippedResult)
                 }
             }
@@ -3316,6 +3337,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             if !matchedTriggerActions.isEmpty {
                 // Sort actions by name and pick the first
                 let (insert, strippedResult) = matchedTriggerActions.sorted { $0.insert.name.localizedCaseInsensitiveCompare($1.insert.name) == .orderedAscending }.first!
+                logInfo("[TriggerEval] Action '\(insert.name)' selected for execution due to trigger match.")
                 // Prepare metaJson with updated result and swResult if voice trigger matched
                 var updatedJson = json
                 if let stripped = strippedResult {
