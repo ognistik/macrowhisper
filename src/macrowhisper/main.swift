@@ -1571,23 +1571,69 @@ struct AppConfiguration: Codable {
         var simKeypress: Bool?
         var actionDelay: Double?
         var pressReturn: Bool?
+        // --- Trigger fields for future extensibility ---
+        /// Voice trigger regex (matches start of phrase)
+        var triggerVoice: String? = ""
+        /// App trigger regex (matches app name or bundle ID)
+        var triggerApps: String? = ""
+        /// Mode trigger regex (matches modeName)
+        var triggerModes: String? = ""
+        /// Logic for combining triggers ("and"/"or")
+        var triggerLogic: String? = "or"
+        // ---------------------------------------------
         
-        // Define coding keys
         enum CodingKeys: String, CodingKey {
             case name, action, icon, moveTo, noEsc, simKeypress, actionDelay, pressReturn
+            case triggerVoice, triggerApps, triggerModes, triggerLogic
         }
         
-        // Custom encoding to preserve null values
+        // Custom encoding to preserve null values and ensure trigger fields are always present
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(name, forKey: .name)
             try container.encode(action, forKey: .action)
-            try container.encode(icon, forKey: .icon) // Using encode instead of encodeIfPresent
-            try container.encode(moveTo, forKey: .moveTo) // This will encode nil as null
+            try container.encode(icon, forKey: .icon)
+            try container.encode(moveTo, forKey: .moveTo)
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(simKeypress, forKey: .simKeypress)
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(pressReturn, forKey: .pressReturn)
+            // Always encode trigger fields, defaulting to "" if nil
+            try container.encode(triggerVoice ?? "", forKey: .triggerVoice)
+            try container.encode(triggerApps ?? "", forKey: .triggerApps)
+            try container.encode(triggerModes ?? "", forKey: .triggerModes)
+            try container.encode(triggerLogic ?? "or", forKey: .triggerLogic)
+        }
+        // Custom decoding to ensure trigger fields are always present
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            action = try container.decode(String.self, forKey: .action)
+            icon = try container.decodeIfPresent(String.self, forKey: .icon)
+            moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
+            noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
+            simKeypress = try container.decodeIfPresent(Bool.self, forKey: .simKeypress)
+            actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
+            pressReturn = try container.decodeIfPresent(Bool.self, forKey: .pressReturn)
+            triggerVoice = try container.decodeIfPresent(String.self, forKey: .triggerVoice) ?? ""
+            triggerApps = try container.decodeIfPresent(String.self, forKey: .triggerApps) ?? ""
+            triggerModes = try container.decodeIfPresent(String.self, forKey: .triggerModes) ?? ""
+            triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
+        }
+        // Default initializer for new inserts
+        init(name: String, action: String, icon: String? = nil, moveTo: String? = nil, noEsc: Bool? = nil, simKeypress: Bool? = nil, actionDelay: Double? = nil, pressReturn: Bool? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+            self.name = name
+            self.action = action
+            self.icon = icon
+            self.moveTo = moveTo
+            self.noEsc = noEsc
+            self.simKeypress = simKeypress
+            self.actionDelay = actionDelay
+            self.pressReturn = pressReturn
+            self.triggerVoice = triggerVoice ?? ""
+            self.triggerApps = triggerApps ?? ""
+            self.triggerModes = triggerModes ?? ""
+            self.triggerLogic = triggerLogic ?? "or"
         }
     }
     
@@ -3146,6 +3192,147 @@ class RecordingsFolderWatcher: @unchecked Sendable {
            !String(describing: result).isEmpty {
             // Mark this file as processed immediately to prevent duplicate triggers
             processedMetaJsons.insert(path)
+            
+            // --- Unified Trigger Matching (Voice, Mode, App) with AND/OR Logic ---
+            // Helper to evaluate triggers for a given insert
+            func triggersMatch(for insert: AppConfiguration.Insert, result: String, modeName: String?, frontAppName: String?, frontAppBundleId: String?) -> (matched: Bool, strippedResult: String?) {
+                var voiceMatched = false
+                var modeMatched = false
+                var appMatched = false
+                var strippedResult: String? = nil
+                // Voice trigger
+                if let triggerVoice = insert.triggerVoice, !triggerVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let triggers = triggerVoice.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    for trigger in triggers {
+                        let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: trigger)
+                        if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                            let range = NSRange(location: 0, length: result.utf16.count)
+                            if let match = regex.firstMatch(in: result, options: [], range: range), match.range.location == 0 {
+                                // Strip the trigger from the start, plus any leading punctuation/whitespace after
+                                let afterTriggerIdx = result.index(result.startIndex, offsetBy: match.range.length)
+                                var stripped = String(result[afterTriggerIdx...])
+                                let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+                                while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
+                                    stripped.removeFirst()
+                                }
+                                if let first = stripped.first {
+                                    stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
+                                }
+                                voiceMatched = true
+                                strippedResult = stripped
+                                break
+                            }
+                        }
+                    }
+                } else {
+                    // No voice trigger set, treat as matched for AND logic
+                    voiceMatched = true
+                }
+                // Mode trigger
+                if let triggerModes = insert.triggerModes, !triggerModes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let modeName = modeName {
+                    let patterns = triggerModes.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    var matched = false
+                    var exceptionMatched = false
+                    for pattern in patterns {
+                        let isException = pattern.hasPrefix("!")
+                        let actualPattern = isException ? String(pattern.dropFirst()) : pattern
+                        let regexPattern: String
+                        if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
+                            regexPattern = actualPattern
+                        } else {
+                            regexPattern = "(?i)" + actualPattern
+                        }
+                        if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                            let range = NSRange(location: 0, length: modeName.utf16.count)
+                            let found = regex.firstMatch(in: modeName, options: [], range: range) != nil
+                            if isException && found { exceptionMatched = true }
+                            if !isException && found { matched = true }
+                        }
+                    }
+                    modeMatched = matched && !exceptionMatched
+                } else {
+                    // No mode trigger set, treat as matched for AND logic
+                    modeMatched = true
+                }
+                // App trigger
+                if let triggerApps = insert.triggerApps, !triggerApps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let appName = frontAppName, let bundleId = frontAppBundleId {
+                    let patterns = triggerApps.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    var matched = false
+                    var exceptionMatched = false
+                    for pattern in patterns {
+                        let isException = pattern.hasPrefix("!")
+                        let actualPattern = isException ? String(pattern.dropFirst()) : pattern
+                        let regexPattern: String
+                        if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
+                            regexPattern = actualPattern
+                        } else {
+                            regexPattern = "(?i)" + actualPattern
+                        }
+                        if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                            let nameRange = NSRange(location: 0, length: appName.utf16.count)
+                            let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
+                            let found = regex.firstMatch(in: appName, options: [], range: nameRange) != nil || regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
+                            if isException && found { exceptionMatched = true }
+                            if !isException && found { matched = true }
+                        }
+                    }
+                    appMatched = matched && !exceptionMatched
+                } else {
+                    // No app trigger set, treat as matched for AND logic
+                    appMatched = true
+                }
+                // Determine logic
+                let logic = (insert.triggerLogic ?? "or").lowercased()
+                if logic == "and" {
+                    // All must match
+                    let allMatch = voiceMatched && modeMatched && appMatched
+                    return (allMatch, strippedResult)
+                } else {
+                    // Any must match (but at least one trigger must be non-empty)
+                    let hasAnyTrigger =
+                        (insert.triggerVoice != nil && !insert.triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
+                        (insert.triggerModes != nil && !insert.triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
+                        (insert.triggerApps != nil && !insert.triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    let anyMatch = (voiceMatched || modeMatched || appMatched) && hasAnyTrigger
+                    return (anyMatch, strippedResult)
+                }
+            }
+            // Get front app info for app triggers
+            var frontAppName: String? = nil
+            var frontAppBundleId: String? = nil
+            if let app = lastDetectedFrontApp {
+                frontAppName = app.localizedName
+                frontAppBundleId = app.bundleIdentifier
+            }
+            let modeName = json["modeName"] as? String
+            // Evaluate all inserts for triggers
+            var matchedTriggerActions: [(insert: AppConfiguration.Insert, strippedResult: String?)] = []
+            for insert in configManager.config.inserts {
+                let (matched, strippedResult) = triggersMatch(for: insert, result: String(describing: result), modeName: modeName, frontAppName: frontAppName, frontAppBundleId: frontAppBundleId)
+                if matched {
+                    matchedTriggerActions.append((insert, strippedResult))
+                }
+            }
+            if !matchedTriggerActions.isEmpty {
+                // Sort actions by name and pick the first
+                let (insert, strippedResult) = matchedTriggerActions.sorted { $0.insert.name.localizedCaseInsensitiveCompare($1.insert.name) == .orderedAscending }.first!
+                // Prepare metaJson with updated result and swResult if voice trigger matched
+                var updatedJson = json
+                if let stripped = strippedResult {
+                    updatedJson["result"] = stripped
+                    updatedJson["swResult"] = stripped
+                }
+                let (processedAction, isAutoPasteResult) = self.processAction(insert.action, metaJson: updatedJson)
+                self.applyInsert(
+                    processedAction,
+                    activeInsert: insert,
+                    isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
+                )
+                self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: insert)
+                // Do not run autoReturn or activeInsert if a trigger matched
+                return
+            }
+            // --- End Unified Trigger Matching ---
             
             if autoReturnEnabled {
                 // Apply the result directly using {{swResult}}
