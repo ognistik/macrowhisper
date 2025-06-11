@@ -55,6 +55,7 @@ class SocketCommunication {
         case getInsert
         case autoReturn
         case execInsert
+        case addUrl
     }
     
     struct CommandMessage: Codable {
@@ -587,14 +588,12 @@ class SocketCommunication {
             case .addInsert:
                 logInfo("Received command to add insert")
                 
-                if let name = commandMessage.arguments?["name"],
-                   let action = commandMessage.arguments?["action"] {
-                                        
+                if let name = commandMessage.arguments?["name"] {
                     // Check if insert with this name already exists
                     var inserts = configMgr.config.inserts
                     if let index = inserts.firstIndex(where: { $0.name == name }) {
                         // Update existing insert
-                        inserts[index] = AppConfiguration.Insert(name: name, action: action)
+                        inserts[index] = AppConfiguration.Insert(name: name, action: "")
                         configMgr.config.inserts = inserts
                         configMgr.saveConfig()
                         
@@ -602,7 +601,7 @@ class SocketCommunication {
                         write(clientSocket, response, response.utf8.count)
                     } else {
                         // Add new insert
-                        inserts.append(AppConfiguration.Insert(name: name, action: action))
+                        inserts.append(AppConfiguration.Insert(name: name, action: ""))
                         configMgr.config.inserts = inserts
                         configMgr.saveConfig()
                         
@@ -613,7 +612,7 @@ class SocketCommunication {
                     // Trigger config changed callback
                     configMgr.onConfigChanged?()
                 } else {
-                    let response = "Missing name or action for insert"
+                    let response = "Missing name for insert"
                     write(clientSocket, response, response.utf8.count)
                 }
 
@@ -920,6 +919,36 @@ class SocketCommunication {
                 - Server socket descriptor: \(serverSocket)
                 """
                 write(clientSocket, status, status.utf8.count)
+            case .addUrl:
+                logInfo("Received command to add URL action")
+                
+                if let name = commandMessage.arguments?["name"] {
+                    // Check if URL action with this name already exists
+                    var urls = configMgr.config.urls
+                    if let index = urls.firstIndex(where: { $0.name == name }) {
+                        // Update existing URL action
+                        urls[index] = AppConfiguration.Url(name: name, action: "")
+                        configMgr.config.urls = urls
+                        configMgr.saveConfig()
+                        
+                        let response = "URL action '\(name)' updated"
+                        write(clientSocket, response, response.utf8.count)
+                    } else {
+                        // Add new URL action
+                        urls.append(AppConfiguration.Url(name: name, action: ""))
+                        configMgr.config.urls = urls
+                        configMgr.saveConfig()
+                        
+                        let response = "URL action '\(name)' added"
+                        write(clientSocket, response, response.utf8.count)
+                    }
+                    
+                    // Trigger config changed callback
+                    configMgr.onConfigChanged?()
+                } else {
+                    let response = "Missing name for URL action"
+                    write(clientSocket, response, response.utf8.count)
+                }
             }
             
         } catch {
@@ -1565,8 +1594,8 @@ struct AppConfiguration: Codable {
     struct Insert: Codable {
         var name: String
         var action: String
-        var icon: String?
-        var moveTo: String?
+        var icon: String? = ""  // Default to empty string
+        var moveTo: String? = ""  // Default to empty string
         var noEsc: Bool?
         var simKeypress: Bool?
         var actionDelay: Double?
@@ -1621,7 +1650,7 @@ struct AppConfiguration: Codable {
             triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
         }
         // Default initializer for new inserts
-        init(name: String, action: String, icon: String? = nil, moveTo: String? = nil, noEsc: Bool? = nil, simKeypress: Bool? = nil, actionDelay: Double? = nil, pressReturn: Bool? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+        init(name: String, action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, simKeypress: Bool? = nil, actionDelay: Double? = nil, pressReturn: Bool? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
             self.name = name
             self.action = action
             self.icon = icon
@@ -1637,13 +1666,83 @@ struct AppConfiguration: Codable {
         }
     }
     
+    struct Url: Codable {
+        var name: String
+        var action: String
+        var moveTo: String? = ""  // Default to empty string
+        var noEsc: Bool?
+        var actionDelay: Double?
+        // --- Trigger fields for future extensibility ---
+        /// Voice trigger regex (matches start of phrase)
+        var triggerVoice: String? = ""
+        /// App trigger regex (matches app name or bundle ID)
+        var triggerApps: String? = ""
+        /// Mode trigger regex (matches modeName)
+        var triggerModes: String? = ""
+        /// Logic for combining triggers ("and"/"or")
+        var triggerLogic: String? = "or"
+        // ---------------------------------------------
+        var openWith: String? = ""
+        
+        enum CodingKeys: String, CodingKey {
+            case name, action, moveTo, noEsc, actionDelay
+            case triggerVoice, triggerApps, triggerModes, triggerLogic
+            case openWith
+        }
+        
+        // Custom encoding to preserve null values and ensure trigger fields are always present
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(name, forKey: .name)
+            try container.encode(action, forKey: .action)
+            try container.encode(moveTo, forKey: .moveTo)
+            try container.encode(noEsc, forKey: .noEsc)
+            try container.encode(actionDelay, forKey: .actionDelay)
+            // Always encode trigger fields, defaulting to "" if nil
+            try container.encode(triggerVoice ?? "", forKey: .triggerVoice)
+            try container.encode(triggerApps ?? "", forKey: .triggerApps)
+            try container.encode(triggerModes ?? "", forKey: .triggerModes)
+            try container.encode(triggerLogic ?? "or", forKey: .triggerLogic)
+            try container.encode(openWith ?? "", forKey: .openWith)
+        }
+        // Custom decoding to ensure trigger fields are always present
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            action = try container.decode(String.self, forKey: .action)
+            moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
+            noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
+            actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
+            triggerVoice = try container.decodeIfPresent(String.self, forKey: .triggerVoice) ?? ""
+            triggerApps = try container.decodeIfPresent(String.self, forKey: .triggerApps) ?? ""
+            triggerModes = try container.decodeIfPresent(String.self, forKey: .triggerModes) ?? ""
+            triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
+            openWith = try container.decodeIfPresent(String.self, forKey: .openWith) ?? ""
+        }
+        // Default initializer for new URLs
+        init(name: String, action: String, moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or", openWith: String? = "") {
+            self.name = name
+            self.action = action
+            self.moveTo = moveTo
+            self.noEsc = noEsc
+            self.actionDelay = actionDelay
+            self.triggerVoice = triggerVoice ?? ""
+            self.triggerApps = triggerApps ?? ""
+            self.triggerModes = triggerModes ?? ""
+            self.triggerLogic = triggerLogic ?? "or"
+            self.openWith = openWith ?? ""
+        }
+    }
+    
     var defaults: Defaults
     var inserts: [Insert]
+    var urls: [Url]
     
     static func defaultConfig() -> AppConfiguration {
         return AppConfiguration(
             defaults: Defaults.defaultValues(),
-            inserts: []
+            inserts: [],
+            urls: []
         )
     }
 }
@@ -1859,6 +1958,40 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 print(response)
             } else {
                 print("Failed to set auto-return")
+            }
+            exit(0)
+        }
+        
+        if args.contains("--add-url") {
+            let addUrlIndex = args.firstIndex(where: { $0 == "--add-url" })
+            if let index = addUrlIndex, index + 1 < args.count {
+                let urlName = args[index + 1]
+                let arguments: [String: String] = ["name": urlName]
+                
+                if let response = socketCommunication.sendCommand(.addUrl, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add URL action")
+                }
+            } else {
+                print("Missing name after --add-url")
+            }
+            exit(0)
+        }
+
+        if args.contains("--add-insert") {
+            let addInsertIndex = args.firstIndex(where: { $0 == "--add-insert" })
+            if let index = addInsertIndex, index + 1 < args.count {
+                let insertName = args[index + 1]
+                let arguments: [String: String] = ["name": insertName]
+                
+                if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add insert")
+                }
+            } else {
+                print("Missing name after --add-insert")
             }
             exit(0)
         }
@@ -3539,6 +3672,9 @@ class ConfigurationManager {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.setupFileWatcher()
                 logInfo("File watcher reinitialized after creating config file")
+                
+                // Force an immediate check
+                self?.fileWatcher?.checkForChangesNow()
             }
         }
     }
@@ -4276,25 +4412,15 @@ while i < args.count {
         }
         exit(0)
     case "--add-insert":
-        guard i + 2 < args.count else {
-            logError("Missing insert name or action after \(args[i])")
+        guard i + 1 < args.count else {
+            logError("Missing insert name after \(args[i])")
             exit(1)
         }
         let insertName = args[i + 1]
-        let insertAction = args[i + 2]
         
-        // Check if an icon is provided (optional)
-        var arguments: [String: String] = [
-            "name": insertName,
-            "action": insertAction
+        let arguments: [String: String] = [
+            "name": insertName
         ]
-        
-        if i + 3 < args.count && !args[i + 3].starts(with: "--") {
-            arguments["icon"] = args[i + 3]
-            i += 4
-        } else {
-            i += 3
-        }
         
         if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
             print(response)
