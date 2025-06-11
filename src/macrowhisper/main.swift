@@ -377,13 +377,11 @@ class SocketCommunication {
         
         // For .autoPaste, check if we're in an input field
         if isAutoPaste {
-            // First ensure we have accessibility permissions
             if !requestAccessibilityPermission() {
                 logWarning("Accessibility permission denied - cannot check for input field")
                 return
             }
             
-            // Check if we're in an input field
             let inInputField = isInInputField()
             
             if !inInputField {
@@ -393,8 +391,10 @@ class SocketCommunication {
                 pasteboard.clearContents()
                 pasteboard.setString(text, forType: .string)
                 
-                // Paste using accessibility APIs without restoring clipboard
                 self.simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
+                
+                // Check for pressReturn after auto paste
+                checkAndSimulatePressReturnForExecInsert(activeInsert: activeInsert)
                 return
             }
             
@@ -412,7 +412,6 @@ class SocketCommunication {
         }
         
         if shouldSimulateKeypresses {
-            // Split the text by newlines and simulate keystrokes
             let lines = text.components(separatedBy: "\n")
             
             let scriptLines = lines.enumerated().map { index, line -> String in
@@ -442,12 +441,45 @@ class SocketCommunication {
                 logInfo("Applied exec-insert text using simulated keystrokes")
             } catch {
                 logError("Failed to simulate keystrokes for exec-insert: \(error.localizedDescription)")
-                // Fall back to clipboard paste
                 self.pasteUsingClipboardDirectly(text)
             }
         } else {
-            // Use the standard clipboard paste method
             self.pasteUsingClipboardDirectly(text)
+        }
+        
+        // Check for pressReturn after exec-insert
+        checkAndSimulatePressReturnForExecInsert(activeInsert: activeInsert)
+    }
+
+    private func checkAndSimulatePressReturnForExecInsert(activeInsert: AppConfiguration.Insert?) {
+        // Check if pressReturn should be applied
+        let shouldPressReturn: Bool
+        
+        // autoReturn always takes precedence
+        if autoReturnEnabled {
+            // autoReturn will handle its own return press, so we don't interfere
+            return
+        }
+        
+        // Check insert-specific pressReturn setting first
+        if let insert = activeInsert, let insertPressReturn = insert.pressReturn {
+            shouldPressReturn = insertPressReturn
+        } else {
+            // Fall back to global default
+            shouldPressReturn = globalConfigManager?.config.defaults.pressReturn ?? false
+        }
+        
+        if shouldPressReturn {
+            logInfo("Simulating return key press due to pressReturn setting for exec-insert")
+            self.simulateReturnKeyPress()
+        }
+    }
+    
+    private func simulateReturnKeyPress() {
+        // Add a delay before simulating the Return key press
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) { // delay
+            // 36 is the keycode for Return key
+            self.simulateKeyDown(key: 36)
         }
     }
 
@@ -1490,10 +1522,11 @@ struct AppConfiguration: Codable {
         var simKeypress: Bool
         var actionDelay: Double
         var history: Int?
+        var pressReturn: Bool
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeInsert, icon, moveTo, noEsc, simKeypress, actionDelay, history
+            case watch, noUpdates, noNoti, activeInsert, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn
         }
         
         // Custom encoding to preserve null values
@@ -1508,7 +1541,8 @@ struct AppConfiguration: Codable {
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(simKeypress, forKey: .simKeypress)
             try container.encode(actionDelay, forKey: .actionDelay)
-            try container.encode(history, forKey: .history) // This will encode nil as null
+            try container.encode(history, forKey: .history)
+            try container.encode(pressReturn, forKey: .pressReturn)
         }
         
         static func defaultValues() -> Defaults {
@@ -1522,7 +1556,8 @@ struct AppConfiguration: Codable {
                 noEsc: false,
                 simKeypress: false,
                 actionDelay: 0.0,
-                history: nil
+                history: nil,
+                pressReturn: false
             )
         }
     }
@@ -1535,10 +1570,11 @@ struct AppConfiguration: Codable {
         var noEsc: Bool?
         var simKeypress: Bool?
         var actionDelay: Double?
+        var pressReturn: Bool?
         
         // Define coding keys
         enum CodingKeys: String, CodingKey {
-            case name, action, icon, moveTo, noEsc, simKeypress, actionDelay
+            case name, action, icon, moveTo, noEsc, simKeypress, actionDelay, pressReturn
         }
         
         // Custom encoding to preserve null values
@@ -1551,6 +1587,7 @@ struct AppConfiguration: Codable {
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(simKeypress, forKey: .simKeypress)
             try container.encode(actionDelay, forKey: .actionDelay)
+            try container.encode(pressReturn, forKey: .pressReturn)
         }
     }
     
@@ -1787,7 +1824,7 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
            args.contains("--insert") || args.contains("--icon") ||
            args.contains("--move-to") || args.contains("--no-esc") ||
            args.contains("--sim-keypress") || args.contains("--action-delay") ||
-           args.contains("--history") {
+           args.contains("--history") || args.contains("--press-return") {
             
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -1845,6 +1882,15 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                     arguments["simKeypress"] = args[index + 1]
                 } else {
                     arguments["simKeypress"] = "true"
+                }
+            }
+            
+            if args.contains("--press-return") {
+                let pressReturnIndex = args.firstIndex(where: { $0 == "--press-return" })
+                if let index = pressReturnIndex, index + 1 < args.count {
+                    arguments["pressReturn"] = args[index + 1]
+                } else {
+                    arguments["pressReturn"] = "true"
                 }
             }
             
@@ -2615,10 +2661,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         // Get the delay value - insert-specific overrides global default
         let delay: Double
         if let insert = activeInsert, let insertDelay = insert.actionDelay {
-            // Use insert-specific delay if available
             delay = insertDelay
         } else {
-            // Otherwise use the global default
             delay = configManager.config.defaults.actionDelay
         }
         
@@ -2630,32 +2674,26 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         
         // For .autoPaste, check if we're in an input field
         if isAutoPaste {
-            // First ensure we have accessibility permissions
             if !requestAccessibilityPermission() {
                 logWarning("Accessibility permission denied - cannot check for input field")
-                // Mark as processed but do nothing
                 return
             }
             
-            // Check if we're in an input field
             let inInputField = isInInputField()
             
             if !inInputField {
                 logInfo("Auto paste - not in an input field, proceeding with direct paste only")
                 
-                // MODIFIED BEHAVIOR: For non-input fields, paste directly without ESC, key simulation or clipboard restore
                 let pasteboard = NSPasteboard.general
-                
                 pasteboard.clearContents()
                 pasteboard.setString(text, forType: .string)
-                
-                // Paste using accessibility APIs without restoring clipboard
                 simulateKeyDown(key: 9, flags: .maskCommand) // 9 is the keycode for 'V'
                 
-                return // Exit early - don't proceed with normal flow
+                // Check for pressReturn after auto paste
+                checkAndSimulatePressReturn(activeInsert: activeInsert)
+                return
             }
             
-            // If we are in an input field, continue with normal paste operation
             logInfo("Auto paste - in input field, proceeding with standard paste")
         }
         
@@ -2665,23 +2703,18 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         // Check if we should simulate key presses
         let shouldSimulateKeypresses: Bool
         if let insert = activeInsert, let insertSimKeypress = insert.simKeypress {
-            // Use insert-specific setting if available
             shouldSimulateKeypresses = insertSimKeypress
         } else {
-            // Otherwise use the global default
             shouldSimulateKeypresses = configManager.config.defaults.simKeypress
         }
         
         if shouldSimulateKeypresses {
-            // Split the text by newlines
             let lines = text.components(separatedBy: "\n")
             
-            // Create an AppleScript that handles each line separately
             let scriptLines = lines.enumerated().map { index, line -> String in
                 let escapedLine = line.replacingOccurrences(of: "\\", with: "\\\\")
                                      .replacingOccurrences(of: "\"", with: "\\\"")
                 
-                // For all lines except the first, add a return keystroke before the text
                 if index > 0 {
                     return "keystroke return\nkeystroke \"\(escapedLine)\""
                 } else {
@@ -2705,15 +2738,39 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 logInfo("Applied text using simulated keystrokes with line breaks")
             } catch {
                 logError("Failed to simulate keystrokes: \(error.localizedDescription)")
-                // Fall back to clipboard paste as a backup
                 pasteUsingClipboard(text)
             }
         } else {
-            // Use the standard clipboard paste method
             pasteUsingClipboard(text)
         }
+        
+        // Check for pressReturn after normal insert application
+        checkAndSimulatePressReturn(activeInsert: activeInsert)
     }
 
+    private func checkAndSimulatePressReturn(activeInsert: AppConfiguration.Insert?) {
+        // Check if pressReturn should be applied
+        let shouldPressReturn: Bool
+        
+        // autoReturn always takes precedence
+        if autoReturnEnabled {
+            // autoReturn will handle its own return press, so we don't interfere
+            return
+        }
+        
+        // Check insert-specific pressReturn setting first
+        if let insert = activeInsert, let insertPressReturn = insert.pressReturn {
+            shouldPressReturn = insertPressReturn
+        } else {
+            // Fall back to global default
+            shouldPressReturn = configManager.config.defaults.pressReturn
+        }
+        
+        if shouldPressReturn {
+            logInfo("Simulating return key press due to pressReturn setting")
+            simulateReturnKeyPress()
+        }
+    }
 
     private func pasteUsingClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
@@ -3275,13 +3332,15 @@ class ConfigurationManager {
             let noNotiStr = args["noNoti"]
             let noEscStr = args["noEsc"]
             let simKeypressStr = args["simKeypress"]
+            let pressReturnStr = args["pressReturn"]
             
             // Convert string values to boolean values
             let noUpdates = noUpdatesStr == "true" ? true : (noUpdatesStr == "false" ? false : nil)
             let noNoti = noNotiStr == "true" ? true : (noNotiStr == "false" ? false : nil)
             let noEsc = noEscStr == "true" ? true : (noEscStr == "false" ? false : nil)
             let simKeypress = simKeypressStr == "true" ? true : (simKeypressStr == "false" ? false : nil)
-            
+            let pressReturn = pressReturnStr == "true" ? true : (pressReturnStr == "false" ? false : nil)  // Add this line
+
             // Update configuration with values
             self.syncQueue.sync {
                 // First, reload the latest config from disk
@@ -3313,6 +3372,9 @@ class ConfigurationManager {
                 }
                 if let simKeypress = simKeypress {
                     self.config.defaults.simKeypress = simKeypress
+                }
+                if let pressReturn = pressReturn {
+                    self.config.defaults.pressReturn = pressReturn
                 }
                 if let actionDelayStr = args["actionDelay"], let actionDelay = Double(actionDelayStr) {
                     self.config.defaults.actionDelay = actionDelay
@@ -3480,7 +3542,8 @@ class ConfigurationManager {
         noEsc: Bool? = nil,
         simKeypress: Bool? = nil,
         actionDelay: Double? = nil,
-        history: Int? = nil
+        history: Int? = nil,
+        pressReturn: Bool? = nil
     ) {
         // Convert parameters to arguments dictionary
         var arguments: [String: String] = [:]
@@ -3521,7 +3584,9 @@ class ConfigurationManager {
         if let history = history {
             arguments["history"] = String(history)
         }
-        
+        if let pressReturn = pressReturn {
+            arguments["pressReturn"] = pressReturn ? "true" : "false"
+        }
         // Use the async version
         updateFromCommandLineAsync(arguments: arguments)
     }
@@ -3681,6 +3746,8 @@ func printHelp() {
                                     Use 'null' or no value to disable history management
           --sim-keypress true/false Simulate key presses for text input
                                     (note: linebreaks are treated as return presses)
+          --press-return true/false Simulate return key press after every insert execution
+                                    (persistent setting, unlike --auto-return which is one-time)
           --icon <icon>             Set the default icon to use when no insert icon is available
                                     Use '.none' to explicitly use no icon
           --move-to <path>          Set the default path to move folder to after processing
@@ -3810,6 +3877,7 @@ var iconValue: String? = nil
 var moveToPath: String? = nil
 var noEscFlag: Bool? = nil
 var simKeypressFlag: Bool? = nil
+var pressReturnFlag: Bool? = nil
 var historyValue: Int? = nil
 
 let args = CommandLine.arguments
@@ -3954,7 +4022,6 @@ while i < args.count {
             print("Failed to execute insert")
         }
         exit(0)
-
     case "--add-insert":
         guard i + 2 < args.count else {
             logError("Missing insert name or action after \(args[i])")
@@ -4000,6 +4067,14 @@ while i < args.count {
             print("Failed to remove insert")
         }
         exit(0)
+    case "--press-return":
+        guard i + 1 < args.count else {
+            logError("Missing value after \(args[i])")
+            exit(1)
+        }
+        let value = args[i + 1].lowercased()
+        pressReturnFlag = value == "true" || value == "yes" || value == "1"
+        i += 2
         
     default:
         logError("Unknown argument: \(args[i])")
@@ -4040,7 +4115,8 @@ configManager.updateFromCommandLine(
     moveTo: moveToPath,
     noEsc: noEscFlag,
     simKeypress: simKeypressFlag,
-    history: args.contains("--history") ? historyValue : nil
+    history: args.contains("--history") ? historyValue : nil,
+    pressReturn: pressReturnFlag
 )
 
 // Update global variables again after possible configuration changes
