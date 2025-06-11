@@ -3214,12 +3214,21 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 // Voice trigger
                 if let triggerVoice = insert.triggerVoice, !triggerVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let triggers = triggerVoice.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    var matched = false
+                    var exceptionMatched = false
+                    logInfo("[TriggerEval] Voice trigger check for insert '\(insert.name)': result=\"\(result)\", patterns=\(triggers)")
                     for trigger in triggers {
-                        let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: trigger)
+                        let isException = trigger.hasPrefix("!")
+                        let actualPattern = isException ? String(trigger.dropFirst()) : trigger
+                        let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: actualPattern)
                         if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
                             let range = NSRange(location: 0, length: result.utf16.count)
-                            if let match = regex.firstMatch(in: result, options: [], range: range), match.range.location == 0 {
+                            let found = regex.firstMatch(in: result, options: [], range: range) != nil
+                            logInfo("[TriggerEval] Pattern '\(trigger)' found=\(found) in result=\(result)")
+                            if isException && found { exceptionMatched = true }
+                            if !isException && found {
                                 // Strip the trigger from the start, plus any leading punctuation/whitespace after
+                                let match = regex.firstMatch(in: result, options: [], range: range)!
                                 let afterTriggerIdx = result.index(result.startIndex, offsetBy: match.range.length)
                                 var stripped = String(result[afterTriggerIdx...])
                                 let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
@@ -3229,12 +3238,23 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                                 if let first = stripped.first {
                                     stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
                                 }
-                                voiceMatched = true
+                                matched = true
                                 strippedResult = stripped
-                                break
                             }
                         }
                     }
+                    let hasPositive = triggers.contains { !$0.hasPrefix("!") }
+                    let hasException = triggers.contains { $0.hasPrefix("!") }
+                    if hasPositive {
+                        voiceMatched = matched && !exceptionMatched
+                    } else if hasException {
+                        // Only exceptions: match if no exception matched
+                        voiceMatched = !exceptionMatched
+                    } else {
+                        // No patterns at all (shouldn't happen), treat as matched
+                        voiceMatched = true
+                    }
+                    logInfo("[TriggerEval] Voice trigger result for insert '\(insert.name)': matched=\(voiceMatched)")
                 } else {
                     // No voice trigger set, treat as matched for AND logic
                     voiceMatched = true
@@ -3244,6 +3264,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     let patterns = triggerModes.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
                     var matched = false
                     var exceptionMatched = false
+                    logInfo("[TriggerEval] Mode trigger check for insert '\(insert.name)': modeName=\"\(modeName)\", patterns=\(patterns)")
                     for pattern in patterns {
                         let isException = pattern.hasPrefix("!")
                         let actualPattern = isException ? String(pattern.dropFirst()) : pattern
@@ -3256,11 +3277,23 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                         if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
                             let range = NSRange(location: 0, length: modeName.utf16.count)
                             let found = regex.firstMatch(in: modeName, options: [], range: range) != nil
+                            logInfo("[TriggerEval] Pattern '\(pattern)' found=\(found) in modeName=\(modeName)")
                             if isException && found { exceptionMatched = true }
                             if !isException && found { matched = true }
                         }
                     }
-                    modeMatched = matched && !exceptionMatched
+                    let hasPositive = patterns.contains { !$0.hasPrefix("!") }
+                    let hasException = patterns.contains { $0.hasPrefix("!") }
+                    if hasPositive {
+                        modeMatched = matched && !exceptionMatched
+                    } else if hasException {
+                        // Only exceptions: match if no exception matched
+                        modeMatched = !exceptionMatched
+                    } else {
+                        // No patterns at all (shouldn't happen), treat as matched
+                        modeMatched = true
+                    }
+                    logInfo("[TriggerEval] Mode trigger result for insert '\(insert.name)': matched=\(modeMatched)")
                 } else {
                     // No mode trigger set, treat as matched for AND logic
                     modeMatched = true
@@ -3290,7 +3323,18 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                                 if !isException && found { matched = true }
                             }
                         }
-                        appMatched = matched && !exceptionMatched
+                        // After evaluating all patterns, determine match logic for app triggers
+                        let hasPositive = patterns.contains { !$0.hasPrefix("!") }
+                        let hasException = patterns.contains { $0.hasPrefix("!") }
+                        if hasPositive {
+                            appMatched = matched && !exceptionMatched
+                        } else if hasException {
+                            // Only exceptions: match if no exception matched
+                            appMatched = !exceptionMatched
+                        } else {
+                            // No patterns at all (shouldn't happen), treat as matched
+                            appMatched = true
+                        }
                         logInfo("[TriggerEval] App trigger result for insert '\(insert.name)': matched=\(appMatched)")
                     } else {
                         logInfo("[TriggerEval] App trigger set for insert '\(insert.name)' but appName or bundleId is nil. Not matching.")
@@ -4445,3 +4489,4 @@ extension URLSession {
         return (resultData ?? Data(), resultResponse!)
     }
 }
+
