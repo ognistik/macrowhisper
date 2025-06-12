@@ -271,10 +271,10 @@ class SocketCommunication {
             }
             
             // Process all dynamic placeholders using updatedMetaJson
-            result = self.processDynamicPlaceholders(action: result, metaJson: updatedMetaJson)
+            result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson)
         } else {
             // No llmResult to process, just handle regular placeholders
-            result = self.processDynamicPlaceholders(action: result, metaJson: metaJson)
+            result = processDynamicPlaceholders(action: result, metaJson: metaJson)
             
             // Process XML placeholders with regular result if llmResult doesn't exist
             if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
@@ -290,70 +290,6 @@ class SocketCommunication {
         result = result.replacingOccurrences(of: "\\n", with: "\n")
         
         return (result, false)
-    }
-
-    private func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
-        var result = action
-        
-        // Find all placeholders using regex pattern {{key}}
-        let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)\\}\\}"
-        let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
-        
-        // Get all matches
-        if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
-            // Process matches in reverse order to avoid range shifting issues
-            for match in matches.reversed() {
-                if let keyRange = Range(match.range(at: 1), in: action),
-                   let fullMatchRange = Range(match.range, in: action) {
-                    
-                    let key = String(action[keyRange])
-                    
-                    // Handle special swResult placeholder
-                    if key == "swResult" {
-                        let value: String
-                        if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
-                            value = llm
-                        } else if let res = metaJson["result"] as? String, !res.isEmpty {
-                            value = res
-                        } else {
-                            value = ""
-                        }
-                        result.replaceSubrange(fullMatchRange, with: value)
-                    }
-                    // Handle any other key from metaJson
-                    else if let jsonValue = metaJson[key] {
-                        let value: String
-                        
-                        // Convert the JSON value to string appropriately
-                        if let stringValue = jsonValue as? String {
-                            value = stringValue
-                        } else if let numberValue = jsonValue as? NSNumber {
-                            value = numberValue.stringValue
-                        } else if let boolValue = jsonValue as? Bool {
-                            value = boolValue ? "true" : "false"
-                        } else if jsonValue is NSNull {
-                            value = ""
-                        } else {
-                            // For complex objects, convert to JSON string
-                            if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
-                               let jsonString = String(data: jsonData, encoding: .utf8) {
-                                value = jsonString
-                            } else {
-                                value = String(describing: jsonValue)
-                            }
-                        }
-                        
-                        // Only replace if value is not empty, otherwise remove the placeholder
-                        result.replaceSubrange(fullMatchRange, with: value)
-                    } else {
-                        // Key doesn't exist in metaJson, remove the placeholder entirely
-                        result.replaceSubrange(fullMatchRange, with: "")
-                    }
-                }
-            }
-        }
-        
-        return result
     }
 
     private func applyInsertDirectly(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
@@ -2766,66 +2702,114 @@ class RecordingsFolderWatcher: @unchecked Sendable {
 
     // New helper function to process dynamic placeholders
     private func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
+        logInfo("[DatePlaceholder] processDynamicPlaceholders called with action: \(action)")
         var result = action
-        
-        // Find all placeholders using regex pattern {{key}}
-        let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)\\}\\}"
+        var metaJson = metaJson // Make mutable copy
+        // Regex for {{key}} and {{date:...}}
+        let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
         let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
-        
-        // Get all matches
+        // --- BEGIN: FrontApp Placeholder Logic ---
+        // Only fetch the front app if the placeholder is present and not already in metaJson
+        if action.contains("{{frontApp}}") && metaJson["frontApp"] == nil {
+            // Use frontAppName from metaJson if present (set by trigger evaluation)
+            var appName: String? = nil
+            if let fromTrigger = metaJson["frontAppName"] as? String, !fromTrigger.isEmpty {
+                appName = fromTrigger
+            } else if let app = lastDetectedFrontApp {
+                appName = app.localizedName
+            } else {
+                // Fetch the frontmost application (synchronously, main thread safe)
+                if Thread.isMainThread {
+                    appName = NSWorkspace.shared.frontmostApplication?.localizedName
+                } else {
+                    var fetchedApp: NSRunningApplication?
+                    let semaphore = DispatchSemaphore(value: 0)
+                    DispatchQueue.main.async {
+                        fetchedApp = NSWorkspace.shared.frontmostApplication
+                        semaphore.signal()
+                    }
+                    _ = semaphore.wait(timeout: .now() + 0.1)
+                    appName = fetchedApp?.localizedName
+                }
+            }
+            metaJson["frontApp"] = appName ?? ""
+            logInfo("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
+        }
+        // --- END: FrontApp Placeholder Logic ---
         if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
-            // Process matches in reverse order to avoid range shifting issues
             for match in matches.reversed() {
-                if let keyRange = Range(match.range(at: 1), in: action),
-                   let fullMatchRange = Range(match.range, in: action) {
-                    
-                    let key = String(action[keyRange])
-                    
-                    // Handle special swResult placeholder
-                    if key == "swResult" {
-                        let value: String
-                        if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
-                            value = llm
-                        } else if let res = metaJson["result"] as? String, !res.isEmpty {
-                            value = res
+                guard let keyRange = Range(match.range(at: 1), in: action),
+                      let fullMatchRange = Range(match.range, in: action) else { continue }
+                let key = String(action[keyRange])
+                let format: String? = (match.numberOfRanges > 2 && match.range(at: 2).location != NSNotFound) ? String(action[Range(match.range(at: 2), in: action)!]) : nil
+                logInfo("[DatePlaceholder] Found placeholder: key=\(key), format=\(String(describing: format)) in \(action[fullMatchRange])")
+                // Check for date placeholder
+                if key == "date" {
+                    let dateFormat = format ?? "short"
+                    let replacement: String
+                    switch dateFormat {
+                    case "short":
+                        let formatter = DateFormatter()
+                        formatter.dateStyle = .short
+                        formatter.timeStyle = .none
+                        replacement = formatter.string(from: Date())
+                    case "long":
+                        let formatter = DateFormatter()
+                        formatter.dateStyle = .long
+                        formatter.timeStyle = .none
+                        replacement = formatter.string(from: Date())
+                    default:
+                        let formatter = DateFormatter()
+                        // Heuristic: if format is only letters, treat as template; else treat as literal format string
+                        let isTemplate = dateFormat.range(of: "[^A-Za-z]", options: .regularExpression) == nil
+                        if isTemplate {
+                            formatter.setLocalizedDateFormatFromTemplate(dateFormat)
+                            logInfo("[DatePlaceholder] Using UTS 35 template: \(dateFormat) -> \(formatter.dateFormat ?? "nil")")
                         } else {
-                            value = ""
+                            formatter.dateFormat = dateFormat
+                            logInfo("[DatePlaceholder] Using literal dateFormat: \(dateFormat)")
                         }
-                        result.replaceSubrange(fullMatchRange, with: value)
+                        replacement = formatter.string(from: Date())
                     }
-                    // Handle any other key from metaJson
-                    else if let jsonValue = metaJson[key] {
-                        let value: String
-                        
-                        // Convert the JSON value to string appropriately
-                        if let stringValue = jsonValue as? String {
-                            value = stringValue
-                        } else if let numberValue = jsonValue as? NSNumber {
-                            value = numberValue.stringValue
-                        } else if let boolValue = jsonValue as? Bool {
-                            value = boolValue ? "true" : "false"
-                        } else if jsonValue is NSNull {
-                            value = ""
-                        } else {
-                            // For complex objects, convert to JSON string
-                            if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
-                               let jsonString = String(data: jsonData, encoding: .utf8) {
-                                value = jsonString
-                            } else {
-                                value = String(describing: jsonValue)
-                            }
-                        }
-                        
-                        // Only replace if value is not empty, otherwise remove the placeholder
-                        result.replaceSubrange(fullMatchRange, with: value)
+                    logInfo("[DatePlaceholder] Replacing {{date:\(dateFormat)}} with \(replacement)")
+                    result.replaceSubrange(fullMatchRange, with: replacement)
+                    continue
+                }
+                // Handle swResult
+                if key == "swResult" {
+                    let value: String
+                    if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                        value = llm
+                    } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                        value = res
                     } else {
-                        // Key doesn't exist in metaJson, remove the placeholder entirely
-                        result.replaceSubrange(fullMatchRange, with: "")
+                        value = ""
                     }
+                    result.replaceSubrange(fullMatchRange, with: value)
+                } else if let jsonValue = metaJson[key] {
+                    let value: String
+                    if let stringValue = jsonValue as? String {
+                        value = stringValue
+                    } else if let numberValue = jsonValue as? NSNumber {
+                        value = numberValue.stringValue
+                    } else if let boolValue = jsonValue as? Bool {
+                        value = boolValue ? "true" : "false"
+                    } else if jsonValue is NSNull {
+                        value = ""
+                    } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                              let jsonString = String(data: jsonData, encoding: .utf8) {
+                        value = jsonString
+                    } else {
+                        value = String(describing: jsonValue)
+                    }
+                    result.replaceSubrange(fullMatchRange, with: value)
+                } else {
+                    // Key doesn't exist in metaJson, remove the placeholder
+                    result.replaceSubrange(fullMatchRange, with: "")
                 }
             }
         }
-        
+        logInfo("[DatePlaceholder] processDynamicPlaceholders final result: \(result)")
         return result
     }
 
@@ -4735,5 +4719,78 @@ func triggersMatch<T>(for action: T, result: String, modeName: String?, frontApp
         if appTriggerSet && appMatched { anyMatch = true }
         return (anyMatch, strippedResult)
     }
+}
+
+// MARK: - Dynamic Placeholder Expansion (Refactored)
+/// Expands dynamic placeholders in the form {{key}} and (new) {{date:format}} in the action string.
+func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
+    var result = action
+    // Regex for {{key}} and {{date:...}}
+    let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+        for match in matches.reversed() {
+            guard let keyRange = Range(match.range(at: 1), in: action),
+                  let fullMatchRange = Range(match.range, in: action) else { continue }
+            let key = String(action[keyRange])
+            // Check for date placeholder
+            if key == "date", match.numberOfRanges > 2, let formatRange = Range(match.range(at: 2), in: action) {
+                let format = String(action[formatRange])
+                let replacement: String
+                switch format {
+                case "short":
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .short
+                    formatter.timeStyle = .none
+                    replacement = formatter.string(from: Date())
+                case "long":
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .long
+                    formatter.timeStyle = .none
+                    replacement = formatter.string(from: Date())
+                default:
+                    // UTS 35 custom format
+                    let formatter = DateFormatter()
+                    formatter.setLocalizedDateFormatFromTemplate(format)
+                    replacement = formatter.string(from: Date())
+                }
+                result.replaceSubrange(fullMatchRange, with: replacement)
+                continue
+            }
+            // Handle swResult
+            if key == "swResult" {
+                let value: String
+                if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                    value = llm
+                } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                    value = res
+                } else {
+                    value = ""
+                }
+                result.replaceSubrange(fullMatchRange, with: value)
+            } else if let jsonValue = metaJson[key] {
+                let value: String
+                if let stringValue = jsonValue as? String {
+                    value = stringValue
+                } else if let numberValue = jsonValue as? NSNumber {
+                    value = numberValue.stringValue
+                } else if let boolValue = jsonValue as? Bool {
+                    value = boolValue ? "true" : "false"
+                } else if jsonValue is NSNull {
+                    value = ""
+                } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                          let jsonString = String(data: jsonData, encoding: .utf8) {
+                    value = jsonString
+                } else {
+                    value = String(describing: jsonValue)
+                }
+                result.replaceSubrange(fullMatchRange, with: value)
+            } else {
+                // Key doesn't exist in metaJson, remove the placeholder
+                result.replaceSubrange(fullMatchRange, with: "")
+            }
+        }
+    }
+    return result
 }
 
