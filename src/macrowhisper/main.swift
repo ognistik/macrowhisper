@@ -2809,7 +2809,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 }
             }
         }
-        logInfo("[DatePlaceholder] processDynamicPlaceholders final result: \(result)")
         return result
     }
 
