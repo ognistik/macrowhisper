@@ -610,7 +610,7 @@ class SocketCommunication {
                     }
                     
                     // Trigger config changed callback
-                    configMgr.onConfigChanged?()
+                    configMgr.onConfigChanged?(nil)
                 } else {
                     let response = "Missing name for insert"
                     write(clientSocket, response, response.utf8.count)
@@ -634,7 +634,7 @@ class SocketCommunication {
                         }
                         
                         configMgr.saveConfig()
-                        configMgr.onConfigChanged?()
+                        configMgr.onConfigChanged?(nil)
                         
                         let response = "Insert '\(name)' removed"
                         write(clientSocket, response, response.utf8.count)
@@ -786,7 +786,7 @@ class SocketCommunication {
                 if let loadedConfig = configMgr.loadConfig() {
                     configMgr.config = loadedConfig
                     configMgr.configurationSuccessfullyLoaded() // Reset notification flag
-                    configMgr.onConfigChanged?()
+                    configMgr.onConfigChanged?(nil)
                     configMgr.resetFileWatcher()
                     
                     // Send success response
@@ -944,7 +944,7 @@ class SocketCommunication {
                     }
                     
                     // Trigger config changed callback
-                    configMgr.onConfigChanged?()
+                    configMgr.onConfigChanged?(nil)
                 } else {
                     let response = "Missing name for URL action"
                     write(clientSocket, response, response.utf8.count)
@@ -3535,11 +3535,15 @@ class ConfigurationManager {
     // Add a property to track if we've already notified about JSON errors
     private var hasNotifiedAboutJsonError = false
     
+    // --- Suppression flag for internal config writes ---
+    private var suppressNextConfigReload = false // If true, skip reload on next file watcher event
+    // --------------------------------------------------
+    
     // Make config publicly accessible
     var config: AppConfiguration
     
     // Callback for configuration changes
-    var onConfigChanged: (() -> Void)?
+    var onConfigChanged: ((_ reason: String?) -> Void)?
     
     init(configPath: String? = nil) {
         // Initialize properties first
@@ -3697,7 +3701,10 @@ class ConfigurationManager {
                 
                 // Call onConfigChanged callback
                 DispatchQueue.main.async {
-                    self.onConfigChanged?()
+                    let oldWatchPath = self.config.defaults.watch
+                    let newWatchPath = self.config.defaults.watch
+                    let reason = (oldWatchPath != newWatchPath) ? "watchPathChanged" : nil
+                    self.onConfigChanged?(reason)
                     
                     // Execute completion handler if provided
                     command.completion?()
@@ -3730,22 +3737,26 @@ class ConfigurationManager {
     private func setupFileWatcher() {
         // First, log the exact path we're watching
         logInfo("Setting up file watcher for configuration at: \(configFilePath)")
-        
         // Clean up any existing watcher
         fileWatcher = nil
-        
         // Create a file watcher with explicit logging
         fileWatcher = FileChangeWatcher(
             filePath: configFilePath,
             onChanged: { [weak self] in
                 logInfo("*** CONFIG FILE CHANGE DETECTED ***")
                 guard let self = self else { return }
-                
+                // --- Suppress reload if this was an internal config write ---
+                if self.suppressNextConfigReload {
+                    logInfo("Suppressed config reload after internal write.")
+                    self.suppressNextConfigReload = false
+                    return
+                }
+                // -----------------------------------------------------------
                 logInfo("Configuration file change detected, reloading...")
                 if let loadedConfig = self.loadConfig() {
                     self.config = loadedConfig
                     self.configurationSuccessfullyLoaded()
-                    self.onConfigChanged?()
+                    self.onConfigChanged?(nil)
                     logInfo("Configuration automatically reloaded after file change")
                 } else {
                     logError("Failed to reload configuration after file change")
@@ -3755,10 +3766,8 @@ class ConfigurationManager {
                 logWarning("Configuration file was deleted or moved")
             }
         )
-        
         // Force an immediate metadata check to establish proper baseline
         fileWatcher?.forceInitialMetadataCheck()
-        
         // Add a delay before allowing normal operation to ensure metadata is fully established
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
             // Force a second check after the delay to ensure everything is synchronized
@@ -3811,17 +3820,16 @@ class ConfigurationManager {
             // Don't show another notification here - we've already notified in loadConfig()
             return
         }
-        
+        // --- Set suppression flag before writing config ---
+        suppressNextConfigReload = true
+        // --------------------------------------------------
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys]
-            
             // Don't encode null values as nil - this will keep them as explicit nulls in the JSON
             encoder.nonConformingFloatEncodingStrategy = .convertToString(positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")
-            
             let data = try encoder.encode(config)
             try data.write(to: URL(fileURLWithPath: configFilePath), options: .atomic)
-            
             logInfo("Configuration saved to \(configFilePath)")
         } catch {
             logError("Error saving configuration: \(error.localizedDescription)")
@@ -4461,33 +4469,28 @@ if runWatcher {
 }
 
 // Set up configuration change handler for live updates
-configManager.onConfigChanged = {
+configManager.onConfigChanged = { reason in
     // Store previous values to detect changes
     let previousDisableUpdates = disableUpdates
-
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
     disableNotifications = configManager.config.defaults.noNoti
-
     // If updates were disabled but are now enabled, reset the version checker state
     if previousDisableUpdates == true && disableUpdates == false {
         versionChecker.resetLastCheckDate()
     }
-
-    // Check if watcher should be running
-    let currentWatchPath = configManager.config.defaults.watch
-
-    // Always check if the folder exists and initialize/reinitialize watcher as needed
-    if FileManager.default.fileExists(atPath: currentWatchPath) {
-        // Folder exists - initialize or reinitialize watcher
-        recordingsWatcher = nil  // Force clean reinitialize
-        initializeWatcher(currentWatchPath)
-        logInfo("Watcher initialized/reinitialized for folder: \(currentWatchPath)")
-    } else {
-        // Folder doesn't exist - disable watcher
-        recordingsWatcher = nil
-        logInfo("Watcher disabled because folder doesn't exist: \(currentWatchPath)")
-        notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location & reload config.")
+    // Only reinitialize watcher if the watch path changed
+    if reason == "watchPathChanged" {
+        let currentWatchPath = configManager.config.defaults.watch
+        if FileManager.default.fileExists(atPath: currentWatchPath) {
+            recordingsWatcher = nil  // Force clean reinitialize
+            initializeWatcher(currentWatchPath)
+            logInfo("Watcher initialized/reinitialized for folder: \(currentWatchPath)")
+        } else {
+            recordingsWatcher = nil
+            logInfo("Watcher disabled because folder doesn't exist: \(currentWatchPath)")
+            notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location & reload config.")
+        }
     }
 }
 
