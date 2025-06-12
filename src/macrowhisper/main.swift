@@ -3657,6 +3657,8 @@ class ConfigurationManager {
                     self.config = freshConfig
                 }
                 
+                // --- FIX: Store old watch path before updating ---
+                let oldWatchPath = self.config.defaults.watch
                 // Update config values
                 if let watchPath = watchPath {
                     self.config.defaults.watch = watchPath
@@ -3701,14 +3703,12 @@ class ConfigurationManager {
                 
                 // Call onConfigChanged callback
                 DispatchQueue.main.async {
-                    let oldWatchPath = self.config.defaults.watch
+                    // --- FIX: Compare old and new watch path correctly ---
                     let newWatchPath = self.config.defaults.watch
                     let reason = (oldWatchPath != newWatchPath) ? "watchPathChanged" : nil
                     self.onConfigChanged?(reason)
-                    
                     // Execute completion handler if provided
                     command.completion?()
-                    
                     // Mark as not processing and check for more commands
                     self.isProcessingCommands = false
                     self.processNextCommand()
@@ -4479,18 +4479,18 @@ configManager.onConfigChanged = { reason in
     if previousDisableUpdates == true && disableUpdates == false {
         versionChecker.resetLastCheckDate()
     }
-    // Only reinitialize watcher if the watch path changed
-    if reason == "watchPathChanged" {
-        let currentWatchPath = configManager.config.defaults.watch
-        if FileManager.default.fileExists(atPath: currentWatchPath) {
-            recordingsWatcher = nil  // Force clean reinitialize
-            initializeWatcher(currentWatchPath)
-            logInfo("Watcher initialized/reinitialized for folder: \(currentWatchPath)")
-        } else {
-            recordingsWatcher = nil
-            logInfo("Watcher disabled because folder doesn't exist: \(currentWatchPath)")
-            notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location & reload config.")
-        }
+    // --- FIX: Always check if watcher should be started, not just on watchPathChanged ---
+    let currentWatchPath = configManager.config.defaults.watch
+    let recordingsPath = "\(currentWatchPath)/recordings"
+    let recordingsFolderExists = FileManager.default.fileExists(atPath: recordingsPath)
+    if (reason == "watchPathChanged" || recordingsWatcher == nil) && recordingsFolderExists {
+        recordingsWatcher = nil  // Force clean reinitialize
+        initializeWatcher(currentWatchPath)
+        logInfo("Watcher initialized/reinitialized for folder: \(currentWatchPath)")
+    } else if reason == "watchPathChanged" && !recordingsFolderExists {
+        recordingsWatcher = nil
+        logInfo("Watcher disabled because folder doesn't exist: \(currentWatchPath)")
+        notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the location & reload config.")
     }
 }
 
