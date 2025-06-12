@@ -56,6 +56,7 @@ class SocketCommunication {
         case autoReturn
         case execInsert
         case addUrl
+        case addShortcut
     }
     
     struct CommandMessage: Codable {
@@ -885,6 +886,37 @@ class SocketCommunication {
                     let response = "Missing name for URL action"
                     write(clientSocket, response, response.utf8.count)
                 }
+            
+            case .addShortcut:
+                logInfo("Received command to add shortcut action")
+                
+                if let name = commandMessage.arguments?["name"] {
+                    // Check if shortcut action with this name already exists
+                    var shortcuts = configMgr.config.shortcuts
+                    if let index = shortcuts.firstIndex(where: { $0.name == name }) {
+                        // Update existing shortcut action
+                        shortcuts[index] = AppConfiguration.Shortcut(name: name, action: "")
+                        configMgr.config.shortcuts = shortcuts
+                        configMgr.saveConfig()
+                        
+                        let response = "Shortcut action '\(name)' updated"
+                        write(clientSocket, response, response.utf8.count)
+                    } else {
+                        // Add new shortcut action
+                        shortcuts.append(AppConfiguration.Shortcut(name: name, action: ""))
+                        configMgr.config.shortcuts = shortcuts
+                        configMgr.saveConfig()
+                        
+                        let response = "Shortcut action '\(name)' added"
+                        write(clientSocket, response, response.utf8.count)
+                    }
+                    
+                    // Trigger config changed callback
+                    configMgr.onConfigChanged?(nil)
+                } else {
+                    let response = "Missing name for shortcut action"
+                    write(clientSocket, response, response.utf8.count)
+                }
             }
             
         } catch {
@@ -1670,15 +1702,81 @@ struct AppConfiguration: Codable {
         }
     }
     
+    struct Shortcut: Codable {
+        var name: String
+        var action: String
+        var moveTo: String? = ""  // Default to empty string
+        var noEsc: Bool?
+        var actionDelay: Double?
+        // --- Trigger fields for future extensibility ---
+        /// Voice trigger regex (matches start of phrase)
+        var triggerVoice: String? = ""
+        /// App trigger regex (matches app name or bundle ID)
+        var triggerApps: String? = ""
+        /// Mode trigger regex (matches modeName)
+        var triggerModes: String? = ""
+        /// Logic for combining triggers ("and"/"or")
+        var triggerLogic: String? = "or"
+        
+        enum CodingKeys: String, CodingKey {
+            case name, action, moveTo, noEsc, actionDelay
+            case triggerVoice, triggerApps, triggerModes, triggerLogic
+        }
+        
+        // Custom encoding to preserve null values and ensure trigger fields are always present
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(name, forKey: .name)
+            try container.encode(action, forKey: .action)
+            try container.encode(moveTo, forKey: .moveTo)
+            try container.encode(noEsc, forKey: .noEsc)
+            try container.encode(actionDelay, forKey: .actionDelay)
+            // Always encode trigger fields, defaulting to "" if nil
+            try container.encode(triggerVoice ?? "", forKey: .triggerVoice)
+            try container.encode(triggerApps ?? "", forKey: .triggerApps)
+            try container.encode(triggerModes ?? "", forKey: .triggerModes)
+            try container.encode(triggerLogic ?? "or", forKey: .triggerLogic)
+        }
+        
+        // Custom decoding to ensure trigger fields are always present
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            action = try container.decode(String.self, forKey: .action)
+            moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
+            noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
+            actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
+            triggerVoice = try container.decodeIfPresent(String.self, forKey: .triggerVoice) ?? ""
+            triggerApps = try container.decodeIfPresent(String.self, forKey: .triggerApps) ?? ""
+            triggerModes = try container.decodeIfPresent(String.self, forKey: .triggerModes) ?? ""
+            triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
+        }
+        
+        // Default initializer for new shortcuts
+        init(name: String, action: String, moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+            self.name = name
+            self.action = action
+            self.moveTo = moveTo
+            self.noEsc = noEsc
+            self.actionDelay = actionDelay
+            self.triggerVoice = triggerVoice ?? ""
+            self.triggerApps = triggerApps ?? ""
+            self.triggerModes = triggerModes ?? ""
+            self.triggerLogic = triggerLogic ?? "or"
+        }
+    }
+    
     var defaults: Defaults
     var inserts: [Insert]
     var urls: [Url]
+    var shortcuts: [Shortcut]
     
     static func defaultConfig() -> AppConfiguration {
         return AppConfiguration(
             defaults: Defaults.defaultValues(),
             inserts: [],
-            urls: []
+            urls: [],
+            shortcuts: []
         )
     }
 }
@@ -1911,6 +2009,23 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 }
             } else {
                 print("Missing name after --add-url")
+            }
+            exit(0)
+        }
+        
+        if args.contains("--add-shortcut") {
+            let addShortcutIndex = args.firstIndex(where: { $0 == "--add-shortcut" })
+            if let index = addShortcutIndex, index + 1 < args.count {
+                let shortcutName = args[index + 1]
+                let arguments: [String: String] = ["name": shortcutName]
+                
+                if let response = socketCommunication.sendCommand(.addShortcut, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add shortcut action")
+                }
+            } else {
+                print("Missing name after --add-shortcut")
             }
             exit(0)
         }
@@ -3358,6 +3473,15 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 }
             }
             
+            // Evaluate all shortcut actions for triggers
+            for shortcut in configManager.config.shortcuts {
+                logInfo("[TriggerEval] Checking shortcut action: name=\(shortcut.name), triggerVoice=\(shortcut.triggerVoice ?? "nil"), triggerApps=\(shortcut.triggerApps ?? "nil"), triggerModes=\(shortcut.triggerModes ?? "nil"), triggerLogic=\(shortcut.triggerLogic ?? "nil")")
+                let (matched, strippedResult) = triggersMatch(for: shortcut, result: String(describing: result), modeName: modeName, frontAppName: frontAppName, frontAppBundleId: frontAppBundleId)
+                if matched {
+                    matchedTriggerActions.append((action: shortcut, name: shortcut.name, strippedResult: strippedResult))
+                }
+            }
+            
             if !matchedTriggerActions.isEmpty {
                 // Sort actions by name and pick the first
                 let (action, name, strippedResult) = matchedTriggerActions.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.first!
@@ -3381,6 +3505,9 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: insert)
                 } else if let url = action as? AppConfiguration.Url {
                     self.processUrlAction(url, metaJson: updatedJson)
+                    self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: nil)
+                } else if let shortcut = action as? AppConfiguration.Shortcut {
+                    self.processShortcutAction(shortcut, metaJson: updatedJson)
                     self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: nil)
                 }
                 
@@ -3496,6 +3623,40 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         }
         
         // Disable auto-return if it was enabled
+        autoReturnEnabled = false
+    }
+    
+    private func processShortcutAction(_ shortcutAction: AppConfiguration.Shortcut, metaJson: [String: Any]) {
+        let (processedAction, _) = self.processAction(shortcutAction.action, metaJson: metaJson)
+        let shortcutName = shortcutAction.name
+
+        let task = Process()
+        task.launchPath = "/usr/bin/shortcuts"
+        task.arguments = ["run", shortcutName, "-i", "-"]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+
+        let inputPipe = Pipe()
+        task.standardInput = inputPipe
+
+        do {
+            try task.run()
+            // Write the action to stdin
+            if let data = processedAction.data(using: .utf8) {
+                inputPipe.fileHandleForWriting.write(data)
+            }
+            inputPipe.fileHandleForWriting.closeFile()
+            logInfo("Shortcut '\(shortcutName)' launched asynchronously with direct stdin input")
+        } catch {
+            logError("Failed to execute shortcut action: \(error)")
+        }
+
+        if !(shortcutAction.noEsc ?? false) {
+            self.simulateEscKeyPress(activeInsert: nil)
+        }
+        if let delay = shortcutAction.actionDelay, delay > 0 {
+            Thread.sleep(forTimeInterval: delay)
+        }
         autoReturnEnabled = false
     }
 }
@@ -4560,6 +4721,8 @@ func triggersMatch<T>(for action: T, result: String, modeName: String?, frontApp
             return (insert.triggerVoice, insert.triggerModes, insert.triggerApps, insert.triggerLogic, insert.name)
         case let url as AppConfiguration.Url:
             return (url.triggerVoice, url.triggerModes, url.triggerApps, url.triggerLogic, url.name)
+        case let shortcut as AppConfiguration.Shortcut:
+            return (shortcut.triggerVoice, shortcut.triggerModes, shortcut.triggerApps, shortcut.triggerLogic, shortcut.name)
         default:
             return ("", "", "", "or", "unknown")
         }
