@@ -3347,164 +3347,6 @@ class RecordingsFolderWatcher: @unchecked Sendable {
             }
             // --- End update front app ---
             
-            // --- Unified Trigger Matching (Voice, Mode, App) with AND/OR Logic ---
-            // Helper to evaluate triggers for a given insert
-            func triggersMatch(for insert: AppConfiguration.Insert, result: String, modeName: String?, frontAppName: String?, frontAppBundleId: String?) -> (matched: Bool, strippedResult: String?) {
-                var voiceMatched = false
-                var modeMatched = false
-                var appMatched = false
-                var strippedResult: String? = nil
-                // Voice trigger
-                if let triggerVoice = insert.triggerVoice, !triggerVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    let triggers = triggerVoice.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                    var matched = false
-                    var exceptionMatched = false
-                    logInfo("[TriggerEval] Voice trigger check for insert '\(insert.name)': result=\"\(result)\", patterns=\(triggers)")
-                    for trigger in triggers {
-                        let isException = trigger.hasPrefix("!")
-                        let actualPattern = isException ? String(trigger.dropFirst()) : trigger
-                        let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: actualPattern)
-                        if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
-                            let range = NSRange(location: 0, length: result.utf16.count)
-                            let found = regex.firstMatch(in: result, options: [], range: range) != nil
-                            logInfo("[TriggerEval] Pattern '\(trigger)' found=\(found) in result=\(result)")
-                            if isException && found { exceptionMatched = true }
-                            if !isException && found {
-                                // Strip the trigger from the start, plus any leading punctuation/whitespace after
-                                let match = regex.firstMatch(in: result, options: [], range: range)!
-                                let afterTriggerIdx = result.index(result.startIndex, offsetBy: match.range.length)
-                                var stripped = String(result[afterTriggerIdx...])
-                                let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-                                while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
-                                    stripped.removeFirst()
-                                }
-                                if let first = stripped.first {
-                                    stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
-                                }
-                                matched = true
-                                strippedResult = stripped
-                            }
-                        }
-                    }
-                    let hasPositive = triggers.contains { !$0.hasPrefix("!") }
-                    let hasException = triggers.contains { $0.hasPrefix("!") }
-                    if hasPositive {
-                        voiceMatched = matched && !exceptionMatched
-                    } else if hasException {
-                        // Only exceptions: match if no exception matched
-                        voiceMatched = !exceptionMatched
-                    } else {
-                        // No patterns at all (shouldn't happen), treat as matched
-                        voiceMatched = true
-                    }
-                    logInfo("[TriggerEval] Voice trigger result for insert '\(insert.name)': matched=\(voiceMatched)")
-                } else {
-                    // No voice trigger set, treat as matched for AND logic
-                    voiceMatched = true
-                }
-                // Mode trigger
-                if let triggerModes = insert.triggerModes, !triggerModes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let modeName = modeName {
-                    let patterns = triggerModes.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                    var matched = false
-                    var exceptionMatched = false
-                    logInfo("[TriggerEval] Mode trigger check for insert '\(insert.name)': modeName=\"\(modeName)\", patterns=\(patterns)")
-                    for pattern in patterns {
-                        let isException = pattern.hasPrefix("!")
-                        let actualPattern = isException ? String(pattern.dropFirst()) : pattern
-                        let regexPattern: String
-                        if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
-                            regexPattern = actualPattern
-                        } else {
-                            regexPattern = "(?i)" + actualPattern
-                        }
-                        if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
-                            let range = NSRange(location: 0, length: modeName.utf16.count)
-                            let found = regex.firstMatch(in: modeName, options: [], range: range) != nil
-                            logInfo("[TriggerEval] Pattern '\(pattern)' found=\(found) in modeName=\(modeName)")
-                            if isException && found { exceptionMatched = true }
-                            if !isException && found { matched = true }
-                        }
-                    }
-                    let hasPositive = patterns.contains { !$0.hasPrefix("!") }
-                    let hasException = patterns.contains { $0.hasPrefix("!") }
-                    if hasPositive {
-                        modeMatched = matched && !exceptionMatched
-                    } else if hasException {
-                        // Only exceptions: match if no exception matched
-                        modeMatched = !exceptionMatched
-                    } else {
-                        // No patterns at all (shouldn't happen), treat as matched
-                        modeMatched = true
-                    }
-                    logInfo("[TriggerEval] Mode trigger result for insert '\(insert.name)': matched=\(modeMatched)")
-                } else {
-                    // No mode trigger set, treat as matched for AND logic
-                    modeMatched = true
-                }
-                // App trigger
-                if let triggerApps = insert.triggerApps, !triggerApps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    if let appName = frontAppName, let bundleId = frontAppBundleId {
-                        let patterns = triggerApps.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                        var matched = false
-                        var exceptionMatched = false
-                        logInfo("[TriggerEval] App trigger check for insert '\(insert.name)': appName=\"\(appName)\", bundleId=\"\(bundleId)\", patterns=\(patterns)")
-                        for pattern in patterns {
-                            let isException = pattern.hasPrefix("!")
-                            let actualPattern = isException ? String(pattern.dropFirst()) : pattern
-                            let regexPattern: String
-                            if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
-                                regexPattern = actualPattern
-                            } else {
-                                regexPattern = "(?i)" + actualPattern
-                            }
-                            if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
-                                let nameRange = NSRange(location: 0, length: appName.utf16.count)
-                                let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
-                                let found = regex.firstMatch(in: appName, options: [], range: nameRange) != nil || regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
-                                logInfo("[TriggerEval] Pattern '\(pattern)' found=\(found) in appName=\(appName), bundleId=\(bundleId)")
-                                if isException && found { exceptionMatched = true }
-                                if !isException && found { matched = true }
-                            }
-                        }
-                        // After evaluating all patterns, determine match logic for app triggers
-                        let hasPositive = patterns.contains { !$0.hasPrefix("!") }
-                        let hasException = patterns.contains { $0.hasPrefix("!") }
-                        if hasPositive {
-                            appMatched = matched && !exceptionMatched
-                        } else if hasException {
-                            // Only exceptions: match if no exception matched
-                            appMatched = !exceptionMatched
-                        } else {
-                            // No patterns at all (shouldn't happen), treat as matched
-                            appMatched = true
-                        }
-                        logInfo("[TriggerEval] App trigger result for insert '\(insert.name)': matched=\(appMatched)")
-                    } else {
-                        logInfo("[TriggerEval] App trigger set for insert '\(insert.name)' but appName or bundleId is nil. Not matching.")
-                        appMatched = false
-                    }
-                } else {
-                    // No app trigger set, treat as matched for AND logic
-                    appMatched = true
-                }
-                // Determine logic
-                let logic = (insert.triggerLogic ?? "or").lowercased()
-                if logic == "and" {
-                    // All must match
-                    let allMatch = voiceMatched && modeMatched && appMatched
-                    return (allMatch, strippedResult)
-                } else {
-                    // OR logic: only non-empty triggers are considered
-                    let voiceTriggerSet = insert.triggerVoice != nil && !insert.triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    let modeTriggerSet = insert.triggerModes != nil && !insert.triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    let appTriggerSet = insert.triggerApps != nil && !insert.triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    var anyMatch = false
-                    if voiceTriggerSet && voiceMatched { anyMatch = true }
-                    if modeTriggerSet && modeMatched { anyMatch = true }
-                    if appTriggerSet && appMatched { anyMatch = true }
-                    return (anyMatch, strippedResult)
-                }
-            }
             // Get front app info for app triggers
             var frontAppName: String? = nil
             var frontAppBundleId: String? = nil
@@ -3513,31 +3355,52 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 frontAppBundleId = app.bundleIdentifier
             }
             let modeName = json["modeName"] as? String
+            
+            // Store all matched actions with their stripped results
+            var matchedTriggerActions: [(action: Any, name: String, strippedResult: String?)] = []
+            
             // Evaluate all inserts for triggers
-            var matchedTriggerActions: [(insert: AppConfiguration.Insert, strippedResult: String?)] = []
             for insert in configManager.config.inserts {
                 let (matched, strippedResult) = triggersMatch(for: insert, result: String(describing: result), modeName: modeName, frontAppName: frontAppName, frontAppBundleId: frontAppBundleId)
                 if matched {
-                    matchedTriggerActions.append((insert, strippedResult))
+                    matchedTriggerActions.append((action: insert, name: insert.name, strippedResult: strippedResult))
                 }
             }
+            
+            // Evaluate all URL actions for triggers
+            for url in configManager.config.urls {
+                let (matched, strippedResult) = triggersMatch(for: url, result: String(describing: result), modeName: modeName, frontAppName: frontAppName, frontAppBundleId: frontAppBundleId)
+                if matched {
+                    matchedTriggerActions.append((action: url, name: url.name, strippedResult: strippedResult))
+                }
+            }
+            
             if !matchedTriggerActions.isEmpty {
                 // Sort actions by name and pick the first
-                let (insert, strippedResult) = matchedTriggerActions.sorted { $0.insert.name.localizedCaseInsensitiveCompare($1.insert.name) == .orderedAscending }.first!
-                logInfo("[TriggerEval] Action '\(insert.name)' selected for execution due to trigger match.")
+                let (action, name, strippedResult) = matchedTriggerActions.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.first!
+                logInfo("[TriggerEval] Action '\(name)' selected for execution due to trigger match.")
+                
                 // Prepare metaJson with updated result and swResult if voice trigger matched
                 var updatedJson = json
                 if let stripped = strippedResult {
                     updatedJson["result"] = stripped
                     updatedJson["swResult"] = stripped
                 }
-                let (processedAction, isAutoPasteResult) = self.processAction(insert.action, metaJson: updatedJson)
-                self.applyInsert(
-                    processedAction,
-                    activeInsert: insert,
-                    isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
-                )
-                self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: insert)
+                
+                // Handle the action based on its type
+                if let insert = action as? AppConfiguration.Insert {
+                    let (processedAction, isAutoPasteResult) = self.processAction(insert.action, metaJson: updatedJson)
+                    self.applyInsert(
+                        processedAction,
+                        activeInsert: insert,
+                        isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
+                    )
+                    self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: insert)
+                } else if let url = action as? AppConfiguration.Url {
+                    self.processUrlAction(url, metaJson: updatedJson)
+                    self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: nil)
+                }
+                
                 // Continue processing to allow auto-return to work if enabled
                 return
             }
@@ -3608,6 +3471,49 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    // Add this method inside RecordingsFolderWatcher
+    private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) {
+        // Process the URL action with placeholders
+        let (processedAction, _) = self.processAction(urlAction.action, metaJson: metaJson)
+        
+        // URL encode the processed action
+        guard let encodedUrl = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+              let url = URL(string: encodedUrl) else {
+            logError("Invalid URL after processing: \(processedAction)")
+            return
+        }
+        
+        // If openWith is specified, use that app to open the URL
+        if let openWith = urlAction.openWith, !openWith.isEmpty {
+            let task = Process()
+            task.launchPath = "/usr/bin/open"
+            task.arguments = ["-a", openWith, url.absoluteString]
+            do {
+                try task.run()
+            } catch {
+                logError("Failed to open URL with specified app: \(error)")
+                // Fallback to default URL handling
+                NSWorkspace.shared.open(url)
+            }
+        } else {
+            // Open with default handler
+            NSWorkspace.shared.open(url)
+        }
+        
+        // Handle ESC key press if not disabled
+        if !(urlAction.noEsc ?? false) {
+            self.simulateEscKeyPress(activeInsert: nil)
+        }
+        
+        // Handle action delay
+        if let delay = urlAction.actionDelay, delay > 0 {
+            Thread.sleep(forTimeInterval: delay)
+        }
+        
+        // Disable auto-return if it was enabled
+        autoReturnEnabled = false
     }
 }
 
@@ -4524,7 +4430,6 @@ if runWatcher { logInfo("Watcher: \(watchFolderPath)/recordings") }
 
 // Server setup - only if jsonPath is provided
 // MARK: - Server and Watcher Setup
-
 var fileWatcher: FileChangeWatcher? = nil
 
 func folderExistsOrExit(_ path: String, what: String) {
@@ -4623,6 +4528,181 @@ extension URLSession {
         
         if let e = resultError { exitWithError("Network error: \(e.localizedDescription)") }
         return (resultData ?? Data(), resultResponse!)
+    }
+}
+
+// MARK: - URL Action Handling
+// Helper to evaluate triggers for a given action (insert or URL)
+func triggersMatch<T>(for action: T, result: String, modeName: String?, frontAppName: String?, frontAppBundleId: String?) -> (matched: Bool, strippedResult: String?) {
+    var voiceMatched = false
+    var modeMatched = false
+    var appMatched = false
+    var strippedResult: String? = nil
+    
+    // Get trigger values based on action type
+    let (triggerVoice, triggerModes, triggerApps, triggerLogic, actionName) = {
+        switch action {
+        case let insert as AppConfiguration.Insert:
+            return (insert.triggerVoice, insert.triggerModes, insert.triggerApps, insert.triggerLogic, insert.name)
+        case let url as AppConfiguration.Url:
+            return (url.triggerVoice, url.triggerModes, url.triggerApps, url.triggerLogic, url.name)
+        default:
+            return ("", "", "", "or", "unknown")
+        }
+    }()
+    
+    // Voice trigger
+    if let triggerVoice = triggerVoice, !triggerVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let triggers = triggerVoice.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        var matched = false
+        var exceptionMatched = false
+        logInfo("[TriggerEval] Voice trigger check for action '\(actionName)': result=\"\(result)\", patterns=\(triggers)")
+        for trigger in triggers {
+            let isException = trigger.hasPrefix("!")
+            let actualPattern = isException ? String(trigger.dropFirst()) : trigger
+            let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: actualPattern)
+            if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                let range = NSRange(location: 0, length: result.utf16.count)
+                let found = regex.firstMatch(in: result, options: [], range: range) != nil
+                logInfo("[TriggerEval] Pattern '\(trigger)' found=\(found) in result=\(result)")
+                if isException && found { exceptionMatched = true }
+                if !isException && found {
+                    // Strip the trigger from the start, plus any leading punctuation/whitespace after
+                    let match = regex.firstMatch(in: result, options: [], range: range)!
+                    let afterTriggerIdx = result.index(result.startIndex, offsetBy: match.range.length)
+                    var stripped = String(result[afterTriggerIdx...])
+                    let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+                    while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
+                        stripped.removeFirst()
+                    }
+                    if let first = stripped.first {
+                        stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
+                    }
+                    matched = true
+                    strippedResult = stripped
+                }
+            }
+        }
+        let hasPositive = triggers.contains { !$0.hasPrefix("!") }
+        let hasException = triggers.contains { $0.hasPrefix("!") }
+        if hasPositive {
+            voiceMatched = matched && !exceptionMatched
+        } else if hasException {
+            // Only exceptions: match if no exception matched
+            voiceMatched = !exceptionMatched
+        } else {
+            // No patterns at all (shouldn't happen), treat as matched
+            voiceMatched = true
+        }
+        logInfo("[TriggerEval] Voice trigger result for action '\(actionName)': matched=\(voiceMatched)")
+    } else {
+        // No voice trigger set, treat as matched for AND logic
+        voiceMatched = true
+    }
+    
+    // Mode trigger
+    if let triggerModes = triggerModes, !triggerModes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let modeName = modeName {
+        let patterns = triggerModes.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        var matched = false
+        var exceptionMatched = false
+        logInfo("[TriggerEval] Mode trigger check for action '\(actionName)': modeName=\"\(modeName)\", patterns=\(patterns)")
+        for pattern in patterns {
+            let isException = pattern.hasPrefix("!")
+            let actualPattern = isException ? String(pattern.dropFirst()) : pattern
+            let regexPattern: String
+            if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
+                regexPattern = actualPattern
+            } else {
+                regexPattern = "(?i)" + actualPattern
+            }
+            if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                let range = NSRange(location: 0, length: modeName.utf16.count)
+                let found = regex.firstMatch(in: modeName, options: [], range: range) != nil
+                logInfo("[TriggerEval] Pattern '\(pattern)' found=\(found) in modeName=\(modeName)")
+                if isException && found { exceptionMatched = true }
+                if !isException && found { matched = true }
+            }
+        }
+        let hasPositive = patterns.contains { !$0.hasPrefix("!") }
+        let hasException = patterns.contains { $0.hasPrefix("!") }
+        if hasPositive {
+            modeMatched = matched && !exceptionMatched
+        } else if hasException {
+            // Only exceptions: match if no exception matched
+            modeMatched = !exceptionMatched
+        } else {
+            // No patterns at all (shouldn't happen), treat as matched
+            modeMatched = true
+        }
+        logInfo("[TriggerEval] Mode trigger result for action '\(actionName)': matched=\(modeMatched)")
+    } else {
+        // No mode trigger set, treat as matched for AND logic
+        modeMatched = true
+    }
+    
+    // App trigger
+    if let triggerApps = triggerApps, !triggerApps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let appName = frontAppName, let bundleId = frontAppBundleId {
+            let patterns = triggerApps.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            var matched = false
+            var exceptionMatched = false
+            logInfo("[TriggerEval] App trigger check for action '\(actionName)': appName=\"\(appName)\", bundleId=\"\(bundleId)\", patterns=\(patterns)")
+            for pattern in patterns {
+                let isException = pattern.hasPrefix("!")
+                let actualPattern = isException ? String(pattern.dropFirst()) : pattern
+                let regexPattern: String
+                if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
+                    regexPattern = actualPattern
+                } else {
+                    regexPattern = "(?i)" + actualPattern
+                }
+                if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                    let nameRange = NSRange(location: 0, length: appName.utf16.count)
+                    let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
+                    let found = regex.firstMatch(in: appName, options: [], range: nameRange) != nil || regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
+                    logInfo("[TriggerEval] Pattern '\(pattern)' found=\(found) in appName=\(appName), bundleId=\(bundleId)")
+                    if isException && found { exceptionMatched = true }
+                    if !isException && found { matched = true }
+                }
+            }
+            // After evaluating all patterns, determine match logic for app triggers
+            let hasPositive = patterns.contains { !$0.hasPrefix("!") }
+            let hasException = patterns.contains { $0.hasPrefix("!") }
+            if hasPositive {
+                appMatched = matched && !exceptionMatched
+            } else if hasException {
+                // Only exceptions: match if no exception matched
+                appMatched = !exceptionMatched
+            } else {
+                // No patterns at all (shouldn't happen), treat as matched
+                appMatched = true
+            }
+            logInfo("[TriggerEval] App trigger result for action '\(actionName)': matched=\(appMatched)")
+        } else {
+            logInfo("[TriggerEval] App trigger set for action '\(actionName)' but appName or bundleId is nil. Not matching.")
+            appMatched = false
+        }
+    } else {
+        // No app trigger set, treat as matched for AND logic
+        appMatched = true
+    }
+    
+    // Determine logic
+    let logic = (triggerLogic ?? "or").lowercased()
+    if logic == "and" {
+        // All must match
+        let allMatch = voiceMatched && modeMatched && appMatched
+        return (allMatch, strippedResult)
+    } else {
+        // OR logic: only non-empty triggers are considered
+        let voiceTriggerSet = triggerVoice != nil && !triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let modeTriggerSet = triggerModes != nil && !triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let appTriggerSet = triggerApps != nil && !triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        var anyMatch = false
+        if voiceTriggerSet && voiceMatched { anyMatch = true }
+        if modeTriggerSet && modeMatched { anyMatch = true }
+        if appTriggerSet && appMatched { anyMatch = true }
+        return (anyMatch, strippedResult)
     }
 }
 
