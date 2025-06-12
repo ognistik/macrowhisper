@@ -4587,7 +4587,7 @@ func triggersMatch<T>(for action: T, result: String, modeName: String?, frontApp
         let triggers = triggerVoice.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         var matched = false
         var exceptionMatched = false
-        logInfo("[TriggerEval] Voice trigger check for action '\(actionName)': result=\"\(result)\", patterns=\(triggers)")
+        logInfo("[TriggerEval] Voice trigger check for action '\(actionName)': patterns=\(triggers)")
         for trigger in triggers {
             let isException = trigger.hasPrefix("!")
             let actualPattern = isException ? String(trigger.dropFirst()) : trigger
@@ -4595,7 +4595,7 @@ func triggersMatch<T>(for action: T, result: String, modeName: String?, frontApp
             if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
                 let range = NSRange(location: 0, length: result.utf16.count)
                 let found = regex.firstMatch(in: result, options: [], range: range) != nil
-                logInfo("[TriggerEval] Pattern '\(trigger)' found=\(found) in result=\(result)")
+                logInfo("[TriggerEval] Pattern '\(trigger)' found=\(found) in result.")
                 if isException && found { exceptionMatched = true }
                 if !isException && found {
                     // Strip the trigger from the start, plus any leading punctuation/whitespace after
