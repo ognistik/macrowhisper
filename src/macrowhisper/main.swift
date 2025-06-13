@@ -57,6 +57,7 @@ class SocketCommunication {
         case execInsert
         case addUrl
         case addShortcut
+        case addShell
     }
     
     struct CommandMessage: Codable {
@@ -917,6 +918,36 @@ class SocketCommunication {
                     let response = "Missing name for shortcut action"
                     write(clientSocket, response, response.utf8.count)
                 }
+            case .addShell:
+                logInfo("Received command to add shell script")
+                
+                if let name = commandMessage.arguments?["name"] {
+                    // Check if shell script with this name already exists
+                    var scriptsShell = configMgr.config.scriptsShell
+                    if let index = scriptsShell.firstIndex(where: { $0.name == name }) {
+                        // Update existing shell script
+                        scriptsShell[index] = AppConfiguration.ScriptShell(name: name, action: "")
+                        configMgr.config.scriptsShell = scriptsShell
+                        configMgr.saveConfig()
+                        
+                        let response = "Shell script '\(name)' updated"
+                        write(clientSocket, response, response.utf8.count)
+                    } else {
+                        // Add new shell script
+                        scriptsShell.append(AppConfiguration.ScriptShell(name: name, action: ""))
+                        configMgr.config.scriptsShell = scriptsShell
+                        configMgr.saveConfig()
+                        
+                        let response = "Shell script '\(name)' added"
+                        write(clientSocket, response, response.utf8.count)
+                    }
+                    
+                    // Trigger config changed callback
+                    configMgr.onConfigChanged?(nil)
+                } else {
+                    let response = "Missing name for shell script"
+                    write(clientSocket, response, response.utf8.count)
+                }
             }
             
         } catch {
@@ -1766,17 +1797,83 @@ struct AppConfiguration: Codable {
         }
     }
     
+    struct ScriptShell: Codable {
+        var name: String
+        var action: String
+        var moveTo: String? = ""  // Default to empty string
+        var noEsc: Bool?
+        var actionDelay: Double?
+        // --- Trigger fields for future extensibility ---
+        /// Voice trigger regex (matches start of phrase)
+        var triggerVoice: String? = ""
+        /// App trigger regex (matches app name or bundle ID)
+        var triggerApps: String? = ""
+        /// Mode trigger regex (matches modeName)
+        var triggerModes: String? = ""
+        /// Logic for combining triggers ("and"/"or")
+        var triggerLogic: String? = "or"
+        
+        enum CodingKeys: String, CodingKey {
+            case name, action, moveTo, noEsc, actionDelay
+            case triggerVoice, triggerApps, triggerModes, triggerLogic
+        }
+        
+        // Custom encoding to preserve null values and ensure trigger fields are always present
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(name, forKey: .name)
+            try container.encode(action, forKey: .action)
+            try container.encode(moveTo, forKey: .moveTo)
+            try container.encode(noEsc, forKey: .noEsc)
+            try container.encode(actionDelay, forKey: .actionDelay)
+            // Always encode trigger fields, defaulting to "" if nil
+            try container.encode(triggerVoice ?? "", forKey: .triggerVoice)
+            try container.encode(triggerApps ?? "", forKey: .triggerApps)
+            try container.encode(triggerModes ?? "", forKey: .triggerModes)
+            try container.encode(triggerLogic ?? "or", forKey: .triggerLogic)
+        }
+        
+        // Custom decoding to ensure trigger fields are always present
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            action = try container.decode(String.self, forKey: .action)
+            moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
+            noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
+            actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
+            triggerVoice = try container.decodeIfPresent(String.self, forKey: .triggerVoice) ?? ""
+            triggerApps = try container.decodeIfPresent(String.self, forKey: .triggerApps) ?? ""
+            triggerModes = try container.decodeIfPresent(String.self, forKey: .triggerModes) ?? ""
+            triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
+        }
+        
+        // Default initializer for new shell scripts
+        init(name: String, action: String, moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+            self.name = name
+            self.action = action
+            self.moveTo = moveTo
+            self.noEsc = noEsc
+            self.actionDelay = actionDelay
+            self.triggerVoice = triggerVoice ?? ""
+            self.triggerApps = triggerApps ?? ""
+            self.triggerModes = triggerModes ?? ""
+            self.triggerLogic = triggerLogic ?? "or"
+        }
+    }
+    
     var defaults: Defaults
     var inserts: [Insert]
     var urls: [Url]
     var shortcuts: [Shortcut]
+    var scriptsShell: [ScriptShell]
     
     static func defaultConfig() -> AppConfiguration {
         return AppConfiguration(
             defaults: Defaults.defaultValues(),
             inserts: [],
             urls: [],
-            shortcuts: []
+            shortcuts: [],
+            scriptsShell: []
         )
     }
 }
@@ -2026,6 +2123,23 @@ func acquireSingleInstanceLock(lockFilePath: String, socketCommunication: Socket
                 }
             } else {
                 print("Missing name after --add-shortcut")
+            }
+            exit(0)
+        }
+
+        if args.contains("--add-shell") {
+            let addShellIndex = args.firstIndex(where: { $0 == "--add-shell" })
+            if let index = addShellIndex, index + 1 < args.count {
+                let shellName = args[index + 1]
+                let arguments: [String: String] = ["name": shellName]
+                
+                if let response = socketCommunication.sendCommand(.addShell, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add shell script action")
+                }
+            } else {
+                print("Missing name after --add-shell")
             }
             exit(0)
         }
@@ -3482,6 +3596,15 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                 }
             }
             
+            // Evaluate all shell script actions for triggers
+            for shell in configManager.config.scriptsShell {
+                logInfo("[TriggerEval] Checking shell script action: name=\(shell.name), triggerVoice=\(shell.triggerVoice ?? "nil"), triggerApps=\(shell.triggerApps ?? "nil"), triggerModes=\(shell.triggerModes ?? "nil"), triggerLogic=\(shell.triggerLogic ?? "nil")")
+                let (matched, strippedResult) = triggersMatch(for: shell, result: String(describing: result), modeName: modeName, frontAppName: frontAppName, frontAppBundleId: frontAppBundleId)
+                if matched {
+                    matchedTriggerActions.append((action: shell, name: shell.name, strippedResult: strippedResult))
+                }
+            }
+            
             if !matchedTriggerActions.isEmpty {
                 // Sort actions by name and pick the first
                 let (action, name, strippedResult) = matchedTriggerActions.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.first!
@@ -3508,6 +3631,10 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: nil)
                 } else if let shortcut = action as? AppConfiguration.Shortcut {
                     self.processShortcutAction(shortcut, metaJson: updatedJson)
+                    self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: nil)
+                } else if let shell = action as? AppConfiguration.ScriptShell {
+                    logInfo("[TriggerEval] Executing shell script action: \(shell.name)")
+                    self.processShellScriptAction(shell, metaJson: updatedJson)
                     self.handleMoveToSetting(folderPath: (path as NSString).deletingLastPathComponent, activeInsert: nil)
                 }
                 
@@ -3657,6 +3784,40 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         if let delay = shortcutAction.actionDelay, delay > 0 {
             Thread.sleep(forTimeInterval: delay)
         }
+        autoReturnEnabled = false
+    }
+    
+    private func processShellScriptAction(_ shellAction: AppConfiguration.ScriptShell, metaJson: [String: Any]) {
+        let (processedAction, _) = self.processAction(shellAction.action, metaJson: metaJson)
+        
+        // Create a task to execute the shell script
+        let task = Process()
+        task.launchPath = "/bin/bash"
+        task.arguments = ["-c", processedAction]
+        
+        // Set up pipes for output (though we won't read them)
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        
+        do {
+            try task.run()
+            // Don't wait for completion - run asynchronously
+            logInfo("Shell script '\(shellAction.name)' launched asynchronously")
+        } catch {
+            logError("Failed to execute shell script action: \(error)")
+        }
+        
+        // Handle ESC key press if not disabled
+        if !(shellAction.noEsc ?? false) {
+            self.simulateEscKeyPress(activeInsert: nil)
+        }
+        
+        // Handle action delay
+        if let delay = shellAction.actionDelay, delay > 0 {
+            Thread.sleep(forTimeInterval: delay)
+        }
+        
+        // Disable auto-return if it was enabled
         autoReturnEnabled = false
     }
 }
@@ -4538,7 +4699,30 @@ while i < args.count {
         let value = args[i + 1].lowercased()
         pressReturnFlag = value == "true" || value == "yes" || value == "1"
         i += 2
-        
+    case "--add-shortcut":
+        guard i + 1 < args.count else {
+            logError("Missing name after \(args[i])")
+            exit(1)
+        }
+        let shortcutName = args[i + 1]
+        if let response = socketCommunication.sendCommand(.addShortcut, arguments: ["name": shortcutName]) {
+            print(response)
+        } else {
+            print("Failed to add shortcut")
+        }
+        exit(0)
+    case "--add-shell":
+        guard i + 1 < args.count else {
+            logError("Missing name after \(args[i])")
+            exit(1)
+        }
+        let shellName = args[i + 1]
+        if let response = socketCommunication.sendCommand(.addShell, arguments: ["name": shellName]) {
+            print(response)
+        } else {
+            print("Failed to add shell script")
+        }
+        exit(0)
     default:
         logError("Unknown argument: \(args[i])")
         notify(title: "Macrowhisper", message: "Unknown argument: \(args[i])")
@@ -4723,6 +4907,8 @@ func triggersMatch<T>(for action: T, result: String, modeName: String?, frontApp
             return (url.triggerVoice, url.triggerModes, url.triggerApps, url.triggerLogic, url.name)
         case let shortcut as AppConfiguration.Shortcut:
             return (shortcut.triggerVoice, shortcut.triggerModes, shortcut.triggerApps, shortcut.triggerLogic, shortcut.name)
+        case let shell as AppConfiguration.ScriptShell:
+            return (shell.triggerVoice, shell.triggerModes, shell.triggerApps, shell.triggerLogic, shell.name)
         default:
             return ("", "", "", "or", "unknown")
         }
