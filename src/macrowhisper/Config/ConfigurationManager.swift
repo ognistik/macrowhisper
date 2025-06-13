@@ -57,15 +57,28 @@ class ConfigurationManager {
     
     func saveConfig() {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = .prettyPrinted
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        
+        // Create a custom encoding strategy for paths
+        let pathEncodingStrategy: JSONEncoder.KeyEncodingStrategy = .useDefaultKeys
+        encoder.keyEncodingStrategy = pathEncodingStrategy
+        
         do {
             let data = try encoder.encode(_config)
-            let configDir = (configPath as NSString).deletingLastPathComponent
-            if !fileManager.fileExists(atPath: configDir) {
-                try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+            // Convert the data to a string to handle path formatting
+            if let jsonString = String(data: data, encoding: .utf8) {
+                // Replace escaped forward slashes with regular forward slashes
+                let formattedJson = jsonString.replacingOccurrences(of: "\\/", with: "/")
+                // Write the formatted JSON back to data
+                if let formattedData = formattedJson.data(using: .utf8) {
+                    let configDir = (configPath as NSString).deletingLastPathComponent
+                    if !fileManager.fileExists(atPath: configDir) {
+                        try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+                    }
+                    try formattedData.write(to: URL(fileURLWithPath: configPath))
+                    logInfo("Configuration saved to \(configPath)")
+                }
             }
-            try data.write(to: URL(fileURLWithPath: configPath))
-            logInfo("Configuration saved to \(configPath)")
         } catch {
             logError("Failed to save configuration: \(error.localizedDescription)")
             notify(title: "Macrowhisper", message: "Failed to save configuration: \(error.localizedDescription)")
