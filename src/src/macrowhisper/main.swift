@@ -28,11 +28,14 @@ let logger = Logger(logDirectory: logDirectory)
 let notificationManager = NotificationManager()
 let socketCommunication = SocketCommunication(socketPath: "/tmp/macrowhisper.sock")
 
+// --- Ensure watcher is global and not redeclared locally ---
+var recordingsWatcher: RecordingsFolderWatcher? = nil
+
 // MARK: - Helper functions for logging and notifications
 
 func checkWatcherAvailability() -> Bool {
     // TODO: Implementation needed
-                return true
+    return true
 }
 
 func initializeWatcher(_ path: String) {
@@ -89,12 +92,6 @@ func printHelp() {
       --auto-return true/false      Insert result and simulate return for one interaction
       --get-icon                    Get the icon of the active insert
 
-    ACTION COMMANDS:
-      --add-url <name>              Add or update a URL action
-      --add-shortcut <name>         Add or update a Shortcuts action
-      --add-shell <name>            Add or update a shell script action
-      --add-as <name>               Add or update an AppleScript action
-
     Examples:
       macrowhisper
         # Uses defaults from config file/Reloads config file
@@ -110,7 +107,6 @@ func printHelp() {
 }
 
 // Argument parsing
-let configManager: ConfigurationManager
 var configPath: String? = nil
 var watchPath: String? = nil
 var watcherFlag: Bool? = nil
@@ -307,13 +303,6 @@ while i < args.count {
         let value = args[i + 1].lowercased()
         pressReturnFlag = value == "true" || value == "yes" || value == "1"
         i += 2
-    case "--add-url":
-        guard i + 1 < args.count else { logError("Missing name after \(args[i])"); exit(1) }
-        let name = args[i + 1]
-        if let response = socketCommunication.sendCommand(.addUrl, arguments: ["name": name]) {
-            print(response)
-        } else { print("Failed to add URL action") }
-        exit(0)
     case "--add-shortcut":
         guard i + 1 < args.count else {
             logError("Missing name after \(args[i])")
@@ -338,29 +327,23 @@ while i < args.count {
             print("Failed to add shell script")
         }
         exit(0)
-    case "--add-as":
-        guard i + 1 < args.count else {
-            logError("Missing name after \(args[i])")
+    default:
+        if args[i].starts(with: "-") {
+            logError("Unknown argument: \(args[i])")
+            notify(title: "Macrowhisper", message: "Unknown argument: \(args[i])")
             exit(1)
         }
-        let asName = args[i + 1]
-        if let response = socketCommunication.sendCommand(.addAppleScript, arguments: ["name": asName]) {
-            print(response)
-        } else {
-            print("Failed to add AppleScript action")
-        }
-        exit(0)
-    default:
-        logError("Unknown argument: \(args[i])")
-        notify(title: "Macrowhisper", message: "Unknown argument: \(args[i])")
-        exit(1)
+        // This case handles the scenario where `macrowhisper` is run with no arguments
+        // We'll proceed with normal execution, which will either start the daemon or reload the config
+        i += 1
     }
 }
 
 // Initialize configuration manager with the specified path
-configManager = ConfigurationManager(configPath: configPath)
+let configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
 
+// Now initialize HistoryManager with the valid configManager
 let historyManager = HistoryManager(configManager: configManager)
 
 // Apply any stored action delay value if it was set in command line arguments
@@ -369,7 +352,7 @@ if let delayValue = actionDelayValue {
 }
 
 // Read values from config first
-let config = configManager.config
+var config = configManager.config
 disableUpdates = config.defaults.noUpdates
 disableNotifications = config.defaults.noNoti
 
@@ -393,8 +376,9 @@ configManager.updateFromCommandLine(
 )
 
 // Update global variables again after possible configuration changes
-disableUpdates = configManager.config.defaults.noUpdates
-disableNotifications = configManager.config.defaults.noNoti
+config = configManager.config // a new config could have been loaded
+disableUpdates = config.defaults.noUpdates
+disableNotifications = config.defaults.noNoti
 
 // Get the final watch path after possible updates
 let watchFolderPath = config.defaults.watch
@@ -410,7 +394,6 @@ if runWatcher { logInfo("Watcher: \(watchFolderPath)/recordings") }
 // MARK: - Server and Watcher Setup
 
 // Initialize the recordings folder watcher if enabled
-var recordingsWatcher: RecordingsFolderWatcher? = nil
 if runWatcher {
     // Validate the watch folder exists
     let recordingsPath = "\(watchFolderPath)/recordings"
@@ -430,44 +413,19 @@ if runWatcher {
     }
 }
 
-// Set up configuration change handler for live updates
-configManager.onConfigChanged = { reason in
-    // Store previous values to detect changes
-    let previousDisableUpdates = disableUpdates
-    // Update global variables
-    disableUpdates = configManager.config.defaults.noUpdates
-    disableNotifications = configManager.config.defaults.noNoti
-    // If updates were disabled but are now enabled, reset the version checker state
-    if previousDisableUpdates == true && disableUpdates == false {
-        versionChecker.resetLastCheckDate()
-    }
-    
-    // Handle watch path changes and validation
-    let currentWatchPath = configManager.config.defaults.watch
-    let recordingsPath = "\(currentWatchPath)/recordings"
-    let recordingsFolderExists = FileManager.default.fileExists(atPath: recordingsPath)
-    
-    // If watch path changed or watcher needs initialization
-    if reason == "watchPathChanged" || recordingsWatcher == nil {
-        // Check if the new path exists
-        if recordingsFolderExists {
-            // Stop any existing watcher before initializing new one
-            recordingsWatcher?.stop()
-            recordingsWatcher = nil
-            initializeWatcher(currentWatchPath)
-            logInfo("Watcher initialized/reinitialized for folder: \(currentWatchPath)")
-        } else {
-            logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath)")
-            notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the path.")
-            
-            // Clean up any existing watcher
-            if recordingsWatcher != nil {
-                recordingsWatcher?.stop()
-                recordingsWatcher = nil
-                logInfo("Watcher stopped due to invalid path")
-            }
+var configChangeWatcher: ConfigChangeWatcher?
+if let path = configManager.configPath {
+    configChangeWatcher = ConfigChangeWatcher(filePath: path) {
+        logInfo("Configuration file change detected. Reloading...")
+        configManager.loadConfig()
+        // Notify other components if necessary
+        // For example, if the watch path changes, the watcher needs to be restarted.
+        if let onConfigChanged = configManager.onConfigChanged {
+            // You might want to pass a reason for the change
+            onConfigChanged("fileChanged")
         }
     }
+    configChangeWatcher?.start()
 }
 
 
@@ -480,4 +438,4 @@ startSocketHealthMonitor()
 logInfo("Macrowhisper initialized and ready")
 
 // Keep the main thread running
-RunLoop.main.run()
+RunLoop.main.run() 

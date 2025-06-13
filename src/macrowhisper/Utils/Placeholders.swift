@@ -1,0 +1,169 @@
+import Foundation
+
+// Function to process LLM result based on XML placeholders in the action
+func processXmlPlaceholders(action: String, llmResult: String) -> (String, [String: String]) {
+    var cleanedLlmResult = llmResult
+    var extractedTags: [String: String] = [:]
+    
+    // First, identify which XML tags are requested in the action
+    let placeholderPattern = "\\{\\{xml:([A-Za-z0-9_]+)\\}\\}"
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    
+    var requestedTags: Set<String> = []
+    
+    // Find all XML placeholders in the action
+    if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+        for match in matches {
+            if let tagNameRange = Range(match.range(at: 1), in: action) {
+                let tagName = String(action[tagNameRange])
+                requestedTags.insert(tagName)
+            }
+        }
+    }
+    
+    // If no XML tags are requested, return the original LLM result
+    if requestedTags.isEmpty {
+        return (cleanedLlmResult, extractedTags)
+    }
+    
+    // For each requested tag, extract content and remove from LLM result
+    for tagName in requestedTags {
+        // Pattern to match the specific XML tag
+        let tagPattern = "<\(tagName)>(.*?)</\(tagName)>"
+        let tagRegex = try? NSRegularExpression(pattern: tagPattern, options: [.dotMatchesLineSeparators])
+        
+        // Find the tag in the LLM result
+        if let match = tagRegex?.firstMatch(in: cleanedLlmResult, options: [], range: NSRange(cleanedLlmResult.startIndex..., in: cleanedLlmResult)),
+           let contentRange = Range(match.range(at: 1), in: cleanedLlmResult),
+           let fullMatchRange = Range(match.range, in: cleanedLlmResult) {
+            
+            // Extract content and clean it
+            var content = String(cleanedLlmResult[contentRange])
+            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Store the cleaned content
+            extractedTags[tagName] = content
+            
+            // Remove the XML tag and its content from the result
+            cleanedLlmResult.replaceSubrange(fullMatchRange, with: "")
+        }
+    }
+    
+    // Clean up the LLM result after removing all requested tags
+    // Remove any consecutive empty lines
+    cleanedLlmResult = cleanedLlmResult.replacingOccurrences(of: "\n\\s*\n+", with: "\n\n", options: .regularExpression)
+    
+    // Trim leading and trailing whitespace
+    cleanedLlmResult = cleanedLlmResult.trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    return (cleanedLlmResult, extractedTags)
+}
+
+// Function to replace XML placeholders in an action string
+func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> String {
+    var result = action
+    
+    // Find all XML placeholders using regex
+    let pattern = "\\{\\{xml:([A-Za-z0-9_]+)\\}\\}"
+    let regex = try? NSRegularExpression(pattern: pattern, options: [])
+    
+    // Get all matches
+    if let matches = regex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+        for match in matches.reversed() {
+            if let tagNameRange = Range(match.range(at: 1), in: action),
+               let fullMatchRange = Range(match.range, in: action) {
+                
+                let tagName = String(action[tagNameRange])
+                
+                // Replace the placeholder with the extracted content if available and not empty
+                if let content = extractedTags[tagName], !content.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: content)
+                } else {
+                    // If content is missing or empty, remove the placeholder entirely
+                    result.replaceSubrange(fullMatchRange, with: "")
+                }
+            }
+        }
+    }
+    
+    return result
+}
+
+// MARK: - Dynamic Placeholder Expansion (Refactored)
+/// Expands dynamic placeholders in the form {{key}} and (new) {{date:format}} in the action string.
+func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
+    var result = action
+    // Regex for {{key}} and {{date:...}}
+    let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+        for match in matches.reversed() {
+            guard let keyRange = Range(match.range(at: 1), in: action),
+                  let fullMatchRange = Range(match.range, in: action) else { continue }
+            let key = String(action[keyRange])
+            // Check for date placeholder
+            if key == "date", match.numberOfRanges > 2, let formatRange = Range(match.range(at: 2), in: action) {
+                let format = String(action[formatRange])
+                let replacement: String
+                switch format {
+                case "short":
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .short
+                    formatter.timeStyle = .none
+                    replacement = formatter.string(from: Date())
+                case "long":
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .long
+                    formatter.timeStyle = .none
+                    replacement = formatter.string(from: Date())
+                default:
+                    // UTS 35 custom format
+                    let formatter = DateFormatter()
+                    formatter.setLocalizedDateFormatFromTemplate(format)
+                    replacement = formatter.string(from: Date())
+                }
+                // Escape shell special characters in the replacement
+                let escapedReplacement = escapeShellCharacters(replacement)
+                result.replaceSubrange(fullMatchRange, with: escapedReplacement)
+                continue
+            }
+            // Handle swResult
+            if key == "swResult" {
+                let value: String
+                if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                    value = llm
+                } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                    value = res
+                } else {
+                    value = ""
+                }
+                // Escape shell special characters
+                let escapedValue = escapeShellCharacters(value)
+                result.replaceSubrange(fullMatchRange, with: escapedValue)
+            } else if let jsonValue = metaJson[key] {
+                let value: String
+                if let stringValue = jsonValue as? String {
+                    value = stringValue
+                } else if let numberValue = jsonValue as? NSNumber {
+                    value = numberValue.stringValue
+                } else if let boolValue = jsonValue as? Bool {
+                    value = boolValue ? "true" : "false"
+                } else if jsonValue is NSNull {
+                    value = ""
+                } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                          let jsonString = String(data: jsonData, encoding: .utf8) {
+                    value = jsonString
+                } else {
+                    value = String(describing: jsonValue)
+                }
+                // Escape shell special characters
+                let escapedValue = escapeShellCharacters(value)
+                result.replaceSubrange(fullMatchRange, with: escapedValue)
+            } else {
+                // Key doesn't exist in metaJson, remove the placeholder
+                result.replaceSubrange(fullMatchRange, with: "")
+            }
+        }
+    }
+    return result
+} 
