@@ -555,6 +555,7 @@ func printHelp() {
       --exec-insert <name>          Execute an insert action using the last valid result
       --auto-return true/false      Insert result and simulate return for one interaction
       --get-icon                    Get the icon of the active insert
+      --get-insert                  Get name of active insert
 
     ACTION COMMANDS:
       --add-url <name>              Add or update a URL action

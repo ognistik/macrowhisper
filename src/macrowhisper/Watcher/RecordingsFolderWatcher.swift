@@ -84,7 +84,7 @@ class RecordingsFolderWatcher {
     }
     
     private func loadProcessedRecordings() {
-        if let content = try? String(contentsOfFile: processedRecordingsFile) {
+        if let content = try? String(contentsOfFile: processedRecordingsFile, encoding: .utf8) {
             let recordings = content.components(separatedBy: .newlines).filter { !$0.isEmpty }
             processedRecordings = Set(recordings)
             logInfo("Loaded \(processedRecordings.count) previously processed recordings")

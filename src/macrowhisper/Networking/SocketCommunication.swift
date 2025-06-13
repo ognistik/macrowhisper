@@ -202,7 +202,7 @@ class SocketCommunication {
     }
     
     private func checkAndSimulatePressReturn(activeInsert: AppConfiguration.Insert?) {
-        var shouldPressReturn = activeInsert?.pressReturn ?? globalConfigManager?.config.defaults.pressReturn ?? false
+        let shouldPressReturn = activeInsert?.pressReturn ?? globalConfigManager?.config.defaults.pressReturn ?? false
         if autoReturnEnabled {
             if !shouldPressReturn {
                 logger.log("Simulating return key press due to auto-return", level: .info)
@@ -304,9 +304,13 @@ class SocketCommunication {
                 
             case .getIcon:
                 let activeInsertName = configMgr.config.defaults.activeInsert
-                let activeInsert = configMgr.config.inserts.first { $0.name == activeInsertName }
-                let icon = activeInsert?.icon ?? configMgr.config.defaults.icon
-                response = (icon == ".none" || icon == nil) ? " " : icon!
+                var icon: String?
+                if let activeInsert = configMgr.config.inserts.first(where: { $0.name == activeInsertName }) {
+                    icon = activeInsert.icon
+                } else {
+                    icon = configMgr.config.defaults.icon
+                }
+                response = (icon == ".none" || icon == nil || icon == "") ? " " : icon!
                 logger.log("Returning icon: '\(response)'", level: .info)
                 write(clientSocket, response, response.utf8.count)
                 
@@ -417,7 +421,9 @@ class SocketCommunication {
                  guard let name = commandMessage.arguments?["name"] else {
                     response = "Missing name for action"; write(clientSocket, response, response.utf8.count); return
                 }
-                if configMgr.config.inserts.removeAll(where: { $0.name == name }) != nil {
+                let initialCount = configMgr.config.inserts.count
+                configMgr.config.inserts.removeAll(where: { $0.name == name })
+                if configMgr.config.inserts.count < initialCount {
                     if configMgr.config.defaults.activeInsert == name { configMgr.config.defaults.activeInsert = nil }
                     configMgr.saveConfig()
                     configMgr.onConfigChanged?(nil)
@@ -439,7 +445,11 @@ class SocketCommunication {
     }
 
     func sendCommand(_ command: Command, arguments: [String: String]? = nil) -> String? {
-        logger.log("Sending command: \(command.rawValue) to \(socketPath)", level: .info)
+        let quietCommands: [Command] = [.status, .version, .listInserts, .getIcon, .getInsert]
+        if !quietCommands.contains(command) {
+            logger.log("Sending command: \(command.rawValue) to \(socketPath)", level: .info)
+        }
+        
         guard FileManager.default.fileExists(atPath: socketPath) else {
             logger.log("Socket file does not exist", level: .error)
             return "Socket file does not exist. Server is not running."
