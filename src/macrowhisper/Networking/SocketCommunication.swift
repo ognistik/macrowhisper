@@ -12,6 +12,7 @@ class SocketCommunication {
     private var serverSocket: Int32 = -1
     private let queue = DispatchQueue(label: "com.macrowhisper.socket", qos: .utility)
     private var configManagerRef: ConfigurationManager?
+    private let logger: Logger
     
     enum Command: String, Codable {
         case reloadConfig
@@ -37,8 +38,9 @@ class SocketCommunication {
         let arguments: [String: String]?
     }
     
-    init(socketPath: String) {
+    init(socketPath: String, logger: Logger) {
         self.socketPath = socketPath
+        self.logger = logger
     }
     
     func startServer(configManager: ConfigurationManager) {
@@ -52,7 +54,7 @@ class SocketCommunication {
         }
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else {
-            logError("Failed to create socket: \(errno)")
+            logger.log("Failed to create socket: \(errno)", level: .error)
             return
         }
         var addr = sockaddr_un()
@@ -68,17 +70,17 @@ class SocketCommunication {
             }
         }
         guard bindResult == 0 else {
-            logError("Failed to bind socket: \(errno)"); close(serverSocket); return
+            logger.log("Failed to bind socket: \(errno)", level: .error); close(serverSocket); return
         }
         chmod(socketPath, 0o777)
         guard listen(serverSocket, 5) == 0 else {
-            logError("Failed to listen on socket: \(errno)"); close(serverSocket); return
+            logger.log("Failed to listen on socket: \(errno)", level: .error); close(serverSocket); return
         }
         server = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         server?.setEventHandler { [weak self] in
             guard let self = self else { return }
             let clientSocket = accept(self.serverSocket, nil, nil)
-            guard clientSocket >= 0 else { logError("Failed to accept connection: \(errno)"); return }
+            guard clientSocket >= 0 else { self.logger.log("Failed to accept connection: \(errno)", level: .error); return }
             self.queue.async {
                 self.handleConnection(clientSocket: clientSocket, configManager: globalConfigManager)
             }
@@ -90,7 +92,7 @@ class SocketCommunication {
             try? FileManager.default.removeItem(atPath: self.socketPath)
         }
         server?.resume()
-        logInfo("Socket server started at \(socketPath)")
+        logger.log("Socket server started at \(socketPath)", level: .info)
     }
 
     func stopServer() {
@@ -151,9 +153,9 @@ class SocketCommunication {
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         if isAutoPaste {
-            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
+            if !requestAccessibilityPermission() { logger.log("Accessibility permission denied", level: .warning); return }
             if !isInInputField() {
-                logInfo("Auto paste - not in input field, direct paste only")
+                logger.log("Auto paste - not in input field, direct paste only", level: .info)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
@@ -170,9 +172,9 @@ class SocketCommunication {
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         if isAutoPaste {
-            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
+            if !requestAccessibilityPermission() { logger.log("Accessibility permission denied", level: .warning); return }
             if !isInInputField() {
-                logInfo("Exec-insert auto paste - not in input field, direct paste only")
+                logger.log("Exec-insert auto paste - not in input field, direct paste only", level: .info)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
@@ -193,7 +195,7 @@ class SocketCommunication {
             }.joined(separator: "\n")
             let script = "tell application \"System Events\"\n\(scriptLines)\nend tell"
             let task = Process(); task.launchPath = "/usr/bin/osascript"; task.arguments = ["-e", script]
-            do { try task.run(); task.waitUntilExit() } catch { logError("Failed to simulate keystrokes: \(error)"); pasteUsingClipboard(text) }
+            do { try task.run(); task.waitUntilExit() } catch { logger.log("Failed to simulate keystrokes: \(error)", level: .error); pasteUsingClipboard(text) }
         } else {
             pasteUsingClipboard(text)
         }
@@ -203,12 +205,12 @@ class SocketCommunication {
         var shouldPressReturn = activeInsert?.pressReturn ?? globalConfigManager?.config.defaults.pressReturn ?? false
         if autoReturnEnabled {
             if !shouldPressReturn {
-                logInfo("Simulating return key press due to auto-return")
+                logger.log("Simulating return key press due to auto-return", level: .info)
                 simulateReturnKeyPress()
             }
             autoReturnEnabled = false
         } else if shouldPressReturn {
-            logInfo("Simulating return key press due to pressReturn setting")
+            logger.log("Simulating return key press due to pressReturn setting", level: .info)
             simulateReturnKeyPress()
         }
     }
@@ -231,130 +233,116 @@ class SocketCommunication {
 
     private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
         guard let configMgr = self.configManagerRef ?? configManager ?? globalConfigManager else {
-            logError("No valid config manager"); close(clientSocket); return
+            logger.log("No valid config manager", level: .error); close(clientSocket); return
         }
         defer { close(clientSocket) }
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096); defer { buffer.deallocate() }
         let bytesRead = read(clientSocket, buffer, 4096)
-        guard bytesRead > 0 else { logError("Failed to read from socket"); return }
+        guard bytesRead > 0 else { logger.log("Failed to read from socket", level: .error); return }
         let data = Data(bytes: buffer, count: bytesRead)
         
         do {
             let commandMessage = try JSONDecoder().decode(CommandMessage.self, from: data)
-            logInfo("Received command: \(commandMessage.command.rawValue)")
+            logger.log("Received command: \(commandMessage.command.rawValue)", level: .info)
             var response = ""
             
             switch commandMessage.command {
             case .reloadConfig:
                 if let loadedConfig = configMgr.loadConfig() {
                     configMgr.config = loadedConfig
+                    configMgr.configurationSuccessfullyLoaded()
                     configMgr.onConfigChanged?(nil)
-                    response = "Configuration reloaded"
+                    configMgr.resetFileWatcher()
+                    response = "Configuration reloaded successfully"
+                    logger.log(response, level: .info)
                 } else {
                     response = "Failed to reload configuration"
+                    logger.log(response, level: .error)
                 }
+                write(clientSocket, response, response.utf8.count)
                 
             case .updateConfig:
                 if let args = commandMessage.arguments {
-                    if let insertName = args["activeInsert"], !validateInsertExists(insertName, configManager: configMgr) {
+                    if let insertName = args["activeInsert"], !insertName.isEmpty, !validateInsertExists(insertName, configManager: configMgr) {
                         response = "Error: Insert '\(insertName)' does not exist."
-                    } else {
-                        configMgr.updateFromCommandLineAsync(arguments: args, completion: nil)
-                        response = "Configuration update queued"
+                        write(clientSocket, response, response.utf8.count)
+                        logger.log("Attempted to set non-existent insert: \(insertName)", level: .error)
+                        notify(title: "Macrowhisper", message: "Non-existent insert: \(insertName)")
+                        return
                     }
+                    configMgr.updateFromCommandLineAsync(arguments: args) {
+                        self.logger.log("Configuration updated successfully in background", level: .info)
+                    }
+                    response = "Configuration update queued"
                 } else {
-                    response = "No arguments for update"
+                    response = "No arguments for config update"
                 }
+                write(clientSocket, response, response.utf8.count)
                 
             case .status:
-                let status: [String: Any] = ["version": APP_VERSION, "watch_path": configMgr.config.defaults.watch]
+                let status: [String: Any] = [ "version": APP_VERSION, "watcher_running": recordingsWatcher != nil, "watch_path": configMgr.config.defaults.watch ]
                 if let statusData = try? JSONSerialization.data(withJSONObject: status), let statusString = String(data: statusData, encoding: .utf8) {
                     response = statusString
                 } else {
                     response = "Failed to generate status"
                 }
-                
-            case .version:
-                response = "macrowhisper version \(APP_VERSION)"
+                write(clientSocket, response, response.utf8.count)
                 
             case .debug:
-                response = "Server status: OK"
+                response = "Server status:\n- Socket path: \(socketPath)\n- Server socket descriptor: \(serverSocket)"
+                write(clientSocket, response, response.utf8.count)
                 
             case .listInserts:
                 let inserts = configMgr.config.inserts
+                let activeInsert = configMgr.config.defaults.activeInsert ?? "none"
                 if inserts.isEmpty {
                     response = "No inserts configured."
                 } else {
-                    response = inserts.map { "\($0.name)\($0.name == configMgr.config.defaults.activeInsert ? " (active)" : "")" }.joined(separator: "\n")
+                    response = inserts.map { "\($0.name)\($0.name == activeInsert ? " (active)" : "")" }.joined(separator: "\n")
                 }
-                
-            case .addInsert:
-                if let name = commandMessage.arguments?["name"] {
-                    var inserts = configMgr.config.inserts
-                    if !inserts.contains(where: { $0.name == name }) {
-                        inserts.append(AppConfiguration.Insert(name: name, action: ""))
-                        configMgr.config.inserts = inserts
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                    }
-                    response = "Insert '\(name)' added/updated"
-                } else {
-                    response = "Missing name for insert"
-                }
-                
-            case .removeInsert:
-                if let name = commandMessage.arguments?["name"] {
-                    var inserts = configMgr.config.inserts
-                    let initialCount = inserts.count
-                    inserts.removeAll { $0.name == name }
-                    if inserts.count < initialCount {
-                        configMgr.config.inserts = inserts
-                        if configMgr.config.defaults.activeInsert == name {
-                            configMgr.config.defaults.activeInsert = nil
-                        }
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "Insert '\(name)' removed"
-                    } else {
-                        response = "Insert '\(name)' not found"
-                    }
-                } else {
-                    response = "No insert name provided"
-                }
+                write(clientSocket, response, response.utf8.count)
                 
             case .getIcon:
-                if let activeInsertName = configMgr.config.defaults.activeInsert, !activeInsertName.isEmpty, let activeInsert = configMgr.config.inserts.first(where: { $0.name == activeInsertName }) {
-                    response = activeInsert.icon ?? configMgr.config.defaults.icon ?? " "
-                } else {
-                    response = configMgr.config.defaults.icon ?? " "
-                }
-                if response.isEmpty { response = " " }
-
-
+                let activeInsertName = configMgr.config.defaults.activeInsert
+                let activeInsert = configMgr.config.inserts.first { $0.name == activeInsertName }
+                let icon = activeInsert?.icon ?? configMgr.config.defaults.icon
+                response = (icon == ".none" || icon == nil) ? " " : icon!
+                logger.log("Returning icon: '\(response)'", level: .info)
+                write(clientSocket, response, response.utf8.count)
+                
             case .getInsert:
                 response = configMgr.config.defaults.activeInsert ?? " "
+                logger.log("Returning active insert: '\(response)'", level: .info)
+                write(clientSocket, response, response.utf8.count)
                 
             case .autoReturn:
                 if let enableStr = commandMessage.arguments?["enable"], let enable = Bool(enableStr) {
                     autoReturnEnabled = enable
-                    response = "Auto-return \(enable ? "enabled" : "disabled") for next interaction."
+                    response = autoReturnEnabled ? "Auto-return enabled for next result" : "Auto-return disabled"
+                    logger.log(response, level: .info)
                 } else {
-                    response = "Missing or invalid 'enable' parameter for auto-return."
+                    response = "Missing or invalid enable parameter"
+                    logger.log(response, level: .error)
                 }
+                write(clientSocket, response, response.utf8.count)
                 
             case .execInsert:
-                if let name = commandMessage.arguments?["name"], let insert = configMgr.config.inserts.first(where: { $0.name == name }) {
-                    if let json = findLastValidJsonFile(configManager: configMgr) {
-                        let (processed, isAuto) = processInsertAction(insert.action, metaJson: json)
-                        applyInsertForExec(processed, activeInsert: insert, isAutoPaste: isAuto)
-                        response = "Executed insert '\(name)'"
+                if let insertName = commandMessage.arguments?["name"], let insert = configMgr.config.inserts.first(where: { $0.name == insertName }) {
+                    if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                        let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
+                        applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
+                        response = "Executed insert '\(insertName)'"
+                        logger.log("Successfully executed insert: \(insertName)", level: .info)
                     } else {
-                        response = "No valid recent transcription found to execute insert '\(name)'."
+                        response = "No valid JSON file found with results"
+                        logger.log("No valid JSON file found for exec-insert", level: .error)
                     }
                 } else {
-                    response = "Insert name missing or not found for exec-insert."
+                    response = "Insert not found or name missing"
+                    logger.log(response, level: .error)
                 }
-
+                write(clientSocket, response, response.utf8.count)
+                
             case .addUrl:
                 if let name = commandMessage.arguments?["name"] {
                     var urls = configMgr.config.urls
@@ -366,7 +354,8 @@ class SocketCommunication {
                     }
                     response = "URL action '\(name)' added/updated"
                 } else { response = "Missing name for URL action" }
-
+                write(clientSocket, response, response.utf8.count)
+                
             case .addShortcut:
                  if let name = commandMessage.arguments?["name"] {
                     var shortcuts = configMgr.config.shortcuts
@@ -378,7 +367,8 @@ class SocketCommunication {
                     }
                     response = "Shortcut action '\(name)' added/updated"
                 } else { response = "Missing name for Shortcut action" }
-
+                write(clientSocket, response, response.utf8.count)
+                
             case .addShell:
                  if let name = commandMessage.arguments?["name"] {
                     var scripts = configMgr.config.scriptsShell
@@ -390,7 +380,8 @@ class SocketCommunication {
                     }
                     response = "Shell script action '\(name)' added/updated"
                 } else { response = "Missing name for Shell script action" }
-
+                write(clientSocket, response, response.utf8.count)
+                
             case .addAppleScript:
                  if let name = commandMessage.arguments?["name"] {
                     var scripts = configMgr.config.scriptsAS
@@ -402,34 +393,100 @@ class SocketCommunication {
                     }
                     response = "AppleScript action '\(name)' added/updated"
                 } else { response = "Missing name for AppleScript action" }
+                write(clientSocket, response, response.utf8.count)
+                
+            case .addInsert:
+                if let name = commandMessage.arguments?["name"] {
+                    var inserts = configMgr.config.inserts
+                    if !inserts.contains(where: { $0.name == name }) {
+                        let newInsert = AppConfiguration.Insert(name: name, action: "", icon: "🤖")
+                        inserts.append(newInsert)
+                        configMgr.config.inserts = inserts
+                        configMgr.saveConfig()
+                        configMgr.onConfigChanged?(nil)
+                        response = "Insert '\(name)' added"
+                    } else {
+                        response = "Insert '\(name)' already exists"
+                    }
+                } else {
+                    response = "Missing name for insert"
+                }
+                write(clientSocket, response, response.utf8.count)
+                
+            case .removeInsert:
+                 guard let name = commandMessage.arguments?["name"] else {
+                    response = "Missing name for action"; write(clientSocket, response, response.utf8.count); return
+                }
+                if configMgr.config.inserts.removeAll(where: { $0.name == name }) != nil {
+                    if configMgr.config.defaults.activeInsert == name { configMgr.config.defaults.activeInsert = nil }
+                    configMgr.saveConfig()
+                    configMgr.onConfigChanged?(nil)
+                    response = "Insert '\(name)' removed"
+                } else {
+                    response = "Insert '\(name)' not found"
+                }
+                write(clientSocket, response, response.utf8.count)
+                
+            case .version:
+                response = "macrowhisper version \(APP_VERSION)"
+                write(clientSocket, response, response.utf8.count)
             }
-            
-            write(clientSocket, response, response.utf8.count)
         } catch {
-            logError("Failed to parse command: \(error)")
             let response = "Failed to parse command: \(error)"
+            logger.log(response, level: .error)
             write(clientSocket, response, response.utf8.count)
         }
     }
 
     func sendCommand(_ command: Command, arguments: [String: String]? = nil) -> String? {
-        if !FileManager.default.fileExists(atPath: socketPath) { return "Socket file does not exist." }
+        logger.log("Sending command: \(command.rawValue) to \(socketPath)", level: .info)
+        guard FileManager.default.fileExists(atPath: socketPath) else {
+            logger.log("Socket file does not exist", level: .error)
+            return "Socket file does not exist. Server is not running."
+        }
         let message = CommandMessage(command: command, arguments: arguments)
         guard let data = try? JSONEncoder().encode(message) else { return "Failed to encode command" }
+        
         let clientSocket = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard clientSocket >= 0 else { return "Failed to create socket" }
+        guard clientSocket >= 0 else { return "Failed to create socket: \(errno)" }
         defer { close(clientSocket) }
-        var addr = sockaddr_un(); addr.sun_family = sa_family_t(AF_UNIX)
+        
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
         let pathLength = min(socketPath.utf8.count, Int(UNIX_PATH_MAX) - 1)
-        _ = withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr in socketPath.withCString { strncpy(ptr, $0, pathLength) } }
-        let addrSize = socklen_t(MemoryLayout<sockaddr_un>.size)
-        let connectResult = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(clientSocket, $0, addrSize) } }
-        guard connectResult == 0 else { return "Failed to connect to socket" }
+        _ = withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr in
+            socketPath.withCString { strncpy(ptr, $0, pathLength) }
+        }
+        
+        var connectResult: Int32 = -1
+        for attempt in 1...3 {
+            let addrSize = socklen_t(MemoryLayout<sockaddr_un>.size)
+            connectResult = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(clientSocket, $0, addrSize) }
+            }
+            if connectResult == 0 { break }
+            logger.log("Connect attempt \(attempt) failed: \(errno). Retrying...", level: .warning)
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        
+        guard connectResult == 0 else {
+            return "Failed to connect to socket: \(errno) (\(String(cString: strerror(errno)))). Is server running?"
+        }
+        
         let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)
-        guard bytesSent == data.count else { return "Failed to send complete message" }
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1024); defer { buffer.deallocate() }
-        let bytesRead = read(clientSocket, buffer, 1024)
-        guard bytesRead > 0 else { return "Failed to read response" }
+        guard bytesSent == data.count else {
+            let err = "Failed to send complete message. Sent \(bytesSent) of \(data.count) bytes."
+            logger.log(err, level: .error); return err
+        }
+        
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096); defer { buffer.deallocate() }
+        let bytesRead = read(clientSocket, buffer, 4096)
+        
+        guard bytesRead > 0 else {
+            let err = "Failed to read from socket: \(errno) (\(String(cString: strerror(errno))))"
+            logger.log(err, level: .error); return err
+        }
+        
         return String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .utf8)
     }
 } 

@@ -10,6 +10,7 @@ import Cocoa
 import Carbon.HIToolbox
 
 let APP_VERSION = "1.0.0"
+private let UNIX_PATH_MAX = 104
 
 // MARK: - Global instances
 // Global variables
@@ -19,6 +20,9 @@ var globalConfigManager: ConfigurationManager?
 var autoReturnEnabled = false
 var actionDelayValue: Double? = nil
 var socketHealthTimer: Timer?
+var historyManager: HistoryManager?
+var configManager: ConfigurationManager!
+var recordingsWatcher: RecordingsFolderWatcher?
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -26,25 +30,488 @@ let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInP
 // Initialize logger and notification manager
 let logger = Logger(logDirectory: logDirectory)
 let notificationManager = NotificationManager()
-let socketCommunication = SocketCommunication(socketPath: "/tmp/macrowhisper.sock")
+
+let lockPath = "/tmp/macrowhisper.lock"
+
+// Initialize socket communication
+let configDir = ("~/.config/macrowhisper" as NSString).expandingTildeInPath
+let socketPath = "\(configDir)/macrowhisper.sock"
+
+// Make sure socket directory exists
+func ensureSocketDirectoryExists() {
+    if !FileManager.default.fileExists(atPath: configDir) {
+        do {
+            try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+            logInfo("Created socket directory at \(configDir)")
+        } catch {
+            logError("Failed to create socket directory: \(error)")
+        }
+    }
+}
+ensureSocketDirectoryExists()
+
+let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
 
 // MARK: - Helper functions for logging and notifications
-
 func checkWatcherAvailability() -> Bool {
-    // TODO: Implementation needed
-                return true
+    let watchPath = configManager.config.defaults.watch
+    let exists = FileManager.default.fileExists(atPath: watchPath)
+    
+    if !exists {
+        logWarning("Superwhisper folder not found at: \(watchPath)")
+        notify(title: "Macrowhisper", message: "Superwhisper folder not found. Please check the path.")
+        return false
+    }
+    
+    return exists
 }
 
 func initializeWatcher(_ path: String) {
-    // TODO: Implementation needed
+    let recordingsPath = "\(path)/recordings"
+    
+    if !FileManager.default.fileExists(atPath: recordingsPath) {
+        logWarning("Recordings folder not found at \(recordingsPath)")
+        notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the path.")
+        
+        // Update config to disable watcher
+        configManager.updateFromCommandLine(watcher: false)
+        return
+    }
+    
+    guard let historyManager = historyManager else {
+        logError("History manager not initialized. Exiting.")
+        exit(1)
+    }
+    
+    recordingsWatcher = RecordingsFolderWatcher(basePath: path, configManager: configManager, historyManager: historyManager)
+    if recordingsWatcher == nil {
+        logWarning("Failed to initialize recordings folder watcher")
+        notify(title: "Macrowhisper", message: "Failed to initialize watcher")
+        
+        // Update config to disable watcher
+        configManager.updateFromCommandLine(watcher: false)
+    } else {
+        logInfo("Watching recordings folder at \(recordingsPath)")
+        recordingsWatcher?.start()
+    }
+}
+
+func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
+    // Try to create and lock the file
+    let fd = open(lockFilePath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    if fd == -1 {
+        logWarning("Could not open lock file: \(lockFilePath)")
+        notify(title: "Macrowhisper", message: "Could not open lock file.")
+        return false
+    }
+
+    // Try to acquire exclusive lock, non-blocking
+    if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+        close(fd)
+
+        // Another instance is running
+        let args = CommandLine.arguments
+
+        // Handle help command specifically
+        if args.contains("-h") || args.contains("--help") {
+            // Print help directly without trying to communicate with the running instance
+            printHelp()
+            exit(0)
+        }
+
+        // Handle version command specifically
+        if args.contains("-v") || args.contains("--version") {
+            if let response = socketCommunication.sendCommand(.version) {
+                print(response)
+            } else {
+                print("macrowhisper version \(APP_VERSION)")
+            }
+            exit(0)
+        }
+
+        // Check for status command
+        if args.contains("-s") || args.contains("--status") {
+            if let response = socketCommunication.sendCommand(.status) {
+                print(response)
+            } else {
+                print("Failed to get status")
+            }
+            exit(0)
+        }
+
+        if args.contains("--get-icon") {
+            if let response = socketCommunication.sendCommand(.getIcon) {
+                print(response)
+            } else {
+                print("Failed to get icon.")
+            }
+            exit(0)
+        }
+
+        if args.contains("--exec-insert") {
+            let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
+            if let index = execInsertIndex, index + 1 < args.count {
+                let insertName = args[index + 1]
+                let arguments: [String: String] = ["name": insertName]
+
+                if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to execute insert")
+                }
+            } else {
+                print("Missing insert name after --exec-insert")
+            }
+            exit(0)
+        }
+
+        if args.contains("--get-insert") {
+            if let response = socketCommunication.sendCommand(.getInsert) {
+                print(response)
+            } else {
+                print("Failed to get active insert.")
+            }
+            exit(0)
+        }
+
+        if args.contains("--list-inserts") {
+            if let response = socketCommunication.sendCommand(.listInserts) {
+                print(response)
+            } else {
+                print("Failed to list inserts")
+            }
+            exit(0)
+        }
+
+        if args.contains("--auto-return") {
+            let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
+
+            var arguments: [String: String] = [:]
+
+            if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                arguments["enable"] = args[index + 1]
+            } else {
+                arguments["enable"] = "true"
+            }
+
+            if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to set auto-return")
+            }
+            exit(0)
+        }
+
+        if args.contains("--add-url") {
+            let addUrlIndex = args.firstIndex(where: { $0 == "--add-url" })
+            if let index = addUrlIndex, index + 1 < args.count {
+                let urlName = args[index + 1]
+                let arguments: [String: String] = ["name": urlName]
+
+                if let response = socketCommunication.sendCommand(.addUrl, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add URL action")
+                }
+            } else {
+                print("Missing name after --add-url")
+            }
+            exit(0)
+        }
+
+        if args.contains("--add-shortcut") {
+            let addShortcutIndex = args.firstIndex(where: { $0 == "--add-shortcut" })
+            if let index = addShortcutIndex, index + 1 < args.count {
+                let shortcutName = args[index + 1]
+                let arguments: [String: String] = ["name": shortcutName]
+
+                if let response = socketCommunication.sendCommand(.addShortcut, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add shortcut action")
+                }
+            } else {
+                print("Missing name after --add-shortcut")
+            }
+            exit(0)
+        }
+
+        if args.contains("--add-shell") {
+            let addShellIndex = args.firstIndex(where: { $0 == "--add-shell" })
+            if let index = addShellIndex, index + 1 < args.count {
+                let shellName = args[index + 1]
+                let arguments: [String: String] = ["name": shellName]
+
+                if let response = socketCommunication.sendCommand(.addShell, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add shell script action")
+                }
+            } else {
+                print("Missing name after --add-shell")
+            }
+            exit(0)
+        }
+
+        if args.contains("--add-as") {
+            let addASIndex = args.firstIndex(where: { $0 == "--add-as" })
+            if let index = addASIndex, index + 1 < args.count {
+                let asName = args[index + 1]
+                let arguments: [String: String] = ["name": asName]
+
+                if let response = socketCommunication.sendCommand(.addAppleScript, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add AppleScript action")
+                }
+            } else {
+                print("Missing name after --add-as")
+            }
+            exit(0)
+        }
+
+        if args.contains("--add-insert") {
+            let addInsertIndex = args.firstIndex(where: { $0 == "--add-insert" })
+            if let index = addInsertIndex, index + 1 < args.count {
+                let insertName = args[index + 1]
+                let arguments: [String: String] = ["name": insertName]
+
+                if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
+                    print(response)
+                } else {
+                    print("Failed to add insert")
+                }
+            } else {
+                print("Missing name after --add-insert")
+            }
+            exit(0)
+        }
+
+        // For reload configuration or no arguments, use socket communication
+        if args.count == 1 || args.contains("--watcher") ||
+           args.contains("-w") || args.contains("--watch") ||
+           args.contains("--no-updates") || args.contains("--no-noti") ||
+           args.contains("--insert") || args.contains("--icon") ||
+           args.contains("--move-to") || args.contains("--no-esc") ||
+           args.contains("--sim-keypress") || args.contains("--action-delay") ||
+           args.contains("--history") || args.contains("--press-return") {
+
+            // Create command arguments if there are any
+            var arguments: [String: String] = [:]
+
+            // Extract arguments from command line
+            if let watchIndex = args.firstIndex(where: { $0 == "-w" || $0 == "--watch" }),
+               watchIndex + 1 < args.count {
+                arguments["watch"] = args[watchIndex + 1]
+            }
+
+            if let watcherIndex = args.firstIndex(where: { $0 == "--watcher" }),
+               watcherIndex + 1 < args.count {
+                arguments["watcher"] = args[watcherIndex + 1]
+            }
+
+            if args.contains("--no-updates") {
+                let noUpdatesIndex = args.firstIndex(where: { $0 == "--no-updates" })
+                if let index = noUpdatesIndex, index + 1 < args.count {
+                    arguments["noUpdates"] = args[index + 1]
+                } else {
+                    arguments["noUpdates"] = "true"
+                }
+            }
+
+            if args.contains("--no-noti") {
+                let noNotiIndex = args.firstIndex(where: { $0 == "--no-noti" })
+                if let index = noNotiIndex, index + 1 < args.count {
+                    arguments["noNoti"] = args[index + 1]
+                } else {
+                    arguments["noNoti"] = "true"
+                }
+            }
+
+            if args.contains("--insert") {
+                let insertIndex = args.firstIndex(where: { $0 == "--insert" })
+                if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    arguments["activeInsert"] = args[index + 1]
+                } else {
+                    arguments["activeInsert"] = ""
+                }
+            }
+
+            if args.contains("--no-esc") {
+                let noEscIndex = args.firstIndex(where: { $0 == "--no-esc" })
+                if let index = noEscIndex, index + 1 < args.count {
+                    arguments["noEsc"] = args[index + 1]
+                } else {
+                    arguments["noEsc"] = "true"
+                }
+            }
+
+            if args.contains("--sim-keypress") {
+                let simKeyPressIndex = args.firstIndex(where: { $0 == "--sim-keypress" })
+                if let index = simKeyPressIndex, index + 1 < args.count {
+                    arguments["simKeypress"] = args[index + 1]
+                } else {
+                    arguments["simKeypress"] = "true"
+                }
+            }
+
+            if args.contains("--press-return") {
+                let pressReturnIndex = args.firstIndex(where: { $0 == "--press-return" })
+                if let index = pressReturnIndex, index + 1 < args.count {
+                    arguments["pressReturn"] = args[index + 1]
+                } else {
+                    arguments["pressReturn"] = "true"
+                }
+            }
+
+            if args.contains("--icon") {
+                let iconIndex = args.firstIndex(where: { $0 == "--icon" })
+                if let index = iconIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    arguments["icon"] = args[index + 1]
+                } else {
+                    arguments["icon"] = ""
+                }
+            }
+
+            if args.contains("--action-delay") {
+                let actionDelayIndex = args.firstIndex(where: { $0 == "--action-delay" })
+                if let index = actionDelayIndex, index + 1 < args.count {
+                    arguments["actionDelay"] = args[index + 1]
+                }
+            }
+
+            if args.contains("--history") {
+                let historyIndex = args.firstIndex(where: { $0 == "--history" })
+                if let index = historyIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    let historyArg = args[index + 1]
+                    if historyArg.lowercased() == "null" {
+                        arguments["history"] = "null"
+                    } else {
+                        arguments["history"] = historyArg
+                    }
+                } else {
+                    arguments["history"] = "null"
+                }
+            }
+
+            if args.contains("--move-to") {
+                let moveToIndex = args.firstIndex(where: { $0 == "--move-to" })
+                if let index = moveToIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+                    arguments["moveTo"] = args[index + 1]
+                } else {
+                    arguments["moveTo"] = ""
+                }
+            }
+
+            // If there are arguments, send updateConfig, otherwise send reloadConfig
+            let command = arguments.isEmpty ? SocketCommunication.Command.reloadConfig : SocketCommunication.Command.updateConfig
+
+            // Send the command to the running instance
+            if let response = socketCommunication.sendCommand(command, arguments: arguments.isEmpty ? nil : arguments) {
+                print("Response from running instance: \(response)")
+            } else {
+                print("Failed to communicate with running instance.")
+            }
+
+            exit(0)
+        }
+
+        // For any unrecognized command, provide helpful feedback
+        print("Error: Unrecognized command or invalid arguments.")
+        print("Use --help for available options.")
+        exit(1)
+    }
+
+    // Keep fd open for the lifetime of the process to hold the lock
+    return true
+}
+
+func checkSocketHealth() -> Bool {
+    // Try to send a simple status command to yourself
+    return socketCommunication.sendCommand(.status) != nil
+}
+
+func recoverSocket() {
+    logInfo("Attempting to recover socket connection...")
+    
+    // Cancel and close existing socket
+    socketCommunication.stopServer()
+    
+    // Remove socket file
+    if FileManager.default.fileExists(atPath: socketPath) {
+        do {
+            try FileManager.default.removeItem(atPath: socketPath)
+            logInfo("Removed existing socket file during recovery")
+        } catch {
+            logError("Failed to remove socket file during recovery: \(error)")
+        }
+    }
+    
+    // Recreate socket
+    ensureSocketDirectoryExists()
+    
+    // Safely unwrap the globalConfigManager
+    if let configManager = globalConfigManager {
+        socketCommunication.startServer(configManager: configManager)
+        logInfo("Socket server restarted after recovery attempt")
+    } else {
+        logError("Failed to restart socket server: globalConfigManager is nil")
+        
+        // Try to create a new configuration manager as fallback
+        let fallbackConfigManager = ConfigurationManager(configPath: nil)
+        socketCommunication.startServer(configManager: fallbackConfigManager)
+        globalConfigManager = fallbackConfigManager
+        logInfo("Socket server restarted with fallback configuration manager")
+    }
 }
 
 func registerForSleepWakeNotifications() {
-    // TODO: Implementation needed
+    logInfo("Registering for sleep/wake notifications")
+    
+    let center = NSWorkspace.shared.notificationCenter
+    center.addObserver(
+        forName: NSWorkspace.didWakeNotification,
+        object: nil,
+        queue: .main
+    ) { _ in
+        logInfo("System woke from sleep, restarting socket health monitor")
+        startSocketHealthMonitor()
+    }
+
+    center.addObserver(
+        forName: NSWorkspace.willSleepNotification,
+        object: nil,
+        queue: .main
+    ) { _ in
+        logInfo("System going to sleep, stopping socket health monitor")
+        stopSocketHealthMonitor()
+    }
 }
 
 func startSocketHealthMonitor() {
-    // TODO: Implementation needed
+    // Invalidate previous timer if any
+    socketHealthTimer?.invalidate()
+    socketHealthTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { _ in
+        logInfo("Performing periodic socket health check")
+        if !checkSocketHealth() {
+            logWarning("Socket appears to be unhealthy, attempting recovery")
+            recoverSocket()
+        }
+    }
+    socketHealthTimer?.tolerance = 10.0
+    RunLoop.main.add(socketHealthTimer!, forMode: .common)
+    logInfo("Socket health monitor started")
+}
+
+func stopSocketHealthMonitor() {
+    socketHealthTimer?.invalidate()
+    socketHealthTimer = nil
+    logInfo("Socket health monitor stopped")
+}
+
+if !acquireSingleInstanceLock(lockFilePath: lockPath) {
+    logError("Failed to acquire single instance lock. Exiting.")
+    exit(1)
 }
 
 // MARK: - Argument Parsing and Startup
@@ -110,250 +577,22 @@ func printHelp() {
 }
 
 // Argument parsing
-let configManager: ConfigurationManager
 var configPath: String? = nil
-var watchPath: String? = nil
-var watcherFlag: Bool? = nil
-var insertName: String? = nil
-var iconValue: String? = nil
-var moveToPath: String? = nil
-var noEscFlag: Bool? = nil
-var simKeypressFlag: Bool? = nil
-var pressReturnFlag: Bool? = nil
-var historyValue: Int? = nil
-
 let args = CommandLine.arguments
 var i = 1
 while i < args.count {
     switch args[i] {
     case "-c", "--config":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            notify(title: "Macrowhisper", message: "Missing value after \(args[i])")
-            exit(1)
-        }
-        configPath = args[i + 1]
-        i += 2
-    case "-w", "--watch":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            notify(title: "Macrowhisper", message: "Missing value after \(args[i])")
-            exit(1)
-        }
-        watchPath = args[i + 1]
-        i += 2
-    case "--no-updates":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
-        }
-        let value = args[i + 1].lowercased()
-        disableUpdates = value == "true" || value == "yes" || value == "1"
-        i += 2
-    case "--no-noti":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
-        }
-        let value = args[i + 1].lowercased()
-        disableNotifications = value == "true" || value == "yes" || value == "1"
-        i += 2
-    case "--no-esc":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
-        }
-        let value = args[i + 1].lowercased()
-        noEscFlag = value == "true" || value == "yes" || value == "1"
-        i += 2
-    case "--sim-keypress":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
-        }
-        let value = args[i + 1].lowercased()
-        simKeypressFlag = value == "true" || value == "yes" || value == "1"
-        i += 2
-    case "--action-delay":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            exit(1)
-        }
-        if let delayValue = Double(args[i + 1]) {
-            // Store the delay value in our top-level variable
-            actionDelayValue = delayValue
-        } else {
-            logError("Invalid delay value: \(args[i + 1]). Must be a number in seconds.")
-            exit(1)
-        }
-        i += 2
-    case "-h", "--help":
-        printHelp()
-        exit(0)
-    case "--history":
-        if i + 1 < args.count && !args[i + 1].starts(with: "--") {
-            // A value was provided
-            let historyArg = args[i + 1]
-            if historyArg.lowercased() == "null" {
-                historyValue = nil  // This will be handled specially
-                i += 2
-            } else if let historyVal = Int(historyArg) {
-                historyValue = historyVal
-                i += 2
-            } else {
-                logError("Invalid history value: \(historyArg). Must be a number (days) or 'null'.")
-                exit(1)
-            }
-        } else {
-            // No value provided, set to null
-            historyValue = nil  // This will be handled specially
-            i += 1
-        }
-    case "-v", "--version":
-        print("Macrowhisper version \(APP_VERSION)")
-        exit(0)
-    case "--insert":
-        if i + 1 < args.count && !args[i + 1].starts(with: "--") {
-            // A value was provided
-            insertName = args[i + 1]
+        if i + 1 < args.count {
+            configPath = args[i + 1]
             i += 2
         } else {
-            // No value provided, set empty string to clear the active insert
-            insertName = ""
-            i += 1
-        }
-    case "--icon":
-        if i + 1 < args.count && !args[i + 1].starts(with: "--") {
-            // A value was provided
-            iconValue = args[i + 1]
-            i += 2
-        } else {
-            // No value provided, set empty string to clear the default icon
-            iconValue = ""
-            i += 1
-        }
-    case "--move-to":
-        guard i + 1 < args.count else {
-            logError("Missing value after \(args[i])")
-            notify(title: "Macrowhisper", message: "Missing value after \(args[i])")
-            exit(1)
-        }
-        moveToPath = args[i + 1]
-        i += 2
-    case "--list-inserts":
-        if let response = socketCommunication.sendCommand(.listInserts) {
-            print(response)
-        } else {
-            print("Failed to list inserts")
-        }
-        exit(0)
-    case "--exec-insert":
-        guard i + 1 < args.count else {
-            logError("Missing insert name after \(args[i])")
-            exit(1)
-        }
-        let insertName = args[i + 1]
-        
-        let arguments: [String: String] = [
-            "name": insertName
-        ]
-        
-        if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
-            print(response)
-        } else {
-            print("Failed to execute insert")
-        }
-        exit(0)
-    case "--add-insert":
-        guard i + 1 < args.count else {
-            logError("Missing insert name after \(args[i])")
-            exit(1)
-        }
-        let insertName = args[i + 1]
-        
-        let arguments: [String: String] = [
-            "name": insertName
-        ]
-        
-        if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
-            print(response)
-        } else {
-            print("Failed to add insert")
-        }
-        exit(0)
-
-    case "--remove-insert":
-        guard i + 1 < args.count else {
-            logError("Missing insert name after \(args[i])")
-            exit(1)
-        }
-        let insertName = args[i + 1]
-        
-        let arguments: [String: String] = [
-            "name": insertName
-        ]
-        
-        if let response = socketCommunication.sendCommand(.removeInsert, arguments: arguments) {
-            print(response)
-        } else {
-            print("Failed to remove insert")
-        }
-        exit(0)
-    case "--press-return":
-        guard i + 1 < args.count else {
             logError("Missing value after \(args[i])")
             exit(1)
         }
-        let value = args[i + 1].lowercased()
-        pressReturnFlag = value == "true" || value == "yes" || value == "1"
-        i += 2
-    case "--add-url":
-        guard i + 1 < args.count else { logError("Missing name after \(args[i])"); exit(1) }
-        let name = args[i + 1]
-        if let response = socketCommunication.sendCommand(.addUrl, arguments: ["name": name]) {
-            print(response)
-        } else { print("Failed to add URL action") }
-        exit(0)
-    case "--add-shortcut":
-        guard i + 1 < args.count else {
-            logError("Missing name after \(args[i])")
-            exit(1)
-        }
-        let shortcutName = args[i + 1]
-        if let response = socketCommunication.sendCommand(.addShortcut, arguments: ["name": shortcutName]) {
-            print(response)
-        } else {
-            print("Failed to add shortcut")
-        }
-        exit(0)
-    case "--add-shell":
-        guard i + 1 < args.count else {
-            logError("Missing name after \(args[i])")
-            exit(1)
-        }
-        let shellName = args[i + 1]
-        if let response = socketCommunication.sendCommand(.addShell, arguments: ["name": shellName]) {
-            print(response)
-        } else {
-            print("Failed to add shell script")
-        }
-        exit(0)
-    case "--add-as":
-        guard i + 1 < args.count else {
-            logError("Missing name after \(args[i])")
-            exit(1)
-        }
-        let asName = args[i + 1]
-        if let response = socketCommunication.sendCommand(.addAppleScript, arguments: ["name": asName]) {
-            print(response)
-        } else {
-            print("Failed to add AppleScript action")
-        }
-        exit(0)
     default:
-        logError("Unknown argument: \(args[i])")
-        notify(title: "Macrowhisper", message: "Unknown argument: \(args[i])")
-        exit(1)
+        // Ignore other arguments on the daemon side for now
+        i += 1
     }
 }
 
@@ -361,40 +600,12 @@ while i < args.count {
 configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
 
-let historyManager = HistoryManager(configManager: configManager)
-
-// Apply any stored action delay value if it was set in command line arguments
-if let delayValue = actionDelayValue {
-    configManager.updateFromCommandLine(actionDelay: delayValue)
-}
+historyManager = HistoryManager(configManager: configManager)
 
 // Read values from config first
 let config = configManager.config
 disableUpdates = config.defaults.noUpdates
 disableNotifications = config.defaults.noNoti
-
-// Only update config with command line arguments if they were specified
-configManager.updateFromCommandLine(
-    watchPath: watchPath,
-    watcher: watcherFlag,
-    noUpdates: args.contains("--no-updates") ? (args.firstIndex(where: { $0 == "--no-updates" }).flatMap { idx in
-        idx + 1 < args.count ? (args[idx + 1].lowercased() == "true") : true
-    }) : nil,
-    noNoti: args.contains("--no-noti") ? (args.firstIndex(where: { $0 == "--no-noti" }).flatMap { idx in
-        idx + 1 < args.count ? (args[idx + 1].lowercased() == "true") : true
-    }) : nil,
-    activeInsert: insertName,
-    icon: iconValue,
-    moveTo: moveToPath,
-    noEsc: noEscFlag,
-    simKeypress: simKeypressFlag,
-    history: args.contains("--history") ? historyValue : nil,
-    pressReturn: pressReturnFlag
-)
-
-// Update global variables again after possible configuration changes
-disableUpdates = configManager.config.defaults.noUpdates
-disableNotifications = configManager.config.defaults.noNoti
 
 // Get the final watch path after possible updates
 let watchFolderPath = config.defaults.watch
@@ -409,14 +620,28 @@ if runWatcher { logInfo("Watcher: \(watchFolderPath)/recordings") }
 // Server setup - only if jsonPath is provided
 // MARK: - Server and Watcher Setup
 
+// Start the socket server
+logInfo("About to start socket server...")
+socketCommunication.startServer(configManager: configManager)
+logInfo("Socket server started at \(socketPath)")
+
+// Add a deinit to stop the server when the app terminates
+defer {
+    socketCommunication.stopServer()
+}
+
 // Initialize the recordings folder watcher if enabled
-var recordingsWatcher: RecordingsFolderWatcher? = nil
 if runWatcher {
     // Validate the watch folder exists
     let recordingsPath = "\(watchFolderPath)/recordings"
     if !FileManager.default.fileExists(atPath: recordingsPath) {
         logError("Error: Recordings folder not found at \(recordingsPath)")
         notify(title: "Macrowhisper", message: "Error: Recordings folder not found at \(recordingsPath)")
+        exit(1)
+    }
+    
+    guard let historyManager = historyManager else {
+        logError("History manager not initialized. Exiting.")
         exit(1)
     }
     
