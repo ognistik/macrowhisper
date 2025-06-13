@@ -12,6 +12,18 @@ import Carbon.HIToolbox
 let APP_VERSION = "1.0.0"
 private let UNIX_PATH_MAX = 104
 
+// MARK: - Utility Functions
+
+/// Helper function to escape shell special characters in placeholder values
+func escapeShellCharacters(_ input: String) -> String {
+    // Only escape the minimal set of characters that would cause issues in shell command arguments
+    // These are the characters that would break shell command parsing
+    return input.replacingOccurrences(of: "\\", with: "\\\\") // Must be first to avoid double-escaping
+               .replacingOccurrences(of: "\"", with: "\\\"")
+               .replacingOccurrences(of: "`", with: "\\`")    // Command substitution
+               .replacingOccurrences(of: "$", with: "\\$")    // Variable expansion
+}
+
 // MARK: - Socket Communication System
 
 // Socket helper function - completely bypasses the Unix socket system
@@ -3001,7 +3013,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                         replacement = formatter.string(from: Date())
                     }
                     logInfo("[DatePlaceholder] Replacing {{date:\(dateFormat)}} with \(replacement)")
-                    result.replaceSubrange(fullMatchRange, with: replacement)
+                    let escapedReplacement = escapeShellCharacters(replacement)
+                    result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                     continue
                 }
                 // Handle swResult
@@ -3014,7 +3027,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     } else {
                         value = ""
                     }
-                    result.replaceSubrange(fullMatchRange, with: value)
+                    let escapedValue = escapeShellCharacters(value)
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
                 } else if let jsonValue = metaJson[key] {
                     let value: String
                     if let stringValue = jsonValue as? String {
@@ -3031,7 +3045,8 @@ class RecordingsFolderWatcher: @unchecked Sendable {
                     } else {
                         value = String(describing: jsonValue)
                     }
-                    result.replaceSubrange(fullMatchRange, with: value)
+                    let escapedValue = escapeShellCharacters(value)
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
                 } else {
                     // Key doesn't exist in metaJson, remove the placeholder
                     result.replaceSubrange(fullMatchRange, with: "")
@@ -3041,6 +3056,7 @@ class RecordingsFolderWatcher: @unchecked Sendable {
         return result
     }
 
+    
 
     private func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
         // If text is empty or just whitespace, just simulate ESC key press and return
@@ -5102,7 +5118,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                     formatter.setLocalizedDateFormatFromTemplate(format)
                     replacement = formatter.string(from: Date())
                 }
-                result.replaceSubrange(fullMatchRange, with: replacement)
+                // Escape shell special characters in the replacement
+                let escapedReplacement = escapeShellCharacters(replacement)
+                result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
             }
             // Handle swResult
@@ -5115,7 +5133,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 } else {
                     value = ""
                 }
-                result.replaceSubrange(fullMatchRange, with: value)
+                // Escape shell special characters
+                let escapedValue = escapeShellCharacters(value)
+                result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
                 let value: String
                 if let stringValue = jsonValue as? String {
@@ -5132,7 +5152,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 } else {
                     value = String(describing: jsonValue)
                 }
-                result.replaceSubrange(fullMatchRange, with: value)
+                // Escape shell special characters
+                let escapedValue = escapeShellCharacters(value)
+                result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else {
                 // Key doesn't exist in metaJson, remove the placeholder
                 result.replaceSubrange(fullMatchRange, with: "")
