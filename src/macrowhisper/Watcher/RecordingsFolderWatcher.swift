@@ -424,11 +424,27 @@ class RecordingsFolderWatcher {
     }
 
     private func handlePostProcessing(recordingPath: String) {
-        let moveTo = configManager.config.defaults.moveTo
-        if let path = moveTo, !path.isEmpty, path != ".none" {
+        // Determine the moveTo value with proper precedence (active insert takes precedence over default)
+        var moveTo: String?
+        if let activeInsertName = configManager.config.defaults.activeInsert,
+           !activeInsertName.isEmpty,
+           let activeInsert = configManager.config.inserts[activeInsertName],
+           let insertMoveTo = activeInsert.moveTo, !insertMoveTo.isEmpty {
+            // Active insert has an explicit moveTo value (including ".none" and ".delete")
+            moveTo = insertMoveTo
+        } else {
+            // No active insert or insert moveTo is nil/empty, fall back to default
+            moveTo = configManager.config.defaults.moveTo
+        }
+        
+        // Handle the moveTo action
+        if let path = moveTo, !path.isEmpty {
             if path == ".delete" {
                 logInfo("Deleting processed recording folder: \(recordingPath)")
                 try? FileManager.default.removeItem(atPath: recordingPath)
+            } else if path == ".none" {
+                logInfo("Keeping folder in place as requested by .none setting")
+                // Explicitly do nothing
             } else {
                 let expandedPath = (path as NSString).expandingTildeInPath
                 let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((recordingPath as NSString).lastPathComponent)

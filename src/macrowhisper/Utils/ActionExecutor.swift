@@ -61,22 +61,22 @@ class ActionExecutor {
     
     private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String) {
         processUrlAction(url, metaJson: metaJson)
-        handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: nil)
+        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: url)
     }
     
     private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String) {
         processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: metaJson)
-        handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: nil)
+        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shortcut)
     }
     
     private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String) {
         processShellScriptAction(shell, metaJson: metaJson)
-        handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: nil)
+        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shell)
     }
     
     private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String) {
         processAppleScriptAction(ascript, metaJson: metaJson)
-        handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: nil)
+        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: ascript)
     }
     
     // MARK: - Action Processing Methods
@@ -111,8 +111,14 @@ class ActionExecutor {
         }
         
         // Handle ESC key press if not disabled
-        if !(urlAction.noEsc ?? false) {
+        if !(urlAction.noEsc ?? configManager.config.defaults.noEsc) {
             simulateEscKeyPress(activeInsert: nil)
+        }
+        
+        // Handle action delay
+        let delay = urlAction.actionDelay ?? configManager.config.defaults.actionDelay
+        if delay > 0 {
+            Thread.sleep(forTimeInterval: delay)
         }
     }
     
@@ -136,10 +142,11 @@ class ActionExecutor {
         } catch {
             logger.log("Failed to execute shortcut action: \(error)", level: .error)
         }
-        if !(shortcut.noEsc ?? false) {
+        if !(shortcut.noEsc ?? configManager.config.defaults.noEsc) {
             simulateEscKeyPress(activeInsert: nil)
         }
-        if let delay = shortcut.actionDelay, delay > 0 {
+        let delay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
+        if delay > 0 {
             Thread.sleep(forTimeInterval: delay)
         }
         autoReturnEnabled = false
@@ -158,10 +165,11 @@ class ActionExecutor {
         } catch {
             logger.log("Failed to execute shell script: \(error)", level: .error)
         }
-        if !(shell.noEsc ?? false) {
+        if !(shell.noEsc ?? configManager.config.defaults.noEsc) {
             simulateEscKeyPress(activeInsert: nil)
         }
-        if let delay = shell.actionDelay, delay > 0 {
+        let delay = shell.actionDelay ?? configManager.config.defaults.actionDelay
+        if delay > 0 {
             Thread.sleep(forTimeInterval: delay)
         }
         autoReturnEnabled = false
@@ -180,10 +188,11 @@ class ActionExecutor {
         } catch {
             logger.log("Failed to execute AppleScript action: \(error)", level: .error)
         }
-        if !(ascript.noEsc ?? false) {
+        if !(ascript.noEsc ?? configManager.config.defaults.noEsc) {
             simulateEscKeyPress(activeInsert: nil)
         }
-        if let delay = ascript.actionDelay, delay > 0 {
+        let delay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
+        if delay > 0 {
             Thread.sleep(forTimeInterval: delay)
         }
         autoReturnEnabled = false
@@ -192,11 +201,74 @@ class ActionExecutor {
     // MARK: - Helper Methods
     
     private func handleMoveToSetting(folderPath: String, activeInsert: AppConfiguration.Insert?) {
-        let moveTo = activeInsert?.moveTo ?? configManager.config.defaults.moveTo
-        if let path = moveTo, !path.isEmpty, path != ".none" {
+        // Determine the moveTo value with proper precedence
+        var moveTo: String?
+        if let activeInsert = activeInsert, let insertMoveTo = activeInsert.moveTo, !insertMoveTo.isEmpty {
+            // Insert has an explicit moveTo value (including ".none" and ".delete")
+            moveTo = insertMoveTo
+        } else {
+            // Insert moveTo is nil or empty, fall back to default
+            moveTo = configManager.config.defaults.moveTo
+        }
+        
+        // Handle the moveTo action
+        if let path = moveTo, !path.isEmpty {
             if path == ".delete" {
                 logger.log("Deleting processed recording folder: \(folderPath)", level: .info)
                 try? FileManager.default.removeItem(atPath: folderPath)
+            } else if path == ".none" {
+                logger.log("Keeping folder in place as requested by .none setting", level: .info)
+                // Explicitly do nothing
+            } else {
+                let expandedPath = (path as NSString).expandingTildeInPath
+                let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((folderPath as NSString).lastPathComponent)
+                logger.log("Moving processed recording folder to: \(destinationUrl.path)", level: .info)
+                try? FileManager.default.moveItem(atPath: folderPath, toPath: destinationUrl.path)
+            }
+        }
+    }
+    
+    private func handleMoveToSettingForAction(folderPath: String, action: Any) {
+        // Determine the moveTo value with proper precedence for different action types
+        var moveTo: String?
+        
+        if let url = action as? AppConfiguration.Url {
+            if let actionMoveTo = url.moveTo, !actionMoveTo.isEmpty {
+                moveTo = actionMoveTo
+            } else {
+                moveTo = configManager.config.defaults.moveTo
+            }
+        } else if let shortcut = action as? AppConfiguration.Shortcut {
+            if let actionMoveTo = shortcut.moveTo, !actionMoveTo.isEmpty {
+                moveTo = actionMoveTo
+            } else {
+                moveTo = configManager.config.defaults.moveTo
+            }
+        } else if let shell = action as? AppConfiguration.ScriptShell {
+            if let actionMoveTo = shell.moveTo, !actionMoveTo.isEmpty {
+                moveTo = actionMoveTo
+            } else {
+                moveTo = configManager.config.defaults.moveTo
+            }
+        } else if let ascript = action as? AppConfiguration.ScriptAppleScript {
+            if let actionMoveTo = ascript.moveTo, !actionMoveTo.isEmpty {
+                moveTo = actionMoveTo
+            } else {
+                moveTo = configManager.config.defaults.moveTo
+            }
+        } else {
+            // Fallback to default
+            moveTo = configManager.config.defaults.moveTo
+        }
+        
+        // Handle the moveTo action
+        if let path = moveTo, !path.isEmpty {
+            if path == ".delete" {
+                logger.log("Deleting processed recording folder: \(folderPath)", level: .info)
+                try? FileManager.default.removeItem(atPath: folderPath)
+            } else if path == ".none" {
+                logger.log("Keeping folder in place as requested by .none setting", level: .info)
+                // Explicitly do nothing
             } else {
                 let expandedPath = (path as NSString).expandingTildeInPath
                 let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((folderPath as NSString).lastPathComponent)

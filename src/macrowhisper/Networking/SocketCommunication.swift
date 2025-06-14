@@ -149,7 +149,10 @@ class SocketCommunication {
     // This version is for the main watcher flow and respects the 'noEsc' setting
     func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
         if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
-            simulateEscKeyPress(activeInsert: activeInsert); return
+            // For empty or .none actions, apply actionDelay but don't press ESC, paste, or do any clipboard operations
+            let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
+            if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+            return
         }
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
@@ -169,7 +172,12 @@ class SocketCommunication {
     
     // This version is for the --exec-insert CLI command and does NOT press ESC.
     func applyInsertForExec(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
-        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" { return }
+        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" { 
+            // For empty or .none actions, apply actionDelay but don't paste or do any clipboard operations
+            let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
+            if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+            return 
+        }
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         if isAutoPaste {
@@ -311,12 +319,30 @@ class SocketCommunication {
             case .getIcon:
                 let activeInsertName = configMgr.config.defaults.activeInsert
                 var icon: String?
+                
+                // Check if there's an active insert and get its icon
                 if let activeInsertName = activeInsertName, !activeInsertName.isEmpty, let activeInsert = configMgr.config.inserts[activeInsertName] {
-                    icon = activeInsert.icon
+                    if let insertIcon = activeInsert.icon, !insertIcon.isEmpty {
+                        // Insert has an explicit icon value (including ".none")
+                        icon = insertIcon
+                    } else {
+                        // Insert icon is nil or empty, fall back to default
+                        icon = configMgr.config.defaults.icon
+                    }
                 } else {
+                    // No active insert, use default
                     icon = configMgr.config.defaults.icon
                 }
-                response = (icon == ".none" || icon == nil || icon == "") ? " " : icon!
+                
+                // Handle special values and return appropriate response
+                if icon == ".none" {
+                    response = " "  // Explicit no icon
+                } else if let iconValue = icon, !iconValue.isEmpty {
+                    response = iconValue  // Use the icon
+                } else {
+                    response = " "  // No icon defined (nil or empty)
+                }
+                
                 logger.log("Returning icon: '\(response)'", level: .info)
                 write(clientSocket, response, response.utf8.count)
                 
