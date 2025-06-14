@@ -205,4 +205,141 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
         }
     }
     return result
+}
+
+/// Expands dynamic placeholders with context-aware escaping based on action type
+func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
+    var result = action
+    var metaJson = metaJson // Make mutable copy
+    
+    // Regex for {{key}} and {{date:...}}
+    let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    
+    // --- BEGIN: FrontApp Placeholder Logic ---
+    // Only fetch the front app if the placeholder is present and not already in metaJson
+    if action.contains("{{frontApp}}") && metaJson["frontApp"] == nil {
+        // Use frontAppName from metaJson if present (set by trigger evaluation)
+        var appName: String? = nil
+        if let fromTrigger = metaJson["frontAppName"] as? String, !fromTrigger.isEmpty {
+            appName = fromTrigger
+        } else if let app = lastDetectedFrontApp {
+            appName = app.localizedName
+        } else {
+            // Fetch the frontmost application (synchronously, main thread safe)
+            if Thread.isMainThread {
+                let frontApp = NSWorkspace.shared.frontmostApplication
+                lastDetectedFrontApp = frontApp
+                appName = frontApp?.localizedName
+            } else {
+                var fetchedApp: NSRunningApplication?
+                let semaphore = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async {
+                    fetchedApp = NSWorkspace.shared.frontmostApplication
+                    lastDetectedFrontApp = fetchedApp
+                    semaphore.signal()
+                }
+                _ = semaphore.wait(timeout: .now() + 0.1)
+                appName = fetchedApp?.localizedName
+            }
+        }
+        metaJson["frontApp"] = appName ?? ""
+        logInfo("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
+    }
+    // --- END: FrontApp Placeholder Logic ---
+    
+    if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
+        for match in matches.reversed() {
+            guard let keyRange = Range(match.range(at: 1), in: action),
+                  let fullMatchRange = Range(match.range, in: action) else { continue }
+            let key = String(action[keyRange])
+            // Check for date placeholder
+            if key == "date", match.numberOfRanges > 2, let formatRange = Range(match.range(at: 2), in: action) {
+                let format = String(action[formatRange])
+                let replacement: String
+                switch format {
+                case "short":
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .short
+                    formatter.timeStyle = .none
+                    replacement = formatter.string(from: Date())
+                case "long":
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .long
+                    formatter.timeStyle = .none
+                    replacement = formatter.string(from: Date())
+                default:
+                    // UTS 35 custom format
+                    let formatter = DateFormatter()
+                    formatter.setLocalizedDateFormatFromTemplate(format)
+                    replacement = formatter.string(from: Date())
+                }
+                // Use appropriate escaping based on action type
+                let escapedReplacement: String
+                switch actionType {
+                case .shortcut:
+                    escapedReplacement = replacement // No escaping for shortcuts
+                case .appleScript:
+                    escapedReplacement = escapeAppleScriptString(replacement)
+                case .shell, .insert, .url:
+                    escapedReplacement = escapeShellCharacters(replacement)
+                }
+                result.replaceSubrange(fullMatchRange, with: escapedReplacement)
+                continue
+            }
+            // Handle swResult
+            if key == "swResult" {
+                let value: String
+                if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
+                    value = llm
+                } else if let res = metaJson["result"] as? String, !res.isEmpty {
+                    value = res
+                } else {
+                    value = ""
+                }
+                // Use appropriate escaping based on action type
+                let escapedValue: String
+                switch actionType {
+                case .shortcut:
+                    escapedValue = value // No escaping for shortcuts
+                case .appleScript:
+                    escapedValue = escapeAppleScriptString(value)
+                case .shell, .insert, .url:
+                    escapedValue = escapeShellCharacters(value)
+                }
+                result.replaceSubrange(fullMatchRange, with: escapedValue)
+            } else if let jsonValue = metaJson[key] {
+                let value: String
+                if let stringValue = jsonValue as? String {
+                    value = stringValue
+                } else if let numberValue = jsonValue as? NSNumber {
+                    value = numberValue.stringValue
+                } else if let boolValue = jsonValue as? Bool {
+                    value = boolValue ? "true" : "false"
+                } else if jsonValue is NSNull {
+                    value = ""
+                } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                          let jsonString = String(data: jsonData, encoding: .utf8) {
+                    value = jsonString
+                } else {
+                    value = String(describing: jsonValue)
+                }
+                // Use appropriate escaping based on action type
+                let escapedValue: String
+                switch actionType {
+                case .shortcut:
+                    escapedValue = value // No escaping for shortcuts
+                case .appleScript:
+                    escapedValue = escapeAppleScriptString(value)
+                case .shell, .insert, .url:
+                    escapedValue = escapeShellCharacters(value)
+                }
+                result.replaceSubrange(fullMatchRange, with: escapedValue)
+            } else {
+                // Key doesn't exist in metaJson, remove the placeholder
+                result.replaceSubrange(fullMatchRange, with: "")
+            }
+        }
+    }
+    return result
 } 

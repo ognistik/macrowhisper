@@ -116,7 +116,7 @@ class ActionExecutor {
     }
     
     private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {
-        let processedAction = processDynamicPlaceholders(action: shortcut.action, metaJson: metaJson)
+        let processedAction = processDynamicPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
         let task = Process()
         task.launchPath = "/usr/bin/shortcuts"
         task.arguments = ["run", shortcutName, "-i", "-"]
@@ -145,7 +145,7 @@ class ActionExecutor {
     }
     
     private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) {
-        let processedAction = processDynamicPlaceholders(action: shell.action, metaJson: metaJson)
+        let processedAction = processDynamicPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
         let task = Process()
         task.launchPath = "/bin/bash"
         task.arguments = ["-c", processedAction]
@@ -167,7 +167,7 @@ class ActionExecutor {
     }
     
     private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) {
-        let processedAction = processDynamicPlaceholders(action: ascript.action, metaJson: metaJson)
+        let processedAction = processDynamicPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", processedAction]
