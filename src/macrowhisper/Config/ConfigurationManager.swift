@@ -25,15 +25,34 @@ class ConfigurationManager {
     private var pendingCommands: [(arguments: [String: String], completion: (() -> Void)?)] = []
     private var isProcessingCommands = false
     
+    // Add properties to track JSON error state and prevent reload loops
+    private var hasNotifiedAboutJsonError = false
+    private var suppressNextConfigReload = false
+    
     init(configPath: String?) {
         let defaultConfigPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
         self.configPath = configPath ?? defaultConfigPath
         
-        if let loadedConfig = Self.loadConfig(from: self.configPath) {
-            self._config = loadedConfig
-            logInfo("Configuration loaded from \(self.configPath)")
+        // Initialize with default config first
+        self._config = AppConfiguration()
+        
+        // Check if config file exists before attempting to load
+        let fileExistedBefore = fileManager.fileExists(atPath: self.configPath)
+        
+        if fileExistedBefore {
+            // If file exists, attempt to load it
+            if let loadedConfig = Self.loadConfig(from: self.configPath) {
+                self._config = loadedConfig
+                logInfo("Configuration loaded from \(self.configPath)")
+                // Reset notification flag on successful load
+                hasNotifiedAboutJsonError = false
+            } else {
+                // If loading fails but file exists, don't overwrite it - show notification
+                logWarning("Failed to load configuration due to invalid JSON. Using defaults in memory only.")
+                showJsonErrorNotification()
+            }
         } else {
-            self._config = AppConfiguration()
+            // File doesn't exist, create it with defaults
             logInfo("No configuration file found at \(self.configPath). Creating a new one with default settings.")
             syncQueue.async {
                 self.saveConfig()
@@ -52,10 +71,58 @@ class ConfigurationManager {
     }
 
     func loadConfig() -> AppConfiguration? {
-        return Self.loadConfig(from: self.configPath)
+        guard fileManager.fileExists(atPath: configPath) else {
+            return nil
+        }
+        
+        do {
+            // Create a fresh URL with no caching
+            let url = URL(fileURLWithPath: configPath)
+            let data = try Data(contentsOf: url, options: .uncached)
+            let decoder = JSONDecoder()
+            let config = try decoder.decode(AppConfiguration.self, from: data)
+            
+            // JSON loaded successfully, reset notification flag
+            hasNotifiedAboutJsonError = false
+            
+            return config
+        } catch {
+            // Log the error
+            logError("Error loading configuration: \(error.localizedDescription)")
+            
+            // Show notification if we haven't already notified
+            showJsonErrorNotification()
+            
+            return nil
+        }
+    }
+    
+    private func showJsonErrorNotification() {
+        // Only show notification if we haven't already notified
+        if !hasNotifiedAboutJsonError {
+            hasNotifiedAboutJsonError = true
+            
+            // Show a comprehensive notification
+            notify(title: "Macrowhisper - Configuration Error",
+                   message: "Your configuration file contains invalid JSON. Please fix.")
+            
+            // Reset the file watcher to recover from JSON error
+            resetFileWatcher()
+        }
     }
     
     func saveConfig() {
+        // Don't overwrite an existing file that failed to load (has invalid JSON)
+        if fileManager.fileExists(atPath: configPath) &&
+            loadConfig() == nil {
+            logWarning("Not saving configuration because the existing file has invalid JSON that needs to be fixed manually")
+            // Don't show another notification here - we've already notified in loadConfig()
+            return
+        }
+        
+        // Set suppression flag before writing config to prevent reload loop
+        suppressNextConfigReload = true
+        
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         
@@ -142,12 +209,25 @@ class ConfigurationManager {
         
         fileWatcher = ConfigChangeWatcher(filePath: configPath, onChanged: { [weak self] in
             logInfo("Configuration file change detected. Reloading.")
-            self?.syncQueue.async {
-                if let newConfig = self?.loadConfig() {
-                    self?._config = newConfig
+            guard let self = self else { return }
+            
+            // Suppress reload if this was an internal config write
+            if self.suppressNextConfigReload {
+                logInfo("Suppressed config reload after internal write.")
+                self.suppressNextConfigReload = false
+                return
+            }
+            
+            self.syncQueue.async {
+                if let newConfig = self.loadConfig() {
+                    self._config = newConfig
+                    self.configurationSuccessfullyLoaded()
                     DispatchQueue.main.async {
-                        self?.onConfigChanged?("configFileChanged")
+                        self.onConfigChanged?("configFileChanged")
                     }
+                    logInfo("Configuration automatically reloaded after file change")
+                } else {
+                    logError("Failed to reload configuration after file change")
                 }
             }
         })
@@ -156,12 +236,23 @@ class ConfigurationManager {
     }
 
     func resetFileWatcher() {
-        logInfo("Resetting file watcher due to configuration change.")
-        setupFileWatcher()
+        logInfo("Resetting file watcher due to previous JSON error...")
+        
+        // Stop and clean up the current file watcher
+        fileWatcher?.stop()
+        fileWatcher = nil
+        
+        // Set up a new file watcher with a small delay to ensure clean state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            self.setupFileWatcher()
+            logInfo("File watcher has been reset and reinitialized")
+        }
     }
 
     func configurationSuccessfullyLoaded() {
-        // Placeholder for future use
+        // Reset the notification flag when config is successfully reloaded
+        hasNotifiedAboutJsonError = false
     }
     
     func getHistoryRetentionDays() -> Int? {

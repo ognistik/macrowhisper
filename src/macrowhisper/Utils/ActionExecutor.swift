@@ -206,7 +206,8 @@ class ActionExecutor {
     }
     
     private func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
-        let shouldSkipEsc = activeInsert?.noEsc ?? configManager.config.defaults.noEsc ?? false
+        // Use insert-specific noEsc if set, otherwise fall back to global default
+        let shouldSkipEsc = activeInsert?.noEsc ?? configManager.config.defaults.noEsc
         if !shouldSkipEsc {
             DispatchQueue.main.async {
                 simulateKeyDown(key: 53) // ESC key
