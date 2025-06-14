@@ -23,6 +23,7 @@ var socketHealthTimer: Timer?
 var historyManager: HistoryManager?
 var configManager: ConfigurationManager!
 var recordingsWatcher: RecordingsFolderWatcher?
+var lastDetectedFrontApp: NSRunningApplication?
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath

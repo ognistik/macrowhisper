@@ -1,5 +1,6 @@
 import Foundation
 import Dispatch
+import Cocoa
 
 class RecordingsFolderWatcher {
     private let path: String
@@ -314,6 +315,17 @@ class RecordingsFolderWatcher {
             
             // We have a valid result, process it immediately
             logInfo("Valid result found in meta.json for \(recordingPath), processing.")
+            
+            // Always update lastDetectedFrontApp to the current frontmost app for app triggers and input field detection
+            if Thread.isMainThread {
+                lastDetectedFrontApp = NSWorkspace.shared.frontmostApplication
+            } else {
+                var frontApp: NSRunningApplication?
+                DispatchQueue.main.sync {
+                    frontApp = NSWorkspace.shared.frontmostApplication
+                }
+                lastDetectedFrontApp = frontApp
+            }
             
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)

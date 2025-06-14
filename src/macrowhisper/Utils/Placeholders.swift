@@ -1,4 +1,5 @@
 import Foundation
+import Cocoa
 
 // Function to process LLM result based on XML placeholders in the action
 func processXmlPlaceholders(action: String, llmResult: String) -> (String, [String: String]) {
@@ -93,9 +94,44 @@ func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> 
 /// Expands dynamic placeholders in the form {{key}} and (new) {{date:format}} in the action string.
 func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
     var result = action
+    var metaJson = metaJson // Make mutable copy
+    
     // Regex for {{key}} and {{date:...}}
     let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    
+    // --- BEGIN: FrontApp Placeholder Logic ---
+    // Only fetch the front app if the placeholder is present and not already in metaJson
+    if action.contains("{{frontApp}}") && metaJson["frontApp"] == nil {
+        // Use frontAppName from metaJson if present (set by trigger evaluation)
+        var appName: String? = nil
+        if let fromTrigger = metaJson["frontAppName"] as? String, !fromTrigger.isEmpty {
+            appName = fromTrigger
+        } else if let app = lastDetectedFrontApp {
+            appName = app.localizedName
+        } else {
+            // Fetch the frontmost application (synchronously, main thread safe)
+            if Thread.isMainThread {
+                let frontApp = NSWorkspace.shared.frontmostApplication
+                lastDetectedFrontApp = frontApp
+                appName = frontApp?.localizedName
+            } else {
+                var fetchedApp: NSRunningApplication?
+                let semaphore = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async {
+                    fetchedApp = NSWorkspace.shared.frontmostApplication
+                    lastDetectedFrontApp = fetchedApp
+                    semaphore.signal()
+                }
+                _ = semaphore.wait(timeout: .now() + 0.1)
+                appName = fetchedApp?.localizedName
+            }
+        }
+        metaJson["frontApp"] = appName ?? ""
+        logInfo("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
+    }
+    // --- END: FrontApp Placeholder Logic ---
+    
     if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
         for match in matches.reversed() {
             guard let keyRange = Range(match.range(at: 1), in: action),
