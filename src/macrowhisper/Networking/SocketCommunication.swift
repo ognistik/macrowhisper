@@ -31,6 +31,7 @@ class SocketCommunication {
         case addShortcut
         case addShell
         case addAppleScript
+        case quit
     }
     
     struct CommandMessage: Codable {
@@ -434,6 +435,16 @@ class SocketCommunication {
             case .version:
                 response = "macrowhisper version \(APP_VERSION)"
                 write(clientSocket, response, response.utf8.count)
+                
+            case .quit:
+                logger.log("Received quit command, shutting down.", level: .info)
+                let response = "Quitting macrowhisper..."
+                write(clientSocket, response, response.utf8.count)
+                // Give the response a moment to flush
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    exit(0)
+                }
+                return
             }
         } catch {
             let response = "Failed to parse command: \(error)"
@@ -478,7 +489,7 @@ class SocketCommunication {
         }
         
         guard connectResult == 0 else {
-            return "Failed to connect to socket: \(errno) (\(String(cString: strerror(errno)))). Is server running?"
+            return "Failed to connect to socket. Is Macrowhisper running?"
         }
         
         let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)

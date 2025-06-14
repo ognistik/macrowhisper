@@ -289,7 +289,7 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
         }
 
         // For reload configuration or no arguments, use socket communication
-        if args.count == 1 || args.contains("--watcher") ||
+        if args.count == 1 ||
            args.contains("-w") || args.contains("--watch") ||
            args.contains("--no-updates") || args.contains("--no-noti") ||
            args.contains("--insert") || args.contains("--icon") ||
@@ -304,11 +304,6 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
             if let watchIndex = args.firstIndex(where: { $0 == "-w" || $0 == "--watch" }),
                watchIndex + 1 < args.count {
                 arguments["watch"] = args[watchIndex + 1]
-            }
-
-            if let watcherIndex = args.firstIndex(where: { $0 == "--watcher" }),
-               watcherIndex + 1 < args.count {
-                arguments["watcher"] = args[watcherIndex + 1]
             }
 
             if args.contains("--no-updates") {
@@ -510,6 +505,95 @@ func stopSocketHealthMonitor() {
     logInfo("Socket health monitor stopped")
 }
 
+// ---- QUICK COMMANDS: These should never start the daemon ----
+let args = CommandLine.arguments
+if args.contains("-h") || args.contains("--help") {
+    printHelp()
+    exit(0)
+}
+if args.contains("-v") || args.contains("--version") {
+    print("macrowhisper version \(APP_VERSION)")
+    exit(0)
+}
+if args.contains("-s") || args.contains("--status") {
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if let response = socketCommunication.sendCommand(.status) {
+        print(response)
+    } else {
+        print("macrowhisper is not running.")
+    }
+    exit(0)
+}
+if args.contains("--get-icon") {
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if let response = socketCommunication.sendCommand(.getIcon) {
+        print(response)
+    } else {
+        print("Failed to get icon or macrowhisper is not running.")
+    }
+    exit(0)
+}
+if args.contains("--get-insert") {
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if let response = socketCommunication.sendCommand(.getInsert) {
+        print(response)
+    } else {
+        print("Failed to get active insert or macrowhisper is not running.")
+    }
+    exit(0)
+}
+if args.contains("--list-inserts") {
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if let response = socketCommunication.sendCommand(.listInserts) {
+        print(response)
+    } else {
+        print("Failed to list inserts or macrowhisper is not running.")
+    }
+    exit(0)
+}
+if args.contains("--exec-insert") {
+    let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
+    if let index = execInsertIndex, index + 1 < args.count {
+        let insertName = args[index + 1]
+        let arguments: [String: String] = ["name": insertName]
+        let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+        if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to execute insert or macrowhisper is not running.")
+        }
+    } else {
+        print("Missing insert name after --exec-insert")
+    }
+    exit(0)
+}
+if args.contains("--auto-return") {
+    let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
+    var arguments: [String: String] = [:]
+    if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+        arguments["enable"] = args[index + 1]
+    } else {
+        arguments["enable"] = "true"
+    }
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
+        print(response)
+    } else {
+        print("Failed to set auto-return or macrowhisper is not running.")
+    }
+    exit(0)
+}
+if args.contains("--quit") || args.contains("--stop") {
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if let response = socketCommunication.sendCommand(.quit) {
+        print(response)
+    } else {
+        print("No running instance to quit.")
+    }
+    exit(0)
+}
+// ---- END QUICK COMMANDS ----
+
 if !acquireSingleInstanceLock(lockFilePath: lockPath) {
     logError("Failed to acquire single instance lock. Exiting.")
     exit(1)
@@ -548,6 +632,7 @@ func printHelp() {
       -s, --status                  Get the status of the background process
       -h, --help                    Show this help message
       -v, --version                 Show version information
+      --quit, --stop                Quit the running macrowhisper instance
 
     INSERTS COMMANDS:
       --list-inserts                List all configured inserts
@@ -570,17 +655,18 @@ func printHelp() {
 
       macrowhisper --config ~/custom-config.json
 
-      macrowhisper --watch ~/otherfolder/superwhisper --watcher true --no-updates false
+      macrowhisper --watch ~/otherfolder/superwhisper --no-updates false
 
       macrowhisper --insert pasteResult
         # Sets the active insert to pasteResult
 
+      macrowhisper --quit
+        # Quits the running macrowhisper instance
     """)
 }
 
 // Argument parsing
 var configPath: String? = nil
-let args = CommandLine.arguments
 var i = 1
 while i < args.count {
     switch args[i] {
