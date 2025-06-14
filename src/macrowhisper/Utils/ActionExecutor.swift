@@ -94,9 +94,10 @@ class ActionExecutor {
         
         // If openWith is specified, use that app to open the URL
         if let openWith = urlAction.openWith, !openWith.isEmpty {
+            let expandedOpenWith = (openWith as NSString).expandingTildeInPath
             let task = Process()
             task.launchPath = "/usr/bin/open"
-            task.arguments = ["-a", openWith, url.absoluteString]
+            task.arguments = ["-a", expandedOpenWith, url.absoluteString]
             do {
                 try task.run()
             } catch {

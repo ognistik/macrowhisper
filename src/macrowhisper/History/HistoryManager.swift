@@ -33,7 +33,9 @@ class HistoryManager {
         
         logInfo("Starting history cleanup with \(historyDays) days retention")
         
-        let recordingsPath = configManager.config.defaults.watch + "/recordings"
+        // Expand tilde in the watch path
+        let expandedWatchPath = (configManager.config.defaults.watch as NSString).expandingTildeInPath
+        let recordingsPath = expandedWatchPath + "/recordings"
         
         // Check if recordings folder exists
         guard FileManager.default.fileExists(atPath: recordingsPath) else {

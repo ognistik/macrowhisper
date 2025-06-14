@@ -54,8 +54,13 @@ ensureSocketDirectoryExists()
 let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
 
 // MARK: - Helper functions for logging and notifications
+// Utility function to expand tilde in paths
+func expandTilde(_ path: String) -> String {
+    return (path as NSString).expandingTildeInPath
+}
+
 func checkWatcherAvailability() -> Bool {
-    let watchPath = configManager.config.defaults.watch
+    let watchPath = expandTilde(configManager.config.defaults.watch)
     let exists = FileManager.default.fileExists(atPath: watchPath)
     
     if !exists {
@@ -68,7 +73,8 @@ func checkWatcherAvailability() -> Bool {
 }
 
 func initializeWatcher(_ path: String) {
-    let recordingsPath = "\(path)/recordings"
+    let expandedPath = expandTilde(path)
+    let recordingsPath = "\(expandedPath)/recordings"
     
     if !FileManager.default.fileExists(atPath: recordingsPath) {
         logWarning("Recordings folder not found at \(recordingsPath)")
@@ -84,7 +90,7 @@ func initializeWatcher(_ path: String) {
         exit(1)
     }
     
-            recordingsWatcher = RecordingsFolderWatcher(basePath: path, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+    recordingsWatcher = RecordingsFolderWatcher(basePath: expandedPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
     if recordingsWatcher == nil {
         logWarning("Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Failed to initialize watcher")
@@ -696,7 +702,10 @@ disableUpdates = config.defaults.noUpdates
 disableNotifications = config.defaults.noNoti
 
 // Get the final watch path after possible updates
-let watchFolderPath = config.defaults.watch
+let watchFolderPath = expandTilde(config.defaults.watch)
+
+// Track the last used watch path for watcher reinitialization
+var lastWatchPath: String? = watchFolderPath
 
 // Check feature availability
 let runWatcher = checkWatcherAvailability()
@@ -733,7 +742,7 @@ if runWatcher {
         exit(1)
     }
     
-            recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+    recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
     if recordingsWatcher == nil {
         logWarning("Warning: Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")
@@ -756,29 +765,59 @@ configManager.onConfigChanged = { reason in
     }
     
     // Handle watch path changes and validation
-    let currentWatchPath = configManager.config.defaults.watch
+    let currentWatchPath = expandTilde(configManager.config.defaults.watch)
     let recordingsPath = "\(currentWatchPath)/recordings"
     let recordingsFolderExists = FileManager.default.fileExists(atPath: recordingsPath)
     
-    // If watch path changed or watcher needs initialization
-    if reason == "watchPathChanged" || recordingsWatcher == nil {
-        // Check if the new path exists
-        if recordingsFolderExists {
-            // Stop any existing watcher before initializing new one
+    // Only reinitialize watcher if the watch path actually changed
+    if lastWatchPath != currentWatchPath {
+        logInfo("Watch path changed from '\(lastWatchPath ?? "<none>")' to '\(currentWatchPath)'. Handling watcher reinitialization.")
+        // Stop any existing watcher
+        if recordingsWatcher != nil {
             recordingsWatcher?.stop()
             recordingsWatcher = nil
-            initializeWatcher(currentWatchPath)
-            logInfo("Watcher initialized/reinitialized for folder: \(currentWatchPath)")
+            logInfo("Stopped previous watcher for path: \(lastWatchPath ?? "<none>")")
+        }
+        // Update lastWatchPath
+        lastWatchPath = currentWatchPath
+        // If the new path is valid, start a new watcher
+        if recordingsFolderExists {
+            guard let historyManager = historyManager else {
+                logError("History manager not initialized. Exiting.")
+                return
+            }
+            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+            if recordingsWatcher == nil {
+                logWarning("Failed to initialize recordings folder watcher for new path: \(currentWatchPath)")
+                notify(title: "Macrowhisper", message: "Failed to initialize watcher for new path.")
+            } else {
+                logInfo("Watching recordings folder at \(recordingsPath)")
+                recordingsWatcher?.start()
+            }
         } else {
+            // If the new path is invalid, notify and wait for a valid path
+            logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath)")
+            notify(title: "Macrowhisper", message: "Recordings folder not found at new path. Please check the path.")
+        }
+    } else if reason == "watchPathChanged" || recordingsWatcher == nil {
+        // If the watcher is nil (e.g., app just started or was stopped due to invalid path), try to start it if the path is valid
+        if recordingsWatcher == nil && recordingsFolderExists {
+            guard let historyManager = historyManager else {
+                logError("History manager not initialized. Exiting.")
+                return
+            }
+            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+            if recordingsWatcher == nil {
+                logWarning("Failed to initialize recordings folder watcher for path: \(currentWatchPath)")
+                notify(title: "Macrowhisper", message: "Failed to initialize watcher for path.")
+            } else {
+                logInfo("Watching recordings folder at \(recordingsPath)")
+                recordingsWatcher?.start()
+            }
+        } else if !recordingsFolderExists {
+            // If the path is still invalid, notify again
             logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath)")
             notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the path.")
-            
-            // Clean up any existing watcher
-            if recordingsWatcher != nil {
-                recordingsWatcher?.stop()
-                recordingsWatcher = nil
-                logInfo("Watcher stopped due to invalid path")
-            }
         }
     }
 }
