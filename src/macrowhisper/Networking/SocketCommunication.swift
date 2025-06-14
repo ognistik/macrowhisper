@@ -122,7 +122,7 @@ class SocketCommunication {
 
     private func validateInsertExists(_ insertName: String, configManager: ConfigurationManager) -> Bool {
         if insertName.isEmpty { return true }
-        return configManager.config.inserts.contains { $0.name == insertName }
+        return configManager.config.inserts[insertName] != nil
     }
 
     func processInsertAction(_ action: String, metaJson: [String: Any]) -> (String, Bool) {
@@ -298,14 +298,14 @@ class SocketCommunication {
                 if inserts.isEmpty {
                     response = "No inserts configured."
                 } else {
-                    response = inserts.map { "\($0.name)\($0.name == activeInsert ? " (active)" : "")" }.joined(separator: "\n")
+                    response = inserts.map { "\($0.key)\($0.key == activeInsert ? " (active)" : "")" }.joined(separator: "\n")
                 }
                 write(clientSocket, response, response.utf8.count)
                 
             case .getIcon:
                 let activeInsertName = configMgr.config.defaults.activeInsert
                 var icon: String?
-                if let activeInsert = configMgr.config.inserts.first(where: { $0.name == activeInsertName }) {
+                if let activeInsertName = activeInsertName, let activeInsert = configMgr.config.inserts[activeInsertName] {
                     icon = activeInsert.icon
                 } else {
                     icon = configMgr.config.defaults.icon
@@ -331,7 +331,7 @@ class SocketCommunication {
                 write(clientSocket, response, response.utf8.count)
                 
             case .execInsert:
-                if let insertName = commandMessage.arguments?["name"], let insert = configMgr.config.inserts.first(where: { $0.name == insertName }) {
+                if let insertName = commandMessage.arguments?["name"], let insert = configMgr.config.inserts[insertName] {
                     if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
                         let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
                         applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
@@ -349,63 +349,61 @@ class SocketCommunication {
                 
             case .addUrl:
                 if let name = commandMessage.arguments?["name"] {
-                    var urls = configMgr.config.urls
-                    if !urls.contains(where: { $0.name == name }) {
-                        urls.append(AppConfiguration.Url(name: name, action: ""))
-                        configMgr.config.urls = urls
+                    if configMgr.config.urls[name] == nil {
+                        configMgr.config.urls[name] = AppConfiguration.Url(action: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
+                        response = "URL action '\(name)' added"
+                    } else {
+                        response = "URL action '\(name)' already exists"
                     }
-                    response = "URL action '\(name)' added/updated"
                 } else { response = "Missing name for URL action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addShortcut:
                  if let name = commandMessage.arguments?["name"] {
-                    var shortcuts = configMgr.config.shortcuts
-                    if !shortcuts.contains(where: { $0.name == name }) {
-                        shortcuts.append(AppConfiguration.Shortcut(name: name, action: ""))
-                        configMgr.config.shortcuts = shortcuts
+                    if configMgr.config.shortcuts[name] == nil {
+                        configMgr.config.shortcuts[name] = AppConfiguration.Shortcut(action: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
+                        response = "Shortcut action '\(name)' added"
+                    } else {
+                        response = "Shortcut action '\(name)' already exists"
                     }
-                    response = "Shortcut action '\(name)' added/updated"
                 } else { response = "Missing name for Shortcut action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addShell:
                  if let name = commandMessage.arguments?["name"] {
-                    var scripts = configMgr.config.scriptsShell
-                    if !scripts.contains(where: { $0.name == name }) {
-                        scripts.append(AppConfiguration.ScriptShell(name: name, action: ""))
-                        configMgr.config.scriptsShell = scripts
+                    if configMgr.config.scriptsShell[name] == nil {
+                        configMgr.config.scriptsShell[name] = AppConfiguration.ScriptShell(action: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
+                        response = "Shell script action '\(name)' added"
+                    } else {
+                        response = "Shell script action '\(name)' already exists"
                     }
-                    response = "Shell script action '\(name)' added/updated"
                 } else { response = "Missing name for Shell script action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addAppleScript:
                  if let name = commandMessage.arguments?["name"] {
-                    var scripts = configMgr.config.scriptsAS
-                    if !scripts.contains(where: { $0.name == name }) {
-                        scripts.append(AppConfiguration.ScriptAppleScript(name: name, action: ""))
-                        configMgr.config.scriptsAS = scripts
+                    if configMgr.config.scriptsAS[name] == nil {
+                        configMgr.config.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
+                        response = "AppleScript action '\(name)' added"
+                    } else {
+                        response = "AppleScript action '\(name)' already exists"
                     }
-                    response = "AppleScript action '\(name)' added/updated"
                 } else { response = "Missing name for AppleScript action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addInsert:
                 if let name = commandMessage.arguments?["name"] {
-                    var inserts = configMgr.config.inserts
-                    if !inserts.contains(where: { $0.name == name }) {
-                        let newInsert = AppConfiguration.Insert(name: name, action: "", icon: "🤖")
-                        inserts.append(newInsert)
-                        configMgr.config.inserts = inserts
+                    if configMgr.config.inserts[name] == nil {
+                        let newInsert = AppConfiguration.Insert(action: "", icon: "")
+                        configMgr.config.inserts[name] = newInsert
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
                         response = "Insert '\(name)' added"
@@ -421,9 +419,7 @@ class SocketCommunication {
                  guard let name = commandMessage.arguments?["name"] else {
                     response = "Missing name for action"; write(clientSocket, response, response.utf8.count); return
                 }
-                let initialCount = configMgr.config.inserts.count
-                configMgr.config.inserts.removeAll(where: { $0.name == name })
-                if configMgr.config.inserts.count < initialCount {
+                if configMgr.config.inserts.removeValue(forKey: name) != nil {
                     if configMgr.config.defaults.activeInsert == name { configMgr.config.defaults.activeInsert = nil }
                     configMgr.saveConfig()
                     configMgr.onConfigChanged?(nil)

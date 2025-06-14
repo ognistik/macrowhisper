@@ -327,7 +327,7 @@ class RecordingsFolderWatcher {
             // Process active insert if there is one
             if let activeInsertName = configManager.config.defaults.activeInsert,
                !activeInsertName.isEmpty,
-               let activeInsert = configManager.config.inserts.first(where: { $0.name == activeInsertName }) {
+               let activeInsert = configManager.config.inserts[activeInsertName] {
                 
                 logInfo("Processing with active insert: \(activeInsertName)")
                 
