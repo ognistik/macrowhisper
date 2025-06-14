@@ -228,6 +228,10 @@ class ConfigurationManager {
                     logInfo("Configuration automatically reloaded after file change")
                 } else {
                     logError("Failed to reload configuration after file change")
+                    // Notify user if reload fails (but not for JSON error, which is already handled)
+                    DispatchQueue.main.async {
+                        notify(title: "Macrowhisper", message: "Failed to reload configuration after file change. Please check your configuration file.")
+                    }
                 }
             }
         })
