@@ -84,7 +84,7 @@ func initializeWatcher(_ path: String) {
         exit(1)
     }
     
-    recordingsWatcher = RecordingsFolderWatcher(basePath: path, configManager: configManager, historyManager: historyManager)
+            recordingsWatcher = RecordingsFolderWatcher(basePath: path, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
     if recordingsWatcher == nil {
         logWarning("Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Failed to initialize watcher")
@@ -647,7 +647,7 @@ if runWatcher {
         exit(1)
     }
     
-    recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager)
+            recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
     if recordingsWatcher == nil {
         logWarning("Warning: Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")

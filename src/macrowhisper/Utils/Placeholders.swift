@@ -100,6 +100,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
     let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
     
+    // Check if this is an AppleScript action by looking for "tell application" or "osascript"
+    let isAppleScript = action.contains("tell application") || action.contains("osascript")
+    
     // --- BEGIN: FrontApp Placeholder Logic ---
     // Only fetch the front app if the placeholder is present and not already in metaJson
     if action.contains("{{frontApp}}") && metaJson["frontApp"] == nil {
@@ -158,8 +161,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                     formatter.setLocalizedDateFormatFromTemplate(format)
                     replacement = formatter.string(from: Date())
                 }
-                // Escape shell special characters in the replacement
-                let escapedReplacement = escapeShellCharacters(replacement)
+                // Use appropriate escaping based on action type
+                let escapedReplacement = isAppleScript ? escapeAppleScriptString(replacement) : escapeShellCharacters(replacement)
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
             }
@@ -173,8 +176,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 } else {
                     value = ""
                 }
-                // Escape shell special characters
-                let escapedValue = escapeShellCharacters(value)
+                // Use appropriate escaping based on action type
+                let escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
                 let value: String
@@ -192,8 +195,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 } else {
                     value = String(describing: jsonValue)
                 }
-                // Escape shell special characters
-                let escapedValue = escapeShellCharacters(value)
+                // Use appropriate escaping based on action type
+                let escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else {
                 // Key doesn't exist in metaJson, remove the placeholder

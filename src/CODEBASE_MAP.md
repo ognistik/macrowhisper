@@ -40,6 +40,7 @@ macrowhisper-cli/src/
     │   └── HistoryManager.swift         # Cleanup of old recordings
     ├── Utils/                       # Utility functions and helpers
     │   ├── Accessibility.swift          # macOS accessibility and input simulation
+    |   |-- ActionExecutor.sift     #Handles execution of differen action types
     │   ├── Placeholders.swift           # Dynamic content replacement system
     │   ├── ShellUtils.swift             # Shell command escaping utilities
     │   ├── Logger.swift                 # Logging system with rotation

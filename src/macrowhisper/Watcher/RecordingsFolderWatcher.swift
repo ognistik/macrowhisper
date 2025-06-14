@@ -11,12 +11,18 @@ class RecordingsFolderWatcher {
     private var processedRecordings: Set<String> = []
     private let configManager: ConfigurationManager
     private let historyManager: HistoryManager
+    private let socketCommunication: SocketCommunication
+    private let triggerEvaluator: TriggerEvaluator
+    private let actionExecutor: ActionExecutor
     private let processedRecordingsFile: String
 
-    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager) {
+    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication) {
         self.path = "\(basePath)/recordings"
         self.configManager = configManager
         self.historyManager = historyManager
+        self.socketCommunication = socketCommunication
+        self.triggerEvaluator = TriggerEvaluator(logger: logger)
+        self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager)
         
         // Create a file to track processed recordings
         let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -317,15 +323,19 @@ class RecordingsFolderWatcher {
             logInfo("Valid result found in meta.json for \(recordingPath), processing.")
             
             // Always update lastDetectedFrontApp to the current frontmost app for app triggers and input field detection
+            var frontApp: NSRunningApplication?
             if Thread.isMainThread {
-                lastDetectedFrontApp = NSWorkspace.shared.frontmostApplication
+                frontApp = NSWorkspace.shared.frontmostApplication
             } else {
-                var frontApp: NSRunningApplication?
                 DispatchQueue.main.sync {
                     frontApp = NSWorkspace.shared.frontmostApplication
                 }
-                lastDetectedFrontApp = frontApp
             }
+            lastDetectedFrontApp = frontApp
+            
+            // Get front app info for app triggers
+            let frontAppName = frontApp?.localizedName
+            let frontAppBundleId = frontApp?.bundleIdentifier
             
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)
@@ -336,7 +346,67 @@ class RecordingsFolderWatcher {
                 pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
             }
             
-            // Process active insert if there is one
+            // FIRST: Evaluate triggers for all actions - this has precedence over active inserts and auto-return
+            let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
+                configManager: configManager,
+                result: String(describing: result),
+                metaJson: metaJson,
+                frontAppName: frontAppName,
+                frontAppBundleId: frontAppBundleId
+            )
+            
+            if !matchedTriggerActions.isEmpty {
+                // Execute the first matched trigger action (they're already sorted by name)
+                let (action, name, type, strippedResult) = matchedTriggerActions.first!
+                
+                // Prepare metaJson with updated result if voice trigger matched and stripped result
+                var updatedJson = metaJson
+                if let stripped = strippedResult {
+                    updatedJson["result"] = stripped
+                    updatedJson["swResult"] = stripped
+                }
+                
+                // Execute the action on the main thread
+                DispatchQueue.main.async { [weak self] in
+                    self?.actionExecutor.executeAction(
+                        action: action,
+                        name: name,
+                        type: type,
+                        metaJson: updatedJson,
+                        recordingPath: recordingPath
+                    )
+                }
+                
+                // Continue processing to allow auto-return to work if enabled
+                handlePostProcessing(recordingPath: recordingPath)
+                return
+            }
+            
+            // SECOND: Check for auto-return (has precedence over active inserts)
+            if autoReturnEnabled {
+                // Apply the result directly using {{swResult}}
+                let resultValue = metaJson["result"] as? String ?? metaJson["llmResult"] as? String ?? ""
+                
+                // Process on the main thread to ensure UI operations happen immediately
+                DispatchQueue.main.async { [weak self] in
+                    // Apply the result (simulate ESC key press and paste the action)
+                    self?.socketCommunication.applyInsert(resultValue, activeInsert: nil)
+                    
+                    // Simulate a return key press after pasting
+                    DispatchQueue.main.async {
+                        simulateKeyDown(key: 36) // Return key
+                    }
+                    
+                    // Reset the flag after using it once
+                    autoReturnEnabled = false
+                }
+                
+                logInfo("Applied auto-return with result")
+                handlePostProcessing(recordingPath: recordingPath)
+                return
+            }
+            
+            // THIRD: Process active insert if there is one
             if let activeInsertName = configManager.config.defaults.activeInsert,
                !activeInsertName.isEmpty,
                let activeInsert = configManager.config.inserts[activeInsertName] {
@@ -344,9 +414,9 @@ class RecordingsFolderWatcher {
                 logInfo("Processing with active insert: \(activeInsertName)")
                 
                 // Process on the main thread to ensure UI operations happen immediately
-                DispatchQueue.main.async {
-                    let (processedAction, isAutoPaste) = socketCommunication.processInsertAction(activeInsert.action, metaJson: metaJson)
-                    socketCommunication.applyInsert(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
+                DispatchQueue.main.async { [weak self] in
+                    let (processedAction, isAutoPaste) = self?.socketCommunication.processInsertAction(activeInsert.action, metaJson: metaJson) ?? ("", false)
+                    self?.socketCommunication.applyInsert(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
                 }
             } else {
                 logInfo("No active insert, skipping action.")

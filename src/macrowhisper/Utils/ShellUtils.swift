@@ -9,3 +9,10 @@ func escapeShellCharacters(_ input: String) -> String {
                .replacingOccurrences(of: "`", with: "\\`")    // Command substitution
                .replacingOccurrences(of: "$", with: "\\$")    // Variable expansion
 } 
+
+/// Helper function to escape AppleScript special characters in placeholder values
+func escapeAppleScriptString(_ input: String) -> String {
+    // Escape characters that would break AppleScript string literals
+    return input.replacingOccurrences(of: "\\", with: "\\\\") // Must be first to avoid double-escaping
+               .replacingOccurrences(of: "\"", with: "\\\"")
+} 
