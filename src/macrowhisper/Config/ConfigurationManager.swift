@@ -92,7 +92,7 @@ class ConfigurationManager {
         if let watchPath = watchPath { _config.defaults.watch = watchPath; shouldSave = true }
         if let noUpdates = noUpdates { _config.defaults.noUpdates = noUpdates; shouldSave = true }
         if let noNoti = noNoti { _config.defaults.noNoti = noNoti; shouldSave = true }
-        if let activeInsert = activeInsert { _config.defaults.activeInsert = activeInsert.isEmpty ? nil : activeInsert; shouldSave = true }
+        if let activeInsert = activeInsert { _config.defaults.activeInsert = activeInsert.isEmpty ? "" : activeInsert; shouldSave = true }
         if let icon = icon { _config.defaults.icon = icon.isEmpty ? nil : icon; shouldSave = true }
         if let moveTo = moveTo { _config.defaults.moveTo = moveTo; shouldSave = true }
         if let noEsc = noEsc { _config.defaults.noEsc = noEsc; shouldSave = true }

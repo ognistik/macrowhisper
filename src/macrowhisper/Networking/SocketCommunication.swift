@@ -294,18 +294,19 @@ class SocketCommunication {
                 
             case .listInserts:
                 let inserts = configMgr.config.inserts
-                let activeInsert = configMgr.config.defaults.activeInsert ?? "none"
+                let activeInsert = configMgr.config.defaults.activeInsert ?? ""
+                let displayActiveInsert = activeInsert.isEmpty ? "none" : activeInsert
                 if inserts.isEmpty {
                     response = "No inserts configured."
                 } else {
-                    response = inserts.map { "\($0.key)\($0.key == activeInsert ? " (active)" : "")" }.joined(separator: "\n")
+                    response = inserts.map { "\($0.key)\($0.key == displayActiveInsert ? " (active)" : "")" }.joined(separator: "\n")
                 }
                 write(clientSocket, response, response.utf8.count)
                 
             case .getIcon:
                 let activeInsertName = configMgr.config.defaults.activeInsert
                 var icon: String?
-                if let activeInsertName = activeInsertName, let activeInsert = configMgr.config.inserts[activeInsertName] {
+                if let activeInsertName = activeInsertName, !activeInsertName.isEmpty, let activeInsert = configMgr.config.inserts[activeInsertName] {
                     icon = activeInsert.icon
                 } else {
                     icon = configMgr.config.defaults.icon
@@ -315,7 +316,8 @@ class SocketCommunication {
                 write(clientSocket, response, response.utf8.count)
                 
             case .getInsert:
-                response = configMgr.config.defaults.activeInsert ?? " "
+                let activeInsert = configMgr.config.defaults.activeInsert ?? ""
+                response = activeInsert.isEmpty ? "" : activeInsert
                 logger.log("Returning active insert: '\(response)'", level: .info)
                 write(clientSocket, response, response.utf8.count)
                 
@@ -420,7 +422,7 @@ class SocketCommunication {
                     response = "Missing name for action"; write(clientSocket, response, response.utf8.count); return
                 }
                 if configMgr.config.inserts.removeValue(forKey: name) != nil {
-                    if configMgr.config.defaults.activeInsert == name { configMgr.config.defaults.activeInsert = nil }
+                    if configMgr.config.defaults.activeInsert == name { configMgr.config.defaults.activeInsert = "" }
                     configMgr.saveConfig()
                     configMgr.onConfigChanged?(nil)
                     response = "Insert '\(name)' removed"

@@ -37,6 +37,38 @@ struct AppConfiguration: Codable {
             try container.encode(pressReturn, forKey: .pressReturn)
         }
         
+        // Custom decoding to ensure activeInsert defaults to empty string instead of null
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            watch = try container.decode(String.self, forKey: .watch)
+            noUpdates = try container.decode(Bool.self, forKey: .noUpdates)
+            noNoti = try container.decode(Bool.self, forKey: .noNoti)
+            // Ensure activeInsert is always empty string instead of null for consistency
+            activeInsert = try container.decodeIfPresent(String.self, forKey: .activeInsert) ?? ""
+            icon = try container.decodeIfPresent(String.self, forKey: .icon)
+            moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
+            noEsc = try container.decode(Bool.self, forKey: .noEsc)
+            simKeypress = try container.decode(Bool.self, forKey: .simKeypress)
+            actionDelay = try container.decode(Double.self, forKey: .actionDelay)
+            history = try container.decodeIfPresent(Int.self, forKey: .history)
+            pressReturn = try container.decode(Bool.self, forKey: .pressReturn)
+        }
+        
+        // Memberwise initializer (needed since we added custom init(from decoder:))
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeInsert: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool) {
+            self.watch = watch
+            self.noUpdates = noUpdates
+            self.noNoti = noNoti
+            self.activeInsert = activeInsert
+            self.icon = icon
+            self.moveTo = moveTo
+            self.noEsc = noEsc
+            self.simKeypress = simKeypress
+            self.actionDelay = actionDelay
+            self.history = history
+            self.pressReturn = pressReturn
+        }
+        
         static func defaultValues() -> Defaults {
             return Defaults(
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
