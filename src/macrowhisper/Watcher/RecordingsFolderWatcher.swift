@@ -391,12 +391,6 @@ class RecordingsFolderWatcher {
                 DispatchQueue.main.async { [weak self] in
                     // Apply the result (simulate ESC key press and paste the action)
                     self?.socketCommunication.applyInsert(resultValue, activeInsert: nil)
-                    
-                    // Simulate a return key press after pasting
-                    DispatchQueue.main.async {
-                        simulateKeyDown(key: 36) // Return key
-                    }
-                    
                     // Reset the flag after using it once
                     autoReturnEnabled = false
                 }

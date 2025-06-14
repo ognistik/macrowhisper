@@ -205,7 +205,11 @@ class SocketCommunication {
     private func checkAndSimulatePressReturn(activeInsert: AppConfiguration.Insert?) {
         let shouldPressReturn = activeInsert?.pressReturn ?? globalConfigManager?.config.defaults.pressReturn ?? false
         if autoReturnEnabled {
-            if !shouldPressReturn {
+            if shouldPressReturn {
+                // If both autoReturn and pressReturn are set, treat as pressReturn (simulate once, clear autoReturnEnabled)
+                logger.log("Simulating return key press due to pressReturn setting (auto-return was also set)", level: .info)
+                simulateReturnKeyPress()
+            } else {
                 logger.log("Simulating return key press due to auto-return", level: .info)
                 simulateReturnKeyPress()
             }
