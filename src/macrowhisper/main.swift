@@ -650,14 +650,14 @@ func printHelp() {
 
     INSERTS COMMANDS:
       --list-inserts                List all configured inserts
-      --add-insert <name> <action>  Add or update an insert
+      --add-insert <name>           Add or update an insert
       --remove-insert <name>        Remove an insert
       --exec-insert <name>          Execute an insert action using the last valid result
       --auto-return true/false      Insert result and simulate return for one interaction
       --get-icon                    Get the icon of the active insert
       --get-insert                  Get name of active insert
 
-    ACTION COMMANDS:
+    OTHER ACTION COMMANDS:
       --add-url <name>              Add or update a URL action
       --add-shortcut <name>         Add or update a Shortcuts action
       --add-shell <name>            Add or update a shell script action
@@ -669,7 +669,7 @@ func printHelp() {
 
       macrowhisper --config ~/custom-config.json
 
-      macrowhisper --watch ~/otherfolder/superwhisper --no-updates false
+      macrowhisper --watch ~/otherfolder/superwhisper --no-updates true
 
       macrowhisper --insert pasteResult
         # Sets the active insert to pasteResult
