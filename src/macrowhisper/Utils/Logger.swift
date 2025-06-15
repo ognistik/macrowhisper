@@ -7,6 +7,7 @@ class Logger {
     private let maxLogSize: Int = 5 * 1024 * 1024 // 5 MB in bytes
     private let dateFormatter: DateFormatter
     private let fileManager = FileManager.default
+    private var consoleLogLevel: LogLevel = .info // Only show INFO and above in console by default
     
     init(logDirectory: String) {
         // Create logs directory if it doesn't exist
@@ -24,16 +25,22 @@ class Logger {
         checkAndRotateLog()
     }
     
+    /// Set the minimum log level to show in console (file logging is unaffected)
+    func setConsoleLogLevel(_ level: LogLevel) {
+        consoleLogLevel = level
+    }
+    
     func log(_ message: String, level: LogLevel = .info) {
         let timestamp = dateFormatter.string(from: Date())
         let logEntry = "[\(timestamp)] [\(level.rawValue)] \(message)\n"
         
         // Print to console when running interactively AND console logging is not suppressed
-        if isatty(STDOUT_FILENO) != 0 && !suppressConsoleLogging {
+        // AND the log level is at or above the console threshold
+        if isatty(STDOUT_FILENO) != 0 && !suppressConsoleLogging && level.priority >= consoleLogLevel.priority {
             print(logEntry, terminator: "")
         }
         
-        // Append to log file (this part stays the same)
+        // Append to log file (this part stays the same - all levels go to file)
         if let data = logEntry.data(using: .utf8) {
             if let fileHandle = FileHandle(forWritingAtPath: logFilePath) {
                 defer { fileHandle.closeFile() }
@@ -67,11 +74,20 @@ class Logger {
         }
     }
     
-    enum LogLevel: String {
+    enum LogLevel: String, CaseIterable {
         case debug = "DEBUG"
         case info = "INFO"
         case warning = "WARNING"
         case error = "ERROR"
+        
+        var priority: Int {
+            switch self {
+            case .debug: return 0
+            case .info: return 1
+            case .warning: return 2
+            case .error: return 3
+            }
+        }
     }
 }
 

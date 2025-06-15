@@ -131,7 +131,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
             }
         }
         metaJson["frontApp"] = appName ?? ""
-        logInfo("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
+        logDebug("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
     }
     // --- END: FrontApp Placeholder Logic ---
     
@@ -244,7 +244,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             }
         }
         metaJson["frontApp"] = appName ?? ""
-        logInfo("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
+        logDebug("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
     }
     // --- END: FrontApp Placeholder Logic ---
     

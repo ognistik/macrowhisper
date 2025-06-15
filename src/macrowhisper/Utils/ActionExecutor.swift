@@ -21,7 +21,7 @@ class ActionExecutor {
         metaJson: [String: Any],
         recordingPath: String
     ) {
-        logger.log("[TriggerEval] Action '\(name)' selected for execution due to trigger match.", level: .info)
+        logger.log("[TriggerEval] Executing action '\(name)' (type: \(type)) due to trigger match.", level: .info)
         
         switch type {
         case .insert:
@@ -38,12 +38,10 @@ class ActionExecutor {
             }
         case .shell:
             if let shell = action as? AppConfiguration.ScriptShell {
-                logger.log("[TriggerEval] Executing shell script action: \(name)", level: .info)
                 executeShellScriptAction(shell, metaJson: metaJson, recordingPath: recordingPath)
             }
         case .appleScript:
             if let ascript = action as? AppConfiguration.ScriptAppleScript {
-                logger.log("[TriggerEval] Executing AppleScript action: \(name)", level: .info)
                 executeAppleScriptAction(ascript, metaJson: metaJson, recordingPath: recordingPath)
             }
         }
@@ -138,7 +136,7 @@ class ActionExecutor {
                 inputPipe.fileHandleForWriting.write(data)
             }
             inputPipe.fileHandleForWriting.closeFile()
-            logger.log("Shortcut '\(shortcutName)' launched asynchronously with direct stdin input", level: .info)
+            logger.log("Shortcut launched asynchronously with direct stdin input", level: .debug)
         } catch {
             logger.log("Failed to execute shortcut action: \(error)", level: .error)
         }
@@ -161,7 +159,7 @@ class ActionExecutor {
         task.standardError = FileHandle.nullDevice
         do {
             try task.run()
-            logger.log("Shell script '\(shell.action)' launched asynchronously", level: .info)
+            logger.log("Shell script launched asynchronously", level: .debug)
         } catch {
             logger.log("Failed to execute shell script: \(error)", level: .error)
         }
@@ -184,7 +182,7 @@ class ActionExecutor {
         task.standardError = FileHandle.nullDevice
         do {
             try task.run()
-            logger.log("AppleScript '\(ascript.action)' launched asynchronously", level: .info)
+            logger.log("AppleScript launched asynchronously", level: .debug)
         } catch {
             logger.log("Failed to execute AppleScript action: \(error)", level: .error)
         }

@@ -21,6 +21,14 @@ class TriggerEvaluator {
         let modeName = metaJson["modeName"] as? String
         var matchedTriggerActions: [(action: Any, name: String, type: ActionType, strippedResult: String?)] = []
         
+        // Log evaluation summary at start
+        let totalActions = configManager.config.inserts.count + 
+                          configManager.config.urls.count + 
+                          configManager.config.shortcuts.count + 
+                          configManager.config.scriptsShell.count + 
+                          configManager.config.scriptsAS.count
+        logger.log("[TriggerEval] Evaluating \(totalActions) actions for triggers (result: \"\(result.prefix(50))\(result.count > 50 ? "..." : "")\")", level: .info)
+        
         // Evaluate all inserts for triggers
         for (name, insert) in configManager.config.inserts {
             let insertWithName = InsertWithName(insert: insert, name: name)
@@ -54,7 +62,7 @@ class TriggerEvaluator {
         // Evaluate all shortcut actions for triggers
         for (name, shortcut) in configManager.config.shortcuts {
             let shortcutWithName = ShortcutWithName(shortcut: shortcut, name: name)
-            logger.log("[TriggerEval] Checking shortcut action: name=\(name), triggerVoice=\(shortcut.triggerVoice ?? "nil"), triggerApps=\(shortcut.triggerApps ?? "nil"), triggerModes=\(shortcut.triggerModes ?? "nil"), triggerLogic=\(shortcut.triggerLogic ?? "nil")", level: .info)
+            logger.log("[TriggerEval] Checking shortcut action: name=\(name), triggerVoice=\(shortcut.triggerVoice ?? "nil"), triggerApps=\(shortcut.triggerApps ?? "nil"), triggerModes=\(shortcut.triggerModes ?? "nil"), triggerLogic=\(shortcut.triggerLogic ?? "nil")", level: .debug)
             let (matched, strippedResult) = triggersMatch(
                 for: shortcutWithName,
                 result: result,
@@ -70,7 +78,7 @@ class TriggerEvaluator {
         // Evaluate all shell script actions for triggers
         for (name, shell) in configManager.config.scriptsShell {
             let shellWithName = ShellWithName(shell: shell, name: name)
-            logger.log("[TriggerEval] Checking shell script action: name=\(name), triggerVoice=\(shell.triggerVoice ?? "nil"), triggerApps=\(shell.triggerApps ?? "nil"), triggerModes=\(shell.triggerModes ?? "nil"), triggerLogic=\(shell.triggerLogic ?? "nil")", level: .info)
+            logger.log("[TriggerEval] Checking shell script action: name=\(name), triggerVoice=\(shell.triggerVoice ?? "nil"), triggerApps=\(shell.triggerApps ?? "nil"), triggerModes=\(shell.triggerModes ?? "nil"), triggerLogic=\(shell.triggerLogic ?? "nil")", level: .debug)
             let (matched, strippedResult) = triggersMatch(
                 for: shellWithName,
                 result: result,
@@ -86,7 +94,7 @@ class TriggerEvaluator {
         // Evaluate all AppleScript actions for triggers
         for (name, ascript) in configManager.config.scriptsAS {
             let ascriptWithName = AppleScriptWithName(ascript: ascript, name: name)
-            logger.log("[TriggerEval] Checking AppleScript action: name=\(name), triggerVoice=\(ascript.triggerVoice ?? "nil"), triggerApps=\(ascript.triggerApps ?? "nil"), triggerModes=\(ascript.triggerModes ?? "nil"), triggerLogic=\(ascript.triggerLogic ?? "nil")", level: .info)
+            logger.log("[TriggerEval] Checking AppleScript action: name=\(name), triggerVoice=\(ascript.triggerVoice ?? "nil"), triggerApps=\(ascript.triggerApps ?? "nil"), triggerModes=\(ascript.triggerModes ?? "nil"), triggerLogic=\(ascript.triggerLogic ?? "nil")", level: .debug)
             let (matched, strippedResult) = triggersMatch(
                 for: ascriptWithName,
                 result: result,
@@ -97,6 +105,14 @@ class TriggerEvaluator {
             if matched {
                 matchedTriggerActions.append((action: ascript, name: name, type: .appleScript, strippedResult: strippedResult))
             }
+        }
+        
+        // Log evaluation summary at end
+        let matchedNames = matchedTriggerActions.map { $0.name }.joined(separator: ", ")
+        if matchedTriggerActions.isEmpty {
+            logger.log("[TriggerEval] No actions matched triggers", level: .info)
+        } else {
+            logger.log("[TriggerEval] \(matchedTriggerActions.count) action(s) matched triggers: \(matchedNames)", level: .info)
         }
         
         // Sort actions by name and return
@@ -128,7 +144,7 @@ class TriggerEvaluator {
             let triggers = triggerVoice.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             var matched = false
             var exceptionMatched = false
-            logger.log("[TriggerEval] Voice trigger check for action '\(actionName)': patterns=\(triggers)", level: .info)
+            logger.log("[TriggerEval] Voice trigger check for action '\(actionName)': patterns=\(triggers)", level: .debug)
             
             for trigger in triggers {
                 let isException = trigger.hasPrefix("!")
@@ -138,7 +154,7 @@ class TriggerEvaluator {
                 if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
                     let range = NSRange(location: 0, length: result.utf16.count)
                     let found = regex.firstMatch(in: result, options: [], range: range) != nil
-                    logger.log("[TriggerEval] Pattern '\(trigger)' found=\(found) in result.", level: .info)
+                    logger.log("[TriggerEval] Pattern '\(trigger)' found=\(found) in result.", level: .debug)
                     
                     if isException && found {
                         exceptionMatched = true
@@ -173,7 +189,7 @@ class TriggerEvaluator {
                 // No patterns at all (shouldn't happen), treat as matched
                 voiceMatched = true
             }
-            logger.log("[TriggerEval] Voice trigger result for action '\(actionName)': matched=\(voiceMatched)", level: .info)
+            logger.log("[TriggerEval] Voice trigger result for action '\(actionName)': matched=\(voiceMatched)", level: .debug)
         } else {
             // No voice trigger set, treat as matched for AND logic
             voiceMatched = true
@@ -184,7 +200,7 @@ class TriggerEvaluator {
             let patterns = triggerModes.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             var matched = false
             var exceptionMatched = false
-            logger.log("[TriggerEval] Mode trigger check for action '\(actionName)': modeName=\"\(modeName)\", patterns=\(patterns)", level: .info)
+            logger.log("[TriggerEval] Mode trigger check for action '\(actionName)': modeName=\"\(modeName)\", patterns=\(patterns)", level: .debug)
             
             for pattern in patterns {
                 let isException = pattern.hasPrefix("!")
@@ -199,7 +215,7 @@ class TriggerEvaluator {
                 if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
                     let range = NSRange(location: 0, length: modeName.utf16.count)
                     let found = regex.firstMatch(in: modeName, options: [], range: range) != nil
-                    logger.log("[TriggerEval] Pattern '\(pattern)' found=\(found) in modeName=\(modeName)", level: .info)
+                    logger.log("[TriggerEval] Pattern '\(pattern)' found=\(found) in modeName=\(modeName)", level: .debug)
                     
                     if isException && found { exceptionMatched = true }
                     if !isException && found { matched = true }
@@ -218,7 +234,7 @@ class TriggerEvaluator {
                 // No patterns at all (shouldn't happen), treat as matched
                 modeMatched = true
             }
-            logger.log("[TriggerEval] Mode trigger result for action '\(actionName)': matched=\(modeMatched)", level: .info)
+            logger.log("[TriggerEval] Mode trigger result for action '\(actionName)': matched=\(modeMatched)", level: .debug)
         } else {
             // No mode trigger set, treat as matched for AND logic
             modeMatched = true
@@ -230,7 +246,7 @@ class TriggerEvaluator {
                 let patterns = triggerApps.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
                 var matched = false
                 var exceptionMatched = false
-                logger.log("[TriggerEval] App trigger check for action '\(actionName)': appName=\"\(appName)\", bundleId=\"\(bundleId)\", patterns=\(patterns)", level: .info)
+                logger.log("[TriggerEval] App trigger check for action '\(actionName)': appName=\"\(appName)\", bundleId=\"\(bundleId)\", patterns=\(patterns)", level: .debug)
                 
                 for pattern in patterns {
                     let isException = pattern.hasPrefix("!")
@@ -247,7 +263,7 @@ class TriggerEvaluator {
                         let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
                         let found = regex.firstMatch(in: appName, options: [], range: nameRange) != nil || 
                                    regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
-                        logger.log("[TriggerEval] Pattern '\(pattern)' found=\(found) in appName=\(appName), bundleId=\(bundleId)", level: .info)
+                        logger.log("[TriggerEval] Pattern '\(pattern)' found=\(found) in appName=\(appName), bundleId=\(bundleId)", level: .debug)
                         
                         if isException && found { exceptionMatched = true }
                         if !isException && found { matched = true }
@@ -267,9 +283,9 @@ class TriggerEvaluator {
                     // No patterns at all (shouldn't happen), treat as matched
                     appMatched = true
                 }
-                logger.log("[TriggerEval] App trigger result for action '\(actionName)': matched=\(appMatched)", level: .info)
+                logger.log("[TriggerEval] App trigger result for action '\(actionName)': matched=\(appMatched)", level: .debug)
             } else {
-                logger.log("[TriggerEval] App trigger set for action '\(actionName)' but appName or bundleId is nil. Not matching.", level: .info)
+                logger.log("[TriggerEval] App trigger set for action '\(actionName)' but appName or bundleId is nil. Not matching.", level: .debug)
                 appMatched = false
             }
         } else {

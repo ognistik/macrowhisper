@@ -7,14 +7,14 @@ func requestAccessibilityPermission() -> Bool {
 }
 
 func isInInputField() -> Bool {
-    logInfo("[InputField] Starting input field detection")
+    logDebug("[InputField] Starting input field detection")
     
     // Small delay to ensure UI has settled after transcription
     Thread.sleep(forTimeInterval: 0.05)
     
     // Check accessibility permissions first
     if !AXIsProcessTrusted() {
-        logInfo("[InputField] ❌ Accessibility permissions not granted")
+        logDebug("[InputField] ❌ Accessibility permissions not granted")
         return false
     }
     
@@ -24,10 +24,10 @@ func isInInputField() -> Bool {
     if Thread.isMainThread {
         // We're already on the main thread, get the app directly
         frontApp = NSWorkspace.shared.frontmostApplication
-        logInfo("[InputField] Getting frontmost app directly (main thread)")
+        logDebug("[InputField] Getting frontmost app directly (main thread)")
     } else {
         // We're on a background thread, use semaphore
-        logInfo("[InputField] Getting frontmost app via dispatch (background thread)")
+        logDebug("[InputField] Getting frontmost app via dispatch (background thread)")
         let semaphore = DispatchSemaphore(value: 0)
         
         DispatchQueue.main.async {
@@ -40,13 +40,13 @@ func isInInputField() -> Bool {
     }
     
     guard let app = frontApp else {
-        logInfo("[InputField] No frontmost app detected")
+        logDebug("[InputField] No frontmost app detected")
         lastDetectedFrontApp = nil
         return false
     }
     
     // Log the detected app
-    logInfo("[InputField] Detected app: \(app.localizedName ?? "Unknown") (PID: \(app.processIdentifier))")
+    logDebug("[InputField] Detected app: \(app.localizedName ?? "Unknown") (PID: \(app.processIdentifier))")
     
     // Store reference to current app
     lastDetectedFrontApp = app
@@ -59,33 +59,33 @@ func isInInputField() -> Bool {
     let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
     
     if focusedError != .success {
-        logInfo("[InputField] Failed to get focused element, error: \(focusedError.rawValue)")
+        logDebug("[InputField] Failed to get focused element, error: \(focusedError.rawValue)")
         return false
     }
     
     if focusedElement == nil {
-        logInfo("[InputField] No focused element found")
+        logDebug("[InputField] No focused element found")
         return false
     }
     
     let axElement = focusedElement as! AXUIElement
-    logInfo("[InputField] Found focused element, checking attributes...")
+    logDebug("[InputField] Found focused element, checking attributes...")
     
     // Check role (fastest check)
     var roleValue: AnyObject?
     if AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &roleValue) == .success,
        let role = roleValue as? String {
         
-        logInfo("[InputField] Element role: \(role)")
+        logDebug("[InputField] Element role: \(role)")
         
         // Definitive input field roles - quick return
         let definiteInputRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
         if definiteInputRoles.contains(role) {
-            logInfo("[InputField] ✅ Input field detected by role: \(role)")
+            logDebug("[InputField] ✅ Input field detected by role: \(role)")
             return true
         }
     } else {
-        logInfo("[InputField] Could not get role attribute")
+        logDebug("[InputField] Could not get role attribute")
     }
     
     // Check subrole
@@ -93,15 +93,15 @@ func isInInputField() -> Bool {
     if AXUIElementCopyAttributeValue(axElement, kAXSubroleAttribute as CFString, &subroleValue) == .success,
        let subrole = subroleValue as? String {
         
-        logInfo("[InputField] Element subrole: \(subrole)")
+        logDebug("[InputField] Element subrole: \(subrole)")
         
         let definiteInputSubroles = ["AXSearchField", "AXSecureTextField", "AXTextInput"]
         if definiteInputSubroles.contains(subrole) {
-            logInfo("[InputField] ✅ Input field detected by subrole: \(subrole)")
+            logDebug("[InputField] ✅ Input field detected by subrole: \(subrole)")
             return true
         }
     } else {
-        logInfo("[InputField] No subrole attribute found")
+        logDebug("[InputField] No subrole attribute found")
     }
     
     // Check editable attribute
@@ -109,13 +109,13 @@ func isInInputField() -> Bool {
     if AXUIElementCopyAttributeValue(axElement, "AXEditable" as CFString, &editableValue) == .success,
        let isEditable = editableValue as? Bool {
         
-        logInfo("[InputField] Element editable: \(isEditable)")
+        logDebug("[InputField] Element editable: \(isEditable)")
         if isEditable {
-            logInfo("[InputField] ✅ Input field detected by editable attribute")
+            logDebug("[InputField] ✅ Input field detected by editable attribute")
             return true
         }
     } else {
-        logInfo("[InputField] No editable attribute found")
+        logDebug("[InputField] No editable attribute found")
     }
     
     // Only check actions if we haven't determined it's an input field yet
@@ -123,12 +123,12 @@ func isInInputField() -> Bool {
     if AXUIElementCopyActionNames(axElement, &actionsRef) == .success,
        let actions = actionsRef as? [String] {
         
-        logInfo("[InputField] Element actions: \(actions)")
+        logDebug("[InputField] Element actions: \(actions)")
         
         let inputActions = ["AXInsertText", "AXDelete"]
         let foundInputActions = actions.filter { inputActions.contains($0) }
         if !foundInputActions.isEmpty {
-            logInfo("[InputField] ✅ Input field detected by actions: \(foundInputActions)")
+            logDebug("[InputField] ✅ Input field detected by actions: \(foundInputActions)")
             return true
         }
     } else {
@@ -158,13 +158,13 @@ func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
     if let insert = activeInsert, let insertNoEsc = insert.noEsc {
         // Use the insert-specific setting if available
         if insertNoEsc {
-            logInfo("ESC key simulation disabled by insert-specific noEsc setting")
+            logDebug("ESC key simulation disabled by insert-specific noEsc setting")
             return
         }
     }
     // Otherwise fall back to the global setting
     else if let noEsc = globalConfigManager?.config.defaults.noEsc, noEsc == true {
-        logInfo("ESC key simulation disabled by global noEsc setting")
+        logDebug("ESC key simulation disabled by global noEsc setting")
         return
     }
     

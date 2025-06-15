@@ -20,7 +20,7 @@ class VersionChecker {
     func resetLastCheckDate() {
         // Reset the last check date to trigger a check after the next interaction
         lastCheckDate = nil
-        logInfo("Version checker state reset - will check after next interaction")
+        logDebug("Version checker state reset - will check after next interaction")
     }
     
     func checkForUpdates() {
@@ -39,7 +39,7 @@ class VersionChecker {
             return
         }
         
-        logInfo("Checking for updates...")
+        logDebug("Checking for updates...")
         updateCheckInProgress = true
         
         // Create request with timeout
@@ -79,19 +79,19 @@ class VersionChecker {
             let result = semaphore.wait(timeout: .now() + 15.0)
             
             if result == .timedOut {
-                logInfo("Version check timed out - continuing offline")
+                logDebug("Version check timed out - continuing offline")
                 lastFailedCheckDate = Date() // Track the failure
                 return
             }
             
             if let error = resultError {
-                logInfo("Version check failed: \(error.localizedDescription) - continuing offline")
+                logDebug("Version check failed: \(error.localizedDescription) - continuing offline")
                 lastFailedCheckDate = Date() // Track the failure
                 return
             }
             
             guard let data = resultData else {
-                logInfo("No data received from version check - continuing offline")
+                logDebug("No data received from version check - continuing offline")
                 lastFailedCheckDate = Date() // Track the failure
                 return
             }
@@ -138,7 +138,7 @@ class VersionChecker {
                     kmUpdateAvailable = true
                     kmMessage = "KM Macros: \(currentKMVersion) → \(latestKM)"
                 } else if currentKMVersion.isEmpty || currentKMVersion == "missing value" {
-                    logInfo("Skipping KM version check - macro not available or not installed")
+                    logDebug("Skipping KM version check - macro not available or not installed")
                 }
             }
             
@@ -154,7 +154,7 @@ class VersionChecker {
                 showBothUpdatesNotification(cliMessage: cliMessage, kmMessage: kmMessage)
             } else {
                 // No update
-                logInfo("All components are up to date")
+                logDebug("All components are up to date")
             }
         } catch {
             logError("Error parsing versions JSON: \(error)")
@@ -187,7 +187,7 @@ class VersionChecker {
             
             // Check exit status
             if task.terminationStatus != 0 {
-                logInfo("Keyboard Maestro macro check failed - Keyboard Maestro might not be running")
+                logDebug("Keyboard Maestro macro check failed - Keyboard Maestro might not be running")
                 return ""
             }
             
@@ -196,12 +196,12 @@ class VersionChecker {
             
             // If the macro doesn't exist or doesn't return a proper version, we'll get empty output
             if output.isEmpty || output == "missing value" {
-                logInfo("Keyboard Maestro macro version check returned empty result - macro might not be installed")
+                logDebug("Keyboard Maestro macro version check returned empty result - macro might not be installed")
             }
             
             return output
         } catch {
-            logInfo("Failed to check Keyboard Maestro macro version: \(error.localizedDescription)")
+            logDebug("Failed to check Keyboard Maestro macro version: \(error.localizedDescription)")
             return ""
         }
     }
@@ -278,7 +278,7 @@ class VersionChecker {
                 }
             } catch {
                 // User cancelled or error occurred
-                logInfo("Update dialog cancelled or failed")
+                logDebug("Update dialog cancelled or failed")
             }
         }
     }

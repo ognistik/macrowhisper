@@ -43,7 +43,7 @@ func ensureSocketDirectoryExists() {
     if !FileManager.default.fileExists(atPath: configDir) {
         do {
             try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
-            logInfo("Created socket directory at \(configDir)")
+            logDebug("Created socket directory at \(configDir)")
         } catch {
             logError("Failed to create socket directory: \(error)")
         }
@@ -98,7 +98,7 @@ func initializeWatcher(_ path: String) {
         // Update config to disable watcher
         configManager.updateFromCommandLine(watcher: false)
     } else {
-        logInfo("Watching recordings folder at \(recordingsPath)")
+        logDebug("Watching recordings folder at \(recordingsPath)")
         recordingsWatcher?.start()
     }
 }
@@ -441,7 +441,7 @@ func checkSocketHealth() -> Bool {
 }
 
 func recoverSocket() {
-    logInfo("Attempting to recover socket connection...")
+    logDebug("Attempting to recover socket connection...")
     
     // Cancel and close existing socket
     socketCommunication.stopServer()
@@ -450,7 +450,7 @@ func recoverSocket() {
     if FileManager.default.fileExists(atPath: socketPath) {
         do {
             try FileManager.default.removeItem(atPath: socketPath)
-            logInfo("Removed existing socket file during recovery")
+            logDebug("Removed existing socket file during recovery")
         } catch {
             logError("Failed to remove socket file during recovery: \(error)")
         }
@@ -462,7 +462,7 @@ func recoverSocket() {
     // Safely unwrap the globalConfigManager
     if let configManager = globalConfigManager {
         socketCommunication.startServer(configManager: configManager)
-        logInfo("Socket server restarted after recovery attempt")
+        logDebug("Socket server restarted after recovery attempt")
     } else {
         logError("Failed to restart socket server: globalConfigManager is nil")
         
@@ -470,12 +470,12 @@ func recoverSocket() {
         let fallbackConfigManager = ConfigurationManager(configPath: nil)
         socketCommunication.startServer(configManager: fallbackConfigManager)
         globalConfigManager = fallbackConfigManager
-        logInfo("Socket server restarted with fallback configuration manager")
+        logDebug("Socket server restarted with fallback configuration manager")
     }
 }
 
 func registerForSleepWakeNotifications() {
-    logInfo("Registering for sleep/wake notifications")
+    logDebug("Registering for sleep/wake notifications")
     
     let center = NSWorkspace.shared.notificationCenter
     center.addObserver(
@@ -483,7 +483,7 @@ func registerForSleepWakeNotifications() {
         object: nil,
         queue: .main
     ) { _ in
-        logInfo("System woke from sleep, restarting socket health monitor")
+        logDebug("System woke from sleep, restarting socket health monitor")
         startSocketHealthMonitor()
     }
 
@@ -492,7 +492,7 @@ func registerForSleepWakeNotifications() {
         object: nil,
         queue: .main
     ) { _ in
-        logInfo("System going to sleep, stopping socket health monitor")
+        logDebug("System going to sleep, stopping socket health monitor")
         stopSocketHealthMonitor()
     }
 }
@@ -501,7 +501,7 @@ func startSocketHealthMonitor() {
     // Invalidate previous timer if any
     socketHealthTimer?.invalidate()
     socketHealthTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { _ in
-        logInfo("Performing periodic socket health check")
+        logDebug("Performing periodic socket health check")
         if !checkSocketHealth() {
             logWarning("Socket appears to be unhealthy, attempting recovery")
             recoverSocket()
@@ -509,17 +509,23 @@ func startSocketHealthMonitor() {
     }
     socketHealthTimer?.tolerance = 10.0
     RunLoop.main.add(socketHealthTimer!, forMode: .common)
-    logInfo("Socket health monitor started")
+    logDebug("Socket health monitor started")
 }
 
 func stopSocketHealthMonitor() {
     socketHealthTimer?.invalidate()
     socketHealthTimer = nil
-    logInfo("Socket health monitor stopped")
+    logDebug("Socket health monitor stopped")
 }
 
 // ---- QUICK COMMANDS: These should never start the daemon ----
 let args = CommandLine.arguments
+
+// Handle verbose logging for quick commands too
+if args.contains("--verbose") {
+    logger.setConsoleLogLevel(.debug)
+}
+
 if args.contains("-h") || args.contains("--help") {
     printHelp()
     exit(0)
@@ -646,6 +652,7 @@ func printHelp() {
       -s, --status                  Get the status of the background process
       -h, --help                    Show this help message
       -v, --version                 Show version information
+      --verbose                     Enable verbose logging (shows debug messages in console)
       --quit, --stop                Quit the running macrowhisper instance
 
     INSERTS COMMANDS:
@@ -681,6 +688,7 @@ func printHelp() {
 
 // Argument parsing
 var configPath: String? = nil
+var verboseLogging = false
 var i = 1
 while i < args.count {
     switch args[i] {
@@ -692,10 +700,19 @@ while i < args.count {
             logError("Missing value after \(args[i])")
             exit(1)
         }
+    case "--verbose":
+        verboseLogging = true
+        i += 1
     default:
         // Ignore other arguments on the daemon side for now
         i += 1
     }
+}
+
+// Apply verbose logging setting if requested
+if verboseLogging {
+    logger.setConsoleLogLevel(.debug)
+    logInfo("Verbose logging enabled - debug messages will be shown in console")
 }
 
 // Initialize configuration manager with the specified path
@@ -720,15 +737,14 @@ let runWatcher = checkWatcherAvailability()
 
 // ---
 // At this point, continue with initializing server and/or watcher as usual...
-if runWatcher { logInfo("Watcher: \(watchFolderPath)/recordings") }
+if runWatcher { logDebug("Watcher: \(watchFolderPath)/recordings") }
 
 // Server setup - only if jsonPath is provided
 // MARK: - Server and Watcher Setup
 
 // Start the socket server
-logInfo("About to start socket server...")
+logDebug("About to start socket server...")
 socketCommunication.startServer(configManager: configManager)
-logInfo("Socket server started at \(socketPath)")
 
 // Add a deinit to stop the server when the app terminates
 defer {
@@ -755,7 +771,7 @@ if runWatcher {
         logWarning("Warning: Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")
     } else {
-        logInfo("Watching recordings folder at \(recordingsPath)")
+        logDebug("Watching recordings folder at \(recordingsPath)")
         recordingsWatcher?.start()
     }
 }
@@ -779,12 +795,12 @@ configManager.onConfigChanged = { reason in
     
     // Only reinitialize watcher if the watch path actually changed
     if lastWatchPath != currentWatchPath {
-        logInfo("Watch path changed from '\(lastWatchPath ?? "<none>")' to '\(currentWatchPath)'. Handling watcher reinitialization.")
+        logDebug("Watch path changed from '\(lastWatchPath ?? "<none>")' to '\(currentWatchPath)'. Handling watcher reinitialization.")
         // Stop any existing watcher
         if recordingsWatcher != nil {
             recordingsWatcher?.stop()
             recordingsWatcher = nil
-            logInfo("Stopped previous watcher for path: \(lastWatchPath ?? "<none>")")
+            logDebug("Stopped previous watcher for path: \(lastWatchPath ?? "<none>")")
         }
         // Update lastWatchPath
         lastWatchPath = currentWatchPath
@@ -799,7 +815,7 @@ configManager.onConfigChanged = { reason in
                 logWarning("Failed to initialize recordings folder watcher for new path: \(currentWatchPath)")
                 notify(title: "Macrowhisper", message: "Failed to initialize watcher for new path.")
             } else {
-                logInfo("Watching recordings folder at \(recordingsPath)")
+                logDebug("Watching recordings folder at \(recordingsPath)")
                 recordingsWatcher?.start()
             }
         } else {
@@ -819,7 +835,7 @@ configManager.onConfigChanged = { reason in
                 logWarning("Failed to initialize recordings folder watcher for path: \(currentWatchPath)")
                 notify(title: "Macrowhisper", message: "Failed to initialize watcher for path.")
             } else {
-                logInfo("Watching recordings folder at \(recordingsPath)")
+                logDebug("Watching recordings folder at \(recordingsPath)")
                 recordingsWatcher?.start()
             }
         } else if !recordingsFolderExists {

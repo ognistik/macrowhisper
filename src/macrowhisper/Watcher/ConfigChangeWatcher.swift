@@ -33,7 +33,7 @@ class ConfigChangeWatcher {
         }
 
         source?.resume()
-        logInfo("Started watching for configuration changes at: \(filePath)")
+        logDebug("Started watching for configuration changes at: \(filePath)")
     }
 
     func stop() {

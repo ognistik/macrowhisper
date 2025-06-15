@@ -43,7 +43,7 @@ class ConfigurationManager {
             // If file exists, attempt to load it
             if let loadedConfig = Self.loadConfig(from: self.configPath) {
                 self._config = loadedConfig
-                logInfo("Configuration loaded from \(self.configPath)")
+                logDebug("Configuration loaded from \(self.configPath)")
                 // Reset notification flag on successful load
                 hasNotifiedAboutJsonError = false
             } else {
@@ -143,7 +143,7 @@ class ConfigurationManager {
                         try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
                     }
                     try formattedData.write(to: URL(fileURLWithPath: configPath))
-                    logInfo("Configuration saved to \(configPath)")
+                    logDebug("Configuration saved to \(configPath)")
                 }
             }
         } catch {
@@ -207,15 +207,15 @@ class ConfigurationManager {
     private func setupFileWatcher() {
         fileWatcher?.stop()
         
-        logInfo("Setting up file watcher for configuration at: \(configPath)")
+        logDebug("Setting up file watcher for configuration at: \(configPath)")
         
         fileWatcher = ConfigChangeWatcher(filePath: configPath, onChanged: { [weak self] in
-            logInfo("Configuration file change detected. Reloading.")
+            logDebug("Configuration file change detected. Reloading.")
             guard let self = self else { return }
             
             // Suppress reload if this was an internal config write
             if self.suppressNextConfigReload {
-                logInfo("Suppressed config reload after internal write.")
+                logDebug("Suppressed config reload after internal write.")
                 self.suppressNextConfigReload = false
                 return
             }
@@ -227,7 +227,7 @@ class ConfigurationManager {
                     DispatchQueue.main.async {
                         self.onConfigChanged?("configFileChanged")
                     }
-                    logInfo("Configuration automatically reloaded after file change")
+                    logDebug("Configuration automatically reloaded after file change")
                 } else {
                     logError("Failed to reload configuration after file change")
                     // Notify user if reload fails (but not for JSON error, which is already handled)
@@ -242,7 +242,7 @@ class ConfigurationManager {
     }
 
     func resetFileWatcher() {
-        logInfo("Resetting file watcher due to previous JSON error...")
+        logDebug("Resetting file watcher due to previous JSON error...")
         
         // Stop and clean up the current file watcher
         fileWatcher?.stop()
@@ -252,7 +252,7 @@ class ConfigurationManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
             self.setupFileWatcher()
-            logInfo("File watcher has been reset and reinitialized")
+            logDebug("File watcher has been reset and reinitialized")
         }
     }
 

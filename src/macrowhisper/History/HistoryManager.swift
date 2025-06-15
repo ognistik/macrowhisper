@@ -31,7 +31,7 @@ class HistoryManager {
             return
         }
         
-        logInfo("Starting history cleanup with \(historyDays) days retention")
+        logDebug("Starting history cleanup with \(historyDays) days retention")
         
         // Expand tilde in the watch path
         let expandedWatchPath = (configManager.config.defaults.watch as NSString).expandingTildeInPath
@@ -67,7 +67,7 @@ class HistoryManager {
             if historyDays == 0 {
                 let foldersToDelete = Array(sortedDirectories.dropFirst(1)) // Keep only the first (newest)
                 deleteFolders(foldersToDelete)
-                logInfo("History cleanup (0 days): Deleted \(foldersToDelete.count) folders, kept 1 most recent")
+                logDebug("History cleanup (0 days): Deleted \(foldersToDelete.count) folders, kept 1 most recent")
             } else {
                 // Delete folders older than historyDays
                 let cutoffDate = Calendar.current.date(byAdding: .day, value: -historyDays, to: Date()) ?? Date()
@@ -80,7 +80,7 @@ class HistoryManager {
                 }
                 
                 deleteFolders(foldersToDelete)
-                logInfo("History cleanup (\(historyDays) days): Deleted \(foldersToDelete.count) folders older than \(cutoffDate)")
+                logDebug("History cleanup (\(historyDays) days): Deleted \(foldersToDelete.count) folders older than \(cutoffDate)")
             }
             
             // Update last check time
@@ -107,10 +107,10 @@ class HistoryManager {
         
         // Add a single summary log entry
         if deletedCount > 0 {
-            logInfo("Successfully deleted \(deletedCount) folders")
+            logDebug("Successfully deleted \(deletedCount) folders")
         }
         if failedCount > 0 {
-            logInfo("Failed to delete \(failedCount) folders")
+            logDebug("Failed to delete \(failedCount) folders")
         }
     }
 } 

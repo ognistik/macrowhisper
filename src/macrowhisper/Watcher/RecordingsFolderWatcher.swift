@@ -73,7 +73,7 @@ class RecordingsFolderWatcher {
         }
 
         source?.resume()
-        logInfo("Started watching for new recordings in: \(path)")
+        logDebug("Started watching for new recordings in: \(path)")
     }
 
     func stop() {
@@ -94,7 +94,7 @@ class RecordingsFolderWatcher {
         if let content = try? String(contentsOfFile: processedRecordingsFile, encoding: .utf8) {
             let recordings = content.components(separatedBy: .newlines).filter { !$0.isEmpty }
             processedRecordings = Set(recordings)
-            logInfo("Loaded \(processedRecordings.count) previously processed recordings")
+            logDebug("Loaded \(processedRecordings.count) previously processed recordings")
         }
     }
     
@@ -110,7 +110,7 @@ class RecordingsFolderWatcher {
         if let mostRecent = sortedDirectories.first {
             let fullPath = "\(path)/\(mostRecent)"
             markAsProcessed(recordingPath: fullPath)
-            logInfo("Marked most recent recording as processed on startup: \(fullPath)")
+            logDebug("Marked most recent recording as processed on startup: \(fullPath)")
         }
     }
     
@@ -144,7 +144,7 @@ class RecordingsFolderWatcher {
         // Check for new directories
         let newSubdirectories = currentSubdirectories.subtracting(lastKnownSubdirectories)
         if !newSubdirectories.isEmpty {
-            logInfo("Detected new recording directories: \(newSubdirectories.joined(separator: ", "))")
+            logDebug("Detected new recording directories: \(newSubdirectories.joined(separator: ", "))")
             for dirName in newSubdirectories {
                 let fullPath = "\(path)/\(dirName)"
                 processNewRecording(atPath: fullPath)
@@ -162,7 +162,7 @@ class RecordingsFolderWatcher {
                 if let watcher = pendingMetaJsonFiles[metaJsonPath] {
                     watcher.cancel()
                     pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
-                    logInfo("Removed watcher for deleted directory: \(fullPath)")
+                    logDebug("Removed watcher for deleted directory: \(fullPath)")
                 }
                 
                 // Remove from processed recordings list if it exists
@@ -179,7 +179,7 @@ class RecordingsFolderWatcher {
     private func processNewRecording(atPath path: String) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: path) {
-            logInfo("Skipping already processed recording: \(path)")
+            logDebug("Skipping already processed recording: \(path)")
             return
         }
         
@@ -237,7 +237,7 @@ class RecordingsFolderWatcher {
         
         watcher.resume()
         pendingMetaJsonFiles[recordingPath] = watcher
-        logInfo("Started watching for meta.json creation in: \(recordingPath)")
+        logDebug("Started watching for meta.json creation in: \(recordingPath)")
     }
     
     private func watchMetaJsonForChanges(metaJsonPath: String, recordingPath: String) {
@@ -287,13 +287,13 @@ class RecordingsFolderWatcher {
         
         watcher.resume()
         pendingMetaJsonFiles[metaJsonPath] = watcher
-        logInfo("Started watching for changes to meta.json at: \(metaJsonPath)")
+        logDebug("Started watching for changes to meta.json at: \(metaJsonPath)")
     }
     
     private func processMetaJson(metaJsonPath: String, recordingPath: String) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: recordingPath) {
-            logInfo("Skipping already processed recording: \(recordingPath)")
+            logDebug("Skipping already processed recording: \(recordingPath)")
             return
         }
         
@@ -313,14 +313,14 @@ class RecordingsFolderWatcher {
             
             // Check for a valid result
             guard let result = metaJson["result"], !(result is NSNull), (result as? String)?.isEmpty == false else {
-                logInfo("No result found in meta.json for \(recordingPath), watching for updates.")
+                logDebug("No result found in meta.json for \(recordingPath), watching for updates.")
                 // Watch for changes to the meta.json file
                 watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
                 return
             }
             
             // We have a valid result, process it immediately
-            logInfo("Valid result found in meta.json for \(recordingPath), processing.")
+            logDebug("Valid result found in meta.json for \(recordingPath), processing.")
             
             // Always update lastDetectedFrontApp to the current frontmost app for app triggers and input field detection
             var frontApp: NSRunningApplication?
@@ -395,7 +395,7 @@ class RecordingsFolderWatcher {
                     autoReturnEnabled = false
                 }
                 
-                logInfo("Applied auto-return with result")
+                logDebug("Applied auto-return with result")
                 handlePostProcessing(recordingPath: recordingPath)
                 return
             }
@@ -405,7 +405,7 @@ class RecordingsFolderWatcher {
                !activeInsertName.isEmpty,
                let activeInsert = configManager.config.inserts[activeInsertName] {
                 
-                logInfo("Processing with active insert: \(activeInsertName)")
+                logDebug("Processing with active insert: \(activeInsertName)")
                 
                 // Process on the main thread to ensure UI operations happen immediately
                 DispatchQueue.main.async { [weak self] in
@@ -413,7 +413,7 @@ class RecordingsFolderWatcher {
                     self?.socketCommunication.applyInsert(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
                 }
             } else {
-                logInfo("No active insert, skipping action.")
+                logDebug("No active insert, skipping action.")
             }
             
             handlePostProcessing(recordingPath: recordingPath)
@@ -440,15 +440,15 @@ class RecordingsFolderWatcher {
         // Handle the moveTo action
         if let path = moveTo, !path.isEmpty {
             if path == ".delete" {
-                logInfo("Deleting processed recording folder: \(recordingPath)")
+                logDebug("Deleting processed recording folder: \(recordingPath)")
                 try? FileManager.default.removeItem(atPath: recordingPath)
             } else if path == ".none" {
-                logInfo("Keeping folder in place as requested by .none setting")
+                logDebug("Keeping folder in place as requested by .none setting")
                 // Explicitly do nothing
             } else {
                 let expandedPath = (path as NSString).expandingTildeInPath
                 let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((recordingPath as NSString).lastPathComponent)
-                logInfo("Moving processed recording folder to: \(destinationUrl.path)")
+                logDebug("Moving processed recording folder to: \(destinationUrl.path)")
                 try? FileManager.default.moveItem(atPath: recordingPath, toPath: destinationUrl.path)
             }
         }
