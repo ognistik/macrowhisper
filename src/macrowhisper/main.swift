@@ -382,6 +382,13 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
                 }
             }
 
+            if args.contains("--return-delay") {
+                let returnDelayIndex = args.firstIndex(where: { $0 == "--return-delay" })
+                if let index = returnDelayIndex, index + 1 < args.count {
+                    arguments["returnDelay"] = args[index + 1]
+                }
+            }
+
             if args.contains("--history") {
                 let historyIndex = args.firstIndex(where: { $0 == "--history" })
                 if let index = historyIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
@@ -624,6 +631,7 @@ func printHelp() {
           --no-noti true/false      Enable or disable all notifications
           --no-esc true/false       Disable all ESC key simulations when set to true
           --action-delay <seconds>  Set delay in seconds before actions are executed
+          --return-delay <seconds>  Set delay in seconds before return key press (for --auto-return and pressReturn)
           --insert <name>           Set the active insert (use empty string to disable)
           --history <days>          Set number of days to keep recordings (0 to keep most recent recording)
                                     Use 'null' or no value to disable history management

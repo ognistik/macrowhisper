@@ -229,7 +229,10 @@ class SocketCommunication {
     }
 
     private func simulateReturnKeyPress() {
-        DispatchQueue.main.async { simulateKeyDown(key: 36) }
+        let delay = globalConfigManager?.config.defaults.returnDelay ?? 0.1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            simulateKeyDown(key: 36)
+        }
     }
 
     private func pasteUsingClipboard(_ text: String) {

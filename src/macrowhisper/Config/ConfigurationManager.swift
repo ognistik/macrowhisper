@@ -152,7 +152,7 @@ class ConfigurationManager {
         }
     }
     
-    func updateFromCommandLine(watchPath: String? = nil, watcher: Bool? = nil, noUpdates: Bool? = nil, noNoti: Bool? = nil, activeInsert: String? = nil, icon: String? = nil, moveTo: String? = nil, noEsc: Bool? = nil, simKeypress: Bool? = nil, history: Int?? = nil, pressReturn: Bool? = nil, actionDelay: Double? = nil) {
+    func updateFromCommandLine(watchPath: String? = nil, watcher: Bool? = nil, noUpdates: Bool? = nil, noNoti: Bool? = nil, activeInsert: String? = nil, icon: String? = nil, moveTo: String? = nil, noEsc: Bool? = nil, simKeypress: Bool? = nil, history: Int?? = nil, pressReturn: Bool? = nil, actionDelay: Double? = nil, returnDelay: Double? = nil) {
         
         var shouldSave = false
         
@@ -166,6 +166,7 @@ class ConfigurationManager {
         if let simKeypress = simKeypress { _config.defaults.simKeypress = simKeypress; shouldSave = true }
         if let pressReturn = pressReturn { _config.defaults.pressReturn = pressReturn; shouldSave = true }
         if let actionDelay = actionDelay { _config.defaults.actionDelay = actionDelay; shouldSave = true }
+        if let returnDelay = returnDelay { _config.defaults.returnDelay = returnDelay; shouldSave = true }
 
         if let history = history {
             _config.defaults.history = history
@@ -192,7 +193,8 @@ class ConfigurationManager {
                 noEsc: arguments["noEsc"].flatMap { Bool($0) },
                 simKeypress: arguments["simKeypress"].flatMap { Bool($0) },
                 history: arguments["history"].map { $0 == "null" ? nil : Int($0) } as Int??,
-                pressReturn: arguments["pressReturn"].flatMap { Bool($0) }
+                pressReturn: arguments["pressReturn"].flatMap { Bool($0) },
+                returnDelay: arguments["returnDelay"].flatMap { Double($0) }
             )
             
             DispatchQueue.main.async {
