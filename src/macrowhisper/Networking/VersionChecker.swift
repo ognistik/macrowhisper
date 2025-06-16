@@ -59,51 +59,51 @@ class VersionChecker {
     }
     
     private func performVersionCheck(request: URLRequest) {
-            defer {
-                // Always reset the in-progress flag when done
-                updateCheckInProgress = false
-            }
-            
-            let semaphore = DispatchSemaphore(value: 0)
-            var resultData: Data?
-            var resultError: Error?
-            
-            let session = URLSession(configuration: .default)
-            session.dataTask(with: request) { data, response, error in
-                resultData = data
-                resultError = error
-                semaphore.signal()
-            }.resume()
-            
-            // Wait with timeout
-            let result = semaphore.wait(timeout: .now() + 15.0)
-            
-            if result == .timedOut {
-                logDebug("Version check timed out - continuing offline")
-                lastFailedCheckDate = Date() // Track the failure
-                return
-            }
-            
-            if let error = resultError {
-                logDebug("Version check failed: \(error.localizedDescription) - continuing offline")
-                lastFailedCheckDate = Date() // Track the failure
-                return
-            }
-            
-            guard let data = resultData else {
-                logDebug("No data received from version check - continuing offline")
-                lastFailedCheckDate = Date() // Track the failure
-                return
-            }
-            
-            // Clear the failed check date since we succeeded
-            lastFailedCheckDate = nil
-            
-            // Update last check date - this is critical
-            lastCheckDate = Date()
-            
-            processVersionResponse(data)
+        defer {
+            // Always reset the in-progress flag when done
+            updateCheckInProgress = false
         }
+        
+        let semaphore = DispatchSemaphore(value: 0)
+        var resultData: Data?
+        var resultError: Error?
+        
+        let session = URLSession(configuration: .default)
+        session.dataTask(with: request) { data, response, error in
+            resultData = data
+            resultError = error
+            semaphore.signal()
+        }.resume()
+        
+        // Wait with timeout
+        let result = semaphore.wait(timeout: .now() + 15.0)
+        
+        if result == .timedOut {
+            logDebug("Version check timed out - continuing offline")
+            lastFailedCheckDate = Date() // Track the failure
+            return
+        }
+        
+        if let error = resultError {
+            logDebug("Version check failed: \(error.localizedDescription) - continuing offline")
+            lastFailedCheckDate = Date() // Track the failure
+            return
+        }
+        
+        guard let data = resultData else {
+            logDebug("No data received from version check - continuing offline")
+            lastFailedCheckDate = Date() // Track the failure
+            return
+        }
+        
+        // Clear the failed check date since we succeeded
+        lastFailedCheckDate = nil
+        
+        // Update last check date - this is critical
+        lastCheckDate = Date()
+        
+        processVersionResponse(data)
+    }
     
     private func processVersionResponse(_ data: Data) {
         do {
@@ -112,97 +112,24 @@ class VersionChecker {
                 return
             }
             
-            // Check CLI version
-            var cliUpdateAvailable = false
-            var kmUpdateAvailable = false
-            var cliMessage = ""
-            var kmMessage = ""
-            
-            if let cliInfo = json["cli"] as? [String: Any],
-               let latestCLI = cliInfo["latest"] as? String {
-                if isNewerVersion(latest: latestCLI, current: currentCLIVersion) {
-                    cliUpdateAvailable = true
-                    cliMessage = "CLI: \(currentCLIVersion) → \(latestCLI)"
-                }
+            // Parse the new JSON format with "version" and "description" fields
+            guard let latestVersion = json["version"] as? String else {
+                logError("Missing 'version' field in versions JSON")
+                return
             }
             
-            // Check Keyboard Maestro version
-            if let kmInfo = json["km_macros"] as? [String: Any],
-               let latestKM = kmInfo["latest"] as? String {
-                let currentKMVersion = getCurrentKeyboardMaestroVersion()
-                
-                // Only check for updates if we have a valid current version (not empty, not "missing value")
-                if !currentKMVersion.isEmpty &&
-                   currentKMVersion != "missing value" &&
-                   isNewerVersion(latest: latestKM, current: currentKMVersion) {
-                    kmUpdateAvailable = true
-                    kmMessage = "KM Macros: \(currentKMVersion) → \(latestKM)"
-                } else if currentKMVersion.isEmpty || currentKMVersion == "missing value" {
-                    logDebug("Skipping KM version check - macro not available or not installed")
-                }
-            }
+            let description = json["description"] as? String ?? ""
             
-            // Now show the appropriate notification
-            if cliUpdateAvailable && !kmUpdateAvailable {
-                // CLI only: show terminal command
-                showCLIUpdateDialog(message: cliMessage)
-            } else if !cliUpdateAvailable && kmUpdateAvailable {
-                // KM only: show open releases dialog
-                showKMUpdateNotification(message: kmMessage)
-            } else if cliUpdateAvailable && kmUpdateAvailable {
-                // Both: show both messages, offer both instructions and button
-                showBothUpdatesNotification(cliMessage: cliMessage, kmMessage: kmMessage)
+            // Check if update is available
+            if isNewerVersion(latest: latestVersion, current: currentCLIVersion) {
+                let versionMessage = "CLI: \(currentCLIVersion) → \(latestVersion)"
+                showCLIUpdateDialog(versionMessage: versionMessage, description: description)
             } else {
-                // No update
-                logDebug("All components are up to date")
+                logDebug("CLI is up to date (\(currentCLIVersion))")
             }
+            
         } catch {
             logError("Error parsing versions JSON: \(error)")
-        }
-    }
-    
-    private func getCurrentKeyboardMaestroVersion() -> String {
-        let script = """
-        tell application "Keyboard Maestro Engine"
-            try
-                set result to do script "MW Mbar" with parameter "versionCheck"
-                return result
-            on error
-                return ""
-            end try
-        end tell
-        """
-        
-        let task = Process()
-        task.launchPath = "/usr/bin/osascript"
-        task.arguments = ["-e", script]
-        
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice  // Redirect error output to prevent console errors
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-            
-            // Check exit status
-            if task.terminationStatus != 0 {
-                logDebug("Keyboard Maestro macro check failed - Keyboard Maestro might not be running")
-                return ""
-            }
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            
-            // If the macro doesn't exist or doesn't return a proper version, we'll get empty output
-            if output.isEmpty || output == "missing value" {
-                logDebug("Keyboard Maestro macro version check returned empty result - macro might not be installed")
-            }
-            
-            return output
-        } catch {
-            logDebug("Failed to check Keyboard Maestro macro version: \(error.localizedDescription)")
-            return ""
         }
     }
     
@@ -225,20 +152,8 @@ class VersionChecker {
         
         return false
     }
-
-    private func showKMUpdateNotification(message: String) {
-        // Your current dialog logic with Open Release button
-        showUpdateNotification(message: message)
-    }
-
-    private func showBothUpdatesNotification(cliMessage: String, kmMessage: String) {
-        let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
-        let fullMessage = "\(cliMessage)\n\(kmMessage)\n\nTo update CLI:\n\(brewCommand)\n\nWould you like to open the KM Macros release page?"
-        // Show dialog with Open Release button and brew instructions
-        showUpdateNotification(message: fullMessage)
-    }
     
-    private func showUpdateNotification(message: String) {
+    private func showCLIUpdateDialog(versionMessage: String, description: String) {
         DispatchQueue.main.async {
             // Check if we should show reminder (not too frequent)
             if let lastReminder = self.lastReminderDate,
@@ -248,14 +163,23 @@ class VersionChecker {
             
             self.lastReminderDate = Date()
             
-            let title = "Macrowhisper"
-            let fullMessage = "Macrowhisper update available:\n\n\(message)"
+            let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
             
-            // Use AppleScript for interactive dialog
+            // Build the dialog message with version info, description, and update instructions
+            var fullMessage = "Macrowhisper update available:\n\(versionMessage)"
+            
+            // Add description if available
+            if !description.isEmpty {
+                fullMessage += "\n\n\(description)"
+            }
+            
+            // Add update instructions
+            fullMessage += "\n\nTo update, run:\n\(brewCommand)"
+            
             let script = """
             display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
-                with title "\(title)" ¬
-                buttons {"Remind Later", "Open Release"} ¬
+                with title "Macrowhisper" ¬
+                buttons {"Remind Later", "Copy Command", "Open Release"} ¬
                 default button "Open Release" ¬
             """
             
@@ -271,71 +195,31 @@ class VersionChecker {
                 task.waitUntilExit()
                 
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let output = String(data: data, encoding: .utf8) ?? ""
                 
-                if output.contains("Open Release") {
-                    self.openDownloadPage()
+                if output.contains("Copy Command") {
+                    // Copy command to clipboard
+                    self.copyCommandToClipboard(brewCommand)
+                } else if output.contains("Open Release") {
+                    // Open CLI release page
+                    self.openCLIReleasePage()
                 }
+                // If "Remind Later" is pressed, do nothing
             } catch {
-                // User cancelled or error occurred
-                logDebug("Update dialog cancelled or failed")
+                logError("Failed to show CLI update dialog: \(error)")
             }
         }
     }
     
-    private func openDownloadPage() {
-        let task = Process()
-        task.launchPath = "/usr/bin/open"
-        task.arguments = ["https://github.com/ognistik/macrowhisper/releases/latest"]
-        try? task.run()
-    }
-    
-    private func showCLIUpdateDialog(message: String) {
-        let brewCommand = "brew upgrade ognistik/tap/macrowhisper-cli"
-        let fullMessage = """
-        Macrowhisper update available:
-        \(message)
-
-        To update, run:
-        \(brewCommand)
-        """
-        let script = """
-        display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
-            with title "Macrowhisper" ¬
-            buttons {"Remind Later", "Copy Command", "Open Release"} ¬
-            default button "Open Release" ¬
-        """
-        let task = Process()
-        task.launchPath = "/usr/bin/osascript"
-        task.arguments = ["-e", script]
-
-        let pipe = Pipe()
-        task.standardOutput = pipe
-
-        do {
-            try task.run()
-            task.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-
-            if output.contains("Copy Command") {
-                // Copy command to clipboard
-                let pbTask = Process()
-                pbTask.launchPath = "/usr/bin/pbcopy"
-                let inputPipe = Pipe()
-                pbTask.standardInput = inputPipe
-                pbTask.launch()
-                inputPipe.fileHandleForWriting.write(brewCommand.data(using: .utf8)!)
-                inputPipe.fileHandleForWriting.closeFile()
-            } else if output.contains("Open Release") {
-                // Open CLI release page
-                openCLIReleasePage()
-            }
-            // If "Remind Later" is pressed, do nothing (optionally, implement snooze logic)
-        } catch {
-            logError("Failed to show CLI update dialog: \(error)")
-        }
+    private func copyCommandToClipboard(_ command: String) {
+        let pbTask = Process()
+        pbTask.launchPath = "/usr/bin/pbcopy"
+        let inputPipe = Pipe()
+        pbTask.standardInput = inputPipe
+        pbTask.launch()
+        inputPipe.fileHandleForWriting.write(command.data(using: .utf8)!)
+        inputPipe.fileHandleForWriting.closeFile()
+        logDebug("Copied brew command to clipboard")
     }
     
     private func openCLIReleasePage() {
@@ -343,5 +227,6 @@ class VersionChecker {
         task.launchPath = "/usr/bin/open"
         task.arguments = ["https://github.com/ognistik/macrowhisper-cli/releases/latest"]
         try? task.run()
+        logDebug("Opened CLI release page")
     }
 } 
