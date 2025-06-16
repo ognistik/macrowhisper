@@ -1,8 +1,4 @@
 {
-  "cli": {
-    "latest": "1.0.0"
-  },
-  "km_macros": {
-    "latest": "1.0.3"
-  }
+  "version" : "1.0.1",
+  "description" : "This is some some text indicating info about the update.\nNot sure if it supports multiline"
 }
