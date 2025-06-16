@@ -85,6 +85,10 @@ class ConfigurationManager {
             // JSON loaded successfully, reset notification flag
             hasNotifiedAboutJsonError = false
             
+            // Validate activeInsert after loading config
+            _config = config // update _config so validation uses latest
+            validateActiveInsertAndNotifyIfNeeded()
+            
             return config
         } catch {
             // Log the error
@@ -172,6 +176,9 @@ class ConfigurationManager {
             _config.defaults.history = history
             shouldSave = true
         }
+
+        // Validate activeInsert after updating config
+        validateActiveInsertAndNotifyIfNeeded()
 
         if shouldSave {
             saveConfig()
@@ -264,6 +271,16 @@ class ConfigurationManager {
     func getHistoryRetentionDays() -> Int? {
         return syncQueue.sync {
             _config.defaults.history
+        }
+    }
+    
+    // MARK: - Validation for activeInsert
+    /// Checks if the activeInsert in config.defaults exists in config.inserts. Notifies user if not.
+    private func validateActiveInsertAndNotifyIfNeeded() {
+        let activeInsert = _config.defaults.activeInsert ?? ""
+        if !activeInsert.isEmpty && _config.inserts[activeInsert] == nil {
+            notify(title: "Macrowhisper - Invalid Insert",
+                   message: "Your configuration references an active insert named '\(activeInsert)', but no such insert exists. Please check your configuration.")
         }
     }
 } 
