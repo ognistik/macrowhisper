@@ -36,20 +36,9 @@ let lockPath = "/tmp/macrowhisper.lock"
 
 // Initialize socket communication
 let configDir = ("~/.config/macrowhisper" as NSString).expandingTildeInPath
-let socketPath = "\(configDir)/macrowhisper.sock"
-
-// Make sure socket directory exists
-func ensureSocketDirectoryExists() {
-    if !FileManager.default.fileExists(atPath: configDir) {
-        do {
-            try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
-            logDebug("Created socket directory at \(configDir)")
-        } catch {
-            logError("Failed to create socket directory: \(error)")
-        }
-    }
-}
-ensureSocketDirectoryExists()
+// Place the socket in /tmp with the user's UID to avoid issues with custom config locations
+let uid = getuid()
+let socketPath = "/tmp/macrowhisper-\(uid).sock"
 
 let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
 
@@ -457,7 +446,8 @@ func recoverSocket() {
     }
     
     // Recreate socket
-    ensureSocketDirectoryExists()
+    let socketPath = "/tmp/macrowhisper-\(uid).sock"
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
     
     // Safely unwrap the globalConfigManager
     if let configManager = globalConfigManager {
