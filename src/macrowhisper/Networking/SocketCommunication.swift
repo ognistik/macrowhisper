@@ -296,12 +296,64 @@ class SocketCommunication {
                 write(clientSocket, response, response.utf8.count)
                 
             case .status:
-                let status: [String: Any] = [ "version": APP_VERSION, "watcher_running": recordingsWatcher != nil, "watch_path": configMgr.config.defaults.watch ]
-                if let statusData = try? JSONSerialization.data(withJSONObject: status), let statusString = String(data: statusData, encoding: .utf8) {
-                    response = statusString
-                } else {
-                    response = "Failed to generate status"
+                // Gather status information
+                var lines: [String] = []
+                let configMgr = configManagerRef ?? globalConfigManager!
+                let config = configMgr.config
+                let defaults = config.defaults
+                let activeInsert = defaults.activeInsert ?? ""
+                let icon = defaults.icon ?? ""
+                let moveTo = defaults.moveTo ?? ""
+                let configPathMirror = Mirror(reflecting: configMgr)
+                var configPath: String? = nil
+                for child in configPathMirror.children {
+                    if child.label == "configPath", let value = child.value as? String {
+                        configPath = value
+                        break
+                    }
                 }
+                let socketPathStr = self.socketPath
+                let watcherRunning = recordingsWatcher != nil
+                let watchPath = defaults.watch
+                let expandedWatchPath = (watchPath as NSString).expandingTildeInPath
+                let recordingsPath = "\(expandedWatchPath)/recordings"
+                let recordingsFolderExists = FileManager.default.fileExists(atPath: recordingsPath)
+                // Version
+                lines.append("Macrowhisper version: \(APP_VERSION)")
+                // Socket
+                lines.append("Socket path: \(socketPathStr)")
+                // Config
+                lines.append("Config file: \(configPath ?? ".unknown")")
+                // Watcher
+                lines.append("Watcher running: \(watcherRunning ? "yes" : "no")")
+                lines.append("Superwhisper folder: \(expandedWatchPath)")
+                lines.append("Recordings folder: \(recordingsPath) (exists: \(recordingsFolderExists ? "yes" : "no"))")
+                // Active insert
+                lines.append("Active insert: \(activeInsert.isEmpty ? "(none)" : activeInsert)")
+                lines.append("Icon: \(icon.isEmpty ? "(none)" : icon)")
+                lines.append("moveTo: \(moveTo.isEmpty ? "(none)" : moveTo)")
+                // Settings
+                lines.append("noUpdates: \(defaults.noUpdates ? "yes" : "no")")
+                lines.append("noNoti: \(defaults.noNoti ? "yes" : "no")")
+                lines.append("noEsc: \(defaults.noEsc ? "yes" : "no")")
+                lines.append("simKeypress: \(defaults.simKeypress ? "yes" : "no")")
+                lines.append(String(format: "actionDelay: %.2fs", defaults.actionDelay))
+                lines.append("pressReturn: \(defaults.pressReturn ? "yes" : "no")")
+                lines.append(String(format: "returnDelay: %.2fs", defaults.returnDelay))
+                if let history = defaults.history {
+                    lines.append("history retention: \(history == 0 ? "keep only most recent" : "\(history) days")")
+                } else {
+                    lines.append("history retention: (disabled)")
+                }
+                // Health checks
+                if !recordingsFolderExists {
+                    lines.append("Warning: Recordings folder does not exist at the expected path.")
+                }
+                if watcherRunning && !recordingsFolderExists {
+                    lines.append("Warning: Watcher is running but recordings folder is missing!")
+                }
+                // Print all lines
+                response = lines.joined(separator: "\n")
                 write(clientSocket, response, response.utf8.count)
                 
             case .debug:
