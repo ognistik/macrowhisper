@@ -338,6 +338,62 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
             }
         }
 
+        // Hidden test command for version checker dialog (development only)
+        if args.contains("--test-update-dialog") {
+            let versionChecker = VersionChecker()
+            
+            // Extract optional test parameters
+            var testVersion = "1.2.0"
+            var testDescription = "This is a test update with new features:\n• Fixed clipboard handling\n• Improved performance\n• Added new automation triggers"
+            
+            if let versionIndex = args.firstIndex(where: { $0 == "--test-version" }),
+               versionIndex + 1 < args.count {
+                testVersion = args[versionIndex + 1]
+            }
+            
+            if let descIndex = args.firstIndex(where: { $0 == "--test-description" }),
+               descIndex + 1 < args.count {
+                testDescription = args[descIndex + 1]
+            }
+            
+            print("Testing update dialog with version: \(APP_VERSION) → \(testVersion)")
+            print("Description: \(testDescription)")
+            print("Dialog will appear shortly...")
+            
+            // Call the dialog method directly
+            let versionMessage = "CLI: \(APP_VERSION) → \(testVersion)"
+            versionChecker.testUpdateDialog(versionMessage: versionMessage, description: testDescription)
+            
+            // Keep the process alive long enough to show the dialog
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                print("Test dialog displayed. Check for dialog window.")
+            }
+            
+            // Run for a short time to show the dialog
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 10))
+            exit(0)
+        }
+
+        // Hidden command to show version checker state (development only)
+        if args.contains("--version-state") {
+            if let response = socketCommunication.sendCommand(.versionState) {
+                print(response)
+            } else {
+                print("Failed to get version state or macrowhisper is not running.")
+            }
+            exit(0)
+        }
+
+        // Hidden command to clear all version checker UserDefaults (development only)
+        if args.contains("--version-clear") {
+            if let response = socketCommunication.sendCommand(.versionClear) {
+                print(response)
+            } else {
+                print("Failed to clear version state or macrowhisper is not running.")
+            }
+            exit(0)
+        }
+
         // For reload configuration or no arguments, use socket communication
         if args.count == 1 ||
            args.contains("-w") || args.contains("--watch") ||
@@ -621,6 +677,15 @@ if args.contains("--list-inserts") {
     }
     exit(0)
 }
+if args.contains("--check-updates") {
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if let response = socketCommunication.sendCommand(.forceUpdateCheck) {
+        print(response)
+    } else {
+        print("Failed to check for updates or macrowhisper is not running.")
+    }
+    exit(0)
+}
 if args.contains("--exec-insert") {
     let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
     if let index = execInsertIndex, index + 1 < args.count {
@@ -705,6 +770,7 @@ func printHelp() {
       -v, --version                 Show version information
       --verbose                     Enable verbose logging (shows debug messages in console)
       --reveal-config               Reveal the configuration file in Finder
+      --check-updates               Force check for updates (resets timing constraints)  
       --quit, --stop                Quit the running macrowhisper instance
 
     INSERTS COMMANDS:
@@ -911,6 +977,9 @@ configManager.onConfigChanged = { reason in
 
 // Initialize version checker
 let versionChecker = VersionChecker()
+
+// Check for updates on startup (respects noUpdates setting and timing constraints)
+versionChecker.checkForUpdates()
 
 registerForSleepWakeNotifications()
 startSocketHealthMonitor()

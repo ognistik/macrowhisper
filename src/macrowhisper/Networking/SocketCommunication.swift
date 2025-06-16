@@ -32,6 +32,9 @@ class SocketCommunication {
         case addShell
         case addAppleScript
         case quit
+        case versionState
+        case forceUpdateCheck
+        case versionClear
     }
     
     struct CommandMessage: Codable {
@@ -593,6 +596,23 @@ class SocketCommunication {
                 
             case .version:
                 response = "macrowhisper version \(APP_VERSION)"
+                write(clientSocket, response, response.utf8.count)
+                
+            case .versionState:
+                let versionChecker = VersionChecker()
+                response = versionChecker.getStateString()
+                write(clientSocket, response, response.utf8.count)
+                
+            case .forceUpdateCheck:
+                let versionChecker = VersionChecker()
+                versionChecker.forceUpdateCheck()
+                response = "Forced update check initiated (all timing constraints reset). Check logs for results."
+                write(clientSocket, response, response.utf8.count)
+                
+            case .versionClear:
+                let versionChecker = VersionChecker()
+                versionChecker.clearAllUserDefaults()
+                response = "All version checker UserDefaults cleared. Next check will start fresh."
                 write(clientSocket, response, response.utf8.count)
                 
             case .quit:
