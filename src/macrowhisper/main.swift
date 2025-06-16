@@ -290,6 +290,54 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
             exit(0)
         }
 
+        // Handle reveal config command specifically
+        if args.contains("--reveal-config") {
+            // Determine the config file path (same logic as ConfigurationManager)
+            let configArgIndex = args.firstIndex(where: { $0 == "-c" || $0 == "--config" })
+            var configPath: String
+            
+            if let index = configArgIndex, index + 1 < args.count {
+                configPath = args[index + 1]
+            } else {
+                configPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
+            }
+            
+            // Expand tilde in path
+            let expandedPath = (configPath as NSString).expandingTildeInPath
+            
+            // Check if config file exists
+            if FileManager.default.fileExists(atPath: expandedPath) {
+                // Use AppleScript to reveal the file in Finder
+                let script = """
+                tell application "Finder"
+                    reveal POSIX file "\(expandedPath)" as alias
+                    activate
+                end tell
+                """
+                
+                if let appleScript = NSAppleScript(source: script) {
+                    var error: NSDictionary?
+                    appleScript.executeAndReturnError(&error)
+                    
+                    if let error = error {
+                        print("Failed to reveal config file in Finder: \(error)")
+                        exit(1)
+                    } else {
+                        print("Configuration file revealed in Finder: \(expandedPath)")
+                        exit(0)
+                    }
+                } else {
+                    print("Failed to create AppleScript to reveal config file")
+                    exit(1)
+                }
+            } else {
+                print("Configuration file not found at: \(expandedPath)")
+                print("You can create it by running macrowhisper once, or manually create the directory:")
+                print("mkdir -p ~/.config/macrowhisper")
+                exit(1)
+            }
+        }
+
         // For reload configuration or no arguments, use socket communication
         if args.count == 1 ||
            args.contains("-w") || args.contains("--watch") ||
@@ -656,6 +704,7 @@ func printHelp() {
       -h, --help                    Show this help message
       -v, --version                 Show version information
       --verbose                     Enable verbose logging (shows debug messages in console)
+      --reveal-config               Reveal the configuration file in Finder
       --quit, --stop                Quit the running macrowhisper instance
 
     INSERTS COMMANDS:
@@ -690,6 +739,9 @@ func printHelp() {
 
       macrowhisper --get-insert pasteResult
         # Prints the processed action content for the 'pasteResult' insert using the last valid result
+
+      macrowhisper --reveal-config
+        # Opens the configuration file in Finder
 
       macrowhisper --quit
         # Quits the running macrowhisper instance
