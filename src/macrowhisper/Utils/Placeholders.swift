@@ -96,8 +96,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
     var result = action
     var metaJson = metaJson // Make mutable copy
     
-    // Regex for {{key}} and {{date:...}}
-    let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
+    // Updated regex for {{key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
+    let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
     
     // Check if this is an AppleScript action by looking for "tell application" or "osascript"
@@ -140,10 +140,26 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
             guard let keyRange = Range(match.range(at: 1), in: action),
                   let fullMatchRange = Range(match.range, in: action) else { continue }
             let key = String(action[keyRange])
+            
+            // Extract regex replacements if present
+            var regexReplacements: [(regex: String, replacement: String)] = []
+            if match.numberOfRanges > 3, let replacementRange = Range(match.range(at: 3), in: action) {
+                let replacementString = String(action[replacementRange])
+                let parts = replacementString.components(separatedBy: "||")
+                // Process pairs of regex and replacement
+                for i in stride(from: 0, to: parts.count - 1, by: 2) {
+                    if i + 1 < parts.count {
+                        let regex = parts[i]
+                        let replacement = parts[i + 1]
+                        regexReplacements.append((regex: regex, replacement: replacement))
+                    }
+                }
+            }
+            
             // Check for date placeholder
             if key == "date", match.numberOfRanges > 2, let formatRange = Range(match.range(at: 2), in: action) {
                 let format = String(action[formatRange])
-                let replacement: String
+                var replacement: String
                 switch format {
                 case "short":
                     let formatter = DateFormatter()
@@ -161,14 +177,18 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                     formatter.setLocalizedDateFormatFromTemplate(format)
                     replacement = formatter.string(from: Date())
                 }
+                
+                // Apply regex replacements if any
+                replacement = applyRegexReplacements(to: replacement, replacements: regexReplacements)
+                
                 // Use appropriate escaping based on action type
                 let escapedReplacement = isAppleScript ? escapeAppleScriptString(replacement) : escapeShellCharacters(replacement)
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
             }
             // Handle swResult
-            if key == "swResult" {
-                let value: String
+            else if key == "swResult" {
+                var value: String
                 if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
                     value = llm
                 } else if let res = metaJson["result"] as? String, !res.isEmpty {
@@ -176,11 +196,15 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 } else {
                     value = ""
                 }
+                
+                // Apply regex replacements if any
+                value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                
                 // Use appropriate escaping based on action type
                 let escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
-                let value: String
+                var value: String
                 if let stringValue = jsonValue as? String {
                     value = stringValue
                 } else if let numberValue = jsonValue as? NSNumber {
@@ -195,6 +219,10 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 } else {
                     value = String(describing: jsonValue)
                 }
+                
+                // Apply regex replacements if any
+                value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                
                 // Use appropriate escaping based on action type
                 let escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -212,8 +240,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
     var result = action
     var metaJson = metaJson // Make mutable copy
     
-    // Regex for {{key}} and {{date:...}}
-    let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^}]+))?\\}\\}"
+    // Updated regex for {{key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
+    let placeholderPattern = "\\{\\{([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
     
     // --- BEGIN: FrontApp Placeholder Logic ---
@@ -253,10 +281,26 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             guard let keyRange = Range(match.range(at: 1), in: action),
                   let fullMatchRange = Range(match.range, in: action) else { continue }
             let key = String(action[keyRange])
+            
+            // Extract regex replacements if present
+            var regexReplacements: [(regex: String, replacement: String)] = []
+            if match.numberOfRanges > 3, let replacementRange = Range(match.range(at: 3), in: action) {
+                let replacementString = String(action[replacementRange])
+                let parts = replacementString.components(separatedBy: "||")
+                // Process pairs of regex and replacement
+                for i in stride(from: 0, to: parts.count - 1, by: 2) {
+                    if i + 1 < parts.count {
+                        let regex = parts[i]
+                        let replacement = parts[i + 1]
+                        regexReplacements.append((regex: regex, replacement: replacement))
+                    }
+                }
+            }
+            
             // Check for date placeholder
             if key == "date", match.numberOfRanges > 2, let formatRange = Range(match.range(at: 2), in: action) {
                 let format = String(action[formatRange])
-                let replacement: String
+                var replacement: String
                 switch format {
                 case "short":
                     let formatter = DateFormatter()
@@ -274,6 +318,10 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     formatter.setLocalizedDateFormatFromTemplate(format)
                     replacement = formatter.string(from: Date())
                 }
+                
+                // Apply regex replacements if any
+                replacement = applyRegexReplacements(to: replacement, replacements: regexReplacements)
+                
                 // Use appropriate escaping based on action type
                 let escapedReplacement: String
                 switch actionType {
@@ -288,8 +336,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 continue
             }
             // Handle swResult
-            if key == "swResult" {
-                let value: String
+            else if key == "swResult" {
+                var value: String
                 if let llm = metaJson["llmResult"] as? String, !llm.isEmpty {
                     value = llm
                 } else if let res = metaJson["result"] as? String, !res.isEmpty {
@@ -297,6 +345,10 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 } else {
                     value = ""
                 }
+                
+                // Apply regex replacements if any
+                value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                
                 // Use appropriate escaping based on action type
                 let escapedValue: String
                 switch actionType {
@@ -309,7 +361,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 }
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
-                let value: String
+                var value: String
                 if let stringValue = jsonValue as? String {
                     value = stringValue
                 } else if let numberValue = jsonValue as? NSNumber {
@@ -324,6 +376,10 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 } else {
                     value = String(describing: jsonValue)
                 }
+                
+                // Apply regex replacements if any
+                value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                
                 // Use appropriate escaping based on action type
                 let escapedValue: String
                 switch actionType {
@@ -341,5 +397,31 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             }
         }
     }
+    return result
+}
+
+// MARK: - Regex Replacement Helper
+
+/// Applies multiple regex replacements to a string in sequence
+/// - Parameters:
+///   - input: The input string to perform replacements on
+///   - replacements: Array of tuples containing regex pattern and replacement string
+/// - Returns: The string with all regex replacements applied
+func applyRegexReplacements(to input: String, replacements: [(regex: String, replacement: String)]) -> String {
+    var result = input
+    
+    for (regexPattern, replacement) in replacements {
+        do {
+            let regex = try NSRegularExpression(pattern: regexPattern, options: [])
+            let range = NSRange(result.startIndex..., in: result)
+            let beforeReplace = result
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: replacement)
+            logDebug("[RegexReplacement] Pattern: '\(regexPattern)' | Replacement: '\(replacement)' | Before: '\(beforeReplace)' | After: '\(result)'")
+        } catch {
+            // If regex compilation fails, log the error but continue with other replacements
+            logError("[RegexReplacement] Invalid regex pattern '\(regexPattern)': \(error.localizedDescription)")
+        }
+    }
+    
     return result
 } 
