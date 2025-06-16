@@ -408,7 +408,7 @@ class SocketCommunication {
                         if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
                             let (processedAction, _) = processInsertAction(insert.action, metaJson: lastValidJson)
                             response = processedAction
-                            logInfo("Returning processed action for insert '\(insertName)': \(response)")
+                            logInfo("Returning processed action for insert '\(insertName)'.")
                         } else {
                             response = "No valid JSON file found with results"
                             logError("No valid JSON file found for get-insert <name>")
