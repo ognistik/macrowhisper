@@ -27,7 +27,7 @@ class ConfigurationManager {
     
     // Add properties to track JSON error state and prevent reload loops
     private var hasNotifiedAboutJsonError = false
-    private var suppressNextConfigReload = false
+    private var lastInternalSaveTime: Date?
     
     init(configPath: String?) {
         let defaultConfigPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
@@ -116,16 +116,29 @@ class ConfigurationManager {
     }
     
     func saveConfig() {
+        logDebug("saveConfig() called")
+        
         // Don't overwrite an existing file that failed to load (has invalid JSON)
-        if fileManager.fileExists(atPath: configPath) &&
-            loadConfig() == nil {
-            logWarning("Not saving configuration because the existing file has invalid JSON that needs to be fixed manually")
-            // Don't show another notification here - we've already notified in loadConfig()
-            return
+        // BUT: Don't reload the config here as that would overwrite our in-memory changes!
+        if fileManager.fileExists(atPath: configPath) {
+            logDebug("Config file exists, checking if JSON is valid without reloading...")
+            // Just check if the file can be parsed without overwriting our _config
+            do {
+                let data = try Data(contentsOf: URL(fileURLWithPath: configPath))
+                _ = try JSONDecoder().decode(AppConfiguration.self, from: data)
+                logDebug("Existing config file is valid JSON, proceeding with save")
+            } catch {
+                logWarning("Not saving configuration because the existing file has invalid JSON that needs to be fixed manually")
+                logWarning("JSON error: \(error.localizedDescription)")
+                return
+            }
+        } else {
+            logDebug("Config file doesn't exist, proceeding with save")
         }
         
-        // Set suppression flag before writing config to prevent reload loop
-        suppressNextConfigReload = true
+        // Record the time of this internal save to distinguish from external changes
+        lastInternalSaveTime = Date()
+        logDebug("Recorded internal save time: \(lastInternalSaveTime!)")
         
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -135,22 +148,58 @@ class ConfigurationManager {
         encoder.keyEncodingStrategy = pathEncodingStrategy
         
         do {
+            logDebug("Encoding configuration to JSON...")
+            logDebug("Current activeInsert value before encoding: '\(_config.defaults.activeInsert ?? "nil")'")
             let data = try encoder.encode(_config)
+            logDebug("Configuration encoded successfully, size: \(data.count) bytes")
+            
             // Convert the data to a string to handle path formatting
             if let jsonString = String(data: data, encoding: .utf8) {
+                logDebug("JSON string created successfully")
                 // Replace escaped forward slashes with regular forward slashes
                 let formattedJson = jsonString.replacingOccurrences(of: "\\/", with: "/")
                 // Write the formatted JSON back to data
                 if let formattedData = formattedJson.data(using: .utf8) {
+                    logDebug("Formatted JSON data created, size: \(formattedData.count) bytes")
                     let configDir = (configPath as NSString).deletingLastPathComponent
+                    logDebug("Config directory: \(configDir)")
+                    
                     if !fileManager.fileExists(atPath: configDir) {
+                        logDebug("Creating config directory...")
                         try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+                        logDebug("Config directory created successfully")
+                    } else {
+                        logDebug("Config directory already exists")
                     }
-                    try formattedData.write(to: URL(fileURLWithPath: configPath))
-                    logDebug("Configuration saved to \(configPath)")
+                    
+                    // Use atomic writing with temporary file to avoid conflicts
+                    let tempPath = configPath + ".temp"
+                    logDebug("Writing to temporary file: \(tempPath)")
+                    try formattedData.write(to: URL(fileURLWithPath: tempPath))
+                    logDebug("Temporary file written successfully")
+                    
+                    // Atomically move the temporary file to the final location
+                    logDebug("Moving temporary file to final location: \(configPath)")
+                    _ = try fileManager.replaceItem(at: URL(fileURLWithPath: configPath), 
+                                                    withItemAt: URL(fileURLWithPath: tempPath), 
+                                                    backupItemName: nil, 
+                                                    options: [], 
+                                                    resultingItemURL: nil)
+                    
+                    logDebug("Configuration saved successfully to \(configPath)")
+                } else {
+                    logError("Failed to create formatted JSON data")
                 }
+            } else {
+                logError("Failed to convert encoded data to JSON string")
             }
         } catch {
+            // Clean up temporary file if it exists
+            let tempPath = configPath + ".temp"
+            if fileManager.fileExists(atPath: tempPath) {
+                try? fileManager.removeItem(atPath: tempPath)
+            }
+            
             logError("Failed to save configuration: \(error.localizedDescription)")
             notify(title: "Macrowhisper", message: "Failed to save configuration: \(error.localizedDescription)")
         }
@@ -158,39 +207,84 @@ class ConfigurationManager {
     
     func updateFromCommandLine(watchPath: String? = nil, watcher: Bool? = nil, noUpdates: Bool? = nil, noNoti: Bool? = nil, activeInsert: String? = nil, icon: String? = nil, moveTo: String? = nil, noEsc: Bool? = nil, simKeypress: Bool? = nil, history: Int?? = nil, pressReturn: Bool? = nil, actionDelay: Double? = nil, returnDelay: Double? = nil) {
         
+        logDebug("updateFromCommandLine called with activeInsert: \(activeInsert ?? "nil")")
+        
         var shouldSave = false
         
-        if let watchPath = watchPath { _config.defaults.watch = watchPath; shouldSave = true }
-        if let noUpdates = noUpdates { _config.defaults.noUpdates = noUpdates; shouldSave = true }
-        if let noNoti = noNoti { _config.defaults.noNoti = noNoti; shouldSave = true }
-        if let activeInsert = activeInsert { _config.defaults.activeInsert = activeInsert.isEmpty ? "" : activeInsert; shouldSave = true }
-        if let icon = icon { _config.defaults.icon = icon.isEmpty ? nil : icon; shouldSave = true }
-        if let moveTo = moveTo { _config.defaults.moveTo = moveTo; shouldSave = true }
-        if let noEsc = noEsc { _config.defaults.noEsc = noEsc; shouldSave = true }
-        if let simKeypress = simKeypress { _config.defaults.simKeypress = simKeypress; shouldSave = true }
-        if let pressReturn = pressReturn { _config.defaults.pressReturn = pressReturn; shouldSave = true }
-        if let actionDelay = actionDelay { _config.defaults.actionDelay = actionDelay; shouldSave = true }
-        if let returnDelay = returnDelay { _config.defaults.returnDelay = returnDelay; shouldSave = true }
+        if let watchPath = watchPath { 
+            logDebug("Setting watch path to: \(watchPath)")
+            _config.defaults.watch = watchPath; shouldSave = true 
+        }
+        if let noUpdates = noUpdates { 
+            logDebug("Setting noUpdates to: \(noUpdates)")
+            _config.defaults.noUpdates = noUpdates; shouldSave = true 
+        }
+        if let noNoti = noNoti { 
+            logDebug("Setting noNoti to: \(noNoti)")
+            _config.defaults.noNoti = noNoti; shouldSave = true 
+        }
+        if let activeInsert = activeInsert { 
+            logDebug("Setting activeInsert to: '\(activeInsert)'")
+            _config.defaults.activeInsert = activeInsert.isEmpty ? "" : activeInsert; shouldSave = true 
+        }
+        if let icon = icon { 
+            logDebug("Setting icon to: \(icon)")
+            _config.defaults.icon = icon.isEmpty ? nil : icon; shouldSave = true 
+        }
+        if let moveTo = moveTo { 
+            logDebug("Setting moveTo to: \(moveTo)")
+            _config.defaults.moveTo = moveTo; shouldSave = true 
+        }
+        if let noEsc = noEsc { 
+            logDebug("Setting noEsc to: \(noEsc)")
+            _config.defaults.noEsc = noEsc; shouldSave = true 
+        }
+        if let simKeypress = simKeypress { 
+            logDebug("Setting simKeypress to: \(simKeypress)")
+            _config.defaults.simKeypress = simKeypress; shouldSave = true 
+        }
+        if let pressReturn = pressReturn { 
+            logDebug("Setting pressReturn to: \(pressReturn)")
+            _config.defaults.pressReturn = pressReturn; shouldSave = true 
+        }
+        if let actionDelay = actionDelay { 
+            logDebug("Setting actionDelay to: \(actionDelay)")
+            _config.defaults.actionDelay = actionDelay; shouldSave = true 
+        }
+        if let returnDelay = returnDelay { 
+            logDebug("Setting returnDelay to: \(returnDelay)")
+            _config.defaults.returnDelay = returnDelay; shouldSave = true 
+        }
 
         if let history = history {
+            logDebug("Setting history to: \(String(describing: history))")
             _config.defaults.history = history
             shouldSave = true
         }
+
+        logDebug("shouldSave is: \(shouldSave)")
 
         // Validate activeInsert after updating config
         validateActiveInsertAndNotifyIfNeeded()
 
         if shouldSave {
+            logDebug("Calling saveConfig() because shouldSave is true")
             saveConfig()
+        } else {
+            logDebug("NOT calling saveConfig() because shouldSave is false")
         }
     }
 
     func updateFromCommandLineAsync(arguments: [String: String], completion: (() -> Void)?) {
+        logDebug("updateFromCommandLineAsync called with arguments: \(arguments)")
+        
         syncQueue.async { [weak self] in
             guard let self = self else { return }
             
+            logDebug("Processing arguments in syncQueue...")
+            
             self.updateFromCommandLine(
-                watchPath: arguments["watchPath"],
+                watchPath: arguments["watch"],  // Fixed: use "watch" instead of "watchPath"
                 watcher: arguments["watcher"].flatMap { Bool($0) },
                 noUpdates: arguments["noUpdates"].flatMap { Bool($0) },
                 noNoti: arguments["noNoti"].flatMap { Bool($0) },
@@ -201,6 +295,7 @@ class ConfigurationManager {
                 simKeypress: arguments["simKeypress"].flatMap { Bool($0) },
                 history: arguments["history"].map { $0 == "null" ? nil : Int($0) } as Int??,
                 pressReturn: arguments["pressReturn"].flatMap { Bool($0) },
+                actionDelay: arguments["actionDelay"].flatMap { Double($0) },  // Added missing actionDelay
                 returnDelay: arguments["returnDelay"].flatMap { Double($0) }
             )
             
@@ -217,29 +312,35 @@ class ConfigurationManager {
         logDebug("Setting up file watcher for configuration at: \(configPath)")
         
         fileWatcher = ConfigChangeWatcher(filePath: configPath, onChanged: { [weak self] in
-            logDebug("Configuration file change detected. Reloading.")
+            logDebug("Configuration file change detected. Checking if external change.")
             guard let self = self else { return }
             
-            // Suppress reload if this was an internal config write
-            if self.suppressNextConfigReload {
-                logDebug("Suppressed config reload after internal write.")
-                self.suppressNextConfigReload = false
+            // Check if this change happened very recently after our internal save
+            let now = Date()
+            if let lastSave = self.lastInternalSaveTime, 
+               now.timeIntervalSince(lastSave) < 2.0 {  // Within 2 seconds of our save
+                logDebug("Ignoring file change - likely from our own save (\(now.timeIntervalSince(lastSave)) seconds ago)")
                 return
             }
             
-            self.syncQueue.async {
-                if let newConfig = self.loadConfig() {
-                    self._config = newConfig
-                    self.configurationSuccessfullyLoaded()
-                    DispatchQueue.main.async {
-                        self.onConfigChanged?("configFileChanged")
-                    }
-                    logDebug("Configuration automatically reloaded after file change")
-                } else {
-                    logError("Failed to reload configuration after file change")
-                    // Notify user if reload fails (but not for JSON error, which is already handled)
-                    DispatchQueue.main.async {
-                        notify(title: "Macrowhisper", message: "Failed to reload configuration after file change. Please check your configuration file.")
+            logDebug("Processing external file change...")
+            
+            // Add a small delay to ensure any atomic file operations are complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.syncQueue.async {
+                    if let newConfig = self.loadConfig() {
+                        self._config = newConfig
+                        self.configurationSuccessfullyLoaded()
+                        DispatchQueue.main.async {
+                            self.onConfigChanged?("configFileChanged")
+                        }
+                        logDebug("Configuration automatically reloaded after external file change")
+                    } else {
+                        logError("Failed to reload configuration after file change")
+                        // Notify user if reload fails (but not for JSON error, which is already handled)
+                        DispatchQueue.main.async {
+                            notify(title: "Macrowhisper", message: "Failed to reload configuration after file change. Please check your configuration file.")
+                        }
                     }
                 }
             }

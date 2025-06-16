@@ -102,7 +102,8 @@ class SocketCommunication {
     }
 
     private func findLastValidJsonFile(configManager: ConfigurationManager) -> [String: Any]? {
-        let recordingsPath = configManager.config.defaults.watch + "/recordings"
+        let expandedWatchPath = (configManager.config.defaults.watch as NSString).expandingTildeInPath
+        let recordingsPath = expandedWatchPath + "/recordings"
         guard let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: recordingsPath), includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey], options: .skipsHiddenFiles) else { return nil }
         let directories = contents.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false }.sorted {
             let date1 = try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate
@@ -402,9 +403,30 @@ class SocketCommunication {
                 write(clientSocket, response, response.utf8.count)
                 
             case .getInsert:
-                let activeInsert = configMgr.config.defaults.activeInsert ?? ""
-                response = activeInsert.isEmpty ? "" : activeInsert
-                logInfo("Returning active insert: '\(response)'")
+                if let insertName = commandMessage.arguments?["name"], !insertName.isEmpty {
+                    if let insert = configMgr.config.inserts[insertName] {
+                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                            let (processedAction, _) = processInsertAction(insert.action, metaJson: lastValidJson)
+                            response = processedAction
+                            logInfo("Returning processed action for insert '\(insertName)': \(response)")
+                        } else {
+                            response = "No valid JSON file found with results"
+                            logError("No valid JSON file found for get-insert <name>")
+                        }
+                    } else {
+                        response = "Insert not found: \(insertName)"
+                        logError("Insert not found for get-insert: \(insertName)")
+                    }
+                } else {
+                    let activeInsert = configMgr.config.defaults.activeInsert ?? ""
+                    if activeInsert.isEmpty {
+                        response = "No active insert is set."
+                        logInfo("No active insert is set for get-insert.")
+                    } else {
+                        response = activeInsert
+                        logInfo("Returning active insert: '\(response)'")
+                    }
+                }
                 write(clientSocket, response, response.utf8.count)
                 
             case .autoReturn:
@@ -421,6 +443,8 @@ class SocketCommunication {
             case .execInsert:
                 if let insertName = commandMessage.arguments?["name"], let insert = configMgr.config.inserts[insertName] {
                     if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                        // Ensure autoReturn is always false for exec-insert
+                        autoReturnEnabled = false
                         let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
                         applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
                         response = "Executed insert '\(insertName)'"
@@ -428,10 +452,12 @@ class SocketCommunication {
                     } else {
                         response = "No valid JSON file found with results"
                         logError("No valid JSON file found for exec-insert")
+                        notify(title: "Macrowhisper", message: "No valid result found for insert: \(insertName). Please check Superwhisper recordings.")
                     }
                 } else {
                     response = "Insert not found or name missing"
                     logError(response)
+                    notify(title: "Macrowhisper", message: "Insert not found or name missing for exec-insert.")
                 }
                 write(clientSocket, response, response.utf8.count)
                 

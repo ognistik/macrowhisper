@@ -162,10 +162,17 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
         }
 
         if args.contains("--get-insert") {
-            if let response = socketCommunication.sendCommand(.getInsert) {
+            let getInsertIndex = args.firstIndex(where: { $0 == "--get-insert" })
+            var arguments: [String: String]? = nil
+            if let index = getInsertIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+                // User provided a name after --get-insert
+                arguments = ["name": args[index + 1]]
+            }
+            let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+            if let response = socketCommunication.sendCommand(.getInsert, arguments: arguments) {
                 print(response)
             } else {
-                print("Failed to get active insert.")
+                print("Failed to get insert or macrowhisper is not running.")
             }
             exit(0)
         }
@@ -543,11 +550,17 @@ if args.contains("--get-icon") {
     exit(0)
 }
 if args.contains("--get-insert") {
+    let getInsertIndex = args.firstIndex(where: { $0 == "--get-insert" })
+    var arguments: [String: String]? = nil
+    if let index = getInsertIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+        // User provided a name after --get-insert
+        arguments = ["name": args[index + 1]]
+    }
     let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.getInsert) {
+    if let response = socketCommunication.sendCommand(.getInsert, arguments: arguments) {
         print(response)
     } else {
-        print("Failed to get active insert or macrowhisper is not running.")
+        print("Failed to get insert or macrowhisper is not running.")
     }
     exit(0)
 }
@@ -652,7 +665,8 @@ func printHelp() {
       --exec-insert <name>          Execute an insert action using the last valid result
       --auto-return true/false      Insert result and simulate return for one interaction
       --get-icon                    Get the icon of the active insert
-      --get-insert                  Get name of active insert
+      --get-insert [<name>]         Get name of active insert (if run without <name>)
+                                    If a name is provided, returns the action content
 
     OTHER ACTION COMMANDS:
       --add-url <name>              Add or update a URL action
@@ -670,6 +684,12 @@ func printHelp() {
 
       macrowhisper --insert pasteResult
         # Sets the active insert to pasteResult
+
+      macrowhisper --get-insert
+        # Prints the name of the current active insert
+
+      macrowhisper --get-insert pasteResult
+        # Prints the processed action content for the 'pasteResult' insert using the last valid result
 
       macrowhisper --quit
         # Quits the running macrowhisper instance
