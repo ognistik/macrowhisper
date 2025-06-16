@@ -6,11 +6,13 @@ class ActionExecutor {
     private let logger: Logger
     private let socketCommunication: SocketCommunication
     private let configManager: ConfigurationManager
+    private let clipboardMonitor: ClipboardMonitor
     
     init(logger: Logger, socketCommunication: SocketCommunication, configManager: ConfigurationManager) {
         self.logger = logger
         self.socketCommunication = socketCommunication
         self.configManager = configManager
+        self.clipboardMonitor = ClipboardMonitor(logger: logger)
     }
     
     /// Executes an action based on its type
@@ -49,11 +51,26 @@ class ActionExecutor {
     
     private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String) {
         let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: metaJson)
-        socketCommunication.applyInsert(
-            processedAction,
-            activeInsert: insert,
+        
+        // Use clipboard monitoring for insert actions triggered by valid results (from watcher)
+        // This handles the timing issue where Superwhisper puts content on clipboard simultaneously
+        let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
+        let shouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
+        
+        clipboardMonitor.executeInsertWithClipboardSync(
+            insertAction: { [weak self] in
+                // Execute the insert action without ESC (already handled by clipboard monitor)
+                self?.socketCommunication.applyInsertWithoutEsc(
+                    processedAction,
+                    activeInsert: insert,
+                    isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
+                )
+            },
+            actionDelay: actionDelay,
+            shouldEsc: shouldEsc,
             isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
         )
+        
         handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: insert)
     }
     

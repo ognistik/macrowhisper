@@ -14,6 +14,7 @@ class RecordingsFolderWatcher {
     private let socketCommunication: SocketCommunication
     private let triggerEvaluator: TriggerEvaluator
     private let actionExecutor: ActionExecutor
+    private let clipboardMonitor: ClipboardMonitor
     private let processedRecordingsFile: String
 
     init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication) {
@@ -23,6 +24,7 @@ class RecordingsFolderWatcher {
         self.socketCommunication = socketCommunication
         self.triggerEvaluator = TriggerEvaluator(logger: logger)
         self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager)
+        self.clipboardMonitor = ClipboardMonitor(logger: logger)
         
         // Create a file to track processed recordings
         let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -333,9 +335,15 @@ class RecordingsFolderWatcher {
             }
             lastDetectedFrontApp = frontApp
             
-            // Get front app info for app triggers
+            // Get front app info for app triggers and add to metaJson to optimize placeholder processing
             let frontAppName = frontApp?.localizedName
             let frontAppBundleId = frontApp?.bundleIdentifier
+            
+            // Create enhanced metaJson with front app info to optimize {{frontApp}} placeholder processing
+            var enhancedMetaJson = metaJson
+            enhancedMetaJson["frontAppName"] = frontAppName
+            enhancedMetaJson["frontApp"] = frontAppName  // Add frontApp directly to avoid semaphore delay
+            enhancedMetaJson["frontAppBundleId"] = frontAppBundleId
             
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)
@@ -350,7 +358,7 @@ class RecordingsFolderWatcher {
             let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
                 configManager: configManager,
                 result: String(describing: result),
-                metaJson: metaJson,
+                metaJson: enhancedMetaJson,
                 frontAppName: frontAppName,
                 frontAppBundleId: frontAppBundleId
             )
@@ -360,7 +368,7 @@ class RecordingsFolderWatcher {
                 let (action, name, type, strippedResult) = matchedTriggerActions.first!
                 
                 // Prepare metaJson with updated result if voice trigger matched and stripped result
-                var updatedJson = metaJson
+                var updatedJson = enhancedMetaJson
                 if let stripped = strippedResult {
                     updatedJson["result"] = stripped
                     updatedJson["swResult"] = stripped
@@ -385,17 +393,25 @@ class RecordingsFolderWatcher {
             // SECOND: Check for auto-return (has precedence over active inserts)
             if autoReturnEnabled {
                 // Apply the result directly using {{swResult}}
-                let resultValue = metaJson["result"] as? String ?? metaJson["llmResult"] as? String ?? ""
+                let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
                 
-                // Process on the main thread to ensure UI operations happen immediately
-                DispatchQueue.main.async { [weak self] in
-                    // Apply the result (simulate ESC key press and paste the action)
-                    self?.socketCommunication.applyInsert(resultValue, activeInsert: nil)
-                    // Reset the flag after using it once
-                    autoReturnEnabled = false
-                }
+                // Use clipboard monitoring for auto-return to handle Superwhisper interference
+                let actionDelay = configManager.config.defaults.actionDelay
+                let shouldEsc = !configManager.config.defaults.noEsc
                 
-                logDebug("Applied auto-return with result")
+                clipboardMonitor.executeInsertWithClipboardSync(
+                    insertAction: { [weak self] in
+                        // Apply the result without ESC (handled by clipboard monitor)
+                        self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
+                        // Reset the flag after using it once
+                        autoReturnEnabled = false
+                    },
+                    actionDelay: actionDelay,
+                    shouldEsc: shouldEsc,
+                    isAutoPaste: false  // Auto-return is not autoPaste
+                )
+                
+                logDebug("Applied auto-return with clipboard monitoring")
                 handlePostProcessing(recordingPath: recordingPath)
                 return
             }
@@ -407,11 +423,20 @@ class RecordingsFolderWatcher {
                 
                 logDebug("Processing with active insert: \(activeInsertName)")
                 
-                // Process on the main thread to ensure UI operations happen immediately
-                DispatchQueue.main.async { [weak self] in
-                    let (processedAction, isAutoPaste) = self?.socketCommunication.processInsertAction(activeInsert.action, metaJson: metaJson) ?? ("", false)
-                    self?.socketCommunication.applyInsert(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
-                }
+                // Use clipboard monitoring for active insert to handle Superwhisper interference
+                let (processedAction, isAutoPaste) = socketCommunication.processInsertAction(activeInsert.action, metaJson: enhancedMetaJson)
+                let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
+                let shouldEsc = !(activeInsert.noEsc ?? configManager.config.defaults.noEsc)
+                
+                clipboardMonitor.executeInsertWithClipboardSync(
+                    insertAction: { [weak self] in
+                        // Apply the insert without ESC (handled by clipboard monitor)
+                        self?.socketCommunication.applyInsertWithoutEsc(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
+                    },
+                    actionDelay: actionDelay,
+                    shouldEsc: shouldEsc,
+                    isAutoPaste: isAutoPaste
+                )
             } else {
                 logDebug("No active insert, skipping action.")
             }

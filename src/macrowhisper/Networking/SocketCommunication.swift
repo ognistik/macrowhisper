@@ -194,6 +194,29 @@ class SocketCommunication {
         pasteText(text, activeInsert: activeInsert)
         checkAndSimulatePressReturn(activeInsert: activeInsert)
     }
+    
+    // This version is for clipboard-monitored insert actions and does NOT press ESC or apply actionDelay
+    // (ESC and delay are handled by ClipboardMonitor)
+    func applyInsertWithoutEsc(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
+        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
+            // For empty or .none actions, do nothing since delay is handled by ClipboardMonitor
+            return
+        }
+        
+        if isAutoPaste {
+            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
+            if !isInInputField() {
+                logDebug("Clipboard-monitored auto paste - not in input field, direct paste only")
+                let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
+                simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
+                checkAndSimulatePressReturn(activeInsert: activeInsert); return
+            }
+        }
+        
+        // No ESC key press or actionDelay - these are handled by ClipboardMonitor
+        pasteTextNoRestore(text, activeInsert: activeInsert)
+        checkAndSimulatePressReturn(activeInsert: activeInsert)
+    }
 
     private func pasteText(_ text: String, activeInsert: AppConfiguration.Insert?) {
         let shouldSimulate = activeInsert?.simKeypress ?? globalConfigManager?.config.defaults.simKeypress ?? false
@@ -208,6 +231,23 @@ class SocketCommunication {
             do { try task.run(); task.waitUntilExit() } catch { logError("Failed to simulate keystrokes: \(error)"); pasteUsingClipboard(text) }
         } else {
             pasteUsingClipboard(text)
+        }
+    }
+    
+    // Version of pasteText that doesn't save/restore clipboard (used with ClipboardMonitor)
+    private func pasteTextNoRestore(_ text: String, activeInsert: AppConfiguration.Insert?) {
+        let shouldSimulate = activeInsert?.simKeypress ?? globalConfigManager?.config.defaults.simKeypress ?? false
+        if shouldSimulate {
+            let lines = text.components(separatedBy: "\n")
+            let scriptLines = lines.enumerated().map { index, line -> String in
+                let escapedLine = line.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                return (index > 0 ? "keystroke return\n" : "") + "keystroke \"\(escapedLine)\""
+            }.joined(separator: "\n")
+            let script = "tell application \"System Events\"\n\(scriptLines)\nend tell"
+            let task = Process(); task.launchPath = "/usr/bin/osascript"; task.arguments = ["-e", script]
+            do { try task.run(); task.waitUntilExit() } catch { logError("Failed to simulate keystrokes: \(error)"); pasteUsingClipboardNoRestore(text) }
+        } else {
+            pasteUsingClipboardNoRestore(text)
         }
     }
     
@@ -246,6 +286,14 @@ class SocketCommunication {
             pasteboard.clearContents()
             if let original = originalContent { pasteboard.setString(original, forType: .string) }
         }
+    }
+    
+    // Version of pasteUsingClipboard that doesn't save/restore clipboard (used with ClipboardMonitor)
+    private func pasteUsingClipboardNoRestore(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
     }
 
     private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
