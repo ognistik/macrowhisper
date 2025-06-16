@@ -70,7 +70,7 @@ class Logger {
             try? fileManager.moveItem(atPath: logFilePath, toPath: rotatedLogPath)
             
             // Log the rotation
-            log("Log file rotated due to size limit", level: .info)
+            logInfo("Log file rotated due to size limit")
         }
     }
     

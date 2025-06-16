@@ -55,7 +55,7 @@ class SocketCommunication {
         }
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else {
-            logger.log("Failed to create socket: \(errno)", level: .error)
+            logError("Failed to create socket: \(errno)")
             return
         }
         var addr = sockaddr_un()
@@ -71,17 +71,17 @@ class SocketCommunication {
             }
         }
         guard bindResult == 0 else {
-            logger.log("Failed to bind socket: \(errno)", level: .error); close(serverSocket); return
+            logError("Failed to bind socket: \(errno)"); close(serverSocket); return
         }
         chmod(socketPath, 0o777)
         guard listen(serverSocket, 5) == 0 else {
-            logger.log("Failed to listen on socket: \(errno)", level: .error); close(serverSocket); return
+            logError("Failed to listen on socket: \(errno)"); close(serverSocket); return
         }
         server = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         server?.setEventHandler { [weak self] in
             guard let self = self else { return }
             let clientSocket = accept(self.serverSocket, nil, nil)
-            guard clientSocket >= 0 else { self.logger.log("Failed to accept connection: \(errno)", level: .error); return }
+            guard clientSocket >= 0 else { logError("Failed to accept connection: \(errno)"); return }
             self.queue.async {
                 self.handleConnection(clientSocket: clientSocket, configManager: globalConfigManager)
             }
@@ -93,7 +93,7 @@ class SocketCommunication {
             try? FileManager.default.removeItem(atPath: self.socketPath)
         }
         server?.resume()
-        logger.log("Socket server started at \(socketPath)", level: .info)
+        logInfo("Socket server started at \(socketPath)")
     }
 
     func stopServer() {
@@ -157,9 +157,9 @@ class SocketCommunication {
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         if isAutoPaste {
-            if !requestAccessibilityPermission() { logger.log("Accessibility permission denied", level: .warning); return }
+            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
-                logger.log("Auto paste - not in input field, direct paste only", level: .info)
+                logDebug("Auto paste - not in input field, direct paste only")
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
@@ -181,9 +181,9 @@ class SocketCommunication {
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         if isAutoPaste {
-            if !requestAccessibilityPermission() { logger.log("Accessibility permission denied", level: .warning); return }
+            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
-                logger.log("Exec-insert auto paste - not in input field, direct paste only", level: .info)
+                logInfo("Exec-insert auto paste - not in input field, direct paste only")
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
@@ -204,7 +204,7 @@ class SocketCommunication {
             }.joined(separator: "\n")
             let script = "tell application \"System Events\"\n\(scriptLines)\nend tell"
             let task = Process(); task.launchPath = "/usr/bin/osascript"; task.arguments = ["-e", script]
-            do { try task.run(); task.waitUntilExit() } catch { logger.log("Failed to simulate keystrokes: \(error)", level: .error); pasteUsingClipboard(text) }
+            do { try task.run(); task.waitUntilExit() } catch { logError("Failed to simulate keystrokes: \(error)"); pasteUsingClipboard(text) }
         } else {
             pasteUsingClipboard(text)
         }
@@ -215,15 +215,15 @@ class SocketCommunication {
         if autoReturnEnabled {
             if shouldPressReturn {
                 // If both autoReturn and pressReturn are set, treat as pressReturn (simulate once, clear autoReturnEnabled)
-                logger.log("Simulating return key press due to pressReturn setting (auto-return was also set)", level: .info)
+                logInfo("Simulating return key press due to pressReturn setting (auto-return was also set)")
                 simulateReturnKeyPress()
             } else {
-                logger.log("Simulating return key press due to auto-return", level: .info)
+                logInfo("Simulating return key press due to auto-return")
                 simulateReturnKeyPress()
             }
             autoReturnEnabled = false
         } else if shouldPressReturn {
-            logger.log("Simulating return key press due to pressReturn setting", level: .info)
+            logInfo("Simulating return key press due to pressReturn setting")
             simulateReturnKeyPress()
         }
     }
@@ -249,17 +249,17 @@ class SocketCommunication {
 
     private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
         guard let configMgr = self.configManagerRef ?? configManager ?? globalConfigManager else {
-            logger.log("No valid config manager", level: .error); close(clientSocket); return
+            logError("No valid config manager"); close(clientSocket); return
         }
         defer { close(clientSocket) }
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096); defer { buffer.deallocate() }
         let bytesRead = read(clientSocket, buffer, 4096)
-        guard bytesRead > 0 else { logger.log("Failed to read from socket", level: .error); return }
+        guard bytesRead > 0 else { logError("Failed to read from socket"); return }
         let data = Data(bytes: buffer, count: bytesRead)
         
         do {
             let commandMessage = try JSONDecoder().decode(CommandMessage.self, from: data)
-            logger.log("Received command: \(commandMessage.command.rawValue)", level: .info)
+            logInfo("Received command: \(commandMessage.command.rawValue)")
             var response = ""
             
             switch commandMessage.command {
@@ -270,10 +270,10 @@ class SocketCommunication {
                     configMgr.onConfigChanged?(nil)
                     configMgr.resetFileWatcher()
                     response = "Configuration reloaded successfully"
-                    logger.log(response, level: .info)
+                    logInfo(response)
                 } else {
                     response = "Failed to reload configuration"
-                    logger.log(response, level: .error)
+                    logError(response)
                 }
                 write(clientSocket, response, response.utf8.count)
                 
@@ -282,12 +282,12 @@ class SocketCommunication {
                     if let insertName = args["activeInsert"], !insertName.isEmpty, !validateInsertExists(insertName, configManager: configMgr) {
                         response = "Error: Insert '\(insertName)' does not exist."
                         write(clientSocket, response, response.utf8.count)
-                        logger.log("Attempted to set non-existent insert: \(insertName)", level: .error)
+                        logError("Attempted to set non-existent insert: \(insertName)")
                         notify(title: "Macrowhisper", message: "Non-existent insert: \(insertName)")
                         return
                     }
                     configMgr.updateFromCommandLineAsync(arguments: args) {
-                        self.logger.log("Configuration updated successfully in background", level: .info)
+                        logInfo("Configuration updated successfully in background")
                     }
                     response = "Configuration update queued"
                 } else {
@@ -346,23 +346,23 @@ class SocketCommunication {
                     response = " "  // No icon defined (nil or empty)
                 }
                 
-                logger.log("Returning icon: '\(response)'", level: .info)
+                logInfo("Returning icon: '\(response)'")
                 write(clientSocket, response, response.utf8.count)
                 
             case .getInsert:
                 let activeInsert = configMgr.config.defaults.activeInsert ?? ""
                 response = activeInsert.isEmpty ? "" : activeInsert
-                logger.log("Returning active insert: '\(response)'", level: .info)
+                logInfo("Returning active insert: '\(response)'")
                 write(clientSocket, response, response.utf8.count)
                 
             case .autoReturn:
                 if let enableStr = commandMessage.arguments?["enable"], let enable = Bool(enableStr) {
                     autoReturnEnabled = enable
                     response = autoReturnEnabled ? "Auto-return enabled for next result" : "Auto-return disabled"
-                    logger.log(response, level: .info)
+                    logInfo(response)
                 } else {
                     response = "Missing or invalid enable parameter"
-                    logger.log(response, level: .error)
+                    logError(response)
                 }
                 write(clientSocket, response, response.utf8.count)
                 
@@ -372,14 +372,14 @@ class SocketCommunication {
                         let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
                         applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
                         response = "Executed insert '\(insertName)'"
-                        logger.log("Successfully executed insert: \(insertName)", level: .info)
+                        logInfo("Successfully executed insert: \(insertName)")
                     } else {
                         response = "No valid JSON file found with results"
-                        logger.log("No valid JSON file found for exec-insert", level: .error)
+                        logError("No valid JSON file found for exec-insert")
                     }
                 } else {
                     response = "Insert not found or name missing"
-                    logger.log(response, level: .error)
+                    logError(response)
                 }
                 write(clientSocket, response, response.utf8.count)
                 
@@ -470,7 +470,7 @@ class SocketCommunication {
                 write(clientSocket, response, response.utf8.count)
                 
             case .quit:
-                logger.log("Received quit command, shutting down.", level: .info)
+                logInfo("Received quit command, shutting down.")
                 let response = "Quitting macrowhisper..."
                 write(clientSocket, response, response.utf8.count)
                 // Give the response a moment to flush
@@ -481,7 +481,7 @@ class SocketCommunication {
             }
         } catch {
             let response = "Failed to parse command: \(error)"
-            logger.log(response, level: .error)
+            logError(response)
             write(clientSocket, response, response.utf8.count)
         }
     }
@@ -489,11 +489,11 @@ class SocketCommunication {
     func sendCommand(_ command: Command, arguments: [String: String]? = nil) -> String? {
         let quietCommands: [Command] = [.status, .version, .listInserts, .getIcon, .getInsert]
         if !quietCommands.contains(command) {
-            logger.log("Sending command: \(command.rawValue) to \(socketPath)", level: .info)
+            logInfo("Sending command: \(command.rawValue) to \(socketPath)")
         }
         
         guard FileManager.default.fileExists(atPath: socketPath) else {
-            logger.log("Socket file does not exist", level: .error)
+            logError("Socket file does not exist")
             return "Socket file does not exist. Server is not running."
         }
         let message = CommandMessage(command: command, arguments: arguments)
@@ -517,7 +517,7 @@ class SocketCommunication {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(clientSocket, $0, addrSize) }
             }
             if connectResult == 0 { break }
-            logger.log("Connect attempt \(attempt) failed: \(errno). Retrying...", level: .warning)
+            logWarning("Connect attempt \(attempt) failed: \(errno). Retrying...")
             Thread.sleep(forTimeInterval: 0.1)
         }
         
@@ -528,7 +528,7 @@ class SocketCommunication {
         let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)
         guard bytesSent == data.count else {
             let err = "Failed to send complete message. Sent \(bytesSent) of \(data.count) bytes."
-            logger.log(err, level: .error); return err
+            logError(err); return err
         }
         
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096); defer { buffer.deallocate() }
@@ -536,7 +536,7 @@ class SocketCommunication {
         
         guard bytesRead > 0 else {
             let err = "Failed to read from socket: \(errno) (\(String(cString: strerror(errno))))"
-            logger.log(err, level: .error); return err
+            logError(err); return err
         }
         
         return String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .utf8)

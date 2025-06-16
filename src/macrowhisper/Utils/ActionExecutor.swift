@@ -21,7 +21,7 @@ class ActionExecutor {
         metaJson: [String: Any],
         recordingPath: String
     ) {
-        logger.log("[TriggerEval] Executing action '\(name)' (type: \(type)) due to trigger match.", level: .info)
+        logInfo("[TriggerEval] Executing action '\(name)' (type: \(type)) due to trigger match.")
         
         switch type {
         case .insert:
@@ -86,7 +86,7 @@ class ActionExecutor {
         // URL encode the processed action
         guard let encodedUrl = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
               let url = URL(string: encodedUrl) else {
-            logger.log("Invalid URL after processing: \(processedAction)", level: .error)
+            logError("Invalid URL after processing: \(processedAction)")
             return
         }
         
@@ -99,7 +99,7 @@ class ActionExecutor {
             do {
                 try task.run()
             } catch {
-                logger.log("Failed to open URL with specified app: \(error)", level: .error)
+                logError("Failed to open URL with specified app: \(error)")
                 // Fallback to default URL handling
                 NSWorkspace.shared.open(url)
             }
@@ -136,9 +136,9 @@ class ActionExecutor {
                 inputPipe.fileHandleForWriting.write(data)
             }
             inputPipe.fileHandleForWriting.closeFile()
-            logger.log("Shortcut launched asynchronously with direct stdin input", level: .debug)
+            logDebug("Shortcut launched asynchronously with direct stdin input")
         } catch {
-            logger.log("Failed to execute shortcut action: \(error)", level: .error)
+            logError("Failed to execute shortcut action: \(error)")
         }
         if !(shortcut.noEsc ?? configManager.config.defaults.noEsc) {
             simulateEscKeyPress(activeInsert: nil)
@@ -159,9 +159,9 @@ class ActionExecutor {
         task.standardError = FileHandle.nullDevice
         do {
             try task.run()
-            logger.log("Shell script launched asynchronously", level: .debug)
+            logDebug("Shell script launched asynchronously")
         } catch {
-            logger.log("Failed to execute shell script: \(error)", level: .error)
+            logError("Failed to execute shell script: \(error)")
         }
         if !(shell.noEsc ?? configManager.config.defaults.noEsc) {
             simulateEscKeyPress(activeInsert: nil)
@@ -182,9 +182,9 @@ class ActionExecutor {
         task.standardError = FileHandle.nullDevice
         do {
             try task.run()
-            logger.log("AppleScript launched asynchronously", level: .debug)
+            logDebug("AppleScript launched asynchronously")
         } catch {
-            logger.log("Failed to execute AppleScript action: \(error)", level: .error)
+            logError("Failed to execute AppleScript action: \(error)")
         }
         if !(ascript.noEsc ?? configManager.config.defaults.noEsc) {
             simulateEscKeyPress(activeInsert: nil)
@@ -212,15 +212,15 @@ class ActionExecutor {
         // Handle the moveTo action
         if let path = moveTo, !path.isEmpty {
             if path == ".delete" {
-                logger.log("Deleting processed recording folder: \(folderPath)", level: .info)
+                logInfo("Deleting processed recording folder: \(folderPath)")
                 try? FileManager.default.removeItem(atPath: folderPath)
             } else if path == ".none" {
-                logger.log("Keeping folder in place as requested by .none setting", level: .info)
+                logInfo("Keeping folder in place as requested by .none setting")
                 // Explicitly do nothing
             } else {
                 let expandedPath = (path as NSString).expandingTildeInPath
                 let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((folderPath as NSString).lastPathComponent)
-                logger.log("Moving processed recording folder to: \(destinationUrl.path)", level: .info)
+                logInfo("Moving processed recording folder to: \(destinationUrl.path)")
                 try? FileManager.default.moveItem(atPath: folderPath, toPath: destinationUrl.path)
             }
         }
@@ -262,15 +262,15 @@ class ActionExecutor {
         // Handle the moveTo action
         if let path = moveTo, !path.isEmpty {
             if path == ".delete" {
-                logger.log("Deleting processed recording folder: \(folderPath)", level: .info)
+                logInfo("Deleting processed recording folder: \(folderPath)")
                 try? FileManager.default.removeItem(atPath: folderPath)
             } else if path == ".none" {
-                logger.log("Keeping folder in place as requested by .none setting", level: .info)
+                logInfo("Keeping folder in place as requested by .none setting")
                 // Explicitly do nothing
             } else {
                 let expandedPath = (path as NSString).expandingTildeInPath
                 let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((folderPath as NSString).lastPathComponent)
-                logger.log("Moving processed recording folder to: \(destinationUrl.path)", level: .info)
+                logInfo("Moving processed recording folder to: \(destinationUrl.path)")
                 try? FileManager.default.moveItem(atPath: folderPath, toPath: destinationUrl.path)
             }
         }
