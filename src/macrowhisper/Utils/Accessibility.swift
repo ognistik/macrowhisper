@@ -1,12 +1,32 @@
 import ApplicationServices
 import Cocoa
 
+// Thread-local cache for input field detection results
+private var inputFieldDetectionCache: [String: (result: Bool, timestamp: Date)] = [:]
+private let cacheValidityDuration: TimeInterval = 0.5 // Cache result for 500ms
+private let cacheQueue = DispatchQueue(label: "inputFieldDetectionCache", attributes: .concurrent)
+
 func requestAccessibilityPermission() -> Bool {
     let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
     return AXIsProcessTrustedWithOptions(options)
 }
 
 func isInInputField() -> Bool {
+    let currentThread = Thread.current
+    let threadId = String(describing: Unmanaged.passUnretained(currentThread).toOpaque())
+    
+    // Check if we have a recent cached result for this thread
+    var cachedResult: (result: Bool, timestamp: Date)?
+    cacheQueue.sync {
+        cachedResult = inputFieldDetectionCache[threadId]
+    }
+    
+    if let cached = cachedResult,
+       Date().timeIntervalSince(cached.timestamp) < cacheValidityDuration {
+        logDebug("[InputField] Using cached input field detection result: \(cached.result)")
+        return cached.result
+    }
+    
     logDebug("[InputField] Starting input field detection")
     
     // Small delay to ensure UI has settled after transcription
@@ -15,7 +35,9 @@ func isInInputField() -> Bool {
     // Check accessibility permissions first
     if !AXIsProcessTrusted() {
         logDebug("[InputField] ❌ Accessibility permissions not granted")
-        return false
+        let result = false
+        cacheResult(threadId: threadId, result: result)
+        return result
     }
     
     // Get the frontmost application - handle main thread case properly
@@ -42,7 +64,9 @@ func isInInputField() -> Bool {
     guard let app = frontApp else {
         logDebug("[InputField] No frontmost app detected")
         lastDetectedFrontApp = nil
-        return false
+        let result = false
+        cacheResult(threadId: threadId, result: result)
+        return result
     }
     
     // Log the detected app
@@ -60,12 +84,16 @@ func isInInputField() -> Bool {
     
     if focusedError != .success {
         logDebug("[InputField] Failed to get focused element, error: \(focusedError.rawValue)")
-        return false
+        let result = false
+        cacheResult(threadId: threadId, result: result)
+        return result
     }
     
     if focusedElement == nil {
         logDebug("[InputField] No focused element found")
-        return false
+        let result = false
+        cacheResult(threadId: threadId, result: result)
+        return result
     }
     
     let axElement = focusedElement as! AXUIElement
@@ -82,7 +110,9 @@ func isInInputField() -> Bool {
         let definiteInputRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
         if definiteInputRoles.contains(role) {
             logDebug("[InputField] ✅ Input field detected by role: \(role)")
-            return true
+            let result = true
+            cacheResult(threadId: threadId, result: result)
+            return result
         }
     } else {
         logDebug("[InputField] Could not get role attribute")
@@ -98,7 +128,9 @@ func isInInputField() -> Bool {
         let definiteInputSubroles = ["AXSearchField", "AXSecureTextField", "AXTextInput"]
         if definiteInputSubroles.contains(subrole) {
             logDebug("[InputField] ✅ Input field detected by subrole: \(subrole)")
-            return true
+            let result = true
+            cacheResult(threadId: threadId, result: result)
+            return result
         }
     } else {
         logDebug("[InputField] No subrole attribute found")
@@ -112,7 +144,9 @@ func isInInputField() -> Bool {
         logDebug("[InputField] Element editable: \(isEditable)")
         if isEditable {
             logDebug("[InputField] ✅ Input field detected by editable attribute")
-            return true
+            let result = true
+            cacheResult(threadId: threadId, result: result)
+            return result
         }
     } else {
         logDebug("[InputField] No editable attribute found")
@@ -129,14 +163,31 @@ func isInInputField() -> Bool {
         let foundInputActions = actions.filter { inputActions.contains($0) }
         if !foundInputActions.isEmpty {
             logDebug("[InputField] ✅ Input field detected by actions: \(foundInputActions)")
-            return true
+            let result = true
+            cacheResult(threadId: threadId, result: result)
+            return result
         }
     } else {
         logInfo("[InputField] Could not get actions")
     }
     
     logInfo("[InputField] ❌ No input field detected")
-    return false
+    let result = false
+    cacheResult(threadId: threadId, result: result)
+    return result
+}
+
+/// Cache the input field detection result for the current thread
+private func cacheResult(threadId: String, result: Bool) {
+    cacheQueue.async(flags: .barrier) {
+        inputFieldDetectionCache[threadId] = (result: result, timestamp: Date())
+        
+        // Clean up old cache entries to prevent memory leaks
+        let now = Date()
+        inputFieldDetectionCache = inputFieldDetectionCache.filter { 
+            now.timeIntervalSince($0.value.timestamp) < cacheValidityDuration 
+        }
+    }
 }
 
 func simulateKeyDown(key: Int, flags: CGEventFlags = []) {

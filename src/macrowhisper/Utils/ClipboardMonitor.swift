@@ -9,8 +9,9 @@ class ClipboardMonitor {
     private let maxWaitTime: TimeInterval = 0.1 // Maximum time to wait for Superwhisper's clipboard change
     private let pollInterval: TimeInterval = 0.01 // 10ms polling interval
     
-    // Early monitoring state for recording sessions
+    // Early monitoring state for recording sessions - made thread-safe
     private var earlyMonitoringSessions: [String: EarlyMonitoringSession] = [:]
+    private let sessionsQueue = DispatchQueue(label: "ClipboardMonitor.sessions", attributes: .concurrent)
     
     private struct EarlyMonitoringSession {
         let userOriginalClipboard: String?
@@ -39,7 +40,10 @@ class ClipboardMonitor {
             startTime: Date()
         )
         
-        earlyMonitoringSessions[recordingPath] = session
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            self?.earlyMonitoringSessions[recordingPath] = session
+        }
+        
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
         logDebug("[ClipboardMonitor] Captured user original clipboard: '\(userOriginal?.prefix(50) ?? "nil")...'")
         
@@ -49,28 +53,50 @@ class ClipboardMonitor {
     
     /// Stops early monitoring for a recording session
     func stopEarlyMonitoring(for recordingPath: String) {
-        earlyMonitoringSessions[recordingPath]?.isActive = false
-        earlyMonitoringSessions.removeValue(forKey: recordingPath)
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            self?.earlyMonitoringSessions[recordingPath]?.isActive = false
+            self?.earlyMonitoringSessions.removeValue(forKey: recordingPath)
+        }
         logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
     }
     
     /// Monitors clipboard changes during early monitoring session
     private func monitorClipboardChangesForSession(recordingPath: String) {
-        guard let session = earlyMonitoringSessions[recordingPath], session.isActive else { return }
+        // Check if session is still active before proceeding
+        var sessionActive = false
+        var userOriginalClipboard: String?
+        
+        sessionsQueue.sync { [weak self] in
+            guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
+            sessionActive = session.isActive
+            userOriginalClipboard = session.userOriginalClipboard
+        }
+        
+        guard sessionActive else { return }
         
         let pasteboard = NSPasteboard.general
         let currentContent = pasteboard.string(forType: .string)
         
         // Check if clipboard has changed since last check
-        let lastChange = session.clipboardChanges.last
-        if currentContent != lastChange?.content && currentContent != session.userOriginalClipboard {
-            let change = ClipboardChange(content: currentContent, timestamp: Date())
-            earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
-            logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring: '\(currentContent?.prefix(50) ?? "nil")...'")
+        sessionsQueue.sync { [weak self] in
+            guard let self = self,
+                  let session = self.earlyMonitoringSessions[recordingPath] else { return }
+            
+            let lastChange = session.clipboardChanges.last
+            if currentContent != lastChange?.content && currentContent != userOriginalClipboard {
+                let change = ClipboardChange(content: currentContent, timestamp: Date())
+                
+                // Update the session with new change (requires barrier write)
+                self.sessionsQueue.async(flags: .barrier) { [weak self] in
+                    self?.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
+                }
+                
+                logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring: '\(currentContent?.prefix(50) ?? "nil")...'")
+            }
         }
         
         // Continue monitoring if session is still active
-        if session.isActive {
+        if sessionActive {
             DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
                 self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
             }
@@ -134,8 +160,13 @@ class ClipboardMonitor {
                 return
             }
             
-            // Get the early monitoring session data
-            guard let session = self.earlyMonitoringSessions[recordingPath] else {
+            // Get the early monitoring session data with thread safety
+            var session: EarlyMonitoringSession?
+            self.sessionsQueue.sync {
+                session = self.earlyMonitoringSessions[recordingPath]
+            }
+            
+            guard let validSession = session else {
                 logWarning("[ClipboardMonitor] No early monitoring session found for \(recordingPath), falling back to basic monitoring")
                 // Fallback to original implementation
                 self.executeInsertWithClipboardSync(
@@ -153,7 +184,7 @@ class ClipboardMonitor {
             
             // Determine what clipboard content should be restored
             // This should be the content that was on clipboard just before anyone (Superwhisper or CLI) modifies it
-            let clipboardToRestore = self.determineClipboardToRestore(session: session, swResult: swResult)
+            let clipboardToRestore = self.determineClipboardToRestore(session: validSession, swResult: swResult)
             
             // Step 1: Simulate ESC immediately for responsiveness if enabled
             if shouldEsc {
@@ -339,8 +370,8 @@ class ClipboardMonitor {
         
         // Step 3: Restore the correct clipboard after a minimum wait time for paste to complete
         let restoreDelay = 0.1 // Minimum delay for paste operation to complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) {
-            self.restoreCorrectClipboard(clipboardToRestore)
+        DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
+            self?.restoreCorrectClipboard(clipboardToRestore)
         }
         
         logDebug("[ClipboardMonitor] Action completed. Superwhisper was faster: \(superwhisperWasFaster)")
@@ -452,8 +483,8 @@ class ClipboardMonitor {
                 
                 // Step 6: Restore original clipboard after a minimum wait time for paste to complete
                 let restoreDelay = 0.1 // Minimum delay for paste operation to complete
-                DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) {
-                    self.restoreOriginalClipboard()
+                DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
+                    self?.restoreOriginalClipboard()
                 }
             }
         }

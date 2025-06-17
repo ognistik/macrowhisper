@@ -791,7 +791,6 @@ func printHelp() {
 
     OPTIONS:
       <no argument>                 Reloads configuration file on running instance
-      -c, --config <path>           Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
       -w, --watch <path>            Path to superwhisper folder
           --no-updates true/false   Enable or disable automatic update checking
           --no-noti true/false      Enable or disable all notifications
@@ -815,14 +814,16 @@ func printHelp() {
       -h, --help                    Show this help message
       -v, --version                 Show version information
       --verbose                     Enable verbose logging (shows debug messages in console)
-      --reveal-config               Reveal the configuration file in Finder
       --check-updates               Force check for updates  
       --quit, --stop                Quit the running macrowhisper instance
 
     CONFIG PATH COMMANDS:
+      -c, --config <path>           Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
+                                    Sets new path (for future runs) and runs Macrowhisper with it
       --set-config <path>           Set the default config path for future runs
       --reset-config                Reset config path to default location  
       --get-config                  Show the currently saved config path
+      --reveal-config               Reveal the configuration file in Finder
 
     INSERTS COMMANDS:
       --list-inserts                List all configured inserts
