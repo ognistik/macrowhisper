@@ -184,6 +184,10 @@ class SocketCommunication {
         }
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        
+        // Check if clipboard restoration is disabled
+        let restoreClipboard = globalConfigManager?.config.defaults.restoreClipboard ?? true
+        
         if isAutoPaste {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
@@ -194,7 +198,11 @@ class SocketCommunication {
             }
         }
         // No ESC key press for exec-insert
-        pasteText(text, activeInsert: activeInsert)
+        if restoreClipboard {
+            pasteText(text, activeInsert: activeInsert)
+        } else {
+            pasteTextNoRestore(text, activeInsert: activeInsert)
+        }
         checkAndSimulatePressReturn(activeInsert: activeInsert)
     }
     

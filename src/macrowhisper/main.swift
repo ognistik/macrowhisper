@@ -401,7 +401,8 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
            args.contains("--insert") || args.contains("--icon") ||
            args.contains("--move-to") || args.contains("--no-esc") ||
            args.contains("--sim-keypress") || args.contains("--action-delay") ||
-           args.contains("--history") || args.contains("--press-return") {
+           args.contains("--history") || args.contains("--press-return") ||
+           args.contains("--restore-clipboard") {
 
             // Create command arguments if there are any
             var arguments: [String: String] = [:]
@@ -509,6 +510,15 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
                     arguments["moveTo"] = args[index + 1]
                 } else {
                     arguments["moveTo"] = ""
+                }
+            }
+
+            if args.contains("--restore-clipboard") {
+                let restoreClipboardIndex = args.firstIndex(where: { $0 == "--restore-clipboard" })
+                if let index = restoreClipboardIndex, index + 1 < args.count {
+                    arguments["restoreClipboard"] = args[index + 1]
+                } else {
+                    arguments["restoreClipboard"] = "true"
                 }
             }
 
@@ -761,6 +771,8 @@ func printHelp() {
                                     (note: linebreaks are treated as return presses)
           --press-return true/false Simulate return key press after every insert execution
                                     (persistent setting, unlike --auto-return which is one-time)
+          --restore-clipboard true/false Enable or disable clipboard restoration after insert actions
+                                    (default: true)
           --icon <icon>             Set the default icon to use when no insert icon is available
                                     Use '.none' to explicitly use no icon
           --move-to <path>          Set the default path to move folder to after processing

@@ -88,6 +88,13 @@ class RecordingsFolderWatcher {
         }
         pendingMetaJsonFiles.removeAll()
         
+        // Stop all early clipboard monitoring sessions
+        let currentSubdirectories = getCurrentSubdirectories()
+        for dirName in currentSubdirectories {
+            let fullPath = "\(path)/\(dirName)"
+            clipboardMonitor.stopEarlyMonitoring(for: fullPath)
+        }
+        
         // Save processed recordings list
         saveProcessedRecordings()
     }
@@ -167,6 +174,9 @@ class RecordingsFolderWatcher {
                     logDebug("Removed watcher for deleted directory: \(fullPath)")
                 }
                 
+                // Stop early clipboard monitoring for deleted folder
+                clipboardMonitor.stopEarlyMonitoring(for: fullPath)
+                
                 // Remove from processed recordings list if it exists
                 if processedRecordings.contains(fullPath) {
                     processedRecordings.remove(fullPath)
@@ -184,6 +194,9 @@ class RecordingsFolderWatcher {
             logDebug("Skipping already processed recording: \(path)")
             return
         }
+        
+        // Start early clipboard monitoring immediately when folder appears
+        clipboardMonitor.startEarlyMonitoring(for: path)
         
         let metaJsonPath = "\(path)/meta.json"
         
@@ -318,6 +331,7 @@ class RecordingsFolderWatcher {
                 logDebug("No result found in meta.json for \(recordingPath), watching for updates.")
                 // Watch for changes to the meta.json file
                 watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                // Don't stop early monitoring here as we're still watching for changes
                 return
             }
             
@@ -395,11 +409,11 @@ class RecordingsFolderWatcher {
                 // Apply the result directly using {{swResult}}
                 let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
                 
-                // Use clipboard monitoring for auto-return to handle Superwhisper interference
+                // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
                 let actionDelay = configManager.config.defaults.actionDelay
                 let shouldEsc = !configManager.config.defaults.noEsc
                 
-                clipboardMonitor.executeInsertWithClipboardSync(
+                clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                     insertAction: { [weak self] in
                         // Apply the result without ESC (handled by clipboard monitor)
                         self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
@@ -408,10 +422,13 @@ class RecordingsFolderWatcher {
                     },
                     actionDelay: actionDelay,
                     shouldEsc: shouldEsc,
-                    isAutoPaste: false  // Auto-return is not autoPaste
+                    isAutoPaste: false,  // Auto-return is not autoPaste
+                    recordingPath: recordingPath,
+                    metaJson: enhancedMetaJson,
+                    restoreClipboard: configManager.config.defaults.restoreClipboard
                 )
                 
-                logDebug("Applied auto-return with clipboard monitoring")
+                logDebug("Applied auto-return with enhanced clipboard monitoring")
                 handlePostProcessing(recordingPath: recordingPath)
                 return
             }
@@ -423,28 +440,46 @@ class RecordingsFolderWatcher {
                 
                 logDebug("Processing with active insert: \(activeInsertName)")
                 
-                // Use clipboard monitoring for active insert to handle Superwhisper interference
-                let (processedAction, isAutoPaste) = socketCommunication.processInsertAction(activeInsert.action, metaJson: enhancedMetaJson)
-                let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
-                let shouldEsc = !(activeInsert.noEsc ?? configManager.config.defaults.noEsc)
-                
-                clipboardMonitor.executeInsertWithClipboardSync(
+                // Check if the insert action is ".none" or empty - if so, skip action but apply delay
+                if activeInsert.action == ".none" || activeInsert.action.isEmpty {
+                    logDebug("Active insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
+                    // Apply actionDelay if specified, but don't do anything else
+                    let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
+                    if actionDelay > 0 {
+                        Thread.sleep(forTimeInterval: actionDelay)
+                        logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
+                    }
+                } else {
+                    // Use enhanced clipboard monitoring for active insert to handle Superwhisper interference
+                    let (processedAction, isAutoPaste) = socketCommunication.processInsertAction(activeInsert.action, metaJson: enhancedMetaJson)
+                    let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
+                    let shouldEsc = !(activeInsert.noEsc ?? configManager.config.defaults.noEsc)
+                    
+                                    clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                     insertAction: { [weak self] in
                         // Apply the insert without ESC (handled by clipboard monitor)
                         self?.socketCommunication.applyInsertWithoutEsc(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
                     },
                     actionDelay: actionDelay,
                     shouldEsc: shouldEsc,
-                    isAutoPaste: isAutoPaste
+                    isAutoPaste: isAutoPaste,
+                    recordingPath: recordingPath,
+                    metaJson: enhancedMetaJson,
+                    restoreClipboard: configManager.config.defaults.restoreClipboard
                 )
+                }
             } else {
                 logDebug("No active insert, skipping action.")
             }
             
             handlePostProcessing(recordingPath: recordingPath)
+            
+            // Stop early clipboard monitoring when processing is complete
+            clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
         } catch {
             logError("Error reading meta.json at \(metaJsonPath): \(error)")
             watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+            // Don't stop early monitoring here as we're still watching for changes
         }
     }
 

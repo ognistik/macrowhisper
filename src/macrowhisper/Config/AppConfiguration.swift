@@ -16,10 +16,11 @@ struct AppConfiguration: Codable {
         var history: Int?
         var pressReturn: Bool
         var returnDelay: Double
+        var restoreClipboard: Bool
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeInsert, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay
+            case watch, noUpdates, noNoti, activeInsert, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard
         }
         
         // Custom encoding to preserve null values
@@ -37,6 +38,7 @@ struct AppConfiguration: Codable {
             try container.encode(history, forKey: .history)
             try container.encode(pressReturn, forKey: .pressReturn)
             try container.encode(returnDelay, forKey: .returnDelay)
+            try container.encode(restoreClipboard, forKey: .restoreClipboard)
         }
         
         // Custom decoding to ensure activeInsert defaults to empty string instead of null
@@ -55,10 +57,11 @@ struct AppConfiguration: Codable {
             history = try container.decodeIfPresent(Int.self, forKey: .history)
             pressReturn = try container.decode(Bool.self, forKey: .pressReturn)
             returnDelay = try container.decodeIfPresent(Double.self, forKey: .returnDelay) ?? 0.1
+            restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard) ?? true
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeInsert: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeInsert: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -71,6 +74,7 @@ struct AppConfiguration: Codable {
             self.history = history
             self.pressReturn = pressReturn
             self.returnDelay = returnDelay
+            self.restoreClipboard = restoreClipboard
         }
         
         static func defaultValues() -> Defaults {
@@ -86,7 +90,8 @@ struct AppConfiguration: Codable {
                 actionDelay: 0.0,
                 history: nil,
                 pressReturn: false,
-                returnDelay: 0.1
+                returnDelay: 0.1,
+                restoreClipboard: true
             )
         }
     }

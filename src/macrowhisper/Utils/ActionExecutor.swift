@@ -50,14 +50,28 @@ class ActionExecutor {
     }
     
     private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String) {
+        // Check if the insert action is ".none" or empty - if so, skip action but apply delay
+        if insert.action == ".none" || insert.action.isEmpty {
+            logDebug("Insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
+            // Apply actionDelay if specified, but don't do anything else
+            let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
+            if actionDelay > 0 {
+                Thread.sleep(forTimeInterval: actionDelay)
+                logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
+            }
+            
+            handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: insert)
+            return
+        }
+        
         let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: metaJson)
         
-        // Use clipboard monitoring for insert actions triggered by valid results (from watcher)
+        // Use enhanced clipboard monitoring for insert actions triggered by valid results (from watcher)
         // This handles the timing issue where Superwhisper puts content on clipboard simultaneously
         let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
         let shouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
         
-        clipboardMonitor.executeInsertWithClipboardSync(
+        clipboardMonitor.executeInsertWithEnhancedClipboardSync(
             insertAction: { [weak self] in
                 // Execute the insert action without ESC (already handled by clipboard monitor)
                 self?.socketCommunication.applyInsertWithoutEsc(
@@ -68,7 +82,10 @@ class ActionExecutor {
             },
             actionDelay: actionDelay,
             shouldEsc: shouldEsc,
-            isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
+            isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult,
+            recordingPath: recordingPath,
+            metaJson: metaJson,
+            restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
         handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: insert)
