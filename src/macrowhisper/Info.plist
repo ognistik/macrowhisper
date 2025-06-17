@@ -2,9 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Required to send Apple Events to other applications.</string>
-    <key>NSAccessibilityUsageDescription</key>
-    <string>Required to simulate keyboard input.</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Required to simulate keyboard input.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Required to send Apple Events to other applications.</string>
 </dict>
 </plist>

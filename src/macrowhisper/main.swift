@@ -135,14 +135,22 @@ func recoverSocket() {
         }
     }
     
-    // Recreate socket
-    let socketPath = "/tmp/macrowhisper-\(uid).sock"
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    // Brief delay to ensure socket cleanup
+    Thread.sleep(forTimeInterval: 0.5)
     
-    // Safely unwrap the globalConfigManager
+    // Restart the server on the EXISTING global socket instance
     if let configManager = globalConfigManager {
         socketCommunication.startServer(configManager: configManager)
         logDebug("Socket server restarted after recovery attempt")
+        
+        // Verify recovery was successful
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if checkSocketHealth() {
+                logInfo("Socket recovery successful")
+            } else {
+                logError("Socket recovery failed - health check still failing")
+            }
+        }
     } else {
         logError("Failed to restart socket server: globalConfigManager is nil")
         
@@ -151,6 +159,15 @@ func recoverSocket() {
         socketCommunication.startServer(configManager: fallbackConfigManager)
         globalConfigManager = fallbackConfigManager
         logDebug("Socket server restarted with fallback configuration manager")
+        
+        // Verify fallback recovery was successful
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if checkSocketHealth() {
+                logInfo("Socket recovery with fallback configuration successful")
+            } else {
+                logError("Socket recovery with fallback configuration failed")
+            }
+        }
     }
 }
 
