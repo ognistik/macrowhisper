@@ -29,9 +29,30 @@ class ConfigurationManager {
     private var hasNotifiedAboutJsonError = false
     private var suppressNextConfigReload = false
     
+    // UserDefaults for persistent config path storage
+    private static let userDefaultsKey = "MacrowhisperConfigPath"
+    private static let appDefaults = UserDefaults(suiteName: "com.macrowhisper.preferences") ?? UserDefaults.standard
+    
     init(configPath: String?) {
         let defaultConfigPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
-        self.configPath = configPath ?? defaultConfigPath
+        
+        // Priority order:
+        // 1. Explicitly provided configPath parameter (--config flag)
+        // 2. Saved user preference 
+        // 3. Default path
+        if let explicitPath = configPath {
+            self.configPath = Self.normalizeConfigPath(explicitPath)
+            // Save this as the user's preferred path for future runs
+            Self.appDefaults.set(self.configPath, forKey: Self.userDefaultsKey)
+            logDebug("Using explicit config path: \(self.configPath)")
+        } else if let savedPath = Self.appDefaults.string(forKey: Self.userDefaultsKey),
+                  !savedPath.isEmpty {
+            self.configPath = savedPath
+            logDebug("Using saved config path: \(savedPath)")
+        } else {
+            self.configPath = defaultConfigPath
+            logDebug("Using default config path: \(defaultConfigPath)")
+        }
         
         // Initialize with default config first
         self._config = AppConfiguration()
@@ -60,6 +81,71 @@ class ConfigurationManager {
         }
         
         setupFileWatcher()
+    }
+    
+    // Static method to normalize config path (handle folders vs files)
+    static func normalizeConfigPath(_ path: String) -> String {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        
+        // Check if the path points to a directory
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: expandedPath, isDirectory: &isDirectory) {
+            if isDirectory.boolValue {
+                // Path points to a directory, append the default filename
+                return (expandedPath as NSString).appendingPathComponent("macrowhisper.json")
+            }
+        } else {
+            // Path doesn't exist yet - check if it ends with a directory-like pattern
+            let lastComponent = (expandedPath as NSString).lastPathComponent
+            if !lastComponent.contains(".") {
+                // Looks like a directory path, append the default filename
+                return (expandedPath as NSString).appendingPathComponent("macrowhisper.json")
+            }
+        }
+        
+        // Path points to a file or looks like a file path
+        return expandedPath
+    }
+    
+    // Method to set a new default config path
+    static func setDefaultConfigPath(_ path: String) -> Bool {
+        let normalizedPath = normalizeConfigPath(path)
+        let parentDir = (normalizedPath as NSString).deletingLastPathComponent
+        
+        // Validate that the parent directory exists or can be created
+        do {
+            if !FileManager.default.fileExists(atPath: parentDir) {
+                try FileManager.default.createDirectory(atPath: parentDir, withIntermediateDirectories: true, attributes: nil)
+            }
+            appDefaults.set(normalizedPath, forKey: userDefaultsKey)
+            return true
+        } catch {
+            return false
+        }
+    }
+    
+    // Method to reset to default config path
+    static func resetToDefaultConfigPath() {
+        appDefaults.removeObject(forKey: userDefaultsKey)
+    }
+    
+    // Method to get current saved config path
+    static func getSavedConfigPath() -> String? {
+        return appDefaults.string(forKey: userDefaultsKey)
+    }
+    
+    // Method to get the config path that would be used (for --get-config)
+    static func getEffectiveConfigPath() -> String {
+        if let savedPath = getSavedConfigPath(), !savedPath.isEmpty {
+            return savedPath
+        } else {
+            return ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
+        }
+    }
+    
+    // Method to get current config path from instance
+    func getCurrentConfigPath() -> String {
+        return configPath
     }
     
     private static func loadConfig(from path: String) -> AppConfiguration? {

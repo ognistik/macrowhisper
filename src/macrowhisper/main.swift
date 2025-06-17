@@ -292,18 +292,19 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
 
         // Handle reveal config command specifically
         if args.contains("--reveal-config") {
-            // Determine the config file path (same logic as ConfigurationManager)
+            // Determine the config file path using the same logic as ConfigurationManager
             let configArgIndex = args.firstIndex(where: { $0 == "-c" || $0 == "--config" })
             var configPath: String
             
             if let index = configArgIndex, index + 1 < args.count {
-                configPath = args[index + 1]
+                // Use explicit --config path
+                configPath = ConfigurationManager.normalizeConfigPath(args[index + 1])
             } else {
-                configPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
+                // Use the effective config path (saved preference or default)
+                configPath = ConfigurationManager.getEffectiveConfigPath()
             }
             
-            // Expand tilde in path
-            let expandedPath = (configPath as NSString).expandingTildeInPath
+            let expandedPath = configPath
             
             // Check if config file exists
             if FileManager.default.fileExists(atPath: expandedPath) {
@@ -728,6 +729,39 @@ if args.contains("--auto-return") {
     }
     exit(0)
 }
+if args.contains("--set-config") {
+    let setConfigIndex = args.firstIndex(where: { $0 == "--set-config" })
+    if let index = setConfigIndex, index + 1 < args.count {
+        let newPath = args[index + 1]
+        if ConfigurationManager.setDefaultConfigPath(newPath) {
+            let normalizedPath = ConfigurationManager.normalizeConfigPath(newPath)
+            print("Config path set to: \(normalizedPath)")
+            print("This path will be used for future runs of macrowhisper")
+        } else {
+            print("Error: Cannot access or create directory for config path: \(newPath)")
+            exit(1)
+        }
+    } else {
+        print("Missing path after --set-config")
+        exit(1)
+    }
+    exit(0)
+}
+if args.contains("--reset-config") {
+    ConfigurationManager.resetToDefaultConfigPath()
+    let defaultPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
+    print("Config path reset to default: \(defaultPath)")
+    exit(0)
+}
+if args.contains("--get-config") {
+    let effectivePath = ConfigurationManager.getEffectiveConfigPath()
+    if let savedPath = ConfigurationManager.getSavedConfigPath() {
+        print("Saved config path: \(savedPath)")
+    } else {
+        print("Using default config path: \(effectivePath)")
+    }
+    exit(0)
+}
 if args.contains("--quit") || args.contains("--stop") {
     let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
     if let response = socketCommunication.sendCommand(.quit) {
@@ -785,6 +819,11 @@ func printHelp() {
       --check-updates               Force check for updates  
       --quit, --stop                Quit the running macrowhisper instance
 
+    CONFIG PATH COMMANDS:
+      --set-config <path>           Set the default config path for future runs
+      --reset-config                Reset config path to default location  
+      --get-config                  Show the currently saved config path
+
     INSERTS COMMANDS:
       --list-inserts                List all configured inserts
       --add-insert <name>           Add or update an insert
@@ -823,6 +862,18 @@ func printHelp() {
 
       macrowhisper --quit
         # Quits the running macrowhisper instance
+
+      macrowhisper --set-config ~/my-configs/
+        # Sets ~/my-configs/macrowhisper.json as the default config path
+
+      macrowhisper --set-config ~/my-configs/custom.json
+        # Sets ~/my-configs/custom.json as the default config path
+
+      macrowhisper --get-config
+        # Shows the currently saved config path
+
+      macrowhisper --reset-config
+        # Resets to the default config path
     """)
 }
 
