@@ -248,7 +248,7 @@ class ConfigurationManager {
         if let noUpdates = noUpdates { _config.defaults.noUpdates = noUpdates; shouldSave = true }
         if let noNoti = noNoti { _config.defaults.noNoti = noNoti; shouldSave = true }
         if let activeInsert = activeInsert { _config.defaults.activeInsert = activeInsert.isEmpty ? "" : activeInsert; shouldSave = true }
-        if let icon = icon { _config.defaults.icon = icon.isEmpty ? nil : icon; shouldSave = true }
+        if let icon = icon { _config.defaults.icon = icon; shouldSave = true }
         if let moveTo = moveTo { _config.defaults.moveTo = moveTo; shouldSave = true }
         if let noEsc = noEsc { _config.defaults.noEsc = noEsc; shouldSave = true }
         if let simKeypress = simKeypress { _config.defaults.simKeypress = simKeypress; shouldSave = true }
@@ -286,6 +286,7 @@ class ConfigurationManager {
                 simKeypress: arguments["simKeypress"].flatMap { Bool($0) },
                 history: arguments["history"].map { $0 == "null" ? nil : Int($0) } as Int??,
                 pressReturn: arguments["pressReturn"].flatMap { Bool($0) },
+                actionDelay: arguments["actionDelay"].flatMap { Double($0) },
                 returnDelay: arguments["returnDelay"].flatMap { Double($0) },
                 restoreClipboard: arguments["restoreClipboard"].flatMap { Bool($0) }
             )

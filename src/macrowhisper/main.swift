@@ -104,442 +104,10 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
     // Try to acquire exclusive lock, non-blocking
     if flock(fd, LOCK_EX | LOCK_NB) != 0 {
         close(fd)
-
         // Another instance is running
-        let args = CommandLine.arguments
-
-        // Handle help command specifically
-        if args.contains("-h") || args.contains("--help") {
-            // Print help directly without trying to communicate with the running instance
-            printHelp()
-            exit(0)
-        }
-
-        // Handle version command specifically
-        if args.contains("-v") || args.contains("--version") {
-            if let response = socketCommunication.sendCommand(.version) {
-                print(response)
-            } else {
-                print("macrowhisper version \(APP_VERSION)")
-            }
-            exit(0)
-        }
-
-        // Check for status command
-        if args.contains("-s") || args.contains("--status") {
-            if let response = socketCommunication.sendCommand(.status) {
-                print(response)
-            } else {
-                print("Failed to get status")
-            }
-            exit(0)
-        }
-
-        if args.contains("--get-icon") {
-            if let response = socketCommunication.sendCommand(.getIcon) {
-                print(response)
-            } else {
-                print("Failed to get icon.")
-            }
-            exit(0)
-        }
-
-        if args.contains("--exec-insert") {
-            let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
-            if let index = execInsertIndex, index + 1 < args.count {
-                let insertName = args[index + 1]
-                let arguments: [String: String] = ["name": insertName]
-
-                if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to execute insert")
-                }
-            } else {
-                print("Missing insert name after --exec-insert")
-            }
-            exit(0)
-        }
-
-        if args.contains("--get-insert") {
-            let getInsertIndex = args.firstIndex(where: { $0 == "--get-insert" })
-            var arguments: [String: String]? = nil
-            if let index = getInsertIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
-                // User provided a name after --get-insert
-                arguments = ["name": args[index + 1]]
-            }
-            let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-            if let response = socketCommunication.sendCommand(.getInsert, arguments: arguments) {
-                print(response)
-            } else {
-                print("Failed to get insert or macrowhisper is not running.")
-            }
-            exit(0)
-        }
-
-        if args.contains("--list-inserts") {
-            if let response = socketCommunication.sendCommand(.listInserts) {
-                print(response)
-            } else {
-                print("Failed to list inserts")
-            }
-            exit(0)
-        }
-
-        if args.contains("--auto-return") {
-            let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
-
-            var arguments: [String: String] = [:]
-
-            if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-                arguments["enable"] = args[index + 1]
-            } else {
-                arguments["enable"] = "true"
-            }
-
-            if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
-                print(response)
-            } else {
-                print("Failed to set auto-return")
-            }
-            exit(0)
-        }
-
-        if args.contains("--add-url") {
-            let addUrlIndex = args.firstIndex(where: { $0 == "--add-url" })
-            if let index = addUrlIndex, index + 1 < args.count {
-                let urlName = args[index + 1]
-                let arguments: [String: String] = ["name": urlName]
-
-                if let response = socketCommunication.sendCommand(.addUrl, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to add URL action")
-                }
-            } else {
-                print("Missing name after --add-url")
-            }
-            exit(0)
-        }
-
-        if args.contains("--add-shortcut") {
-            let addShortcutIndex = args.firstIndex(where: { $0 == "--add-shortcut" })
-            if let index = addShortcutIndex, index + 1 < args.count {
-                let shortcutName = args[index + 1]
-                let arguments: [String: String] = ["name": shortcutName]
-
-                if let response = socketCommunication.sendCommand(.addShortcut, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to add shortcut action")
-                }
-            } else {
-                print("Missing name after --add-shortcut")
-            }
-            exit(0)
-        }
-
-        if args.contains("--add-shell") {
-            let addShellIndex = args.firstIndex(where: { $0 == "--add-shell" })
-            if let index = addShellIndex, index + 1 < args.count {
-                let shellName = args[index + 1]
-                let arguments: [String: String] = ["name": shellName]
-
-                if let response = socketCommunication.sendCommand(.addShell, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to add shell script action")
-                }
-            } else {
-                print("Missing name after --add-shell")
-            }
-            exit(0)
-        }
-
-        if args.contains("--add-as") {
-            let addASIndex = args.firstIndex(where: { $0 == "--add-as" })
-            if let index = addASIndex, index + 1 < args.count {
-                let asName = args[index + 1]
-                let arguments: [String: String] = ["name": asName]
-
-                if let response = socketCommunication.sendCommand(.addAppleScript, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to add AppleScript action")
-                }
-            } else {
-                print("Missing name after --add-as")
-            }
-            exit(0)
-        }
-
-        if args.contains("--add-insert") {
-            let addInsertIndex = args.firstIndex(where: { $0 == "--add-insert" })
-            if let index = addInsertIndex, index + 1 < args.count {
-                let insertName = args[index + 1]
-                let arguments: [String: String] = ["name": insertName]
-
-                if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
-                    print(response)
-                } else {
-                    print("Failed to add insert")
-                }
-            } else {
-                print("Missing name after --add-insert")
-            }
-            exit(0)
-        }
-
-        // Handle reveal config command specifically
-        if args.contains("--reveal-config") {
-            // Determine the config file path using the same logic as ConfigurationManager
-            let configArgIndex = args.firstIndex(where: { $0 == "-c" || $0 == "--config" })
-            var configPath: String
-            
-            if let index = configArgIndex, index + 1 < args.count {
-                // Use explicit --config path
-                configPath = ConfigurationManager.normalizeConfigPath(args[index + 1])
-            } else {
-                // Use the effective config path (saved preference or default)
-                configPath = ConfigurationManager.getEffectiveConfigPath()
-            }
-            
-            let expandedPath = configPath
-            
-            // Check if config file exists
-            if FileManager.default.fileExists(atPath: expandedPath) {
-                // Use AppleScript to reveal the file in Finder
-                let script = """
-                tell application "Finder"
-                    reveal POSIX file "\(expandedPath)" as alias
-                    activate
-                end tell
-                """
-                
-                if let appleScript = NSAppleScript(source: script) {
-                    var error: NSDictionary?
-                    appleScript.executeAndReturnError(&error)
-                    
-                    if let error = error {
-                        print("Failed to reveal config file in Finder: \(error)")
-                        exit(1)
-                    } else {
-                        print("Configuration file revealed in Finder: \(expandedPath)")
-                        exit(0)
-                    }
-                } else {
-                    print("Failed to create AppleScript to reveal config file")
-                    exit(1)
-                }
-            } else {
-                print("Configuration file not found at: \(expandedPath)")
-                print("You can create it by running macrowhisper once, or manually create the directory:")
-                print("mkdir -p ~/.config/macrowhisper")
-                exit(1)
-            }
-        }
-
-        // Hidden test command for version checker dialog (development only)
-        if args.contains("--test-update-dialog") {
-            let versionChecker = VersionChecker()
-            
-            // Extract optional test parameters
-            var testVersion = "1.2.0"
-            var testDescription = "This is a test update with new features:\n• Fixed clipboard handling\n• Improved performance\n• Added new automation triggers"
-            
-            if let versionIndex = args.firstIndex(where: { $0 == "--test-version" }),
-               versionIndex + 1 < args.count {
-                testVersion = args[versionIndex + 1]
-            }
-            
-            if let descIndex = args.firstIndex(where: { $0 == "--test-description" }),
-               descIndex + 1 < args.count {
-                testDescription = args[descIndex + 1]
-            }
-            
-            print("Testing update dialog with version: \(APP_VERSION) → \(testVersion)")
-            print("Description: \(testDescription)")
-            print("Dialog will appear shortly...")
-            
-            // Call the dialog method directly
-            let versionMessage = "CLI: \(APP_VERSION) → \(testVersion)"
-            versionChecker.testUpdateDialog(versionMessage: versionMessage, description: testDescription)
-            
-            // Keep the process alive long enough to show the dialog
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                print("Test dialog displayed. Check for dialog window.")
-            }
-            
-            // Run for a short time to show the dialog
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 10))
-            exit(0)
-        }
-
-        // Hidden command to show version checker state (development only)
-        if args.contains("--version-state") {
-            if let response = socketCommunication.sendCommand(.versionState) {
-                print(response)
-            } else {
-                print("Failed to get version state or macrowhisper is not running.")
-            }
-            exit(0)
-        }
-
-        // Hidden command to clear all version checker UserDefaults (development only)
-        if args.contains("--version-clear") {
-            if let response = socketCommunication.sendCommand(.versionClear) {
-                print(response)
-            } else {
-                print("Failed to clear version state or macrowhisper is not running.")
-            }
-            exit(0)
-        }
-
-        // For reload configuration or no arguments, use socket communication
-        if args.count == 1 ||
-           args.contains("-w") || args.contains("--watch") ||
-           args.contains("--no-updates") || args.contains("--no-noti") ||
-           args.contains("--insert") || args.contains("--icon") ||
-           args.contains("--move-to") || args.contains("--no-esc") ||
-           args.contains("--sim-keypress") || args.contains("--action-delay") ||
-           args.contains("--history") || args.contains("--press-return") ||
-           args.contains("--restore-clipboard") {
-
-            // Create command arguments if there are any
-            var arguments: [String: String] = [:]
-
-            // Extract arguments from command line
-            if let watchIndex = args.firstIndex(where: { $0 == "-w" || $0 == "--watch" }),
-               watchIndex + 1 < args.count {
-                arguments["watch"] = args[watchIndex + 1]
-            }
-
-            if args.contains("--no-updates") {
-                let noUpdatesIndex = args.firstIndex(where: { $0 == "--no-updates" })
-                if let index = noUpdatesIndex, index + 1 < args.count {
-                    arguments["noUpdates"] = args[index + 1]
-                } else {
-                    arguments["noUpdates"] = "true"
-                }
-            }
-
-            if args.contains("--no-noti") {
-                let noNotiIndex = args.firstIndex(where: { $0 == "--no-noti" })
-                if let index = noNotiIndex, index + 1 < args.count {
-                    arguments["noNoti"] = args[index + 1]
-                } else {
-                    arguments["noNoti"] = "true"
-                }
-            }
-
-            if args.contains("--insert") {
-                let insertIndex = args.firstIndex(where: { $0 == "--insert" })
-                if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-                    arguments["activeInsert"] = args[index + 1]
-                } else {
-                    arguments["activeInsert"] = ""
-                }
-            }
-
-            if args.contains("--no-esc") {
-                let noEscIndex = args.firstIndex(where: { $0 == "--no-esc" })
-                if let index = noEscIndex, index + 1 < args.count {
-                    arguments["noEsc"] = args[index + 1]
-                } else {
-                    arguments["noEsc"] = "true"
-                }
-            }
-
-            if args.contains("--sim-keypress") {
-                let simKeyPressIndex = args.firstIndex(where: { $0 == "--sim-keypress" })
-                if let index = simKeyPressIndex, index + 1 < args.count {
-                    arguments["simKeypress"] = args[index + 1]
-                } else {
-                    arguments["simKeypress"] = "true"
-                }
-            }
-
-            if args.contains("--press-return") {
-                let pressReturnIndex = args.firstIndex(where: { $0 == "--press-return" })
-                if let index = pressReturnIndex, index + 1 < args.count {
-                    arguments["pressReturn"] = args[index + 1]
-                } else {
-                    arguments["pressReturn"] = "true"
-                }
-            }
-
-            if args.contains("--icon") {
-                let iconIndex = args.firstIndex(where: { $0 == "--icon" })
-                if let index = iconIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-                    arguments["icon"] = args[index + 1]
-                } else {
-                    arguments["icon"] = ""
-                }
-            }
-
-            if args.contains("--action-delay") {
-                let actionDelayIndex = args.firstIndex(where: { $0 == "--action-delay" })
-                if let index = actionDelayIndex, index + 1 < args.count {
-                    arguments["actionDelay"] = args[index + 1]
-                }
-            }
-
-            if args.contains("--return-delay") {
-                let returnDelayIndex = args.firstIndex(where: { $0 == "--return-delay" })
-                if let index = returnDelayIndex, index + 1 < args.count {
-                    arguments["returnDelay"] = args[index + 1]
-                }
-            }
-
-            if args.contains("--history") {
-                let historyIndex = args.firstIndex(where: { $0 == "--history" })
-                if let index = historyIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-                    let historyArg = args[index + 1]
-                    if historyArg.lowercased() == "null" {
-                        arguments["history"] = "null"
-                    } else {
-                        arguments["history"] = historyArg
-                    }
-                } else {
-                    arguments["history"] = "null"
-                }
-            }
-
-            if args.contains("--move-to") {
-                let moveToIndex = args.firstIndex(where: { $0 == "--move-to" })
-                if let index = moveToIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-                    arguments["moveTo"] = args[index + 1]
-                } else {
-                    arguments["moveTo"] = ""
-                }
-            }
-
-            if args.contains("--restore-clipboard") {
-                let restoreClipboardIndex = args.firstIndex(where: { $0 == "--restore-clipboard" })
-                if let index = restoreClipboardIndex, index + 1 < args.count {
-                    arguments["restoreClipboard"] = args[index + 1]
-                } else {
-                    arguments["restoreClipboard"] = "true"
-                }
-            }
-
-            // If there are arguments, send updateConfig, otherwise send reloadConfig
-            let command = arguments.isEmpty ? SocketCommunication.Command.reloadConfig : SocketCommunication.Command.updateConfig
-
-            // Send the command to the running instance
-            if let response = socketCommunication.sendCommand(command, arguments: arguments.isEmpty ? nil : arguments) {
-                print("Response from running instance: \(response)")
-            } else {
-                print("Failed to communicate with running instance.")
-            }
-
-            exit(0)
-        }
-
-        // For any unrecognized command, provide helpful feedback
-        print("Error: Unrecognized command or invalid arguments.")
-        print("Use --help for available options.")
-        exit(1)
+        print("Another instance of macrowhisper is already running.")
+        print("Use 'macrowhisper --status' to check the running instance.")
+        return false
     }
 
     // Keep fd open for the lifetime of the process to hold the lock
@@ -638,6 +206,7 @@ if args.contains("--verbose") {
     logger.setConsoleLogLevel(.debug)
 }
 
+// Always available commands (work without daemon)
 if args.contains("-h") || args.contains("--help") {
     printHelp()
     exit(0)
@@ -646,89 +215,73 @@ if args.contains("-v") || args.contains("--version") {
     print("macrowhisper version \(APP_VERSION)")
     exit(0)
 }
-if args.contains("-s") || args.contains("--status") {
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.status) {
-        print(response)
+
+// Config management commands (work without daemon)
+if args.contains("--reveal-config") {
+    // Determine the config file path using the same logic as ConfigurationManager
+    let configArgIndex = args.firstIndex(where: { $0 == "--config" })
+    var configPath: String
+    
+    if let index = configArgIndex, index + 1 < args.count {
+        // Use explicit --config path
+        configPath = ConfigurationManager.normalizeConfigPath(args[index + 1])
     } else {
-        print("macrowhisper is not running.")
+        // Use the effective config path (saved preference or default)
+        configPath = ConfigurationManager.getEffectiveConfigPath()
     }
-    exit(0)
-}
-if args.contains("--get-icon") {
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.getIcon) {
-        print(response)
-    } else {
-        print("Failed to get icon or macrowhisper is not running.")
+    
+    let expandedPath = configPath
+    
+    // Check if config file exists, if not create it with defaults
+    if !FileManager.default.fileExists(atPath: expandedPath) {
+        print("Configuration file not found. Creating default configuration at: \(expandedPath)")
+        let configDir = (expandedPath as NSString).deletingLastPathComponent
+        do {
+            if !FileManager.default.fileExists(atPath: configDir) {
+                try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+            }
+            let defaultConfig = AppConfiguration.defaultConfig()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(defaultConfig)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                let formattedJson = jsonString.replacingOccurrences(of: "\\/", with: "/")
+                if let formattedData = formattedJson.data(using: .utf8) {
+                    try formattedData.write(to: URL(fileURLWithPath: expandedPath))
+                    print("Default configuration created successfully.")
+                }
+            }
+        } catch {
+            print("Failed to create default configuration: \(error)")
+            exit(1)
+        }
     }
-    exit(0)
-}
-if args.contains("--get-insert") {
-    let getInsertIndex = args.firstIndex(where: { $0 == "--get-insert" })
-    var arguments: [String: String]? = nil
-    if let index = getInsertIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
-        // User provided a name after --get-insert
-        arguments = ["name": args[index + 1]]
-    }
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.getInsert, arguments: arguments) {
-        print(response)
-    } else {
-        print("Failed to get insert or macrowhisper is not running.")
-    }
-    exit(0)
-}
-if args.contains("--list-inserts") {
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.listInserts) {
-        print(response)
-    } else {
-        print("Failed to list inserts or macrowhisper is not running.")
-    }
-    exit(0)
-}
-if args.contains("--check-updates") {
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.forceUpdateCheck) {
-        print(response)
-    } else {
-        print("Failed to check for updates or macrowhisper is not running.")
-    }
-    exit(0)
-}
-if args.contains("--exec-insert") {
-    let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
-    if let index = execInsertIndex, index + 1 < args.count {
-        let insertName = args[index + 1]
-        let arguments: [String: String] = ["name": insertName]
-        let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-        if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
-            print(response)
+    
+    // Use AppleScript to reveal the file in Finder
+    let script = """
+    tell application "Finder"
+        reveal POSIX file "\(expandedPath)" as alias
+        activate
+    end tell
+    """
+    
+    if let appleScript = NSAppleScript(source: script) {
+        var error: NSDictionary?
+        appleScript.executeAndReturnError(&error)
+        
+        if let error = error {
+            print("Failed to reveal config file in Finder: \(error)")
+            exit(1)
         } else {
-            print("Failed to execute insert or macrowhisper is not running.")
+            print("Configuration file revealed in Finder: \(expandedPath)")
+            exit(0)
         }
     } else {
-        print("Missing insert name after --exec-insert")
+        print("Failed to create AppleScript to reveal config file")
+        exit(1)
     }
-    exit(0)
 }
-if args.contains("--auto-return") {
-    let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
-    var arguments: [String: String] = [:]
-    if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-        arguments["enable"] = args[index + 1]
-    } else {
-        arguments["enable"] = "true"
-    }
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
-        print(response)
-    } else {
-        print("Failed to set auto-return or macrowhisper is not running.")
-    }
-    exit(0)
-}
+
 if args.contains("--set-config") {
     let setConfigIndex = args.firstIndex(where: { $0 == "--set-config" })
     if let index = setConfigIndex, index + 1 < args.count {
@@ -747,12 +300,14 @@ if args.contains("--set-config") {
     }
     exit(0)
 }
+
 if args.contains("--reset-config") {
     ConfigurationManager.resetToDefaultConfigPath()
     let defaultPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
     print("Config path reset to default: \(defaultPath)")
     exit(0)
 }
+
 if args.contains("--get-config") {
     let effectivePath = ConfigurationManager.getEffectiveConfigPath()
     if let savedPath = ConfigurationManager.getSavedConfigPath() {
@@ -762,15 +317,473 @@ if args.contains("--get-config") {
     }
     exit(0)
 }
-if args.contains("--quit") || args.contains("--stop") {
+
+// Commands that require a running daemon
+let requireDaemonCommands = [
+    "-s", "--status", "--get-icon", "--get-insert", "--list-inserts", 
+    "--check-updates", "--exec-insert", "--auto-return", "--add-url", 
+    "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
+    "--remove-url", "--remove-shortcut", "--remove-shell", "--remove-as", 
+    "--remove-insert", "--quit", "--stop", "--watch", "--no-updates", 
+    "--no-noti", "--insert", "--icon", "--move-to", "--no-esc", 
+    "--sim-keypress", "--action-delay", "--return-delay", "--history", 
+    "--press-return", "--restore-clipboard"
+]
+
+// Check if any of the commands that require a daemon are present
+let hasDaemonCommand = requireDaemonCommands.contains { args.contains($0) }
+
+if hasDaemonCommand {
     let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
-    if let response = socketCommunication.sendCommand(.quit) {
-        print(response)
-    } else {
-        print("No running instance to quit.")
+    
+    // Check for status command first (has different error message)
+    if args.contains("-s") || args.contains("--status") {
+        if let response = socketCommunication.sendCommand(.status) {
+            print(response)
+        } else {
+            print("macrowhisper is not running.")
+        }
+        exit(0)
     }
+    
+    // For all other commands, check if daemon is running first
+    if socketCommunication.sendCommand(.status) == nil {
+        print("macrowhisper is not running. Start it first.")
+        exit(1)
+    }
+    
+    // Handle daemon-required commands
+    if args.contains("--get-icon") {
+        if let response = socketCommunication.sendCommand(.getIcon) {
+            print(response)
+        } else {
+            print("Failed to get icon.")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--get-insert") {
+        let getInsertIndex = args.firstIndex(where: { $0 == "--get-insert" })
+        var arguments: [String: String]? = nil
+        if let index = getInsertIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+            arguments = ["name": args[index + 1]]
+        }
+        if let response = socketCommunication.sendCommand(.getInsert, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to get insert.")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--list-inserts") {
+        if let response = socketCommunication.sendCommand(.listInserts) {
+            print(response)
+        } else {
+            print("Failed to list inserts.")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--check-updates") {
+        if let response = socketCommunication.sendCommand(.forceUpdateCheck) {
+            print(response)
+        } else {
+            print("Failed to check for updates.")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--exec-insert") {
+        let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
+        if let index = execInsertIndex, index + 1 < args.count {
+            let insertName = args[index + 1]
+            let arguments: [String: String] = ["name": insertName]
+            if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to execute insert.")
+            }
+        } else {
+            print("Missing insert name after --exec-insert")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--auto-return") {
+        let autoReturnIndex = args.firstIndex(where: { $0 == "--auto-return" })
+        var arguments: [String: String] = [:]
+        if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+            arguments["enable"] = args[index + 1]
+        } else {
+            arguments["enable"] = "true"
+        }
+        if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to set auto-return.")
+        }
+        exit(0)
+    }
+    
+    // Add commands
+    if args.contains("--add-url") {
+        let addUrlIndex = args.firstIndex(where: { $0 == "--add-url" })
+        if let index = addUrlIndex, index + 1 < args.count {
+            let urlName = args[index + 1]
+            let arguments: [String: String] = ["name": urlName]
+            if let response = socketCommunication.sendCommand(.addUrl, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to add URL action.")
+            }
+        } else {
+            print("Missing name after --add-url")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--add-shortcut") {
+        let addShortcutIndex = args.firstIndex(where: { $0 == "--add-shortcut" })
+        if let index = addShortcutIndex, index + 1 < args.count {
+            let shortcutName = args[index + 1]
+            let arguments: [String: String] = ["name": shortcutName]
+            if let response = socketCommunication.sendCommand(.addShortcut, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to add shortcut action.")
+            }
+        } else {
+            print("Missing name after --add-shortcut")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--add-shell") {
+        let addShellIndex = args.firstIndex(where: { $0 == "--add-shell" })
+        if let index = addShellIndex, index + 1 < args.count {
+            let shellName = args[index + 1]
+            let arguments: [String: String] = ["name": shellName]
+            if let response = socketCommunication.sendCommand(.addShell, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to add shell script action.")
+            }
+        } else {
+            print("Missing name after --add-shell")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--add-as") {
+        let addASIndex = args.firstIndex(where: { $0 == "--add-as" })
+        if let index = addASIndex, index + 1 < args.count {
+            let asName = args[index + 1]
+            let arguments: [String: String] = ["name": asName]
+            if let response = socketCommunication.sendCommand(.addAppleScript, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to add AppleScript action.")
+            }
+        } else {
+            print("Missing name after --add-as")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--add-insert") {
+        let addInsertIndex = args.firstIndex(where: { $0 == "--add-insert" })
+        if let index = addInsertIndex, index + 1 < args.count {
+            let insertName = args[index + 1]
+            let arguments: [String: String] = ["name": insertName]
+            if let response = socketCommunication.sendCommand(.addInsert, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to add insert.")
+            }
+        } else {
+            print("Missing name after --add-insert")
+        }
+        exit(0)
+    }
+    
+    // Remove commands
+    if args.contains("--remove-url") {
+        let removeUrlIndex = args.firstIndex(where: { $0 == "--remove-url" })
+        if let index = removeUrlIndex, index + 1 < args.count {
+            let urlName = args[index + 1]
+            let arguments: [String: String] = ["name": urlName]
+            if let response = socketCommunication.sendCommand(.removeUrl, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to remove URL action.")
+            }
+        } else {
+            print("Missing name after --remove-url")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--remove-shortcut") {
+        let removeShortcutIndex = args.firstIndex(where: { $0 == "--remove-shortcut" })
+        if let index = removeShortcutIndex, index + 1 < args.count {
+            let shortcutName = args[index + 1]
+            let arguments: [String: String] = ["name": shortcutName]
+            if let response = socketCommunication.sendCommand(.removeShortcut, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to remove shortcut action.")
+            }
+        } else {
+            print("Missing name after --remove-shortcut")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--remove-shell") {
+        let removeShellIndex = args.firstIndex(where: { $0 == "--remove-shell" })
+        if let index = removeShellIndex, index + 1 < args.count {
+            let shellName = args[index + 1]
+            let arguments: [String: String] = ["name": shellName]
+            if let response = socketCommunication.sendCommand(.removeShell, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to remove shell script action.")
+            }
+        } else {
+            print("Missing name after --remove-shell")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--remove-as") {
+        let removeASIndex = args.firstIndex(where: { $0 == "--remove-as" })
+        if let index = removeASIndex, index + 1 < args.count {
+            let asName = args[index + 1]
+            let arguments: [String: String] = ["name": asName]
+            if let response = socketCommunication.sendCommand(.removeAppleScript, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to remove AppleScript action.")
+            }
+        } else {
+            print("Missing name after --remove-as")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--remove-insert") {
+        let removeInsertIndex = args.firstIndex(where: { $0 == "--remove-insert" })
+        if let index = removeInsertIndex, index + 1 < args.count {
+            let insertName = args[index + 1]
+            let arguments: [String: String] = ["name": insertName]
+            if let response = socketCommunication.sendCommand(.removeInsert, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to remove insert.")
+            }
+        } else {
+            print("Missing name after --remove-insert")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--quit") || args.contains("--stop") {
+        if let response = socketCommunication.sendCommand(.quit) {
+            print(response)
+        } else {
+            print("No running instance to quit.")
+        }
+        exit(0)
+    }
+    
+    // Handle configuration update commands (require daemon)
+    var arguments: [String: String] = [:]
+    
+    if let watchIndex = args.firstIndex(where: { $0 == "--watch" }),
+       watchIndex + 1 < args.count {
+        arguments["watchPath"] = args[watchIndex + 1]
+    }
+    
+    if args.contains("--no-updates") {
+        let noUpdatesIndex = args.firstIndex(where: { $0 == "--no-updates" })
+        if let index = noUpdatesIndex, index + 1 < args.count {
+            arguments["noUpdates"] = args[index + 1]
+        } else {
+            arguments["noUpdates"] = "true"
+        }
+    }
+    
+    if args.contains("--no-noti") {
+        let noNotiIndex = args.firstIndex(where: { $0 == "--no-noti" })
+        if let index = noNotiIndex, index + 1 < args.count {
+            arguments["noNoti"] = args[index + 1]
+        } else {
+            arguments["noNoti"] = "true"
+        }
+    }
+    
+    if args.contains("--insert") {
+        let insertIndex = args.firstIndex(where: { $0 == "--insert" })
+        if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+            arguments["activeInsert"] = args[index + 1]
+        } else {
+            arguments["activeInsert"] = ""
+        }
+    }
+    
+    if args.contains("--no-esc") {
+        let noEscIndex = args.firstIndex(where: { $0 == "--no-esc" })
+        if let index = noEscIndex, index + 1 < args.count {
+            arguments["noEsc"] = args[index + 1]
+        } else {
+            arguments["noEsc"] = "true"
+        }
+    }
+    
+    if args.contains("--sim-keypress") {
+        let simKeyPressIndex = args.firstIndex(where: { $0 == "--sim-keypress" })
+        if let index = simKeyPressIndex, index + 1 < args.count {
+            arguments["simKeypress"] = args[index + 1]
+        } else {
+            arguments["simKeypress"] = "true"
+        }
+    }
+    
+    if args.contains("--press-return") {
+        let pressReturnIndex = args.firstIndex(where: { $0 == "--press-return" })
+        if let index = pressReturnIndex, index + 1 < args.count {
+            arguments["pressReturn"] = args[index + 1]
+        } else {
+            arguments["pressReturn"] = "true"
+        }
+    }
+    
+    if args.contains("--icon") {
+        let iconIndex = args.firstIndex(where: { $0 == "--icon" })
+        if let index = iconIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+            arguments["icon"] = args[index + 1]
+        } else {
+            arguments["icon"] = ""
+        }
+    }
+    
+    if args.contains("--action-delay") {
+        let actionDelayIndex = args.firstIndex(where: { $0 == "--action-delay" })
+        if let index = actionDelayIndex, index + 1 < args.count {
+            arguments["actionDelay"] = args[index + 1]
+        }
+    }
+    
+    if args.contains("--return-delay") {
+        let returnDelayIndex = args.firstIndex(where: { $0 == "--return-delay" })
+        if let index = returnDelayIndex, index + 1 < args.count {
+            arguments["returnDelay"] = args[index + 1]
+        }
+    }
+    
+    if args.contains("--history") {
+        let historyIndex = args.firstIndex(where: { $0 == "--history" })
+        if let index = historyIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+            let historyArg = args[index + 1]
+            if historyArg.lowercased() == "null" {
+                arguments["history"] = "null"
+            } else {
+                arguments["history"] = historyArg
+            }
+        } else {
+            arguments["history"] = "null"
+        }
+    }
+    
+    if args.contains("--move-to") {
+        let moveToIndex = args.firstIndex(where: { $0 == "--move-to" })
+        if let index = moveToIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+            arguments["moveTo"] = args[index + 1]
+        } else {
+            arguments["moveTo"] = ""
+        }
+    }
+    
+    if args.contains("--restore-clipboard") {
+        let restoreClipboardIndex = args.firstIndex(where: { $0 == "--restore-clipboard" })
+        if let index = restoreClipboardIndex, index + 1 < args.count {
+            arguments["restoreClipboard"] = args[index + 1]
+        } else {
+            arguments["restoreClipboard"] = "true"
+        }
+    }
+    
+    // If we have config update arguments, send updateConfig
+    if !arguments.isEmpty {
+        if let response = socketCommunication.sendCommand(.updateConfig, arguments: arguments) {
+            print("Response from running instance: \(response)")
+        } else {
+            print("Failed to communicate with running instance.")
+        }
+        exit(0)
+    }
+}
+
+// Hidden test commands (development only) - can work without daemon
+if args.contains("--test-update-dialog") {
+    let versionChecker = VersionChecker()
+    
+    var testVersion = "1.2.0"
+    var testDescription = "This is a test update with new features:\n• Fixed clipboard handling\n• Improved performance\n• Added new automation triggers"
+    
+    if let versionIndex = args.firstIndex(where: { $0 == "--test-version" }),
+       versionIndex + 1 < args.count {
+        testVersion = args[versionIndex + 1]
+    }
+    
+    if let descIndex = args.firstIndex(where: { $0 == "--test-description" }),
+       descIndex + 1 < args.count {
+        testDescription = args[descIndex + 1]
+    }
+    
+    print("Testing update dialog with version: \(APP_VERSION) → \(testVersion)")
+    print("Description: \(testDescription)")
+    print("Dialog will appear shortly...")
+    
+    let versionMessage = "CLI: \(APP_VERSION) → \(testVersion)"
+    versionChecker.testUpdateDialog(versionMessage: versionMessage, description: testDescription)
+    
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        print("Test dialog displayed. Check for dialog window.")
+    }
+    
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 10))
     exit(0)
 }
+
+// Hidden commands to show/clear version checker state (require daemon)
+if args.contains("--version-state") || args.contains("--version-clear") {
+    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    if socketCommunication.sendCommand(.status) == nil {
+        print("macrowhisper is not running. Start it first.")
+        exit(1)
+    }
+    
+    if args.contains("--version-state") {
+        if let response = socketCommunication.sendCommand(.versionState) {
+            print(response)
+        } else {
+            print("Failed to get version state.")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--version-clear") {
+        if let response = socketCommunication.sendCommand(.versionClear) {
+            print(response)
+        } else {
+            print("Failed to clear version state.")
+        }
+        exit(0)
+    }
+}
+
 // ---- END QUICK COMMANDS ----
 
 if !acquireSingleInstanceLock(lockFilePath: lockPath) {
@@ -789,92 +802,97 @@ func printHelp() {
 
     Automation tools for Superwhisper.
 
-    OPTIONS:
-      <no argument>                 Reloads configuration file on running instance
-      -w, --watch <path>            Path to superwhisper folder
-          --no-updates true/false   Enable or disable automatic update checking
-          --no-noti true/false      Enable or disable all notifications
-          --no-esc true/false       Disable all ESC key simulations when set to true
-          --action-delay <seconds>  Set delay in seconds before actions are executed
-          --return-delay <seconds>  Set delay in seconds before return key press (for --auto-return and pressReturn)
-          --insert <name>           Set the active insert (use empty string to disable)
-          --history <days>          Set number of days to keep recordings (0 to keep most recent recording)
-                                    Use 'null' or no value to disable history management
-          --sim-keypress true/false Simulate key presses for text input
-                                    (note: linebreaks are treated as return presses)
-          --press-return true/false Simulate return key press after every insert execution
-                                    (persistent setting, unlike --auto-return which is one-time)
-          --restore-clipboard true/false Enable or disable clipboard restoration after insert actions
-                                    (default: true)
-          --icon <icon>             Set the default icon to use when no insert icon is available
-                                    Use '.none' to explicitly use no icon
-          --move-to <path>          Set the default path to move folder to after processing
-                                    Use '.delete' to delete folder, '.none' to not move
-      -s, --status                  Get the status of the background process
+    DAEMON COMMANDS (start/manage the background service):
+      (no arguments)                Start app with default configuration
+      --config <path>               Start app with custom config file
+      --verbose                     Enable verbose logging (debug messages)
+
+    QUICK COMMANDS (work without running instance):
       -h, --help                    Show this help message
       -v, --version                 Show version information
-      --verbose                     Enable verbose logging (shows debug messages in console)
-      --check-updates               Force check for updates  
-      --quit, --stop                Quit the running macrowhisper instance
-
-    CONFIG PATH COMMANDS:
-      -c, --config <path>           Path to config file (default: ~/.config/macrowhisper/macrowhisper.json)
-                                    Sets new path (for future runs) and runs Macrowhisper with it
+      
+    CONFIG MANAGEMENT (work without running instance):
       --set-config <path>           Set the default config path for future runs
       --reset-config                Reset config path to default location  
       --get-config                  Show the currently saved config path
-      --reveal-config               Reveal the configuration file in Finder
+      --reveal-config               Open the configuration file in Finder
+                                    (creates default config if none exists)
 
-    INSERTS COMMANDS:
+    RUNTIME COMMANDS (require running instance):
+      -s, --status                  Get the status of the running instance
+      --quit, --stop                Quit the running instance
+
+    CONFIG EDITING (require running instance):
+      --watch <path>                Set path to superwhisper folder
+      --no-updates <true/false>     Enable or disable automatic update checking
+      --no-noti <true/false>        Enable or disable all notifications
+      --no-esc <true/false>         Disable all ESC key simulations when set to true
+      --action-delay <seconds>      Set delay in seconds before actions are executed
+      --return-delay <seconds>      Set delay in seconds before return key press
+      --history <days>              Set number of days to keep recordings (0 to keep most recent)
+                                    Use 'null' or no value to disable history management
+      --sim-keypress <true/false>   Simulate key presses for text input
+                                    (note: linebreaks are treated as return presses)
+      --press-return <true/false>   Simulate return key press after every insert execution
+                                    (persistent setting, unlike --auto-return which is one-time)
+      --restore-clipboard <true/false> Enable or disable clipboard restoration
+                                    after insert actions (default: true)
+      --icon <icon>                 Set the default icon to use when no insert icon is available
+                                    Use '.none' to explicitly use no icon
+      --move-to <path>              Set the default path to move folder to after processing
+                                    Use '.delete' to delete folder, '.none' to not move
+
+    INSERT MANAGEMENT (require running instance):
       --list-inserts                List all configured inserts
       --add-insert <name>           Add or update an insert
       --remove-insert <name>        Remove an insert
       --exec-insert <name>          Execute an insert action using the last valid result
-      --auto-return true/false      Insert result and simulate return for one interaction
+      --auto-return <true/false>    Simulate return for one interaction with insert actions
       --get-icon                    Get the icon of the active insert
       --get-insert [<name>]         Get name of active insert (if run without <name>)
                                     If a name is provided, returns the action content
+      --insert [<name>]             Clears active insert (if run without <name>).
+                                    If a name is provided, it sets it as active insert.
 
-    OTHER ACTION COMMANDS:
+    ACTION MANAGEMENT (require running instance):
       --add-url <name>              Add or update a URL action
       --add-shortcut <name>         Add or update a Shortcuts action
       --add-shell <name>            Add or update a shell script action
       --add-as <name>               Add or update an AppleScript action
+      --remove-url <name>           Remove a URL action
+      --remove-shortcut <name>      Remove a Shortcuts action
+      --remove-shell <name>         Remove a shell script action
+      --remove-as <name>            Remove an AppleScript action
+
+    OTHER (require running daemon):
+      --check-updates               Force check for updates
 
     Examples:
       macrowhisper
-        # Uses defaults from config file/Reloads config file
+        # Starts the daemon with default configuration
 
       macrowhisper --config ~/custom-config.json
-
-      macrowhisper --watch ~/otherfolder/superwhisper --no-updates true
+        # Starts the daemon with a custom configuration file
 
       macrowhisper --insert pasteResult
-        # Sets the active insert to pasteResult
+        # Sets the active insert to 'pasteResult'
 
       macrowhisper --get-insert
-        # Prints the name of the current active insert
+        # Gets the name of the current active insert
 
       macrowhisper --get-insert pasteResult
-        # Prints the processed action content for the 'pasteResult' insert using the last valid result
+        # Gets the processed action content for 'pasteResult'
 
       macrowhisper --reveal-config
-        # Opens the configuration file in Finder
+        # Opens the configuration file in Finder (creates it if missing)
 
       macrowhisper --quit
-        # Quits the running macrowhisper instance
+        # Stops the running instance
 
       macrowhisper --set-config ~/my-configs/
         # Sets ~/my-configs/macrowhisper.json as the default config path
 
-      macrowhisper --set-config ~/my-configs/custom.json
-        # Sets ~/my-configs/custom.json as the default config path
-
-      macrowhisper --get-config
-        # Shows the currently saved config path
-
-      macrowhisper --reset-config
-        # Resets to the default config path
+    Note: Most commands require a running daemon. Start it first with 'macrowhisper'.
     """)
 }
 
@@ -884,7 +902,7 @@ var verboseLogging = false
 var i = 1
 while i < args.count {
     switch args[i] {
-    case "-c", "--config":
+    case "--config":
         if i + 1 < args.count {
             configPath = args[i + 1]
             i += 2

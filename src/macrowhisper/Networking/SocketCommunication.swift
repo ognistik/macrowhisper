@@ -31,6 +31,10 @@ class SocketCommunication {
         case addShortcut
         case addShell
         case addAppleScript
+        case removeUrl
+        case removeShortcut
+        case removeShell
+        case removeAppleScript
         case quit
         case versionState
         case forceUpdateCheck
@@ -602,6 +606,58 @@ class SocketCommunication {
                 }
                 write(clientSocket, response, response.utf8.count)
                 
+            case .removeUrl:
+                guard let name = commandMessage.arguments?["name"] else {
+                    response = "Missing name for URL action"; write(clientSocket, response, response.utf8.count); return
+                }
+                if configMgr.config.urls.removeValue(forKey: name) != nil {
+                    configMgr.saveConfig()
+                    configMgr.onConfigChanged?(nil)
+                    response = "URL action '\(name)' removed"
+                } else {
+                    response = "URL action '\(name)' not found"
+                }
+                write(clientSocket, response, response.utf8.count)
+                
+            case .removeShortcut:
+                guard let name = commandMessage.arguments?["name"] else {
+                    response = "Missing name for Shortcut action"; write(clientSocket, response, response.utf8.count); return
+                }
+                if configMgr.config.shortcuts.removeValue(forKey: name) != nil {
+                    configMgr.saveConfig()
+                    configMgr.onConfigChanged?(nil)
+                    response = "Shortcut action '\(name)' removed"
+                } else {
+                    response = "Shortcut action '\(name)' not found"
+                }
+                write(clientSocket, response, response.utf8.count)
+                
+            case .removeShell:
+                guard let name = commandMessage.arguments?["name"] else {
+                    response = "Missing name for Shell script action"; write(clientSocket, response, response.utf8.count); return
+                }
+                if configMgr.config.scriptsShell.removeValue(forKey: name) != nil {
+                    configMgr.saveConfig()
+                    configMgr.onConfigChanged?(nil)
+                    response = "Shell script action '\(name)' removed"
+                } else {
+                    response = "Shell script action '\(name)' not found"
+                }
+                write(clientSocket, response, response.utf8.count)
+                
+            case .removeAppleScript:
+                guard let name = commandMessage.arguments?["name"] else {
+                    response = "Missing name for AppleScript action"; write(clientSocket, response, response.utf8.count); return
+                }
+                if configMgr.config.scriptsAS.removeValue(forKey: name) != nil {
+                    configMgr.saveConfig()
+                    configMgr.onConfigChanged?(nil)
+                    response = "AppleScript action '\(name)' removed"
+                } else {
+                    response = "AppleScript action '\(name)' not found"
+                }
+                write(clientSocket, response, response.utf8.count)
+                
             case .version:
                 response = "macrowhisper version \(APP_VERSION)"
                 write(clientSocket, response, response.utf8.count)
@@ -641,15 +697,12 @@ class SocketCommunication {
     }
 
     func sendCommand(_ command: Command, arguments: [String: String]? = nil) -> String? {
-        let quietCommands: [Command] = [.status, .version, .listInserts, .getIcon, .getInsert]
-        if !quietCommands.contains(command) {
-            logInfo("Sending command: \(command.rawValue) to \(socketPath)")
+        // Check if socket file exists first - if not, no point in trying to connect
+        guard FileManager.default.fileExists(atPath: socketPath) else {
+            // Only return a simple failure message, no logging
+            return nil
         }
         
-        guard FileManager.default.fileExists(atPath: socketPath) else {
-            logError("Socket file does not exist")
-            return "Socket file does not exist. Server is not running."
-        }
         let message = CommandMessage(command: command, arguments: arguments)
         guard let data = try? JSONEncoder().encode(message) else { return "Failed to encode command" }
         
@@ -664,19 +717,21 @@ class SocketCommunication {
             socketPath.withCString { strncpy(ptr, $0, pathLength) }
         }
         
-        var connectResult: Int32 = -1
-        for attempt in 1...3 {
-            let addrSize = socklen_t(MemoryLayout<sockaddr_un>.size)
-            connectResult = withUnsafePointer(to: &addr) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(clientSocket, $0, addrSize) }
-            }
-            if connectResult == 0 { break }
-            logWarning("Connect attempt \(attempt) failed: \(errno). Retrying...")
-            Thread.sleep(forTimeInterval: 0.1)
+        // Try to connect - but don't spam warnings if it fails
+        let addrSize = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let connectResult = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(clientSocket, $0, addrSize) }
         }
         
         guard connectResult == 0 else {
-            return "Failed to connect to socket. Is Macrowhisper running?"
+            // Simply return nil if connection fails - no scary messages
+            return nil
+        }
+        
+        // Only log successful connections for non-quiet commands
+        let quietCommands: [Command] = [.status, .version, .listInserts, .getIcon, .getInsert]
+        if !quietCommands.contains(command) {
+            logInfo("Sending command: \(command.rawValue) to \(socketPath)")
         }
         
         let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)

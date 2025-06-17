@@ -167,7 +167,7 @@ class ClipboardMonitor {
             }
             
             guard let validSession = session else {
-                logWarning("[ClipboardMonitor] No early monitoring session found for \(recordingPath), falling back to basic monitoring")
+                logDebug("[ClipboardMonitor] No early monitoring session found for \(recordingPath), falling back to basic monitoring")
                 // Fallback to original implementation
                 self.executeInsertWithClipboardSync(
                     insertAction: insertAction,
