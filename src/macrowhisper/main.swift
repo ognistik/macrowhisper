@@ -770,7 +770,7 @@ func printHelp() {
       -v, --version                 Show version information
       --verbose                     Enable verbose logging (shows debug messages in console)
       --reveal-config               Reveal the configuration file in Finder
-      --check-updates               Force check for updates (resets timing constraints)  
+      --check-updates               Force check for updates  
       --quit, --stop                Quit the running macrowhisper instance
 
     INSERTS COMMANDS:
