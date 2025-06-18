@@ -2,16 +2,18 @@
 
 ## Overview
 
-**Macrowhisper** is a sophisticated automation helper application designed to work seamlessly with **Superwhisper**, a dictation application. Macrowhisper acts as a file watcher and automation engine that monitors transcribed results from Superwhisper (stored in `meta.json` files) and executes various automated actions based on configurable rules and triggers.
+**Macrowhisper** is a sophisticated automation helper application designed to work seamlessly with **Superwhisper**, a dictation application. It functions as a file watcher and automation engine that monitors transcribed results from Superwhisper (stored in `meta.json` files) and executes various automated actions based on configurable rules and intelligent triggers.
 
 ### Core Functionality
 - **File Watching**: Monitors Superwhisper's recordings folder for new transcriptions
-- **Action Execution**: Supports multiple action types including text insertion, URL opening, shell scripts, AppleScript execution, and Apple shortcuts
-- **Rule-Based Automation**: Configurable triggers based on voice patterns, applications, and modes
-- **Inter-Process Communication**: Socket-based communication for CLI commands and status queries
-- **Configuration Management**: JSON-based configuration with live reloading
+- **Intelligent Action Execution**: Supports multiple action types including text insertion, URL opening, shell scripts, AppleScript execution, and keyboard shortcuts
+- **Advanced Trigger System**: Rule-based automation with voice patterns, application context, and mode matching
+- **Service Management**: Full launchd service integration for background operation
+- **Inter-Process Communication**: Unix socket-based communication for CLI commands and status queries
+- **Configuration Management**: JSON-based configuration with live reloading and persistent path management
 - **History Management**: Automatic cleanup of old recordings based on retention policies
-- **Update Checking**: Automatic version checking for both CLI and Keyboard Maestro components
+- **Enhanced Clipboard Management**: Smart clipboard monitoring and restoration to handle timing conflicts
+- **Update Checking**: Automatic version checking with intelligent notification system
 
 ---
 
@@ -19,33 +21,33 @@
 
 ```
 macrowhisper-cli/src/
-├── Package.swift                    # Swift Package Manager configuration
-├── Package.resolved                 # Package dependencies lock file
-├── oldCode.swift                    # Legacy monolithic implementation (5363 lines)
+├── Package.swift                    # Swift Package Manager configuration (Swifter dependency)
 ├── macrowhisper.xcodeproj/          # Xcode project files
-├── .swiftpm/                        # Swift Package Manager metadata
 └── macrowhisper/                    # Main application source code
-    ├── main.swift                   # Application entry point and CLI handling
+    ├── main.swift                   # Application entry point and CLI handling (1229 lines)
     ├── Info.plist                   # App permissions and metadata
-    ├── Config/                      # Configuration management
-    │   ├── AppConfiguration.swift   # Configuration data structures
-    │   └── ConfigurationManager.swift # Configuration loading/saving/watching
+    ├── Config/                      # Configuration management system
+    │   ├── AppConfiguration.swift   # Configuration data structures (457 lines)
+    │   └── ConfigurationManager.swift # Configuration loading/saving/watching (377 lines)
     ├── Watcher/                     # File system monitoring
-    │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings
-    │   └── ConfigChangeWatcher.swift     # Configuration file watcher
+    │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings (519 lines)
+    │   └── ConfigChangeWatcher.swift     # Configuration file watcher (43 lines)
     ├── Networking/                  # Network and IPC functionality
-    │   ├── SocketCommunication.swift    # Unix socket server for CLI commands
-    │   └── VersionChecker.swift         # Automatic update checking
+    │   ├── SocketCommunication.swift    # Unix socket server for CLI commands (795 lines)
+    │   └── VersionChecker.swift         # Automatic update checking (515 lines)
     ├── History/                     # Recording history management
-    │   └── HistoryManager.swift         # Cleanup of old recordings
+    │   └── HistoryManager.swift         # Cleanup of old recordings (116 lines)
     ├── Utils/                       # Utility functions and helpers
-    │   ├── Accessibility.swift          # macOS accessibility and input simulation
-    |   |-- ActionExecutor.sift     #Handles execution of differen action types
-    │   ├── Placeholders.swift           # Dynamic content replacement system
-    │   ├── ShellUtils.swift             # Shell command escaping utilities
-    │   ├── Logger.swift                 # Logging system with rotation
-    │   └── NotificationManager.swift    # System notifications
-    └── System/                      # System-level operations (empty)
+    │   ├── ServiceManager.swift         # macOS launchd service management (438 lines)
+    │   ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (554 lines)
+    │   ├── ActionExecutor.swift         # Action execution coordination (323 lines)
+    │   ├── TriggerEvaluator.swift       # Intelligent trigger evaluation system (386 lines)
+    │   ├── Accessibility.swift          # macOS accessibility and input simulation (225 lines)
+    │   ├── Placeholders.swift           # Dynamic content replacement system (428 lines)
+    │   ├── Logger.swift                 # Logging system with rotation (111 lines)
+    │   ├── NotificationManager.swift    # System notifications (24 lines)
+    │   └── ShellUtils.swift             # Shell command escaping utilities (18 lines)
+    └── Sources/                     # (Empty directory)
 ```
 
 ---
@@ -54,8 +56,8 @@ macrowhisper-cli/src/
 
 ### 1. Application Entry Point
 
-#### `macrowhisper/main.swift` (710 lines)
-**Purpose**: Application bootstrap, CLI argument parsing, and main event loop
+#### `macrowhisper/main.swift` (1229 lines)
+**Purpose**: Application bootstrap, CLI argument parsing, service management, and main event loop
 
 **Key Global Variables**:
 - `globalConfigManager`: Shared configuration manager instance
@@ -63,28 +65,36 @@ macrowhisper-cli/src/
 - `socketCommunication`: IPC server for CLI commands
 - `historyManager`: Recording cleanup manager
 - `logger`: Global logging instance
+- `autoReturnEnabled`: Auto-return functionality state
+- `lastDetectedFrontApp`: Application context tracking
 
 **Key Functions**:
-- `acquireSingleInstanceLock()`: Ensures only one instance runs
-- `initializeWatcher()`: Sets up file system monitoring
+- `acquireSingleInstanceLock()`: Ensures only one instance runs using file locking
+- `initializeWatcher()`: Sets up file system monitoring with error handling
 - `checkWatcherAvailability()`: Validates Superwhisper folder existence
-- `main()`: Application entry point and event loop
+- `checkSocketHealth()` / `recoverSocket()`: Socket health monitoring and recovery
+- `registerForSleepWakeNotifications()`: System sleep/wake handling
+- `printHelp()`: Comprehensive CLI help system
 
 **CLI Commands Supported**:
-- `--help`, `-h`: Show usage information
-- `--version`, `-v`: Display version information
-- `--status`, `-s`: Show application status
-- `--exec-insert <name>`: Execute specific insert action
-- `--get-insert`: Get current active insert
-- `--list-inserts`: List all available inserts
-- `--auto-return [true/false]`: Toggle auto-return functionality
+- **Service Management**: `--install-service`, `--start-service`, `--stop-service`, `--service-status`
+- **Configuration**: `--reveal-config`, `--set-config`, `--reset-config`, `--get-config`
+- **Information**: `--help`, `--version`, `--status`, `--verbose`
+- **Insert Management**: `--exec-insert <name>`, `--get-insert`, `--list-inserts`
+- **Runtime Control**: `--auto-return [true/false]`, `--quit`
+
+**Other Features**:
+- Complete service management integration
+- Advanced configuration path management with persistence
+- Socket health monitoring with automatic recovery
+- System sleep/wake awareness
 
 ---
 
 ### 2. Configuration System
 
-#### `macrowhisper/Config/AppConfiguration.swift` (415 lines)
-**Purpose**: Defines the complete configuration data structure
+#### `macrowhisper/Config/AppConfiguration.swift` (457 lines)
+**Purpose**: Defines the complete configuration data structure with advanced features
 
 **Key Structures**:
 
@@ -100,203 +110,303 @@ macrowhisper-cli/src/
 - `actionDelay`: Delay before executing actions
 - `history`: Days to retain recordings (null = keep forever)
 - `pressReturn`: Auto-press return after actions
+- `returnDelay`: Delay before pressing return (default: 0.1s)
+- `restoreClipboard`: Restore original clipboard content (default: true)
 
-**`AppConfiguration.Insert`**:
-- `action`: Text or command to execute
-- `icon`: Optional icon override
-- `moveTo`: Optional window/app target
-- `noEsc`, `simKeypress`, `actionDelay`, `pressReturn`: Per-insert overrides
-- **Trigger System**:
-  - `triggerVoice`: Regex pattern for voice matching
-  - `triggerApps`: Regex pattern for app matching
-  - `triggerModes`: Regex pattern for mode matching
-  - `triggerLogic`: "and"/"or" logic for combining triggers
+**Action Configurations (All support triggers)**:
+- **`AppConfiguration.Insert`**: Text insertion with advanced placeholder support
+- **`AppConfiguration.Url`**: URL actions with custom application opening
+- **`AppConfiguration.Shortcut`**: macOS Shortcuts integration
+- **`AppConfiguration.ScriptShell`**: Shell script execution
+- **`AppConfiguration.ScriptAppleScript`**: AppleScript execution
 
-**`AppConfiguration.Url`**: Similar structure for URL actions
-**`AppConfiguration.Shortcut`**: Similar structure for keyboard shortcuts
-**`AppConfiguration.Shell`**: Similar structure for shell commands
-**`AppConfiguration.AppleScript`**: Similar structure for AppleScript execution
+**Advanced Trigger System** (All action types):
+- `triggerVoice`: Regex pattern for voice matching (supports exceptions with `!` prefix)
+- `triggerApps`: Regex pattern for app matching (name or bundle ID)
+- `triggerModes`: Regex pattern for Superwhisper mode matching
+- `triggerLogic`: "and"/"or" logic for combining triggers
 
-#### `macrowhisper/Config/ConfigurationManager.swift` (173 lines)
-**Purpose**: Manages configuration loading, saving, and live reloading
+**Custom Encoding/Decoding**:
+- Preserves null values in JSON output
+- Ensures backward compatibility
+- Automatic defaults for missing fields
+
+#### `macrowhisper/Config/ConfigurationManager.swift` (377 lines)
+**Purpose**: Advanced configuration management with persistence and live reloading
 
 **Key Features**:
-- Thread-safe configuration access using `DispatchQueue`
-- Automatic file watching for configuration changes
-- Command-line configuration updates
-- JSON serialization with pretty printing and path formatting
+- **Thread-safe configuration access** using dedicated `DispatchQueue`
+- **Persistent configuration paths** using `UserDefaults`
+- **Smart path resolution**: Handles both file and directory paths
+- **Live file watching** with JSON error recovery
+- **Command queue system** for configuration updates
+- **Graceful error handling** with user notifications
+
+**Configuration Path Priority**:
+1. Explicit `--config` flag parameter
+2. Saved user preference in UserDefaults
+3. Default path (`~/.config/macrowhisper/macrowhisper.json`)
 
 **Key Methods**:
-- `loadConfig()`: Load configuration from JSON file
-- `saveConfig()`: Save configuration with proper formatting
-- `updateFromCommandLine()`: Update config from CLI arguments
-- `setupFileWatcher()`: Monitor config file for changes
+- `normalizeConfigPath()`: Smart path handling (files vs directories)
+- `setDefaultConfigPath()` / `resetToDefaultConfigPath()`: Persistent path management
+- `loadConfig()` / `saveConfig()`: JSON serialization with error handling
+- `updateFromCommandLine()`: Threaded configuration updates
+- `setupFileWatcher()`: Live reload with JSON validation
 
 ---
 
-### 3. File System Monitoring
+### 3. Service Management System
 
-#### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (367 lines)
-**Purpose**: Core file system watcher that monitors Superwhisper's recordings folder
+#### `macrowhisper/Utils/ServiceManager.swift` (438 lines)
+**Purpose**: Complete macOS launchd service integration for background operation
 
 **Key Features**:
-- **Directory Monitoring**: Watches for new recording subdirectories
-- **Meta.json Waiting**: Handles delayed meta.json file creation
-- **Duplicate Prevention**: Tracks processed recordings to avoid reprocessing
-- **Cleanup Handling**: Manages removal of deleted recordings
+- **Full service lifecycle management**: Install, start, stop, restart, uninstall
+- **Smart binary path detection**: Handles various installation scenarios (Homebrew, manual, development)
+- **Configuration path preservation**: Maintains custom config paths in service
+- **Automatic service updates**: Detects binary path changes and updates service
+- **Robust error handling**: Comprehensive error reporting and recovery
+
+**Service Management Flow**:
+1. **Detection**: Finds current binary path using multiple strategies
+2. **Installation**: Creates launchd plist with proper configuration
+3. **Management**: Start/stop/restart with proper dependency handling
+4. **Monitoring**: Service status checking and health validation
+5. **Updates**: Automatic service updates when binary path changes
 
 **Key Methods**:
-- `start()`: Begin monitoring the recordings folder
-- `handleFolderChangeEvent()`: Process folder changes
-- `processNewRecording()`: Handle new recording detection
-- `watchForMetaJsonCreation()`: Wait for meta.json file completion
-- `processMetaJson()`: Parse and execute actions from meta.json
-
-**Processing Flow**:
-1. Detect new recording directory
-2. Check if meta.json exists immediately
-3. If not, set up watcher for meta.json creation
-4. Once meta.json is available, parse and execute configured actions
-5. Mark recording as processed to prevent reprocessing
-
-#### `macrowhisper/Watcher/ConfigChangeWatcher.swift` (43 lines)
-**Purpose**: Monitors configuration file for changes and triggers reloads
-
-**Simple Implementation**:
-- Uses `DispatchSource.makeFileSystemObjectSource` for file monitoring
-- Triggers callback when configuration file is modified
-- Enables live configuration reloading without restart
+- `getCurrentBinaryPath()`: Multi-strategy binary path resolution
+- `installService()` / `uninstallService()`: Service lifecycle management
+- `isServiceRunning()` / `isServiceInstalled()`: Status checking
+- `stopRunningDaemon()`: Graceful daemon termination
 
 ---
 
-### 4. Inter-Process Communication
+### 4. File System Monitoring
 
-#### `macrowhisper/Networking/SocketCommunication.swift` (498 lines)
-**Purpose**: Unix domain socket server for CLI command handling and action execution
+#### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (519 lines)
+**Purpose**: Advanced file system watcher with intelligent processing
 
 **Key Features**:
-- **Command Processing**: Handles various CLI commands via socket
-- **Action Execution**: Core logic for executing insert, URL, shell, and AppleScript actions
-- **Placeholder Processing**: Dynamic content replacement in actions
-- **Accessibility Integration**: Keyboard simulation and input field detection
+- **Persistent processing tracking**: Prevents duplicate processing using file-based storage
+- **Intelligent startup behavior**: Marks most recent recording as processed on startup
+- **Early clipboard monitoring integration**: Captures user clipboard state before conflicts
+- **Advanced trigger evaluation**: Uses TriggerEvaluator for smart action selection
+- **Graceful cleanup**: Handles deleted recordings and orphaned watchers
 
-**Supported Commands**:
-- `reloadConfig`: Reload configuration from file
-- `updateConfig`: Update configuration values
-- `status`: Get application status
-- `version`: Get version information
-- `listInserts`: List all available inserts
-- `execInsert`: Execute specific insert action
-- `autoReturn`: Toggle auto-return functionality
+**Enhanced Processing Flow**:
+1. **Early Monitoring**: Start clipboard monitoring when folder appears
+2. **Meta.json Waiting**: Handle delayed meta.json creation with timeout
+3. **Context Gathering**: Capture application context and mode information
+4. **Trigger Evaluation**: Use TriggerEvaluator to find matching actions
+5. **Action Execution**: Execute matched actions via ActionExecutor
+6. **Cleanup**: Mark as processed and clean up monitoring
 
-**Action Processing Methods**:
-- `processInsertAction()`: Handle text insertion with placeholder replacement
-- `applyInsert()`: Execute insert action with accessibility checks
-- `applyInsertForExec()`: Execute insert for CLI commands (no ESC key)
-- `pasteText()`: Handle text pasting via clipboard or keystroke simulation
-
-**Placeholder System**:
-- XML tag extraction: `{{xml:tagname}}` extracts content from `<tagname>` in LLM results
-- Dynamic placeholders: `{{key}}` replaced with meta.json values
-- Date formatting: `{{date:format}}` for timestamp insertion
-- Shell escaping for safe command execution
+**Key Components**:
+- **TriggerEvaluator**: Intelligent action matching
+- **ActionExecutor**: Coordinated action execution
+- **ClipboardMonitor**: Early clipboard state capture
+- **Persistent Tracking**: File-based processing history
 
 ---
 
-### 5. Utility Systems
+### 5. Advanced Trigger System
 
-#### `macrowhisper/Utils/Placeholders.swift` (169 lines)
+#### `macrowhisper/Utils/TriggerEvaluator.swift` (386 lines)
+**Purpose**: Intelligent trigger evaluation for all action types
+
+**Key Features**:
+- **Multi-criteria evaluation**: Voice, application, and mode triggers
+- **Exception support**: Negative patterns with `!` prefix
+- **Flexible logic**: AND/OR combinations of trigger conditions
+- **Result stripping**: Clean voice results by removing trigger phrases
+- **Comprehensive logging**: Detailed evaluation tracing
+
+**Trigger Types**:
+1. **Voice Triggers**: Regex patterns matching transcribed text
+   - Positive patterns: Match required phrases
+   - Exception patterns: Exclude specific phrases (prefix with `!`)
+   - Result stripping: Remove trigger phrase from action input
+2. **Application Triggers**: Match current foreground application
+   - Bundle ID matching: `com.apple.mail`
+   - Application name matching: Case-insensitive
+3. **Mode Triggers**: Match Superwhisper mode names
+   - Custom mode patterns: `email`, `writing`, etc.
+
+**Evaluation Logic**:
+- **AND logic**: All configured triggers must match
+- **OR logic**: Any configured trigger can match
+- **Smart defaults**: Empty triggers treated as matched for AND logic
+
+---
+
+### 6. Action Execution System
+
+#### `macrowhisper/Utils/ActionExecutor.swift` (323 lines)
+**Purpose**: Coordinated execution of all action types with advanced features
+
+**Key Features**:
+- **Unified execution interface**: Single entry point for all action types
+- **Enhanced clipboard management**: Integration with ClipboardMonitor
+- **Context-aware execution**: Application-specific behavior
+- **Advanced placeholder processing**: Dynamic content replacement
+- **Graceful error handling**: Comprehensive error recovery
+
+**Action Types**:
+1. **Insert Actions**: Text insertion with clipboard management
+2. **URL Actions**: Web/application launching with custom handlers
+3. **Shortcut Actions**: macOS Shortcuts integration with stdin piping
+4. **Shell Scripts**: Bash command execution with environment isolation
+5. **AppleScript**: Native AppleScript execution
+
+**Special Features**:
+- **`.none` handling**: Skip action but apply delays and context changes
+- **`.autoPaste` intelligence**: Smart paste behavior based on input field detection
+- **Move-to functionality**: Application/window focus management
+- **ESC key coordination**: Intelligent ESC simulation for responsiveness
+
+---
+
+### 7. Enhanced Clipboard Management
+
+#### `macrowhisper/Utils/ClipboardMonitor.swift` (554 lines)
+**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts
+
+**Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content.
+
+**Key Features**:
+- **Early monitoring sessions**: Capture clipboard state when recording folder appears
+- **Smart restoration logic**: Determine correct clipboard content to restore
+- **Timing coordination**: Handle ESC simulation and action delays properly
+- **Thread-safe session management**: Concurrent monitoring with proper synchronization
+- **Configurable restoration**: Optional clipboard restoration for user preference
+
+**Session Lifecycle**:
+1. **Early Start**: Begin monitoring when recording folder detected
+2. **Change Tracking**: Monitor all clipboard changes during session
+3. **Smart Analysis**: Determine user vs. system clipboard changes
+4. **Coordinated Execution**: Execute actions with proper timing
+5. **Intelligent Restoration**: Restore appropriate clipboard content
+
+**Restoration Logic**:
+- Prefer user's original clipboard over system-generated content
+- Handle cases where user intentionally copied system result
+- Respect user preference to disable restoration entirely
+
+---
+
+### 8. Inter-Process Communication
+
+#### `macrowhisper/Networking/SocketCommunication.swift` (795 lines)
+**Purpose**: Comprehensive Unix socket server for CLI commands and action execution
+
+**Key Features**:
+- **Extensive command set**: 25+ different CLI commands
+- **Service integration**: Service management commands
+- **Configuration commands**: Live configuration updates
+- **Action execution**: Direct insert execution for CLI
+- **Health monitoring**: Socket health checking and recovery
+- **Thread-safe operation**: Proper queue management
+
+**Command Categories**:
+1. **Configuration**: `reloadConfig`, `updateConfig`
+2. **Information**: `status`, `version`, `debug`, `listInserts`
+3. **Action Management**: `addInsert`, `removeInsert`, `execInsert`
+4. **Service Control**: `serviceStatus`, `serviceStart`, `serviceStop`
+5. **System Control**: `quit`, `autoReturn`
+
+**Advanced Features**:
+- **Placeholder processing**: Full XML and dynamic placeholder support
+- **Clipboard integration**: Proper clipboard handling for CLI commands
+- **Context awareness**: Application and mode detection
+- **Error recovery**: Graceful handling of connection failures
+
+---
+
+### 9. Utility Systems
+
+#### `macrowhisper/Utils/Placeholders.swift` (428 lines)
 **Purpose**: Advanced placeholder processing system for dynamic content replacement
 
-**Key Functions**:
-- `processXmlPlaceholders()`: Extract XML tags from LLM results and clean content
-- `replaceXmlPlaceholders()`: Replace XML placeholders in action strings
-- `processDynamicPlaceholders()`: Handle standard placeholders and date formatting
-
 **Placeholder Types**:
-1. **XML Placeholders**: `{{xml:summary}}` extracts `<summary>content</summary>`
+1. **XML Placeholders**: `{{xml:tagname}}` extracts content from `<tagname>` in LLM results
 2. **Meta.json Fields**: `{{result}}`, `{{llmResult}}`, `{{modeName}}`, etc.
-3. **Date Placeholders**: `{{date:short}}`, `{{date:long}}`, `{{date:yyyy-MM-dd}}`
-4. **Special Fields**: `{{swResult}}` (smart result selection)
+3. **Date Placeholders**: `{{date:format}}` with various format options
+4. **Smart Result**: `{{swResult}}` (intelligent result selection: llmResult > result)
 
-#### `macrowhisper/Utils/Accessibility.swift` (129 lines)
-**Purpose**: macOS accessibility system integration for input simulation
+**Advanced Features**:
+- **XML content extraction**: Parse and clean LLM-generated XML tags
+- **Content sanitization**: Remove HTML/XML artifacts
+- **Date formatting**: Flexible date/time insertion
+- **Shell escaping**: Safe command execution for shell actions
+- **Action-type awareness**: Different escaping for different action types
 
-**Key Functions**:
-- `requestAccessibilityPermission()`: Request accessibility permissions
-- `isInInputField()`: Detect if cursor is in text input field
-- `simulateKeyDown()`: Send keyboard events
-- `simulateEscKeyPress()`: Smart ESC key handling with configuration respect
+#### `macrowhisper/Utils/Accessibility.swift` (225 lines)
+**Purpose**: macOS accessibility system integration with enhanced capabilities
+
+**Key Features**:
+- **Permission management**: Request and validate accessibility permissions
+- **Input field detection**: Advanced detection of text input contexts
+- **Keyboard simulation**: Proper key event generation
+- **Context awareness**: Smart ESC key handling based on application state
 
 **Input Field Detection**:
-- Role-based detection: `AXTextField`, `AXTextArea`, `AXSearchField`
-- Subrole checking: `AXSecureTextField`, `AXTextInput`
-- Editable attribute verification
-- Action capability checking: `AXInsertText`, `AXDelete`
+- **Role-based**: `AXTextField`, `AXTextArea`, `AXSearchField`
+- **Subrole checking**: `AXSecureTextField`, `AXTextInput`
+- **Capability verification**: Check for `AXInsertText`, `AXDelete` actions
+- **Editable validation**: Ensure fields are actually editable
 
-#### `macrowhisper/Utils/Logger.swift` (94 lines)
-**Purpose**: Comprehensive logging system with file rotation
+#### `macrowhisper/Utils/Logger.swift` (111 lines)
+**Purpose**: Comprehensive logging system with file rotation and intelligent output
 
 **Features**:
-- **Log Levels**: DEBUG, INFO, WARNING, ERROR
-- **File Rotation**: Automatic rotation when logs exceed 5MB
-- **Console Output**: Conditional console logging based on TTY detection
-- **Timestamp Formatting**: Consistent timestamp format across all logs
+- **Multiple log levels**: DEBUG, INFO, WARNING, ERROR
+- **Automatic file rotation**: Rotation when logs exceed 5MB
+- **Smart console output**: TTY detection for appropriate console logging
+- **Thread-safe operations**: Proper synchronization for concurrent access
+- **Structured formatting**: Consistent timestamps and component identification
 
-**Global Logging Functions**:
-- `logInfo()`, `logWarning()`, `logError()`, `logDebug()`
-
-#### `macrowhisper/Utils/NotificationManager.swift` (24 lines)
-**Purpose**: System notification handling
-
-**Simple Implementation**:
-- Uses AppleScript for cross-system compatibility
-- Respects global notification disable setting
-- Provides `notify()` global function
-
-#### `macrowhisper/Utils/ShellUtils.swift` (11 lines)
-**Purpose**: Shell command safety utilities
-
-**Key Function**:
-- `escapeShellCharacters()`: Escape special characters for safe shell execution
-- Handles: `\`, `"`, `` ` ``, `$` characters
+**Global Functions**: `logInfo()`, `logWarning()`, `logError()`, `logDebug()`
 
 ---
 
-### 6. History Management
+### 10. History Management
 
-#### `macrowhisper/History/HistoryManager.swift` (114 lines)
-**Purpose**: Automatic cleanup of old recording files based on retention policies
+#### `macrowhisper/History/HistoryManager.swift` (116 lines)
+**Purpose**: Intelligent cleanup of old recordings with flexible policies
 
-**Key Features**:
-- **Configurable Retention**: Based on `history` setting in configuration
-- **Smart Cleanup**: Keeps most recent recording when `history = 0`
-- **Scheduled Execution**: Runs cleanup every 24 hours
-- **Safe Deletion**: Handles errors gracefully and logs results
-
-**Cleanup Logic**:
+**Cleanup Policies**:
 - `history = null`: Keep all recordings (no cleanup)
 - `history = 0`: Keep only the most recent recording
 - `history = N`: Keep recordings from last N days
 
+**Features**:
+- **Scheduled execution**: Automatic cleanup every 24 hours
+- **Safe deletion**: Handles errors gracefully and logs results
+- **Smart preservation**: Always keeps at least one recording when `history = 0`
+- **Configurable retention**: Respects user configuration changes
+
 ---
 
-### 7. Network Services
+### 11. Network Services
 
-#### `macrowhisper/Networking/VersionChecker.swift` (347 lines)
-**Purpose**: Automatic update checking for CLI and Keyboard Maestro components
+#### `macrowhisper/Networking/VersionChecker.swift` (515 lines)
+**Purpose**: Intelligent update checking with advanced notification system
 
 **Key Features**:
-- **Dual Component Checking**: Monitors both CLI and KM macro versions
-- **Smart Notifications**: Different notification types based on what needs updating
-- **Backoff Strategy**: Prevents excessive checking after failures
-- **Version Comparison**: Semantic version comparison logic
+- **Dual component tracking**: Monitors both CLI and Keyboard Maestro components
+- **Smart notifications**: Different notification types based on update requirements
+- **Backoff strategy**: Prevents excessive checking after failures
+- **Configuration respect**: Honors `noUpdates` setting and timing constraints
+- **Comprehensive state management**: Tracks update states and user responses
 
 **Update Flow**:
-1. Check versions.json from GitHub repository
-2. Compare current versions with latest available
-3. Show appropriate notification based on what needs updating
-4. Provide update instructions or direct links
+1. **Version comparison**: Semantic version comparison logic
+2. **Component analysis**: Determine which components need updates
+3. **Smart notifications**: Show appropriate message based on update needs
+4. **Update guidance**: Provide specific instructions or direct links
+5. **State persistence**: Remember check dates and backoff periods
 
 ---
 
@@ -305,81 +415,112 @@ macrowhisper-cli/src/
 ### 1. Application Startup Flow
 ```
 main.swift
-├── Load configuration (ConfigurationManager)
-├── Initialize logging (Logger)
-├── Acquire single instance lock
-├── Start socket server (SocketCommunication)
-├── Initialize history manager (HistoryManager)
-├── Start recordings watcher (RecordingsFolderWatcher)
+├── Parse CLI arguments and handle quick commands
+├── Acquire single instance lock (prevents multiple instances)
+├── Initialize configuration manager with path priority
+├── Start socket server for IPC
+├── Initialize history manager for cleanup
+├── Start recordings watcher (if path valid)
+├── Register for system sleep/wake notifications
+├── Start socket health monitoring
+├── Initialize version checker
 └── Enter main run loop
 ```
 
-### 2. Recording Processing Flow
+### 2. Recording Processing Flow (Enhanced)
 ```
 RecordingsFolderWatcher detects new directory
-├── Check if already processed
+├── Start early clipboard monitoring (ClipboardMonitor)
+├── Check if already processed (persistent tracking)
 ├── Look for meta.json file
-├── If not found, watch for creation
+├── If not found, watch for creation with timeout
 ├── Once available, parse meta.json
-├── Determine active insert/action
-├── Process placeholders (Placeholders.swift)
-├── Execute action (SocketCommunication)
-├── Handle accessibility (Accessibility.swift)
-├── Mark as processed
-└── Log results (Logger)
+├── Gather application context (foreground app, bundle ID)
+├── Evaluate triggers (TriggerEvaluator)
+│   ├── Check voice triggers (with exceptions)
+│   ├── Check application triggers
+│   ├── Check mode triggers
+│   └── Apply trigger logic (AND/OR)
+├── Execute matched actions (ActionExecutor)
+│   ├── Process placeholders (Placeholders.swift)
+│   ├── Execute with enhanced clipboard sync (ClipboardMonitor)
+│   ├── Handle accessibility requirements (Accessibility.swift)
+│   └── Apply delays and context changes
+├── Mark as processed (persistent tracking)
+└── Clean up monitoring sessions
 ```
 
-### 3. Configuration Management Flow
+### 3. Service Management Flow
+```
+Service commands (--install-service, --start-service, etc.)
+├── Initialize ServiceManager
+├── Detect current binary path (multiple strategies)
+├── Validate configuration requirements
+├── Create/update launchd plist
+├── Execute launchctl commands
+├── Verify service state
+└── Provide user feedback
+```
+
+### 4. Configuration Management Flow
 ```
 ConfigurationManager
-├── Load from JSON file
+├── Determine effective config path (priority order)
+├── Load from JSON file with validation
 ├── Watch for file changes (ConfigChangeWatcher)
-├── Handle CLI updates
-├── Validate and save changes
-├── Notify components of updates
-└── Trigger watcher restart if needed
+├── Handle CLI updates through command queue
+├── Validate and save changes with formatting
+├── Notify components of updates (live reload)
+└── Trigger dependent component restarts
 ```
 
-### 4. CLI Command Flow
+### 5. CLI Command Flow
 ```
 CLI command received
-├── Check single instance lock
-├── Send command via socket (SocketCommunication)
-├── Server processes command
-├── Execute appropriate action
-├── Return response to client
-└── Exit client process
+├── Parse arguments and detect command type
+├── Handle quick commands (help, version, config management)
+├── Check single instance lock for daemon commands
+├── Send command via Unix socket (SocketCommunication)
+├── Server processes command with appropriate handler
+├── Execute action or return information
+├── Return structured response to client
+└── Exit client process with appropriate code
 ```
 
 ---
 
-## Key Design Patterns
+## Advanced Design Patterns
 
-### 1. **Single Instance Pattern**
-- Uses file locking to ensure only one instance runs
-- CLI commands communicate with running instance via Unix socket
+### 1. **Enhanced Single Instance Pattern**
+- File-based locking with proper cleanup
+- Socket health monitoring and recovery
+- Graceful handling of crashed instances
 
-### 2. **Observer Pattern**
-- File system watchers notify of changes
-- Configuration changes trigger component updates
+### 2. **Comprehensive Observer Pattern**
+- File system watchers with proper cleanup
+- Configuration change propagation
+- System sleep/wake event handling
 
-### 3. **Command Pattern**
-- Socket communication uses structured command messages
-- Each command type has specific handling logic
+### 3. **Sophisticated Command Pattern**
+- Structured socket communication with 25+ commands
+- Command queuing for configuration updates
+- Type-safe command serialization
 
-### 4. **Strategy Pattern**
-- Different action types (insert, URL, shell, AppleScript) use common interface
-- Placeholder processing supports multiple replacement strategies
+### 4. **Advanced Strategy Pattern**
+- Multiple action types with unified interface
+- Pluggable trigger evaluation strategies
+- Configurable clipboard restoration strategies
 
-### 5. **Template Method Pattern**
-- Action execution follows consistent flow with customizable steps
-- Accessibility checks and delay handling are standardized
+### 5. **Service Oriented Architecture**
+- Clear separation of concerns across components
+- Dependency injection for testability
+- Proper error boundary isolation
 
 ---
 
-## Configuration Schema
+## Configuration Schema (Enhanced)
 
-The application uses a JSON configuration file with the following structure:
+The application uses a comprehensive JSON configuration file:
 
 ```json
 {
@@ -387,116 +528,132 @@ The application uses a JSON configuration file with the following structure:
     "watch": "~/Documents/superwhisper",
     "noUpdates": false,
     "noNoti": false,
-    "activeInsert": "default",
+    "activeInsert": "",
     "icon": "",
     "moveTo": "",
     "noEsc": false,
     "simKeypress": false,
     "actionDelay": 0.0,
     "history": null,
-    "pressReturn": false
+    "pressReturn": false,
+    "returnDelay": 0.1,
+    "restoreClipboard": true
   },
   "inserts": {
     "insertName": {
-      "action": "Text to insert with {{placeholders}}",
-      "triggerVoice": "^(summarize|summary)",
-      "triggerApps": "com.apple.mail",
-      "triggerModes": "email",
-      "triggerLogic": "or"
+      "action": "Text with {{placeholders}} and {{xml:tags}}",
+      "triggerVoice": "^(summarize|summary)|!ignore_this",
+      "triggerApps": "com.apple.mail|Mail",
+      "triggerModes": "email|writing",
+      "triggerLogic": "or",
+      "icon": "",
+      "moveTo": "",
+      "noEsc": false,
+      "simKeypress": false,
+      "actionDelay": 0.0,
+      "pressReturn": false
     }
   },
-  "urls": { /* Similar structure */ },
-  "shortcuts": { /* Similar structure */ },
-  "shell": { /* Similar structure */ },
-  "applescript": { /* Similar structure */ }
+  "urls": { /* Similar structure with openWith field */ },
+  "shortcuts": { /* Similar structure for macOS Shortcuts */ },
+  "scriptsShell": { /* Similar structure for shell scripts */ },
+  "scriptsAS": { /* Similar structure for AppleScript */ }
 }
 ```
 
 ---
 
-## Dependencies
+## Dependencies and Requirements
 
 ### External Dependencies (Package.swift)
-- **Swifter**: HTTP server framework (used for socket communication)
+- **Swifter**: HTTP/Socket server framework (1.5.0+)
 
 ### System Dependencies
 - **Foundation**: Core Swift framework
 - **Cocoa**: macOS UI framework
 - **ApplicationServices**: Accessibility and input simulation
 - **Carbon**: Low-level keyboard event handling
-- **UserNotifications**: System notifications (legacy)
+- **UserNotifications**: System notifications
+- **Darwin**: Unix system calls
+
+### macOS Requirements
+- **macOS 10.15+**: Required for advanced accessibility features
+- **Accessibility Permission**: Required for input simulation
+- **AppleScript Permission**: Required for AppleScript execution
 
 ---
 
-## File Permissions and Security
+## File System Layout
 
-### Required Permissions (Info.plist)
-- **NSAppleEventsUsageDescription**: Required for AppleScript execution
-- **NSAccessibilityUsageDescription**: Required for keyboard input simulation
-
-### File System Access
-- **Configuration**: `~/.config/macrowhisper/`
+### Configuration and Data
+- **Configuration**: `~/.config/macrowhisper/` (customizable)
 - **Logs**: `~/Library/Logs/Macrowhisper/`
-- **Socket**: `~/.config/macrowhisper/macrowhisper.sock`
-- **Lock File**: `/tmp/macrowhisper.lock`
+- **Service Logs**: `~/Library/Logs/Macrowhisper/service.log`
 - **Processed Recordings**: `~/Library/Application Support/Macrowhisper/`
+- **Launch Agent**: `~/Library/LaunchAgents/com.macrowhisper.aft.plist`
+
+### Runtime Files
+- **Unix Socket**: `/tmp/macrowhisper-{uid}.sock`
+- **Lock File**: `/tmp/macrowhisper.lock`
+- **Config Preferences**: UserDefaults `com.macrowhisper.preferences`
 
 ---
 
-## Error Handling and Logging
+## Error Handling and Recovery
+
+### Comprehensive Error Recovery
+- **Configuration errors**: JSON validation with user notification
+- **Socket failures**: Automatic socket recovery with health monitoring
+- **File system errors**: Graceful degradation and retry logic
+- **Service failures**: Automatic restart and recovery procedures
+- **Accessibility errors**: Clear user guidance and fallback behavior
 
 ### Logging Strategy
-- **File-based logging** with automatic rotation
+- **Structured logging** with contextual information
+- **Automatic log rotation** to prevent disk space issues
 - **Console output** when running interactively
-- **Structured log levels** (DEBUG, INFO, WARNING, ERROR)
-- **Contextual information** including timestamps and component names
-
-### Error Recovery
-- **Graceful degradation** when components fail
-- **Automatic retry** for transient failures
-- **User notification** for critical errors
-- **Configuration validation** with fallback to defaults
+- **Service logging** for background operation debugging
 
 ---
 
-## Performance Considerations
+## Performance Optimizations
 
-### File System Monitoring
-- **Efficient event-driven** monitoring using `DispatchSource`
-- **Minimal polling** - only when necessary for meta.json completion
-- **Processed recording tracking** to avoid duplicate processing
+### Efficient Operations
+- **Thread-safe design**: Proper queue usage for concurrent operations
+- **Minimal polling**: Event-driven architecture with efficient file watching
+- **Smart caching**: Configuration caching with invalidation
+- **Resource cleanup**: Proper cleanup of file handles and watchers
+- **Background processing**: Non-blocking action execution
 
 ### Memory Management
-- **Weak references** in closures to prevent retain cycles
-- **Automatic cleanup** of temporary watchers
-- **Log file rotation** to prevent unbounded growth
-
-### Thread Safety
-- **Dedicated queues** for different components
-- **Synchronized access** to shared configuration
-- **Background processing** for network operations
+- **Weak references**: Prevent retain cycles in closures
+- **Resource pooling**: Efficient reuse of expensive objects
+- **Automatic cleanup**: Timer-based cleanup of expired sessions
+- **Bounded queues**: Prevent unbounded memory growth
 
 ---
 
 ## Future Extension Points
 
-### Trigger System
-The configuration includes placeholder trigger fields for future extensibility:
-- **Voice triggers**: Regex matching on transcribed text
-- **App triggers**: Regex matching on application names/bundle IDs
-- **Mode triggers**: Regex matching on Superwhisper modes
-- **Trigger logic**: AND/OR combinations of trigger conditions
+### Trigger System Evolution
+- **Advanced pattern matching**: Support for complex regex patterns
+- **Machine learning integration**: Smart trigger learning from user behavior
+- **Context awareness**: Time-based and location-based triggers
+- **Conditional logic**: Complex trigger combinations and nested conditions
 
-### Action Types
-The modular action system can be extended with new action types:
-- Current: Insert, URL, Shell, AppleScript, Shortcut
-- Potential: File operations, API calls, database operations
+### Action Type Expansion
+- **Current types**: Insert, URL, Shell, AppleScript, Shortcut
+- **Potential additions**: 
+  - File operations (create, move, delete)
+  - API calls and webhooks
+  - Database operations
+  - System automation (brightness, volume, etc.)
+  - Multi-step workflows
 
-### Placeholder System
-The placeholder processing system supports:
-- **XML tag extraction** from LLM results
-- **Dynamic content** from meta.json
-- **Date/time formatting**
-- **Custom functions** (extensible)
+### Integration Capabilities
+- **Third-party apps**: Plugin system for external integrations
+- **Cloud services**: Integration with cloud storage and APIs
+- **Automation platforms**: Zapier, IFTTT integration
+- **Development tools**: IDE and editor integrations
 
-This codebase map serves as a comprehensive guide for understanding and extending the Macrowhisper application. Each component is designed with clear separation of concerns and well-defined interfaces, making it easy to modify or extend functionality while maintaining system stability.
+This comprehensive codebase map serves as a complete guide for understanding, maintaining, and extending the Macrowhisper application. The architecture supports robust operation, easy extensibility, and maintainable code organization across all components.

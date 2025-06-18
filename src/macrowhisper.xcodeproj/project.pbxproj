@@ -259,11 +259,13 @@
 		AB2F888E2DC796E2002DB426 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = T25AGZF6DS;
 				INFOPLIST_FILE = macrowhisper/Info.plist;
-				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				PRODUCT_BUNDLE_IDENTIFIER = com.afadingthought.macrowhisper;
+				MACOSX_DEPLOYMENT_TARGET = 12.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aft.macrowhisper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 			};
@@ -272,12 +274,17 @@
 		AB2F888F2DC796E2002DB426 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = T25AGZF6DS;
 				INFOPLIST_FILE = macrowhisper/Info.plist;
-				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				PRODUCT_BUNDLE_IDENTIFIER = com.afadingthought.macrowhisper;
+				MACOSX_DEPLOYMENT_TARGET = 12.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aft.macrowhisper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
