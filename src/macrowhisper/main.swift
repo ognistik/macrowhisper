@@ -956,7 +956,7 @@ func printHelp() {
       --reveal-config               Open the configuration file in Finder
                                     (creates default config if none exists)
 
-    SERVICE MANAGEMENT (work without running instance):
+    SERVICE MANAGEMENT (this will allow you to run in bg - work without running instance):
       --install-service             Install macrowhisper as a system service
       --start-service               Start the service (installs if needed, stops existing daemon)
       --stop-service                Stop the service and any running daemon instances
@@ -966,26 +966,6 @@ func printHelp() {
 
     RUNTIME COMMANDS (require running instance):
       -s, --status                  Get the status of the running instance
-
-    CONFIG EDITING (require running instance):
-      --watch <path>                Set path to superwhisper folder
-      --no-updates <true/false>     Enable or disable automatic update checking
-      --no-noti <true/false>        Enable or disable all notifications
-      --no-esc <true/false>         Disable all ESC key simulations when set to true
-      --action-delay <seconds>      Set delay in seconds before actions are executed
-      --return-delay <seconds>      Set delay in seconds before return key press
-      --history <days>              Set number of days to keep recordings (0 to keep most recent)
-                                    Use 'null' or no value to disable history management
-      --sim-keypress <true/false>   Simulate key presses for text input
-                                    (note: linebreaks are treated as return presses)
-      --press-return <true/false>   Simulate return key press after every insert execution
-                                    (persistent setting, unlike --auto-return which is one-time)
-      --restore-clipboard <true/false> Enable or disable clipboard restoration
-                                    after insert actions (default: true)
-      --icon <icon>                 Set the default icon to use when no insert icon is available
-                                    Use '.none' to explicitly use no icon
-      --move-to <path>              Set the default path to move folder to after processing
-                                    Use '.delete' to delete folder, '.none' to not move
 
     INSERT MANAGEMENT (require running instance):
       --list-inserts                List all configured inserts
@@ -1009,8 +989,30 @@ func printHelp() {
       --remove-shell <name>         Remove a shell script action
       --remove-as <name>            Remove an AppleScript action
 
+    CONFIG EDITING (require running instance):
+      --watch <path>                Set path to superwhisper folder
+      --no-updates <true/false>     Enable or disable automatic update checking
+      --no-noti <true/false>        Enable or disable all notifications
+      --no-esc <true/false>         Disable all ESC key simulations when set to true
+      --action-delay <seconds>      Set delay in seconds before actions are executed
+      --return-delay <seconds>      Set delay in seconds before return key press
+      --history <days>              Set number of days to keep recordings (0 to keep most recent)
+                                    Use 'null' or no value to disable history management
+      --sim-keypress <true/false>   Simulate key presses for text input
+                                    (note: linebreaks are treated as return presses)
+      --press-return <true/false>   Simulate return key press after every insert execution
+                                    (persistent setting, unlike --auto-return which is one-time)
+      --restore-clipboard <true/false> Enable or disable clipboard restoration
+                                    after insert actions (default: true)
+      --icon <icon>                 Set the default icon to use when no insert icon is available
+                                    Use '.none' to explicitly use no icon
+      --move-to <path>              Set the default path to move folder to after processing
+                                    Use '.delete' to delete folder, '.none' to not move
+    
     OTHER (require running daemon):
       --check-updates               Force check for updates
+      --version-state               Checks the state of update checks
+                                    (useful for debugging)
 
     Examples:
       macrowhisper
