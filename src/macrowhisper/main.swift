@@ -337,18 +337,20 @@ if args.contains("--get-config") {
 
 // Service management commands (work without daemon)
 if args.contains("--install-service") {
+    suppressConsoleLogging = true
     let serviceManager = ServiceManager()
     let result = serviceManager.installService()
     if result.success {
-        print("✅ \(result.message)")
+        print(result.message)
     } else {
-        print("❌ \(result.message)")
+        print(result.message)
         exit(1)
     }
     exit(0)
 }
 
 if args.contains("--start-service") {
+    suppressConsoleLogging = true
     let serviceManager = ServiceManager()
     
     // Check if there's a running daemon instance and stop it first
@@ -361,15 +363,16 @@ if args.contains("--start-service") {
     
     let result = serviceManager.startService()
     if result.success {
-        print("✅ \(result.message)")
+        print(result.message)
     } else {
-        print("❌ \(result.message)")
+        print(result.message)
         exit(1)
     }
     exit(0)
 }
 
 if args.contains("--stop-service") {
+    suppressConsoleLogging = true
     let serviceManager = ServiceManager()
     
     // Try to stop the service first
@@ -377,22 +380,22 @@ if args.contains("--stop-service") {
     var stoppedService = false
     
     if serviceResult.success && serviceResult.message != "Service is not running" {
-        print("✅ Service stopped: \(serviceResult.message)")
+        print("Service stopped: \(serviceResult.message)")
         stoppedService = true
     }
     
     // Also try to stop any running daemon instance
     let daemonResult = serviceManager.stopRunningDaemon()
     if daemonResult.success && daemonResult.message != "No running daemon instance found" {
-        print("✅ Daemon stopped: \(daemonResult.message)")
+        print("Daemon stopped: \(daemonResult.message)")
         stoppedService = true
     }
     
     if !stoppedService {
         if serviceResult.success {
-            print("ℹ️  Service is not running")
+            print("Service is not running")
         } else {
-            print("❌ \(serviceResult.message)")
+            print(serviceResult.message)
             exit(1)
         }
     }
@@ -400,24 +403,26 @@ if args.contains("--stop-service") {
 }
 
 if args.contains("--restart-service") {
+    suppressConsoleLogging = true
     let serviceManager = ServiceManager()
     let result = serviceManager.restartService()
     if result.success {
-        print("✅ \(result.message)")
+        print(result.message)
     } else {
-        print("❌ \(result.message)")
+        print(result.message)
         exit(1)
     }
     exit(0)
 }
 
 if args.contains("--uninstall-service") {
+    suppressConsoleLogging = true
     let serviceManager = ServiceManager()
     let result = serviceManager.uninstallService()
     if result.success {
-        print("✅ \(result.message)")
+        print(result.message)
     } else {
-        print("❌ \(result.message)")
+        print(result.message)
         exit(1)
     }
     exit(0)

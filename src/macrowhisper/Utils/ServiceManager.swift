@@ -3,8 +3,8 @@ import Darwin
 
 /// Manages macOS launchd service operations for macrowhisper
 class ServiceManager {
-    private let serviceName = "com.macrowhisper.daemon"
-    private let serviceFileName = "com.macrowhisper.daemon.plist"
+    private let serviceName = "com.macrowhisper.aft"
+    private let serviceFileName = "com.macrowhisper.aft.plist"
     private var launchAgentsPath: String {
         return ("~/Library/LaunchAgents" as NSString).expandingTildeInPath
     }
