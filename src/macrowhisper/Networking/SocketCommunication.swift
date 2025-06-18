@@ -12,7 +12,6 @@ class SocketCommunication {
     private var serverSocket: Int32 = -1
     private let queue = DispatchQueue(label: "com.macrowhisper.socket", qos: .utility)
     private var configManagerRef: ConfigurationManager?
-    private let logger: Logger
     
     enum Command: String, Codable {
         case reloadConfig
@@ -39,6 +38,13 @@ class SocketCommunication {
         case versionState
         case forceUpdateCheck
         case versionClear
+        // Service management commands
+        case serviceStatus
+        case serviceInstall
+        case serviceStart
+        case serviceStop
+        case serviceRestart
+        case serviceUninstall
     }
     
     struct CommandMessage: Codable {
@@ -46,9 +52,8 @@ class SocketCommunication {
         let arguments: [String: String]?
     }
     
-    init(socketPath: String, logger: Logger) {
+    init(socketPath: String) {
         self.socketPath = socketPath
-        self.logger = logger
     }
     
     func startServer(configManager: ConfigurationManager) {
@@ -677,6 +682,42 @@ class SocketCommunication {
                 let versionChecker = VersionChecker()
                 versionChecker.clearAllUserDefaults()
                 response = "All version checker UserDefaults cleared. Next check will start fresh."
+                write(clientSocket, response, response.utf8.count)
+                
+            // Service management commands
+            case .serviceStatus:
+                let serviceManager = ServiceManager()
+                response = serviceManager.getServiceStatus()
+                write(clientSocket, response, response.utf8.count)
+                
+            case .serviceInstall:
+                let serviceManager = ServiceManager()
+                let result = serviceManager.installService()
+                response = result.message
+                write(clientSocket, response, response.utf8.count)
+                
+            case .serviceStart:
+                let serviceManager = ServiceManager()
+                let result = serviceManager.startService()
+                response = result.message
+                write(clientSocket, response, response.utf8.count)
+                
+            case .serviceStop:
+                let serviceManager = ServiceManager()
+                let result = serviceManager.stopService()
+                response = result.message
+                write(clientSocket, response, response.utf8.count)
+                
+            case .serviceRestart:
+                let serviceManager = ServiceManager()
+                let result = serviceManager.restartService()
+                response = result.message
+                write(clientSocket, response, response.utf8.count)
+                
+            case .serviceUninstall:
+                let serviceManager = ServiceManager()
+                let result = serviceManager.uninstallService()
+                response = result.message
                 write(clientSocket, response, response.utf8.count)
                 
             case .quit:

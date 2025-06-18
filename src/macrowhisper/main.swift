@@ -40,7 +40,7 @@ let configDir = ("~/.config/macrowhisper" as NSString).expandingTildeInPath
 let uid = getuid()
 let socketPath = "/tmp/macrowhisper-\(uid).sock"
 
-let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+let socketCommunication = SocketCommunication(socketPath: socketPath)
 
 // MARK: - Helper functions for logging and notifications
 // Utility function to expand tilde in paths
@@ -335,6 +335,100 @@ if args.contains("--get-config") {
     exit(0)
 }
 
+// Service management commands (work without daemon)
+if args.contains("--install-service") {
+    let serviceManager = ServiceManager()
+    let result = serviceManager.installService()
+    if result.success {
+        print("✅ \(result.message)")
+    } else {
+        print("❌ \(result.message)")
+        exit(1)
+    }
+    exit(0)
+}
+
+if args.contains("--start-service") {
+    let serviceManager = ServiceManager()
+    
+    // Check if there's a running daemon instance and stop it first
+    let daemonResult = serviceManager.stopRunningDaemon()
+    if daemonResult.success && daemonResult.message != "No running daemon instance found" {
+        print("Stopped existing daemon instance: \(daemonResult.message)")
+        // Brief delay to ensure clean shutdown
+        Thread.sleep(forTimeInterval: 1.0)
+    }
+    
+    let result = serviceManager.startService()
+    if result.success {
+        print("✅ \(result.message)")
+    } else {
+        print("❌ \(result.message)")
+        exit(1)
+    }
+    exit(0)
+}
+
+if args.contains("--stop-service") {
+    let serviceManager = ServiceManager()
+    
+    // Try to stop the service first
+    let serviceResult = serviceManager.stopService()
+    var stoppedService = false
+    
+    if serviceResult.success && serviceResult.message != "Service is not running" {
+        print("✅ Service stopped: \(serviceResult.message)")
+        stoppedService = true
+    }
+    
+    // Also try to stop any running daemon instance
+    let daemonResult = serviceManager.stopRunningDaemon()
+    if daemonResult.success && daemonResult.message != "No running daemon instance found" {
+        print("✅ Daemon stopped: \(daemonResult.message)")
+        stoppedService = true
+    }
+    
+    if !stoppedService {
+        if serviceResult.success {
+            print("ℹ️  Service is not running")
+        } else {
+            print("❌ \(serviceResult.message)")
+            exit(1)
+        }
+    }
+    exit(0)
+}
+
+if args.contains("--restart-service") {
+    let serviceManager = ServiceManager()
+    let result = serviceManager.restartService()
+    if result.success {
+        print("✅ \(result.message)")
+    } else {
+        print("❌ \(result.message)")
+        exit(1)
+    }
+    exit(0)
+}
+
+if args.contains("--uninstall-service") {
+    let serviceManager = ServiceManager()
+    let result = serviceManager.uninstallService()
+    if result.success {
+        print("✅ \(result.message)")
+    } else {
+        print("❌ \(result.message)")
+        exit(1)
+    }
+    exit(0)
+}
+
+if args.contains("--service-status") {
+    let serviceManager = ServiceManager()
+    print(serviceManager.getServiceStatus())
+    exit(0)
+}
+
 // Commands that require a running daemon
 let requireDaemonCommands = [
     "-s", "--status", "--get-icon", "--get-insert", "--list-inserts", 
@@ -351,7 +445,7 @@ let requireDaemonCommands = [
 let hasDaemonCommand = requireDaemonCommands.contains { args.contains($0) }
 
 if hasDaemonCommand {
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    let socketCommunication = SocketCommunication(socketPath: socketPath)
     
     // Check for status command first (has different error message)
     if args.contains("-s") || args.contains("--status") {
@@ -776,7 +870,7 @@ if args.contains("--test-update-dialog") {
 
 // Hidden commands to show/clear version checker state (require daemon)
 if args.contains("--version-state") || args.contains("--version-clear") {
-    let socketCommunication = SocketCommunication(socketPath: socketPath, logger: logger)
+    let socketCommunication = SocketCommunication(socketPath: socketPath)
     if socketCommunication.sendCommand(.status) == nil {
         print("macrowhisper is not running. Start it first.")
         exit(1)
@@ -808,6 +902,28 @@ if !acquireSingleInstanceLock(lockFilePath: lockPath) {
     exit(1)
 }
 
+// Check if a service is running and provide appropriate feedback
+// Only do this check if we're NOT being started by launchd (i.e., started manually)
+let parentPID = getppid()
+let env = ProcessInfo.processInfo.environment
+let isStartedByLaunchd = env["LAUNCHED_BY_LAUNCHD"] == "1" || 
+                         env["XPC_SERVICE_NAME"] != nil ||
+                         parentPID == 1  // Parent process ID is 1 (launchd)
+
+// Debug logging to understand the startup context
+logDebug("Startup context - Parent PID: \(parentPID), LAUNCHED_BY_LAUNCHD: \(env["LAUNCHED_BY_LAUNCHD"] ?? "nil"), XPC_SERVICE_NAME: \(env["XPC_SERVICE_NAME"] ?? "nil"), isStartedByLaunchd: \(isStartedByLaunchd)")
+
+if !isStartedByLaunchd {
+    let serviceManager = ServiceManager()
+    if serviceManager.isServiceRunning() {
+        logInfo("Service is already running. Configuration has been reloaded.")
+        print("✅ macrowhisper service is already running. Configuration has been reloaded.")
+        exit(0)
+    }
+} else {
+    logDebug("Started by launchd - proceeding with daemon initialization")
+}
+
 // MARK: - Argument Parsing and Startup
 
 let defaultSuperwhisperPath = ("~/Documents/superwhisper" as NSString).expandingTildeInPath
@@ -835,9 +951,17 @@ func printHelp() {
       --reveal-config               Open the configuration file in Finder
                                     (creates default config if none exists)
 
+    SERVICE MANAGEMENT (work without running instance):
+      --install-service             Install macrowhisper as a system service
+      --start-service               Start the service (installs if needed, stops existing daemon)
+      --stop-service                Stop the service and any running daemon instances
+      --restart-service             Restart the service
+      --uninstall-service           Uninstall the service (stops it first)
+      --service-status              Show detailed service status information
+
     RUNTIME COMMANDS (require running instance):
       -s, --status                  Get the status of the running instance
-      --quit, --stop                Quit the running instance
+      --quit, --stop                Quit the running instance (legacy - use --stop-service instead)
 
     CONFIG EDITING (require running instance):
       --watch <path>                Set path to superwhisper folder
@@ -909,7 +1033,17 @@ func printHelp() {
       macrowhisper --set-config ~/my-configs/
         # Sets ~/my-configs/macrowhisper.json as the default config path
 
-    Note: Most commands require a running daemon. Start it first with 'macrowhisper'.
+      macrowhisper --start-service
+        # Install and start macrowhisper as a background service
+
+      macrowhisper --service-status
+        # Check if the service is installed and running
+
+      macrowhisper --stop-service
+        # Stop the background service
+
+    Note: Most commands require a running daemon. Use --start-service for automatic startup,
+    or start manually with 'macrowhisper'.
     """)
 }
 
