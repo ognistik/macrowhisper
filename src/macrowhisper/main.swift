@@ -940,7 +940,7 @@ func printHelp() {
 
     Automation tools for Superwhisper.
 
-    DAEMON COMMANDS (start/manage the background service):
+    DAEMON COMMANDS (start/manage the app - runs it without service):
       (no arguments)                Start app with default configuration
       --config <path>               Start app with custom config file
       --verbose                     Enable verbose logging (debug messages)
@@ -966,7 +966,6 @@ func printHelp() {
 
     RUNTIME COMMANDS (require running instance):
       -s, --status                  Get the status of the running instance
-      --quit, --stop                Quit the running instance (legacy - use --stop-service instead)
 
     CONFIG EDITING (require running instance):
       --watch <path>                Set path to superwhisper folder
@@ -1032,9 +1031,6 @@ func printHelp() {
       macrowhisper --reveal-config
         # Opens the configuration file in Finder (creates it if missing)
 
-      macrowhisper --quit
-        # Stops the running instance
-
       macrowhisper --set-config ~/my-configs/
         # Sets ~/my-configs/macrowhisper.json as the default config path
 
@@ -1091,6 +1087,10 @@ historyManager = HistoryManager(configManager: configManager)
 let config = configManager.config
 disableUpdates = config.defaults.noUpdates
 disableNotifications = config.defaults.noNoti
+
+// Request accessibility permissions upfront for better user experience
+// This ensures users grant permissions at startup rather than being surprised later
+requestAccessibilityPermissionOnStartup()
 
 // Get the final watch path after possible updates
 let watchFolderPath = expandTilde(config.defaults.watch)

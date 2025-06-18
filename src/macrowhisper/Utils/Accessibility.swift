@@ -11,6 +11,36 @@ func requestAccessibilityPermission() -> Bool {
     return AXIsProcessTrustedWithOptions(options)
 }
 
+/// Checks if accessibility permissions are already granted (without showing prompt)
+func checkAccessibilityPermission() -> Bool {
+    return AXIsProcessTrusted()
+}
+
+/// Proactively requests accessibility permissions during app startup
+/// This provides better UX by requesting permissions upfront rather than during first use
+func requestAccessibilityPermissionOnStartup() {
+    // First check if permissions are already granted
+    if AXIsProcessTrusted() {
+        logDebug("Accessibility permissions already granted")
+        return
+    }
+    
+    // If not granted, show the permission dialog
+    logInfo("Requesting accessibility permissions during startup for key simulation and input field detection...")
+    let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
+    let granted = AXIsProcessTrustedWithOptions(options)
+    
+    if granted {
+        logInfo("Accessibility permissions granted")
+        // No notification needed when permissions are granted successfully
+    } else {
+        logWarning("Accessibility permissions were not granted - some features may be limited")
+        if !disableNotifications {
+            notify(title: "Macrowhisper", message: "Accessibility permissions are needed for key simulation and input field detection.")
+        }
+    }
+}
+
 func isInInputField() -> Bool {
     let currentThread = Thread.current
     let threadId = String(describing: Unmanaged.passUnretained(currentThread).toOpaque())

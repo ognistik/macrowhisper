@@ -577,9 +577,7 @@ The application uses a comprehensive JSON configuration file:
 - **Darwin**: Unix system calls
 
 ### macOS Requirements
-- **macOS 10.15+**: Required for advanced accessibility features
-- **Accessibility Permission**: Required for input simulation
-- **AppleScript Permission**: Required for AppleScript execution
+- **Accessibility Permission**: Required for input detection and key simulation
 
 ---
 
@@ -637,23 +635,14 @@ The application uses a comprehensive JSON configuration file:
 
 ### Trigger System Evolution
 - **Advanced pattern matching**: Support for complex regex patterns
-- **Machine learning integration**: Smart trigger learning from user behavior
-- **Context awareness**: Time-based and location-based triggers
-- **Conditional logic**: Complex trigger combinations and nested conditions
+- **Conditional logic**: More complex trigger combinations and nested conditions
 
 ### Action Type Expansion
 - **Current types**: Insert, URL, Shell, AppleScript, Shortcut
 - **Potential additions**: 
   - File operations (create, move, delete)
   - API calls and webhooks
-  - Database operations
   - System automation (brightness, volume, etc.)
-  - Multi-step workflows
-
-### Integration Capabilities
-- **Third-party apps**: Plugin system for external integrations
-- **Cloud services**: Integration with cloud storage and APIs
-- **Automation platforms**: Zapier, IFTTT integration
-- **Development tools**: IDE and editor integrations
+  - Multi-step actions/workflows
 
 This comprehensive codebase map serves as a complete guide for understanding, maintaining, and extending the Macrowhisper application. The architecture supports robust operation, easy extensibility, and maintainable code organization across all components.

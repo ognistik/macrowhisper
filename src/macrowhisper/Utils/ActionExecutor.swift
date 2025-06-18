@@ -92,22 +92,74 @@ class ActionExecutor {
     }
     
     private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String) {
-        processUrlAction(url, metaJson: metaJson)
+        let shouldEsc = !(url.noEsc ?? configManager.config.defaults.noEsc)
+        let actionDelay = url.actionDelay ?? configManager.config.defaults.actionDelay
+        
+        clipboardMonitor.executeNonInsertActionWithClipboardRestore(
+            action: { [weak self] in
+                self?.processUrlAction(url, metaJson: metaJson)
+            },
+            shouldEsc: shouldEsc,
+            actionDelay: actionDelay,
+            recordingPath: recordingPath,
+            metaJson: metaJson,
+            restoreClipboard: configManager.config.defaults.restoreClipboard
+        )
+        
         handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: url)
     }
     
     private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String) {
-        processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: metaJson)
+        let shouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
+        let actionDelay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
+        
+        clipboardMonitor.executeNonInsertActionWithClipboardRestore(
+            action: { [weak self] in
+                self?.processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: metaJson)
+            },
+            shouldEsc: shouldEsc,
+            actionDelay: actionDelay,
+            recordingPath: recordingPath,
+            metaJson: metaJson,
+            restoreClipboard: configManager.config.defaults.restoreClipboard
+        )
+        
         handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shortcut)
     }
     
     private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String) {
-        processShellScriptAction(shell, metaJson: metaJson)
+        let shouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
+        let actionDelay = shell.actionDelay ?? configManager.config.defaults.actionDelay
+        
+        clipboardMonitor.executeNonInsertActionWithClipboardRestore(
+            action: { [weak self] in
+                self?.processShellScriptAction(shell, metaJson: metaJson)
+            },
+            shouldEsc: shouldEsc,
+            actionDelay: actionDelay,
+            recordingPath: recordingPath,
+            metaJson: metaJson,
+            restoreClipboard: configManager.config.defaults.restoreClipboard
+        )
+        
         handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shell)
     }
     
     private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String) {
-        processAppleScriptAction(ascript, metaJson: metaJson)
+        let shouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
+        let actionDelay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
+        
+        clipboardMonitor.executeNonInsertActionWithClipboardRestore(
+            action: { [weak self] in
+                self?.processAppleScriptAction(ascript, metaJson: metaJson)
+            },
+            shouldEsc: shouldEsc,
+            actionDelay: actionDelay,
+            recordingPath: recordingPath,
+            metaJson: metaJson,
+            restoreClipboard: configManager.config.defaults.restoreClipboard
+        )
+        
         handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: ascript)
     }
     
@@ -142,16 +194,7 @@ class ActionExecutor {
             NSWorkspace.shared.open(url)
         }
         
-        // Handle ESC key press if not disabled
-        if !(urlAction.noEsc ?? configManager.config.defaults.noEsc) {
-            simulateEscKeyPress(activeInsert: nil)
-        }
-        
-        // Handle action delay
-        let delay = urlAction.actionDelay ?? configManager.config.defaults.actionDelay
-        if delay > 0 {
-            Thread.sleep(forTimeInterval: delay)
-        }
+        // ESC simulation and action delay are now handled by ClipboardMonitor
     }
     
     private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {
@@ -174,13 +217,7 @@ class ActionExecutor {
         } catch {
             logError("Failed to execute shortcut action: \(error)")
         }
-        if !(shortcut.noEsc ?? configManager.config.defaults.noEsc) {
-            simulateEscKeyPress(activeInsert: nil)
-        }
-        let delay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
-        if delay > 0 {
-            Thread.sleep(forTimeInterval: delay)
-        }
+        // ESC simulation and action delay are now handled by ClipboardMonitor
         autoReturnEnabled = false
     }
     
@@ -197,13 +234,7 @@ class ActionExecutor {
         } catch {
             logError("Failed to execute shell script: \(error)")
         }
-        if !(shell.noEsc ?? configManager.config.defaults.noEsc) {
-            simulateEscKeyPress(activeInsert: nil)
-        }
-        let delay = shell.actionDelay ?? configManager.config.defaults.actionDelay
-        if delay > 0 {
-            Thread.sleep(forTimeInterval: delay)
-        }
+        // ESC simulation and action delay are now handled by ClipboardMonitor
         autoReturnEnabled = false
     }
     
@@ -220,13 +251,7 @@ class ActionExecutor {
         } catch {
             logError("Failed to execute AppleScript action: \(error)")
         }
-        if !(ascript.noEsc ?? configManager.config.defaults.noEsc) {
-            simulateEscKeyPress(activeInsert: nil)
-        }
-        let delay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
-        if delay > 0 {
-            Thread.sleep(forTimeInterval: delay)
-        }
+        // ESC simulation and action delay are now handled by ClipboardMonitor
         autoReturnEnabled = false
     }
     

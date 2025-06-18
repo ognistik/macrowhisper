@@ -401,6 +401,8 @@ class RecordingsFolderWatcher {
                 
                 // Continue processing to allow auto-return to work if enabled
                 handlePostProcessing(recordingPath: recordingPath)
+                
+                // Early monitoring will be stopped by ClipboardMonitor when done
                 return
             }
             
@@ -430,6 +432,8 @@ class RecordingsFolderWatcher {
                 
                 logDebug("Applied auto-return with enhanced clipboard monitoring")
                 handlePostProcessing(recordingPath: recordingPath)
+                
+                // Early monitoring will be stopped by ClipboardMonitor when done
                 return
             }
             
@@ -474,8 +478,7 @@ class RecordingsFolderWatcher {
             
             handlePostProcessing(recordingPath: recordingPath)
             
-            // Stop early clipboard monitoring when processing is complete
-            clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+            // Early monitoring will be stopped by ClipboardMonitor when done
         } catch {
             logError("Error reading meta.json at \(metaJsonPath): \(error)")
             watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
