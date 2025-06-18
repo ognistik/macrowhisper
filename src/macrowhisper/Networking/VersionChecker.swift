@@ -19,7 +19,7 @@ class VersionChecker {
     private let failedCheckBackoffInterval: TimeInterval = 3600 // 1 hour
     private var updateCheckInProgress = false
     private let currentCLIVersion = APP_VERSION
-    private let versionsURL = "https://raw.githubusercontent.com/ognistik/macrowhisper-cli/main/versions.json"
+    private let versionsURL = "https://raw.githubusercontent.com/ognistik/macrowhisper/main/versions.json"
     
     private var lastCheckDate: Date? {
         get {

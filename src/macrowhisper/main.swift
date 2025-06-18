@@ -9,7 +9,7 @@ import ApplicationServices
 import Cocoa
 import Carbon.HIToolbox
 
-let APP_VERSION = "1.0.0"
+let APP_VERSION = "1.1.0"
 private let UNIX_PATH_MAX = 104
 
 // MARK: - Global instances
