@@ -55,7 +55,7 @@ class ConfigurationManager {
         }
         
         // Initialize with default config first
-        self._config = AppConfiguration()
+        self._config = AppConfiguration.defaultConfig()
         
         // Check if config file exists before attempting to load
         let fileExistedBefore = fileManager.fileExists(atPath: self.configPath)

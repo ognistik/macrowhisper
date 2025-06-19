@@ -106,7 +106,7 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
         close(fd)
         // Another instance is running
         print("Another instance of macrowhisper is already running.")
-        print("Use 'macrowhisper --status' to check the running instance.")
+        print("Use 'macrowhisper --help' for info on usage.")
         return false
     }
 
@@ -903,7 +903,6 @@ if args.contains("--version-state") || args.contains("--version-clear") {
 // ---- END QUICK COMMANDS ----
 
 if !acquireSingleInstanceLock(lockFilePath: lockPath) {
-    logError("Failed to acquire single instance lock. Exiting.")
     exit(1)
 }
 

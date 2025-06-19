@@ -82,7 +82,7 @@ struct AppConfiguration: Codable {
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
                 noUpdates: false,
                 noNoti: false,
-                activeInsert: "",
+                activeInsert: "autoPaste",
                 icon: "",
                 moveTo: "",
                 noEsc: false,
@@ -452,6 +452,23 @@ struct AppConfiguration: Codable {
     }
 
     static func defaultConfig() -> AppConfiguration {
-        return AppConfiguration()
+        // Create the autoPaste insert with all default fields
+        let autoPasteInsert = Insert(
+            action: ".autoPaste",
+            icon: "•",
+            moveTo: "",
+            noEsc: nil,
+            simKeypress: nil,
+            actionDelay: nil,
+            pressReturn: nil,
+            triggerVoice: "",
+            triggerApps: "",
+            triggerModes: "",
+            triggerLogic: "or"
+        )
+        
+        return AppConfiguration(
+            inserts: ["autoPaste": autoPasteInsert]
+        )
     }
 } 
