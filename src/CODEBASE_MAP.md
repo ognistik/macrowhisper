@@ -4,6 +4,8 @@
 
 **Macrowhisper** is a sophisticated automation helper application designed to work seamlessly with **Superwhisper**, a dictation application. It functions as a file watcher and automation engine that monitors transcribed results from Superwhisper (stored in `meta.json` files) and executes various automated actions based on configurable rules and intelligent triggers.
 
+> **Note**: This codebase map reflects the current state as of version 1.1.0, with all line counts and feature descriptions updated to match the actual implementation.
+
 ### Core Functionality
 - **File Watching**: Monitors Superwhisper's recordings folder for new transcriptions
 - **Intelligent Action Execution**: Supports multiple action types including text insertion, URL opening, shell scripts, AppleScript execution, and keyboard shortcuts
@@ -24,30 +26,29 @@ macrowhisper-cli/src/
 ├── Package.swift                    # Swift Package Manager configuration (Swifter dependency)
 ├── macrowhisper.xcodeproj/          # Xcode project files
 └── macrowhisper/                    # Main application source code
-    ├── main.swift                   # Application entry point and CLI handling (1229 lines)
+    ├── main.swift                   # Application entry point and CLI handling (1101 lines)
     ├── Info.plist                   # App permissions and metadata
     ├── Config/                      # Configuration management system
-    │   ├── AppConfiguration.swift   # Configuration data structures (457 lines)
-    │   └── ConfigurationManager.swift # Configuration loading/saving/watching (377 lines)
+    │   ├── AppConfiguration.swift   # Configuration data structures (473 lines)
+    │   └── ConfigurationManager.swift # Configuration loading/saving/watching (348 lines)
     ├── Watcher/                     # File system monitoring
-    │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings (519 lines)
-    │   └── ConfigChangeWatcher.swift     # Configuration file watcher (43 lines)
+    │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings (521 lines)
+    │   └── ConfigChangeWatcher.swift     # Configuration file watcher (42 lines)
     ├── Networking/                  # Network and IPC functionality
-    │   ├── SocketCommunication.swift    # Unix socket server for CLI commands (795 lines)
-    │   └── VersionChecker.swift         # Automatic update checking (515 lines)
+    │   ├── SocketCommunication.swift    # Unix socket server for CLI commands (794 lines)
+    │   └── VersionChecker.swift         # Automatic update checking (514 lines)
     ├── History/                     # Recording history management
-    │   └── HistoryManager.swift         # Cleanup of old recordings (116 lines)
-    ├── Utils/                       # Utility functions and helpers
-    │   ├── ServiceManager.swift         # macOS launchd service management (438 lines)
-    │   ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (554 lines)
-    │   ├── ActionExecutor.swift         # Action execution coordination (323 lines)
-    │   ├── TriggerEvaluator.swift       # Intelligent trigger evaluation system (386 lines)
-    │   ├── Accessibility.swift          # macOS accessibility and input simulation (225 lines)
-    │   ├── Placeholders.swift           # Dynamic content replacement system (428 lines)
-    │   ├── Logger.swift                 # Logging system with rotation (111 lines)
-    │   ├── NotificationManager.swift    # System notifications (24 lines)
-    │   └── ShellUtils.swift             # Shell command escaping utilities (18 lines)
-    └── Sources/                     # (Empty directory)
+    │   └── HistoryManager.swift         # Cleanup of old recordings (115 lines)
+    └── Utils/                       # Utility functions and helpers
+        ├── ServiceManager.swift         # macOS launchd service management (437 lines)
+        ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (753 lines)
+        ├── ActionExecutor.swift         # Action execution coordination (347 lines)
+        ├── TriggerEvaluator.swift       # Intelligent trigger evaluation system (385 lines)
+        ├── Accessibility.swift          # macOS accessibility and input simulation (254 lines)
+        ├── Placeholders.swift           # Dynamic content replacement system (427 lines)
+        ├── Logger.swift                 # Logging system with rotation (110 lines)
+        ├── NotificationManager.swift    # System notifications (23 lines)
+        └── ShellUtils.swift             # Shell command escaping utilities (17 lines)
 ```
 
 ---
@@ -56,7 +57,7 @@ macrowhisper-cli/src/
 
 ### 1. Application Entry Point
 
-#### `macrowhisper/main.swift` (1229 lines)
+#### `macrowhisper/main.swift` (1101 lines)
 **Purpose**: Application bootstrap, CLI argument parsing, service management, and main event loop
 
 **Key Global Variables**:
@@ -77,11 +78,13 @@ macrowhisper-cli/src/
 - `printHelp()`: Comprehensive CLI help system
 
 **CLI Commands Supported**:
-- **Service Management**: `--install-service`, `--start-service`, `--stop-service`, `--service-status`
+- **Service Management**: `--install-service`, `--start-service`, `--stop-service`, `--restart-service`, `--uninstall-service`, `--service-status`
 - **Configuration**: `--reveal-config`, `--set-config`, `--reset-config`, `--get-config`
 - **Information**: `--help`, `--version`, `--status`, `--verbose`
-- **Insert Management**: `--exec-insert <name>`, `--get-insert`, `--list-inserts`
-- **Runtime Control**: `--auto-return [true/false]`, `--quit`
+- **Insert Management**: `--exec-insert <name>`, `--get-insert`, `--list-inserts`, `--add-insert <name>`, `--remove-insert <name>`
+- **Action Management**: `--add-url <name>`, `--add-shortcut <name>`, `--add-shell <name>`, `--add-as <name>`, `--remove-url <name>`, `--remove-shortcut <name>`, `--remove-shell <name>`, `--remove-as <name>`
+- **Runtime Control**: `--auto-return [true/false]`, `--quit`, `--stop`
+- **Update Management**: `--check-updates`, `--version-state`, `--version-clear`
 
 **Other Features**:
 - Complete service management integration
@@ -93,7 +96,7 @@ macrowhisper-cli/src/
 
 ### 2. Configuration System
 
-#### `macrowhisper/Config/AppConfiguration.swift` (457 lines)
+#### `macrowhisper/Config/AppConfiguration.swift` (473 lines)
 **Purpose**: Defines the complete configuration data structure with advanced features
 
 **Key Structures**:
@@ -131,7 +134,7 @@ macrowhisper-cli/src/
 - Ensures backward compatibility
 - Automatic defaults for missing fields
 
-#### `macrowhisper/Config/ConfigurationManager.swift` (377 lines)
+#### `macrowhisper/Config/ConfigurationManager.swift` (348 lines)
 **Purpose**: Advanced configuration management with persistence and live reloading
 
 **Key Features**:
@@ -158,7 +161,7 @@ macrowhisper-cli/src/
 
 ### 3. Service Management System
 
-#### `macrowhisper/Utils/ServiceManager.swift` (438 lines)
+#### `macrowhisper/Utils/ServiceManager.swift` (437 lines)
 **Purpose**: Complete macOS launchd service integration for background operation
 
 **Key Features**:
@@ -185,7 +188,7 @@ macrowhisper-cli/src/
 
 ### 4. File System Monitoring
 
-#### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (519 lines)
+#### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (521 lines)
 **Purpose**: Advanced file system watcher with intelligent processing
 
 **Key Features**:
@@ -213,7 +216,7 @@ macrowhisper-cli/src/
 
 ### 5. Advanced Trigger System
 
-#### `macrowhisper/Utils/TriggerEvaluator.swift` (386 lines)
+#### `macrowhisper/Utils/TriggerEvaluator.swift` (385 lines)
 **Purpose**: Intelligent trigger evaluation for all action types
 
 **Key Features**:
@@ -243,7 +246,7 @@ macrowhisper-cli/src/
 
 ### 6. Action Execution System
 
-#### `macrowhisper/Utils/ActionExecutor.swift` (323 lines)
+#### `macrowhisper/Utils/ActionExecutor.swift` (347 lines)
 **Purpose**: Coordinated execution of all action types with advanced features
 
 **Key Features**:
@@ -270,7 +273,7 @@ macrowhisper-cli/src/
 
 ### 7. Enhanced Clipboard Management
 
-#### `macrowhisper/Utils/ClipboardMonitor.swift` (554 lines)
+#### `macrowhisper/Utils/ClipboardMonitor.swift` (753 lines)
 **Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts
 
 **Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content.
@@ -298,7 +301,7 @@ macrowhisper-cli/src/
 
 ### 8. Inter-Process Communication
 
-#### `macrowhisper/Networking/SocketCommunication.swift` (795 lines)
+#### `macrowhisper/Networking/SocketCommunication.swift` (794 lines)
 **Purpose**: Comprehensive Unix socket server for CLI commands and action execution
 
 **Key Features**:
@@ -342,7 +345,7 @@ macrowhisper-cli/src/
 - **Shell escaping**: Safe command execution for shell actions
 - **Action-type awareness**: Different escaping for different action types
 
-#### `macrowhisper/Utils/Accessibility.swift` (225 lines)
+#### `macrowhisper/Utils/Accessibility.swift` (254 lines)
 **Purpose**: macOS accessibility system integration with enhanced capabilities
 
 **Key Features**:
@@ -357,7 +360,7 @@ macrowhisper-cli/src/
 - **Capability verification**: Check for `AXInsertText`, `AXDelete` actions
 - **Editable validation**: Ensure fields are actually editable
 
-#### `macrowhisper/Utils/Logger.swift` (111 lines)
+#### `macrowhisper/Utils/Logger.swift` (110 lines)
 **Purpose**: Comprehensive logging system with file rotation and intelligent output
 
 **Features**:
@@ -373,7 +376,7 @@ macrowhisper-cli/src/
 
 ### 10. History Management
 
-#### `macrowhisper/History/HistoryManager.swift` (116 lines)
+#### `macrowhisper/History/HistoryManager.swift` (115 lines)
 **Purpose**: Intelligent cleanup of old recordings with flexible policies
 
 **Cleanup Policies**:
@@ -391,7 +394,7 @@ macrowhisper-cli/src/
 
 ### 11. Network Services
 
-#### `macrowhisper/Networking/VersionChecker.swift` (515 lines)
+#### `macrowhisper/Networking/VersionChecker.swift` (514 lines)
 **Purpose**: Intelligent update checking with advanced notification system
 
 **Key Features**:

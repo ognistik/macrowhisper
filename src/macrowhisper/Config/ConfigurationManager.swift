@@ -240,27 +240,11 @@ class ConfigurationManager {
         }
     }
     
-    func updateFromCommandLine(watchPath: String? = nil, watcher: Bool? = nil, noUpdates: Bool? = nil, noNoti: Bool? = nil, activeInsert: String? = nil, icon: String? = nil, moveTo: String? = nil, noEsc: Bool? = nil, simKeypress: Bool? = nil, history: Int?? = nil, pressReturn: Bool? = nil, actionDelay: Double? = nil, returnDelay: Double? = nil, restoreClipboard: Bool? = nil) {
+    func updateFromCommandLine(watcher: Bool? = nil, activeInsert: String? = nil) {
         
         var shouldSave = false
         
-        if let watchPath = watchPath { _config.defaults.watch = watchPath; shouldSave = true }
-        if let noUpdates = noUpdates { _config.defaults.noUpdates = noUpdates; shouldSave = true }
-        if let noNoti = noNoti { _config.defaults.noNoti = noNoti; shouldSave = true }
         if let activeInsert = activeInsert { _config.defaults.activeInsert = activeInsert.isEmpty ? "" : activeInsert; shouldSave = true }
-        if let icon = icon { _config.defaults.icon = icon; shouldSave = true }
-        if let moveTo = moveTo { _config.defaults.moveTo = moveTo; shouldSave = true }
-        if let noEsc = noEsc { _config.defaults.noEsc = noEsc; shouldSave = true }
-        if let simKeypress = simKeypress { _config.defaults.simKeypress = simKeypress; shouldSave = true }
-        if let pressReturn = pressReturn { _config.defaults.pressReturn = pressReturn; shouldSave = true }
-        if let actionDelay = actionDelay { _config.defaults.actionDelay = actionDelay; shouldSave = true }
-        if let returnDelay = returnDelay { _config.defaults.returnDelay = returnDelay; shouldSave = true }
-        if let restoreClipboard = restoreClipboard { _config.defaults.restoreClipboard = restoreClipboard; shouldSave = true }
-
-        if let history = history {
-            _config.defaults.history = history
-            shouldSave = true
-        }
 
         // Validate activeInsert after updating config
         validateActiveInsertAndNotifyIfNeeded()
@@ -275,20 +259,8 @@ class ConfigurationManager {
             guard let self = self else { return }
             
             self.updateFromCommandLine(
-                watchPath: arguments["watchPath"],
                 watcher: arguments["watcher"].flatMap { Bool($0) },
-                noUpdates: arguments["noUpdates"].flatMap { Bool($0) },
-                noNoti: arguments["noNoti"].flatMap { Bool($0) },
-                activeInsert: arguments["activeInsert"],
-                icon: arguments["icon"],
-                moveTo: arguments["moveTo"],
-                noEsc: arguments["noEsc"].flatMap { Bool($0) },
-                simKeypress: arguments["simKeypress"].flatMap { Bool($0) },
-                history: arguments["history"].map { $0 == "null" ? nil : Int($0) } as Int??,
-                pressReturn: arguments["pressReturn"].flatMap { Bool($0) },
-                actionDelay: arguments["actionDelay"].flatMap { Double($0) },
-                returnDelay: arguments["returnDelay"].flatMap { Double($0) },
-                restoreClipboard: arguments["restoreClipboard"].flatMap { Bool($0) }
+                activeInsert: arguments["activeInsert"]
             )
             
             DispatchQueue.main.async {

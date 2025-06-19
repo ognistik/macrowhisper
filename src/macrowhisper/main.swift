@@ -12,6 +12,11 @@ import Carbon.HIToolbox
 let APP_VERSION = "1.1.0"
 private let UNIX_PATH_MAX = 104
 
+// Dependency version check - Swifter 1.5.0+ required
+// If you encounter socket issues, verify Swifter version compatibility
+
+// Global variable suppressConsoleLogging is imported from Logger.swift
+
 // MARK: - Global instances
 // Global variables
 var disableUpdates: Bool = false
@@ -115,6 +120,12 @@ func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
 }
 
 func checkSocketHealth() -> Bool {
+    // Ensure socket communication is properly initialized
+    guard globalConfigManager != nil else {
+        logDebug("Socket health check skipped - configuration manager not ready")
+        return false
+    }
+    
     // Try to send a simple status command to yourself
     return socketCommunication.sendCommand(.status) != nil
 }
@@ -440,10 +451,7 @@ let requireDaemonCommands = [
     "--check-updates", "--exec-insert", "--auto-return", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
     "--remove-url", "--remove-shortcut", "--remove-shell", "--remove-as", 
-    "--remove-insert", "--quit", "--stop", "--watch", "--no-updates", 
-    "--no-noti", "--insert", "--icon", "--move-to", "--no-esc", 
-    "--sim-keypress", "--action-delay", "--return-delay", "--history", 
-    "--press-return", "--restore-clipboard"
+    "--remove-insert", "--quit", "--stop", "--insert"
 ]
 
 // Check if any of the commands that require a daemon are present
@@ -716,117 +724,12 @@ if hasDaemonCommand {
     // Handle configuration update commands (require daemon)
     var arguments: [String: String] = [:]
     
-    if let watchIndex = args.firstIndex(where: { $0 == "--watch" }),
-       watchIndex + 1 < args.count {
-        arguments["watchPath"] = args[watchIndex + 1]
-    }
-    
-    if args.contains("--no-updates") {
-        let noUpdatesIndex = args.firstIndex(where: { $0 == "--no-updates" })
-        if let index = noUpdatesIndex, index + 1 < args.count {
-            arguments["noUpdates"] = args[index + 1]
-        } else {
-            arguments["noUpdates"] = "true"
-        }
-    }
-    
-    if args.contains("--no-noti") {
-        let noNotiIndex = args.firstIndex(where: { $0 == "--no-noti" })
-        if let index = noNotiIndex, index + 1 < args.count {
-            arguments["noNoti"] = args[index + 1]
-        } else {
-            arguments["noNoti"] = "true"
-        }
-    }
-    
     if args.contains("--insert") {
         let insertIndex = args.firstIndex(where: { $0 == "--insert" })
         if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
             arguments["activeInsert"] = args[index + 1]
         } else {
             arguments["activeInsert"] = ""
-        }
-    }
-    
-    if args.contains("--no-esc") {
-        let noEscIndex = args.firstIndex(where: { $0 == "--no-esc" })
-        if let index = noEscIndex, index + 1 < args.count {
-            arguments["noEsc"] = args[index + 1]
-        } else {
-            arguments["noEsc"] = "true"
-        }
-    }
-    
-    if args.contains("--sim-keypress") {
-        let simKeyPressIndex = args.firstIndex(where: { $0 == "--sim-keypress" })
-        if let index = simKeyPressIndex, index + 1 < args.count {
-            arguments["simKeypress"] = args[index + 1]
-        } else {
-            arguments["simKeypress"] = "true"
-        }
-    }
-    
-    if args.contains("--press-return") {
-        let pressReturnIndex = args.firstIndex(where: { $0 == "--press-return" })
-        if let index = pressReturnIndex, index + 1 < args.count {
-            arguments["pressReturn"] = args[index + 1]
-        } else {
-            arguments["pressReturn"] = "true"
-        }
-    }
-    
-    if args.contains("--icon") {
-        let iconIndex = args.firstIndex(where: { $0 == "--icon" })
-        if let index = iconIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-            arguments["icon"] = args[index + 1]
-        } else {
-            arguments["icon"] = ""
-        }
-    }
-    
-    if args.contains("--action-delay") {
-        let actionDelayIndex = args.firstIndex(where: { $0 == "--action-delay" })
-        if let index = actionDelayIndex, index + 1 < args.count {
-            arguments["actionDelay"] = args[index + 1]
-        }
-    }
-    
-    if args.contains("--return-delay") {
-        let returnDelayIndex = args.firstIndex(where: { $0 == "--return-delay" })
-        if let index = returnDelayIndex, index + 1 < args.count {
-            arguments["returnDelay"] = args[index + 1]
-        }
-    }
-    
-    if args.contains("--history") {
-        let historyIndex = args.firstIndex(where: { $0 == "--history" })
-        if let index = historyIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-            let historyArg = args[index + 1]
-            if historyArg.lowercased() == "null" {
-                arguments["history"] = "null"
-            } else {
-                arguments["history"] = historyArg
-            }
-        } else {
-            arguments["history"] = "null"
-        }
-    }
-    
-    if args.contains("--move-to") {
-        let moveToIndex = args.firstIndex(where: { $0 == "--move-to" })
-        if let index = moveToIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-            arguments["moveTo"] = args[index + 1]
-        } else {
-            arguments["moveTo"] = ""
-        }
-    }
-    
-    if args.contains("--restore-clipboard") {
-        let restoreClipboardIndex = args.firstIndex(where: { $0 == "--restore-clipboard" })
-        if let index = restoreClipboardIndex, index + 1 < args.count {
-            arguments["restoreClipboard"] = args[index + 1]
-        } else {
-            arguments["restoreClipboard"] = "true"
         }
     }
     
@@ -939,7 +842,7 @@ func printHelp() {
 
     Automation tools for Superwhisper.
 
-    DAEMON COMMANDS (start/manage the app - runs it without service):
+    DAEMON COMMANDS (start/manage the app - for debugging. Runs without service):
       (no arguments)                Start app with default configuration
       --config <path>               Start app with custom config file
       --verbose                     Enable verbose logging (debug messages)
@@ -955,7 +858,7 @@ func printHelp() {
       --reveal-config               Open the configuration file in Finder
                                     (creates default config if none exists)
 
-    SERVICE MANAGEMENT (this will allow you to run in bg - work without running instance):
+    SERVICE MANAGEMENT (allows users to run in bg - work without running instance):
       --install-service             Install macrowhisper as a system service
       --start-service               Start the service (installs if needed, stops existing daemon)
       --stop-service                Stop the service and any running daemon instances
@@ -987,26 +890,6 @@ func printHelp() {
       --remove-shortcut <name>      Remove a Shortcuts action
       --remove-shell <name>         Remove a shell script action
       --remove-as <name>            Remove an AppleScript action
-
-    CONFIG EDITING (require running instance):
-      --watch <path>                Set path to superwhisper folder
-      --no-updates <true/false>     Enable or disable automatic update checking
-      --no-noti <true/false>        Enable or disable all notifications
-      --no-esc <true/false>         Disable all ESC key simulations when set to true
-      --action-delay <seconds>      Set delay in seconds before actions are executed
-      --return-delay <seconds>      Set delay in seconds before return key press
-      --history <days>              Set number of days to keep recordings (0 to keep most recent)
-                                    Use 'null' or no value to disable history management
-      --sim-keypress <true/false>   Simulate key presses for text input
-                                    (note: linebreaks are treated as return presses)
-      --press-return <true/false>   Simulate return key press after every insert execution
-                                    (persistent setting, unlike --auto-return which is one-time)
-      --restore-clipboard <true/false> Enable or disable clipboard restoration
-                                    after insert actions (default: true)
-      --icon <icon>                 Set the default icon to use when no insert icon is available
-                                    Use '.none' to explicitly use no icon
-      --move-to <path>              Set the default path to move folder to after processing
-                                    Use '.delete' to delete folder, '.none' to not move
     
     OTHER (require running daemon):
       --check-updates               Force check for updates
@@ -1014,12 +897,6 @@ func printHelp() {
                                     (useful for debugging)
 
     Examples:
-      macrowhisper
-        # Starts the daemon with default configuration
-
-      macrowhisper --config ~/custom-config.json
-        # Starts the daemon with a custom configuration file
-
       macrowhisper --insert pasteResult
         # Sets the active insert to 'pasteResult'
 
@@ -1038,14 +915,8 @@ func printHelp() {
       macrowhisper --start-service
         # Install and start macrowhisper as a background service
 
-      macrowhisper --service-status
-        # Check if the service is installed and running
-
-      macrowhisper --stop-service
-        # Stop the background service
-
-    Note: Most commands require a running daemon. Use --start-service for automatic startup,
-    or start manually with 'macrowhisper'.
+    Note: Most commands require a running daemon. Use --start-service for automatic startup.
+    Once service has been installed, it will run on the background on startup.
     """)
 }
 
