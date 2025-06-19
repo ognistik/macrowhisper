@@ -167,7 +167,7 @@ class ActionExecutor {
     
     private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) {
         // Process the URL action with placeholders
-        let processedAction = processDynamicPlaceholders(action: urlAction.action, metaJson: metaJson)
+        let processedAction = processDynamicPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
         
         // URL encode the processed action
         guard let encodedUrl = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),

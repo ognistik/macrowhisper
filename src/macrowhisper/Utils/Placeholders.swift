@@ -325,11 +325,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 // Use appropriate escaping based on action type
                 let escapedReplacement: String
                 switch actionType {
-                case .shortcut:
-                    escapedReplacement = replacement // No escaping for shortcuts
+                case .shortcut, .insert:
+                    escapedReplacement = replacement // No escaping for shortcuts and insert actions
                 case .appleScript:
                     escapedReplacement = escapeAppleScriptString(replacement)
-                case .shell, .insert, .url:
+                case .shell, .url:
                     escapedReplacement = escapeShellCharacters(replacement)
                 }
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
@@ -352,11 +352,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 // Use appropriate escaping based on action type
                 let escapedValue: String
                 switch actionType {
-                case .shortcut:
-                    escapedValue = value // No escaping for shortcuts
+                case .shortcut, .insert:
+                    escapedValue = value // No escaping for shortcuts and insert actions
                 case .appleScript:
                     escapedValue = escapeAppleScriptString(value)
-                case .shell, .insert, .url:
+                case .shell, .url:
                     escapedValue = escapeShellCharacters(value)
                 }
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -383,11 +383,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 // Use appropriate escaping based on action type
                 let escapedValue: String
                 switch actionType {
-                case .shortcut:
-                    escapedValue = value // No escaping for shortcuts
+                case .shortcut, .insert:
+                    escapedValue = value // No escaping for shortcuts and insert actions
                 case .appleScript:
                     escapedValue = escapeAppleScriptString(value)
-                case .shell, .insert, .url:
+                case .shell, .url:
                     escapedValue = escapeShellCharacters(value)
                 }
                 result.replaceSubrange(fullMatchRange, with: escapedValue)

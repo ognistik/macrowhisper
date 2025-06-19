@@ -145,7 +145,9 @@ class SocketCommunication {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             return (swResult, true)
         }
-        var result = action
+        // Apply newline conversion to the template before processing placeholders
+        // This allows users to type \n in their action templates while preserving literal \n in placeholder content
+        var result = action.replacingOccurrences(of: "\\n", with: "\n")
         var updatedMetaJson = metaJson
         if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
             let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
@@ -155,8 +157,9 @@ class SocketCommunication {
             let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
             result = replaceXmlPlaceholders(action: result, extractedTags: tags)
         }
-        result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson)
-        return (result.replacingOccurrences(of: "\\n", with: "\n"), false)
+        // Use the ActionType-aware function for insert actions to prevent unnecessary escaping
+        result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson, actionType: .insert)
+        return (result, false)
     }
 
     // This version is for the main watcher flow and respects the 'noEsc' setting
