@@ -224,7 +224,7 @@ class VersionChecker {
             logDebug("Showing update dialog now...")
             self.lastReminderDate = Date()
             
-            let brewCommand = "macrowhisper --uninstall-service && brew update && brew upgrade macrowhisper"
+            let brewCommand = "macrowhisper --stop-service && brew update && brew upgrade macrowhisper"
             
             // Build the dialog message with version info, description, and update instructions
             var fullMessage = "Macrowhisper update available:\n\(versionMessage)"

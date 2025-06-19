@@ -840,7 +840,7 @@ func printHelp() {
     print("""
     Usage: macrowhisper [OPTIONS]
 
-    Automation tools for Superwhisper.
+    Automation helper for Superwhisper.
 
     DAEMON COMMANDS (start/manage the app - for debugging. Runs without service):
       (no arguments)                Start app with default configuration
@@ -871,8 +871,8 @@ func printHelp() {
 
     INSERT MANAGEMENT (require running instance):
       --list-inserts                List all configured inserts
-      --add-insert <name>           Add or update an insert
-      --remove-insert <name>        Remove an insert
+      --add-insert <name>           Add an insert action
+      --remove-insert <name>        Remove an insert action
       --exec-insert <name>          Execute an insert action using the last valid result
       --auto-return <true/false>    Simulate return for one interaction with insert actions
       --get-icon                    Get the icon of the active insert
@@ -882,10 +882,10 @@ func printHelp() {
                                     If a name is provided, it sets it as active insert.
 
     ACTION MANAGEMENT (require running instance):
-      --add-url <name>              Add or update a URL action
-      --add-shortcut <name>         Add or update a Shortcuts action
-      --add-shell <name>            Add or update a shell script action
-      --add-as <name>               Add or update an AppleScript action
+      --add-url <name>              Add a URL action
+      --add-shortcut <name>         Add a Shortcuts action
+      --add-shell <name>            Add a shell script action
+      --add-as <name>               Add an AppleScript action
       --remove-url <name>           Remove a URL action
       --remove-shortcut <name>      Remove a Shortcuts action
       --remove-shell <name>         Remove a shell script action
@@ -917,6 +917,9 @@ func printHelp() {
 
     Note: Most commands require a running daemon. Use --start-service for automatic startup.
     Once service has been installed, it will run on the background on startup.
+    
+    In-depth documentation and examples at:
+    https://by.afadingthought.com/macrowhisper
     """)
 }
 
