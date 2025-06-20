@@ -66,7 +66,7 @@ func checkWatcherAvailability() -> Bool {
     return exists
 }
 
-func initializeWatcher(_ path: String) {
+func initializeWatcher(_ path: String, versionChecker: VersionChecker? = nil) {
     let expandedPath = expandTilde(path)
     let recordingsPath = "\(expandedPath)/recordings"
     
@@ -84,7 +84,7 @@ func initializeWatcher(_ path: String) {
         exit(1)
     }
     
-    recordingsWatcher = RecordingsFolderWatcher(basePath: expandedPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+    recordingsWatcher = RecordingsFolderWatcher(basePath: expandedPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
     if recordingsWatcher == nil {
         logWarning("Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Failed to initialize watcher")
@@ -1007,7 +1007,7 @@ if runWatcher {
         exit(1)
     }
     
-    recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+    recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
     if recordingsWatcher == nil {
         logWarning("Warning: Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")
@@ -1024,9 +1024,13 @@ configManager.onConfigChanged = { reason in
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
     disableNotifications = configManager.config.defaults.noNoti
-    // If updates were disabled but are now enabled, reset the version checker state
+    // If updates were disabled but are now enabled, reset the version checker state and perform immediate check
     if previousDisableUpdates == true && disableUpdates == false {
         versionChecker.resetLastCheckDate()
+        // Perform an immediate version check when user enables updates
+        // This ensures they get update notifications right away rather than waiting for the next recording
+        versionChecker.checkForUpdates()
+        logDebug("Performed immediate version check after enabling updates in configuration")
     }
     
     // Handle watch path changes and validation
@@ -1051,7 +1055,7 @@ configManager.onConfigChanged = { reason in
                 logError("History manager not initialized. Exiting.")
                 return
             }
-            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
             if recordingsWatcher == nil {
                 logWarning("Failed to initialize recordings folder watcher for new path: \(currentWatchPath)")
                 notify(title: "Macrowhisper", message: "Failed to initialize watcher for new path.")
@@ -1071,7 +1075,7 @@ configManager.onConfigChanged = { reason in
                 logError("History manager not initialized. Exiting.")
                 return
             }
-            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
             if recordingsWatcher == nil {
                 logWarning("Failed to initialize recordings folder watcher for path: \(currentWatchPath)")
                 notify(title: "Macrowhisper", message: "Failed to initialize watcher for path.")

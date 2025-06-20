@@ -16,8 +16,9 @@ class RecordingsFolderWatcher {
     private let actionExecutor: ActionExecutor
     private let clipboardMonitor: ClipboardMonitor
     private let processedRecordingsFile: String
+    private let versionChecker: VersionChecker?
 
-    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication) {
+    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?) {
         self.path = "\(basePath)/recordings"
         self.configManager = configManager
         self.historyManager = historyManager
@@ -25,6 +26,7 @@ class RecordingsFolderWatcher {
         self.triggerEvaluator = TriggerEvaluator(logger: logger)
         self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager)
         self.clipboardMonitor = ClipboardMonitor(logger: logger)
+        self.versionChecker = versionChecker
         
         // Create a file to track processed recordings
         let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -517,5 +519,11 @@ class RecordingsFolderWatcher {
         }
 
         historyManager.performHistoryCleanup()
+        
+        // Check for version updates during active usage (similar to history cleanup)
+        // This ensures users get update notifications during normal app usage, not just at startup
+        if let versionChecker = self.versionChecker {
+            versionChecker.checkForUpdates()
+        }
     }
 } 

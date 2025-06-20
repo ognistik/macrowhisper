@@ -395,14 +395,20 @@ macrowhisper-cli/src/
 ### 11. Network Services
 
 #### `macrowhisper/Networking/VersionChecker.swift` (514 lines)
-**Purpose**: Intelligent update checking with advanced notification system
+**Purpose**: Intelligent update checking with user-centric notification system
 
 **Key Features**:
-- **Dual component tracking**: Monitors both CLI and Keyboard Maestro components
+- **Usage-triggered checking**: Checks during active app usage (recording processing)
 - **Smart notifications**: Different notification types based on update requirements
 - **Backoff strategy**: Prevents excessive checking after failures
 - **Configuration respect**: Honors `noUpdates` setting and timing constraints
 - **Comprehensive state management**: Tracks update states and user responses
+
+**Check Triggers**:
+1. **Application startup**: Initial check when app starts
+2. **Recording processing**: Check during active usage every 24 hours
+3. **Configuration changes**: Immediate check when updates are enabled
+4. **Manual trigger**: Force check via `--check-updates` command
 
 **Update Flow**:
 1. **Version comparison**: Semantic version comparison logic
@@ -450,6 +456,10 @@ RecordingsFolderWatcher detects new directory
 │   ├── Handle accessibility requirements (Accessibility.swift)
 │   └── Apply delays and context changes
 ├── Mark as processed (persistent tracking)
+├── Perform post-processing tasks:
+│   ├── Handle moveTo operations (move/delete recordings)
+│   ├── Execute history cleanup (HistoryManager)
+│   └── Check for version updates (VersionChecker)
 └── Clean up monitoring sessions
 ```
 
