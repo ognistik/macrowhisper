@@ -458,6 +458,11 @@ let requireDaemonCommands = [
 let hasDaemonCommand = requireDaemonCommands.contains { args.contains($0) }
 
 if hasDaemonCommand {
+    // Suppress console logging for cleaner output unless verbose mode is enabled
+    if !verboseLogging {
+        suppressConsoleLogging = true
+    }
+    
     let socketCommunication = SocketCommunication(socketPath: socketPath)
     
     // Check for status command first (has different error message)
@@ -736,7 +741,7 @@ if hasDaemonCommand {
     // If we have config update arguments, send updateConfig
     if !arguments.isEmpty {
         if let response = socketCommunication.sendCommand(.updateConfig, arguments: arguments) {
-            print("Response from running instance: \(response)")
+            print(response)
         } else {
             print("Failed to communicate with running instance.")
         }

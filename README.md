@@ -112,8 +112,8 @@ Macrowhisper uses JSON configuration with powerful placeholders:
 
 **Available Placeholders:**
 - `{{swResult}}` - Your transcription result
-- `{{meta-key}}` - Any key from Superwhisper's meta.json file
-- `{{frontApp}}` - Current application
+- `{{metaKeyName}}` - Any key from Superwhisper's meta.json file
+- `{{frontApp}}` - Expands to your application
 - `{{date:yyyy-MM-dd}}` - Formatted dates
 - `{{xml:tagname}}` - Extract XML content from LLM results
 - Plus regex replacements and contextual escaping

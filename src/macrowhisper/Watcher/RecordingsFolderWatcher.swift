@@ -520,10 +520,13 @@ class RecordingsFolderWatcher {
 
         historyManager.performHistoryCleanup()
         
-        // Check for version updates during active usage (similar to history cleanup)
-        // This ensures users get update notifications during normal app usage, not just at startup
+        // Check for version updates during active usage with a 30-second delay
+        // This ensures users get update notifications during normal app usage, but not immediately
+        // after dictation to avoid interrupting their workflow
         if let versionChecker = self.versionChecker {
-            versionChecker.checkForUpdates()
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 30.0) {
+                versionChecker.checkForUpdates()
+            }
         }
     }
 } 

@@ -350,20 +350,33 @@ class SocketCommunication {
                 write(clientSocket, response, response.utf8.count)
                 
             case .updateConfig:
-                if let args = commandMessage.arguments {
-                    if let insertName = args["activeInsert"], !insertName.isEmpty, !validateInsertExists(insertName, configManager: configMgr) {
-                        response = "Error: Insert '\(insertName)' does not exist."
-                        write(clientSocket, response, response.utf8.count)
-                        logError("Attempted to set non-existent insert: \(insertName)")
-                        notify(title: "Macrowhisper", message: "Non-existent insert: \(insertName)")
-                        return
+                // Handle configuration updates
+                if let arguments = commandMessage.arguments {
+                    var updated = false
+                    
+                    // Update active insert with validation
+                    if let activeInsert = arguments["activeInsert"] {
+                        // Validate insert exists if it's not empty
+                        if !activeInsert.isEmpty && !validateInsertExists(activeInsert, configManager: configMgr) {
+                            response = "Error: Insert '\(activeInsert)' does not exist."
+                            write(clientSocket, response, response.utf8.count)
+                            logError("Attempted to set non-existent insert: \(activeInsert)")
+                            notify(title: "Macrowhisper", message: "Non-existent insert: \(activeInsert)")
+                            return
+                        }
+                        configMgr.config.defaults.activeInsert = activeInsert
+                        updated = true
                     }
-                    configMgr.updateFromCommandLineAsync(arguments: args) {
-                        logInfo("Configuration updated successfully in background")
+                    
+                    if updated {
+                        configMgr.saveConfig()
+                        configMgr.onConfigChanged?(nil)
+                        response = "Configuration has been updated"
+                    } else {
+                        response = "No configuration changes were made"
                     }
-                    response = "Configuration update queued"
                 } else {
-                    response = "No arguments for config update"
+                    response = "Configuration has been updated"
                 }
                 write(clientSocket, response, response.utf8.count)
                 
@@ -772,10 +785,10 @@ class SocketCommunication {
             return nil
         }
         
-        // Only log successful connections for non-quiet commands
-        let quietCommands: [Command] = [.status, .version, .listInserts, .getIcon, .getInsert]
-        if !quietCommands.contains(command) {
-            logInfo("Sending command: \(command.rawValue) to \(socketPath)")
+        // Only log for debugging commands or when explicitly needed for troubleshooting
+        let debugCommands: [Command] = [.debug, .versionState, .versionClear, .forceUpdateCheck]
+        if debugCommands.contains(command) {
+            logDebug("Sending command: \(command.rawValue) to \(socketPath)")
         }
         
         let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)
