@@ -2,6 +2,12 @@ import Foundation
 import Dispatch
 import Cocoa
 
+/// RecordingsFolderWatcher - Monitors Superwhisper recordings folder
+/// 
+/// CORE PRINCIPLE: Macrowhisper only processes the most recent recording with a valid result.
+/// - On startup: Mark all existing recordings as processed
+/// - When multiple new recordings appear simultaneously: Process only the most recent, mark others as processed
+/// - This prevents processing storms and handles cloud sync scenarios elegantly
 class RecordingsFolderWatcher {
     private let path: String
     private var source: DispatchSourceFileSystemObject?
@@ -51,8 +57,10 @@ class RecordingsFolderWatcher {
         // Get the initial state
         self.lastKnownSubdirectories = self.getCurrentSubdirectories()
         
-        // Mark the most recent recording as processed on startup
-        markMostRecentRecordingAsProcessed()
+        // CORE PRINCIPLE: On startup, mark ALL existing recordings as processed
+        // This prevents processing storms and aligns with the principle that we only process
+        // the most recent recording that appears AFTER the app starts
+        markAllExistingRecordingsAsProcessed()
     }
 
     func start() {
@@ -114,14 +122,24 @@ class RecordingsFolderWatcher {
         try? content.write(toFile: processedRecordingsFile, atomically: true, encoding: .utf8)
     }
     
-    private func markMostRecentRecordingAsProcessed() {
-        // Get all recording directories sorted by name (which should be timestamps)
-        let sortedDirectories = lastKnownSubdirectories.sorted(by: >)
+    private func markAllExistingRecordingsAsProcessed() {
+        // CORE PRINCIPLE: Mark all existing recordings as processed on startup
+        // We only want to process recordings that appear AFTER the app starts
+        let existingDirectories = lastKnownSubdirectories
+        var markedCount = 0
         
-        if let mostRecent = sortedDirectories.first {
-            let fullPath = "\(path)/\(mostRecent)"
-            markAsProcessed(recordingPath: fullPath)
-            logDebug("Marked most recent recording as processed on startup: \(fullPath)")
+        for dirName in existingDirectories {
+            let fullPath = "\(path)/\(dirName)"
+            if !isAlreadyProcessed(recordingPath: fullPath) {
+                markAsProcessed(recordingPath: fullPath)
+                markedCount += 1
+            }
+        }
+        
+        if markedCount > 0 {
+            logInfo("Startup: Marked \(markedCount) existing recordings as processed. Will only process new recordings that appear after startup.")
+        } else {
+            logDebug("Startup: All existing recordings were already marked as processed.")
         }
     }
     
@@ -156,7 +174,29 @@ class RecordingsFolderWatcher {
         let newSubdirectories = currentSubdirectories.subtracting(lastKnownSubdirectories)
         if !newSubdirectories.isEmpty {
             logDebug("Detected new recording directories: \(newSubdirectories.joined(separator: ", "))")
-            for dirName in newSubdirectories {
+            
+            // CORE PRINCIPLE: Only process the most recent recording, mark all others as processed
+            // This handles cloud sync scenarios where multiple recordings appear simultaneously
+            if newSubdirectories.count > 1 {
+                // Multiple new recordings detected - sort by name (timestamp) and only process the most recent
+                let sortedNewDirs = newSubdirectories.sorted(by: >)  // Most recent first
+                let mostRecentDir = sortedNewDirs.first!
+                let mostRecentPath = "\(path)/\(mostRecentDir)"
+                
+                logInfo("Multiple new recordings detected (\(newSubdirectories.count)). Processing only the most recent: \(mostRecentDir)")
+                
+                // Mark all others as processed immediately (except the most recent)
+                for dirName in sortedNewDirs.dropFirst() {
+                    let fullPath = "\(path)/\(dirName)"
+                    markAsProcessed(recordingPath: fullPath)
+                    logDebug("Marked as processed (not most recent): \(dirName)")
+                }
+                
+                // Process only the most recent
+                processNewRecording(atPath: mostRecentPath)
+            } else {
+                // Single new recording - process normally
+                let dirName = newSubdirectories.first!
                 let fullPath = "\(path)/\(dirName)"
                 processNewRecording(atPath: fullPath)
             }
@@ -428,7 +468,8 @@ class RecordingsFolderWatcher {
                         name: name,
                         type: type,
                         metaJson: updatedJson,
-                        recordingPath: recordingPath
+                        recordingPath: recordingPath,
+                        isTriggeredAction: true  // This is a trigger action
                     )
                 }
                 

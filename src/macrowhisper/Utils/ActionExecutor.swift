@@ -21,14 +21,15 @@ class ActionExecutor {
         name: String,
         type: ActionType,
         metaJson: [String: Any],
-        recordingPath: String
+        recordingPath: String,
+        isTriggeredAction: Bool = true  // Default to true since this is typically called for trigger actions
     ) {
         logInfo("[TriggerEval] Executing action '\(name)' (type: \(type)) due to trigger match.")
         
         switch type {
         case .insert:
             if let insert = action as? AppConfiguration.Insert {
-                executeInsertAction(insert, metaJson: metaJson, recordingPath: recordingPath)
+                executeInsertAction(insert, metaJson: metaJson, recordingPath: recordingPath, isTriggeredAction: isTriggeredAction)
             }
         case .url:
             if let url = action as? AppConfiguration.Url {
@@ -49,7 +50,7 @@ class ActionExecutor {
         }
     }
     
-    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String) {
+    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool = true) {
         // Check if the insert action is ".none" or empty - if so, skip action but apply delay
         if insert.action == ".none" || insert.action.isEmpty {
             logDebug("Insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
@@ -60,7 +61,10 @@ class ActionExecutor {
                 logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
             }
             
-            handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: insert)
+            // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
+            if isTriggeredAction {
+                handleMoveToSetting(folderPath: recordingPath, activeInsert: insert)
+            }
             return
         }
         
@@ -88,7 +92,13 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: insert)
+        // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
+        if isTriggeredAction {
+            logDebug("Handling moveTo for triggered insert action")
+            handleMoveToSetting(folderPath: recordingPath, activeInsert: insert)
+        } else {
+            logDebug("Skipping moveTo for active insert action (handled by RecordingsFolderWatcher)")
+        }
     }
     
     private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String) {
@@ -106,7 +116,9 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: url)
+        // FIX: Pass the individual recording folder path, not its parent
+        logDebug("Handling moveTo for triggered URL action")
+        handleMoveToSettingForAction(folderPath: recordingPath, action: url)
     }
     
     private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String) {
@@ -124,7 +136,8 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shortcut)
+        // FIX: Pass the individual recording folder path, not its parent
+        handleMoveToSettingForAction(folderPath: recordingPath, action: shortcut)
     }
     
     private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String) {
@@ -142,7 +155,8 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shell)
+        // FIX: Pass the individual recording folder path, not its parent
+        handleMoveToSettingForAction(folderPath: recordingPath, action: shell)
     }
     
     private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String) {
@@ -160,7 +174,8 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: ascript)
+        // FIX: Pass the individual recording folder path, not its parent
+        handleMoveToSettingForAction(folderPath: recordingPath, action: ascript)
     }
     
     // MARK: - Action Processing Methods

@@ -53,13 +53,23 @@ func expandTilde(_ path: String) -> String {
     return (path as NSString).expandingTildeInPath
 }
 
+// SAFETY: Track the last notification time to prevent spam
+private var lastMissingFolderNotification: Date = Date.distantPast
+private let notificationCooldown: TimeInterval = 300.0 // 5 minutes
+
 func checkWatcherAvailability() -> Bool {
     let watchPath = expandTilde(configManager.config.defaults.watch)
     let exists = FileManager.default.fileExists(atPath: watchPath)
     
     if !exists {
         logWarning("Superwhisper folder not found at: \(watchPath)")
-        notify(title: "Macrowhisper", message: "Superwhisper folder not found. Please check the path.")
+        
+        // SAFETY: Only notify if enough time has passed since last notification
+        let now = Date()
+        if now.timeIntervalSince(lastMissingFolderNotification) > notificationCooldown {
+            notify(title: "Macrowhisper", message: "Superwhisper folder not found. Please check the path.")
+            lastMissingFolderNotification = now
+        }
         return false
     }
     
@@ -1069,9 +1079,13 @@ configManager.onConfigChanged = { reason in
                 recordingsWatcher?.start()
             }
         } else {
-            // If the new path is invalid, notify and wait for a valid path
+            // If the new path is invalid, notify and wait for a valid path (with cooldown)
             logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath)")
-            notify(title: "Macrowhisper", message: "Recordings folder not found at new path. Please check the path.")
+            let now = Date()
+            if now.timeIntervalSince(lastMissingFolderNotification) > notificationCooldown {
+                notify(title: "Macrowhisper", message: "Recordings folder not found at new path. Please check the path.")
+                lastMissingFolderNotification = now
+            }
         }
     } else if reason == "watchPathChanged" || recordingsWatcher == nil {
         // If the watcher is nil (e.g., app just started or was stopped due to invalid path), try to start it if the path is valid
@@ -1089,9 +1103,13 @@ configManager.onConfigChanged = { reason in
                 recordingsWatcher?.start()
             }
         } else if !recordingsFolderExists {
-            // If the path is still invalid, notify again
+            // If the path is still invalid, notify again (with cooldown)
             logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath)")
-            notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the path.")
+            let now = Date()
+            if now.timeIntervalSince(lastMissingFolderNotification) > notificationCooldown {
+                notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the path.")
+                lastMissingFolderNotification = now
+            }
         }
     }
 }
