@@ -273,29 +273,35 @@ macrowhisper-cli/src/
 
 ### 7. Enhanced Clipboard Management
 
-#### `macrowhisper/Utils/ClipboardMonitor.swift` (753 lines)
+#### `macrowhisper/Utils/ClipboardMonitor.swift` (759 lines)
 **Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts
 
 **Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content.
 
 **Key Features**:
 - **Early monitoring sessions**: Capture clipboard state when recording folder appears
-- **Smart restoration logic**: Determine correct clipboard content to restore
-- **Timing coordination**: Handle ESC simulation and action delays properly
-- **Thread-safe session management**: Concurrent monitoring with proper synchronization
+- **Smart restoration logic**: Determine correct clipboard content to restore based on session history
+- **Timing coordination**: Handle ESC simulation and action delays with precise timing
+- **Thread-safe session management**: Concurrent monitoring with proper synchronization using barriers
 - **Configurable restoration**: Optional clipboard restoration for user preference
+- **Enhanced vs. Basic sync**: Two-tier system with fallback for missing early monitoring data
 
 **Session Lifecycle**:
-1. **Early Start**: Begin monitoring when recording folder detected
-2. **Change Tracking**: Monitor all clipboard changes during session
-3. **Smart Analysis**: Determine user vs. system clipboard changes
-4. **Coordinated Execution**: Execute actions with proper timing
-5. **Intelligent Restoration**: Restore appropriate clipboard content
+1. **Early Start**: Begin monitoring immediately when recording folder detected
+2. **Change Tracking**: Monitor all clipboard changes during session with timestamps
+3. **Smart Analysis**: Determine user vs. system clipboard changes using session history
+4. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
+5. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
 
 **Restoration Logic**:
-- Prefer user's original clipboard over system-generated content
-- Handle cases where user intentionally copied system result
-- Respect user preference to disable restoration entirely
+- **Case 1**: If Superwhisper was faster, restore content from just before swResult
+- **Case 2**: If Macrowhisper was faster, preserve current clipboard content
+- **Case 3**: Handle user intentional clipboard changes during processing
+- **Timing Thresholds**: Use actionDelay vs. maxWaitTime (0.1s) for synchronization decisions
+
+**Critical Timing Constants**:
+- `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
+- `pollInterval: 0.01` seconds - 10ms polling interval for clipboard changes
 
 ---
 
@@ -439,28 +445,36 @@ main.swift
 ### 2. Recording Processing Flow (Enhanced)
 ```
 RecordingsFolderWatcher detects new directory
-├── Start early clipboard monitoring (ClipboardMonitor)
 ├── Check if already processed (persistent tracking)
+├── Start early clipboard monitoring IMMEDIATELY (ClipboardMonitor)
 ├── Look for meta.json file
 ├── If not found, watch for creation with timeout
-├── Once available, parse meta.json
-├── Gather application context (foreground app, bundle ID)
-├── Evaluate triggers (TriggerEvaluator)
-│   ├── Check voice triggers (with exceptions)
-│   ├── Check application triggers
-│   ├── Check mode triggers
-│   └── Apply trigger logic (AND/OR)
-├── Execute matched actions (ActionExecutor)
-│   ├── Process placeholders (Placeholders.swift)
+├── Once available, parse and validate meta.json
+├── Gather application context (foreground app, bundle ID, mode)
+├── Action Priority Evaluation (STRICT ORDER):
+│   ├── 1. Auto-Return (highest priority - overrides everything)
+│   ├── 2. Trigger Actions (TriggerEvaluator)
+│   │   ├── Check voice triggers (with exceptions and result stripping)
+│   │   ├── Check application triggers (bundle ID and name)
+│   │   ├── Check mode triggers (Superwhisper modes)
+│   │   ├── Apply trigger logic (AND/OR)
+│   │   └── Return first alphabetically sorted match
+│   └── 3. Active Insert (lowest priority - fallback only)
+├── Execute matched action (ActionExecutor)
+│   ├── Determine action-specific settings (actionDelay, noEsc, etc.)
+│   ├── Process placeholders with context (Placeholders.swift)
 │   ├── Execute with enhanced clipboard sync (ClipboardMonitor)
-│   ├── Handle accessibility requirements (Accessibility.swift)
-│   └── Apply delays and context changes
+│   │   ├── Apply actionDelay before ESC and action
+│   │   ├── Handle ESC simulation with accessibility checks
+│   │   ├── Coordinate timing with Superwhisper clipboard changes
+│   │   └── Restore intelligent clipboard content
+│   └── Handle action-specific execution (insert/URL/shortcut/shell/AppleScript)
 ├── Mark as processed (persistent tracking)
 ├── Perform post-processing tasks:
-│   ├── Handle moveTo operations (move/delete recordings)
+│   ├── Handle moveTo operations with precedence (action > default)
 │   ├── Execute history cleanup (HistoryManager)
-│   └── Check for version updates (VersionChecker)
-└── Clean up monitoring sessions
+│   └── Check for version updates with 30s delay (VersionChecker)
+└── Clean up monitoring sessions and watchers
 ```
 
 ### 3. Service Management Flow
@@ -657,5 +671,12 @@ The application uses a comprehensive JSON configuration file:
   - API calls and webhooks
   - System automation (brightness, volume, etc.)
   - Multi-step actions/workflows
+
+## Additional Documentation
+
+For detailed technical analysis of the complete processing flow, timing, and clipboard synchronization, see:
+- **[PROCESSING_FLOW.md](./PROCESSING_FLOW.md)** - Comprehensive developer documentation covering the complete flow from recording detection to action execution, including all timing variables, conditions, and edge cases.
+
+---
 
 This comprehensive codebase map serves as a complete guide for understanding, maintaining, and extending the Macrowhisper application. The architecture supports robust operation, easy extensibility, and maintainable code organization across all components.

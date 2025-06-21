@@ -218,7 +218,6 @@ class ActionExecutor {
             logError("Failed to execute shortcut action: \(error)")
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
-        autoReturnEnabled = false
     }
     
     private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) {
@@ -235,7 +234,6 @@ class ActionExecutor {
             logError("Failed to execute shell script: \(error)")
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
-        autoReturnEnabled = false
     }
     
     private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) {
@@ -252,7 +250,6 @@ class ActionExecutor {
             logError("Failed to execute AppleScript action: \(error)")
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
-        autoReturnEnabled = false
     }
     
     // MARK: - Helper Methods

@@ -370,7 +370,38 @@ class RecordingsFolderWatcher {
                 pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
             }
             
-            // FIRST: Evaluate triggers for all actions - this has precedence over active inserts and auto-return
+            // FIRST: Check for auto-return (highest priority - overrides everything)
+            if autoReturnEnabled {
+                // Apply the result directly using {{swResult}}
+                let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
+                
+                // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
+                let actionDelay = configManager.config.defaults.actionDelay
+                let shouldEsc = !configManager.config.defaults.noEsc
+                
+                clipboardMonitor.executeInsertWithEnhancedClipboardSync(
+                    insertAction: { [weak self] in
+                        // Apply the result without ESC (handled by clipboard monitor)
+                        self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
+                        // Reset the flag after using it once
+                        autoReturnEnabled = false
+                    },
+                    actionDelay: actionDelay,
+                    shouldEsc: shouldEsc,
+                    isAutoPaste: false,  // Auto-return is not autoPaste
+                    recordingPath: recordingPath,
+                    metaJson: enhancedMetaJson,
+                    restoreClipboard: configManager.config.defaults.restoreClipboard
+                )
+                
+                logDebug("Applied auto-return with enhanced clipboard monitoring")
+                handlePostProcessing(recordingPath: recordingPath)
+                
+                // Early monitoring will be stopped by ClipboardMonitor when done
+                return
+            }
+            
+            // SECOND: Evaluate triggers for all actions - this has precedence over active inserts
             let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
                 configManager: configManager,
                 result: String(describing: result),
@@ -401,38 +432,6 @@ class RecordingsFolderWatcher {
                     )
                 }
                 
-                // Continue processing to allow auto-return to work if enabled
-                handlePostProcessing(recordingPath: recordingPath)
-                
-                // Early monitoring will be stopped by ClipboardMonitor when done
-                return
-            }
-            
-            // SECOND: Check for auto-return (has precedence over active inserts)
-            if autoReturnEnabled {
-                // Apply the result directly using {{swResult}}
-                let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
-                
-                // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
-                let actionDelay = configManager.config.defaults.actionDelay
-                let shouldEsc = !configManager.config.defaults.noEsc
-                
-                clipboardMonitor.executeInsertWithEnhancedClipboardSync(
-                    insertAction: { [weak self] in
-                        // Apply the result without ESC (handled by clipboard monitor)
-                        self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
-                        // Reset the flag after using it once
-                        autoReturnEnabled = false
-                    },
-                    actionDelay: actionDelay,
-                    shouldEsc: shouldEsc,
-                    isAutoPaste: false,  // Auto-return is not autoPaste
-                    recordingPath: recordingPath,
-                    metaJson: enhancedMetaJson,
-                    restoreClipboard: configManager.config.defaults.restoreClipboard
-                )
-                
-                logDebug("Applied auto-return with enhanced clipboard monitoring")
                 handlePostProcessing(recordingPath: recordingPath)
                 
                 // Early monitoring will be stopped by ClipboardMonitor when done
