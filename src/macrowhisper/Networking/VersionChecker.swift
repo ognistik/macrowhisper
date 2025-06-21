@@ -233,7 +233,7 @@ class VersionChecker {
             }
             
             // Add update instructions - generic for all installation methods
-            fullMessage += "\n\nVisit the release page for update instructions."
+            fullMessage += "\n\nVisit the release page for more info."
             
             let script = """
             display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
@@ -272,9 +272,9 @@ class VersionChecker {
     private func openCLIReleasePage() {
         let task = Process()
         task.launchPath = "/usr/bin/open"
-        task.arguments = ["https://github.com/ognistik/macrowhisper-cli/releases/latest"]
+        task.arguments = ["https://github.com/ognistik/macrowhisper/releases/latest"]
         try? task.run()
-        logDebug("Opened CLI release page")
+        logDebug("Opened Github release page")
     }
     
     // MARK: - Test Methods (Development Only)

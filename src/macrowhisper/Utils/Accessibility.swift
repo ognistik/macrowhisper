@@ -22,22 +22,77 @@ func requestAccessibilityPermissionOnStartup() {
     // First check if permissions are already granted
     if AXIsProcessTrusted() {
         logDebug("Accessibility permissions already granted")
+    } else {
+        // If not granted, show the permission dialog
+        logInfo("Requesting accessibility permissions during startup for key simulation and input field detection...")
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
+        let granted = AXIsProcessTrustedWithOptions(options)
+        
+        if granted {
+            logInfo("Accessibility permissions granted")
+            // No notification needed when permissions are granted successfully
+        } else {
+            logWarning("Accessibility permissions were not granted - some features may be limited")
+            if !disableNotifications {
+                notify(title: "Macrowhisper", message: "Accessibility permissions are needed for key simulation and input field detection.")
+            }
+        }
+    }
+    
+    // Also request System Events control permission for simKeypress functionality
+    requestSystemEventsPermissionOnStartup()
+}
+
+/// Checks if System Events control permission is granted (needed for simKeypress functionality)
+func checkSystemEventsPermission() -> Bool {
+    let script = "tell application \"System Events\" to get name"
+    let task = Process()
+    task.launchPath = "/usr/bin/osascript"
+    task.arguments = ["-e", script]
+    task.standardOutput = Pipe()
+    task.standardError = Pipe()
+    
+    do {
+        try task.run()
+        task.waitUntilExit()
+        return task.terminationStatus == 0
+    } catch {
+        return false
+    }
+}
+
+/// Proactively requests System Events control permission during app startup
+/// This is needed for the simKeypress functionality which uses AppleScript to control System Events
+func requestSystemEventsPermissionOnStartup() {
+    // Check if System Events permission is already granted
+    if checkSystemEventsPermission() {
+        logDebug("System Events control permission already granted")
         return
     }
     
-    // If not granted, show the permission dialog
-    logInfo("Requesting accessibility permissions during startup for key simulation and input field detection...")
-    let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
-    let granted = AXIsProcessTrustedWithOptions(options)
+    // If not granted, attempt to trigger the permission dialog by running a simple System Events command
+    logInfo("Requesting System Events control permission for simKeypress functionality...")
+    let script = "tell application \"System Events\" to get name"
+    let task = Process()
+    task.launchPath = "/usr/bin/osascript"
+    task.arguments = ["-e", script]
+    task.standardOutput = Pipe()
+    task.standardError = Pipe()
     
-    if granted {
-        logInfo("Accessibility permissions granted")
-        // No notification needed when permissions are granted successfully
-    } else {
-        logWarning("Accessibility permissions were not granted - some features may be limited")
-        if !disableNotifications {
-            notify(title: "Macrowhisper", message: "Accessibility permissions are needed for key simulation and input field detection.")
+    do {
+        try task.run()
+        task.waitUntilExit()
+        
+        if task.terminationStatus == 0 {
+            logInfo("System Events control permission granted")
+        } else {
+            logWarning("System Events control permission was not granted - simKeypress functionality may not work")
+            if !disableNotifications {
+                notify(title: "Macrowhisper", message: "System Events control permission is needed for simKeypress functionality. You may be prompted again when using this feature.")
+            }
         }
+    } catch {
+        logError("Failed to request System Events permission: \(error)")
     }
 }
 
