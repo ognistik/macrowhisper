@@ -1,6 +1,6 @@
 # Macrowhisper
 
-**A powerful automation helper application for [Superwhisper](https://superwhisper.com)**
+**A powerful automation helper app for [Superwhisper](https://superwhisper.com/?via=robert)**
 
 [![Swift Version](https://img.shields.io/badge/Swift-6.1.2-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
@@ -20,8 +20,8 @@ Macrowhisper monitors your Superwhisper recordings and executes intelligent auto
 - ****🔌 CLI Interface****: Comprehensive command-line interface which allows for easy integration with automation apps
 
 ---
-## Docs
-**💫 [Check the full documentation and sample use cases](https://by.afadingthought.com/macrowhisper)**
+## Learn More
+**💫 [Check the full docs and sample use cases](https://by.afadingthought.com/macrowhisper)**
 
 ---
 ## Quick Start
@@ -29,6 +29,12 @@ Macrowhisper monitors your Superwhisper recordings and executes intelligent auto
 ### Install
 ```bash
 brew install ognistik/formulae/macrowhisper
+```
+
+Or you can insall via a script:
+```bash
+# Installs Macrowhisper's binary in /usr/local/bin
+curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sh
 ```
 
 ### Configure & Start
@@ -83,11 +89,10 @@ macrowhisper --help                 # Full command list
 1. **Monitor**: Watches your Superwhisper recordings folder
 2. **Evaluate**: Checks triggers (voice patterns, active app, Superwhisper mode)
 3. **Execute**: Runs matching actions (paste text, open URLs, run scripts, etc.)
-4. **Cleanup**: Manages recording history and restores clipboard
 
 ---
 ## Configuration Example
-Macrowhisper uses JSON configuration with powerful placeholders:
+Macrowhisper uses JSON configuration with dynamic placeholders:
 
 ```json
 {
@@ -132,7 +137,8 @@ src/macrowhisper/
 └── History/                     # Recording cleanup
 ```
 
-[More development Info](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
+[Codebase Map](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
+[The Processing Flow](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
 
 ---
 ## Contributing
