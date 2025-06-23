@@ -33,6 +33,7 @@ macrowhisper-cli/src/
     │   └── ConfigurationManager.swift # Configuration loading/saving/watching (348 lines)
     ├── Watcher/                     # File system monitoring
     │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings (521 lines)
+    │   ├── SuperwhisperFolderWatcher.swift # Parent directory watcher for graceful startup (85 lines)
     │   └── ConfigChangeWatcher.swift     # Configuration file watcher (42 lines)
     ├── Networking/                  # Network and IPC functionality
     │   ├── SocketCommunication.swift    # Unix socket server for CLI commands (794 lines)
@@ -63,6 +64,7 @@ macrowhisper-cli/src/
 **Key Global Variables**:
 - `globalConfigManager`: Shared configuration manager instance
 - `recordingsWatcher`: File system watcher for recordings
+- `superwhisperFolderWatcher`: Parent directory watcher for graceful startup
 - `socketCommunication`: IPC server for CLI commands
 - `historyManager`: Recording cleanup manager
 - `logger`: Global logging instance
@@ -91,6 +93,7 @@ macrowhisper-cli/src/
 - Advanced configuration path management with persistence
 - Socket health monitoring with automatic recovery
 - System sleep/wake awareness
+- Graceful handling of missing Superwhisper folders with automatic detection
 
 ---
 
@@ -212,6 +215,31 @@ macrowhisper-cli/src/
 - **ClipboardMonitor**: Early clipboard state capture
 - **Persistent Tracking**: File-based processing history
 
+#### `macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` (85 lines)
+**Purpose**: Graceful startup watcher for scenarios where Superwhisper folder doesn't exist yet
+
+**Problem Solved**: When users configure a Superwhisper path that doesn't exist yet (first-time setup, cloud sync, etc.), the app can now wait gracefully instead of failing to start.
+
+**Key Features**:
+- **Parent directory monitoring**: Watches the Superwhisper parent directory for changes
+- **Auto-directory creation**: Creates parent directories if they don't exist
+- **Event-driven detection**: Efficiently detects when the recordings subdirectory appears
+- **Seamless handoff**: Automatically initializes RecordingsFolderWatcher when recordings folder is detected
+- **One-time operation**: Stops itself once the target folder is found
+
+**Usage Scenarios**:
+1. **First-time setup**: User hasn't created Superwhisper folder yet
+2. **Cloud sync**: Folder is syncing and temporarily unavailable
+3. **Configuration changes**: User changes watch path to non-existent location
+4. **Startup reliability**: Ensures app continues running while waiting for folder
+
+**Integration Flow**:
+1. **Startup Check**: If recordings folder doesn't exist, SuperwhisperFolderWatcher starts instead of RecordingsFolderWatcher
+2. **Directory Monitoring**: Watches parent directory for filesystem changes
+3. **Detection**: When recordings folder appears, triggers callback
+4. **Handoff**: Stops itself and initializes RecordingsFolderWatcher
+5. **Status Reporting**: Reports status via `--status` command as "Folder watcher: yes (waiting for recordings folder)"
+
 ---
 
 ### 5. Advanced Trigger System
@@ -325,6 +353,12 @@ macrowhisper-cli/src/
 4. **Service Control**: `serviceStatus`, `serviceStart`, `serviceStop`
 5. **System Control**: `quit`, `autoReturn`
 
+**Enhanced Status Reporting**:
+- **Recordings watcher status**: Shows if actively watching recordings folder
+- **Folder watcher status**: Shows if waiting for recordings folder to appear ("yes (waiting for recordings folder)")
+- **Path validation**: Reports both Superwhisper folder and recordings folder existence
+- **Health warnings**: Alerts if watchers are in inconsistent states
+
 **Advanced Features**:
 - **Placeholder processing**: Full XML and dynamic placeholder support
 - **Clipboard integration**: Proper clipboard handling for CLI commands
@@ -435,7 +469,9 @@ main.swift
 ├── Initialize configuration manager with path priority
 ├── Start socket server for IPC
 ├── Initialize history manager for cleanup
-├── Start recordings watcher (if path valid)
+├── Check recordings folder existence
+│   ├── If exists: Start recordings watcher normally
+│   └── If missing: Start SuperwhisperFolderWatcher to wait for folder creation
 ├── Register for system sleep/wake notifications
 ├── Start socket health monitoring
 ├── Initialize version checker
@@ -630,6 +666,7 @@ The application uses a comprehensive JSON configuration file:
 - **Configuration errors**: JSON validation with user notification
 - **Socket failures**: Automatic socket recovery with health monitoring
 - **File system errors**: Graceful degradation and retry logic
+- **Missing folders**: SuperwhisperFolderWatcher provides graceful waiting instead of app failure
 - **Service failures**: Automatic restart and recovery procedures
 - **Accessibility errors**: Clear user guidance and fallback behavior
 
