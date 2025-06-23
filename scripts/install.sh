@@ -7,8 +7,6 @@
 # ARG1:   Optional - directory in which to store the binary; must be an absolute path.
 #         Fallback: /usr/local/bin
 #
-# Author: ognistik
-#   Date: 2025-06-20
 #
 
 BIN_DIR="$1"
@@ -35,7 +33,7 @@ fi
 AUTHOR="ognistik"
 NAME="macrowhisper"
 VERSION="1.1.0"
-EXPECTED_HASH="ae2b4eaf33dfbb7c686bbebeb5b0d6f66d5757b621606b99c5ef394aece240dc"
+EXPECTED_HASH="84f3c355bc615d596621b17499b6a77de2e3a1c42225eacd0a8add7af67ab36b"
 TMP_DIR="./${AUTHOR}-${NAME}-v${VERSION}-installer"
 
 mkdir $TMP_DIR
