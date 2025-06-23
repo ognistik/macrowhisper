@@ -145,20 +145,9 @@ class SocketCommunication {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             return (swResult, true)
         }
-        // Apply newline conversion to the template before processing placeholders
-        // This allows users to type \n in their action templates while preserving literal \n in placeholder content
-        var result = action.replacingOccurrences(of: "\\n", with: "\n")
-        var updatedMetaJson = metaJson
-        if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
-            let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
-            updatedMetaJson["llmResult"] = cleaned
-            result = replaceXmlPlaceholders(action: result, extractedTags: tags)
-        } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
-            let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
-            result = replaceXmlPlaceholders(action: result, extractedTags: tags)
-        }
-        // Use the ActionType-aware function for insert actions to prevent unnecessary escaping
-        result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson, actionType: .insert)
+        // Use the unified placeholder processing function for consistency across all action types
+        // (newline conversion is handled within processAllPlaceholders for Insert actions)
+        let result = processAllPlaceholders(action: action, metaJson: metaJson, actionType: .insert)
         return (result, false)
     }
 
