@@ -45,7 +45,7 @@ class ClipboardMonitor {
         }
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
-        logDebug("[ClipboardMonitor] Captured user original clipboard: '\(userOriginal?.prefix(50) ?? "nil")...'")
+        logDebug("[ClipboardMonitor] Captured user original clipboard content")
         
         // Start monitoring clipboard changes
         monitorClipboardChangesForSession(recordingPath: recordingPath)
@@ -91,7 +91,7 @@ class ClipboardMonitor {
                     self?.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
                 }
                 
-                logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring: '\(currentContent?.prefix(50) ?? "nil")...'")
+                logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring")
             }
         }
         
@@ -107,7 +107,7 @@ class ClipboardMonitor {
     /// - Parameters:
     ///   - insertAction: The closure that executes the actual insert action
     ///   - actionDelay: The user-configured action delay
-    ///   - shouldEsc: Whether ESC should be simulated for responsiveness
+    ///   - shouldEsc: Whether ESC should be simulated
     ///   - isAutoPaste: Whether this is an autoPaste action (affects ESC simulation logic)
     ///   - recordingPath: The recording path to use early monitoring data from
     ///   - metaJson: The meta.json data to extract swResult from
@@ -273,12 +273,12 @@ class ClipboardMonitor {
             // Look for the most recent change that is NOT swResult
             for change in session.clipboardChanges.reversed() {
                 if change.content != swResult {
-                    logDebug("[ClipboardMonitor] Found clipboard to restore from session history: '\(change.content?.prefix(50) ?? "nil")...'")
+                    logDebug("[ClipboardMonitor] Found clipboard to restore from session history")
                     return change.content
                 }
             }
             // If no changes found, use the original clipboard from when folder appeared
-            logDebug("[ClipboardMonitor] Using original clipboard from folder appearance: '\(session.userOriginalClipboard?.prefix(50) ?? "nil")...'")
+            logDebug("[ClipboardMonitor] Using original clipboard from folder appearance")
             return session.userOriginalClipboard
         }
         
@@ -293,15 +293,15 @@ class ClipboardMonitor {
             // Check if current clipboard is one we've seen in our change history
             let isKnownChange = session.clipboardChanges.contains { $0.content == currentClipboard }
             if isKnownChange {
-                logDebug("[ClipboardMonitor] Current clipboard is from tracked changes, will restore: '\(currentClipboard?.prefix(50) ?? "nil")...'")
+                logDebug("[ClipboardMonitor] Current clipboard is from tracked changes, will restore")
             } else {
-                logDebug("[ClipboardMonitor] Current clipboard is unknown change, will restore: '\(currentClipboard?.prefix(50) ?? "nil")...'")
+                logDebug("[ClipboardMonitor] Current clipboard is unknown change, will restore")
             }
             return currentClipboard
         }
         
         // Case 3: Current clipboard is same as original, use it
-        logDebug("[ClipboardMonitor] Current clipboard same as original, will restore: '\(currentClipboard?.prefix(50) ?? "nil")...'")
+        logDebug("[ClipboardMonitor] Current clipboard same as original, will restore")
         return currentClipboard
     }
     
