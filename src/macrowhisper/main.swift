@@ -935,8 +935,8 @@ func printHelp() {
       --get-icon                    Get the icon of the active insert
       --get-insert [<name>]         Get name of active insert (if run without <name>)
                                     If a name is provided, returns the action content
-      --insert [<name>]             Clears active insert (if run without <name>).
-                                    If a name is provided, it sets it as active insert.
+      --insert [<name>]             Clears active insert (if run without <name>)
+                                    If a name is provided, it sets it as active insert
 
     ACTION MANAGEMENT (require running instance):
       --add-url <name>              Add a URL action
