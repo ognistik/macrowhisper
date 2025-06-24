@@ -21,8 +21,12 @@ if [ "${BIN_DIR%%/*}" ]; then
 fi
 
 if [ ! -d "$BIN_DIR" ]; then
-    echo "Error: Binary target directory '${BIN_DIR}' does not exist."
-    exit 1
+    echo "Creating binary target directory '${BIN_DIR}'..."
+    mkdir -p "$BIN_DIR"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to create binary target directory '${BIN_DIR}'."
+        exit 1
+    fi
 fi
 
 if [ ! -w "$BIN_DIR" ]; then
@@ -36,8 +40,8 @@ VERSION="1.1.0"
 EXPECTED_HASH="93108d86e7f78f5a21373af6885dca4e77a9f15f0bbdb80669bf01215c845168"
 TMP_DIR="./${AUTHOR}-${NAME}-v${VERSION}-installer"
 
-mkdir $TMP_DIR
-pushd $TMP_DIR
+mkdir "$TMP_DIR"
+pushd "$TMP_DIR" || { echo "Failed to enter temp directory"; exit 1; }
 
 echo "Downloading macrowhisper v${VERSION}..."
 curl --location --remote-name https://github.com/${AUTHOR}/${NAME}/releases/download/v${VERSION}/${NAME}-${VERSION}-macos.tar.gz
@@ -100,4 +104,4 @@ else
 fi
 
 popd
-rm -rf $TMP_DIR 
+rm -rf "$TMP_DIR" 
