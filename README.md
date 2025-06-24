@@ -124,7 +124,7 @@ Macrowhisper uses JSON configuration with dynamic placeholders:
 - `{{xml:tagname}}` - Extract XML content from LLM results
 - Plus regex replacements and contextual escaping
 
-**[Sample Configuration File](https://github.com/ognistik/macrowhisper/blob/main/samples/macrowhisper.json)**
+**[Sample Configuration File](https://github.com/ognistik/macrowhisper/blob/main/samples/macrowhisper.json)**  
 *Make sure to run `macrowhisper --restart-service` if you set this as your default config.*
 
 ---
@@ -141,7 +141,7 @@ src/macrowhisper/
 └── History/                     # Recording cleanup
 ```
 
-[Codebase Map](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
+[Codebase Map](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)  
 [The Processing Flow](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
 
 ---
