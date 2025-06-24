@@ -224,8 +224,6 @@ class VersionChecker {
             logDebug("Showing update dialog now...")
             self.lastReminderDate = Date()
             
-            let brewCommand = "macrowhisper --stop-service && brew update && brew upgrade macrowhisper"
-            
             // Build the dialog message with version info, description, and update instructions
             var fullMessage = "Macrowhisper update available:\n\(versionMessage)"
             
@@ -234,13 +232,13 @@ class VersionChecker {
                 fullMessage += "\n\n\(description)"
             }
             
-            // Add update instructions
-            fullMessage += "\n\nTo update, run:\n\(brewCommand)"
+            // Add update instructions - generic for all installation methods
+            fullMessage += "\n\nVisit the release page for more info."
             
             let script = """
             display dialog "\(fullMessage.replacingOccurrences(of: "\"", with: "\\\""))" ¬
                 with title "Macrowhisper" ¬
-                buttons {"Remind Later", "Copy Command", "Open Release"} ¬
+                buttons {"Remind Later", "Open Release"} ¬
                 default button "Open Release" ¬
             """
             
@@ -258,10 +256,7 @@ class VersionChecker {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let output = String(data: data, encoding: .utf8) ?? ""
                 
-                if output.contains("Copy Command") {
-                    // Copy command to clipboard
-                    self.copyCommandToClipboard(brewCommand)
-                } else if output.contains("Open Release") {
+                if output.contains("Open Release") {
                     // Open CLI release page
                     self.openCLIReleasePage()
                 }
@@ -272,23 +267,14 @@ class VersionChecker {
         }
     }
     
-    private func copyCommandToClipboard(_ command: String) {
-        let pbTask = Process()
-        pbTask.launchPath = "/usr/bin/pbcopy"
-        let inputPipe = Pipe()
-        pbTask.standardInput = inputPipe
-        pbTask.launch()
-        inputPipe.fileHandleForWriting.write(command.data(using: .utf8)!)
-        inputPipe.fileHandleForWriting.closeFile()
-        logDebug("Copied brew command to clipboard")
-    }
+
     
     private func openCLIReleasePage() {
         let task = Process()
         task.launchPath = "/usr/bin/open"
-        task.arguments = ["https://github.com/ognistik/macrowhisper-cli/releases/latest"]
+        task.arguments = ["https://github.com/ognistik/macrowhisper/releases/latest"]
         try? task.run()
-        logDebug("Opened CLI release page")
+        logDebug("Opened Github release page")
     }
     
     // MARK: - Test Methods (Development Only)

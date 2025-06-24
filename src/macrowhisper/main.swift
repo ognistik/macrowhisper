@@ -28,6 +28,7 @@ var socketHealthTimer: Timer?
 var historyManager: HistoryManager?
 var configManager: ConfigurationManager!
 var recordingsWatcher: RecordingsFolderWatcher?
+var superwhisperFolderWatcher: SuperwhisperFolderWatcher?
 var lastDetectedFrontApp: NSRunningApplication?
 
 // Create default paths for logs
@@ -53,20 +54,30 @@ func expandTilde(_ path: String) -> String {
     return (path as NSString).expandingTildeInPath
 }
 
+// SAFETY: Track the last notification time to prevent spam
+private var lastMissingFolderNotification: Date = Date.distantPast
+private let notificationCooldown: TimeInterval = 300.0 // 5 minutes
+
 func checkWatcherAvailability() -> Bool {
     let watchPath = expandTilde(configManager.config.defaults.watch)
     let exists = FileManager.default.fileExists(atPath: watchPath)
     
     if !exists {
         logWarning("Superwhisper folder not found at: \(watchPath)")
-        notify(title: "Macrowhisper", message: "Superwhisper folder not found. Please check the path.")
+        
+        // SAFETY: Only notify if enough time has passed since last notification
+        let now = Date()
+        if now.timeIntervalSince(lastMissingFolderNotification) > notificationCooldown {
+            notify(title: "Macrowhisper", message: "Superwhisper folder not found. Please check the path and restart service or reload config.")
+            lastMissingFolderNotification = now
+        }
         return false
     }
     
     return exists
 }
 
-func initializeWatcher(_ path: String) {
+func initializeWatcher(_ path: String, versionChecker: VersionChecker? = nil) {
     let expandedPath = expandTilde(path)
     let recordingsPath = "\(expandedPath)/recordings"
     
@@ -80,11 +91,11 @@ func initializeWatcher(_ path: String) {
     }
     
     guard let historyManager = historyManager else {
-        logError("History manager not initialized. Exiting.")
-        exit(1)
+        logError("History manager not initialized. Cannot initialize watcher.")
+        return
     }
     
-    recordingsWatcher = RecordingsFolderWatcher(basePath: expandedPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+    recordingsWatcher = RecordingsFolderWatcher(basePath: expandedPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
     if recordingsWatcher == nil {
         logWarning("Failed to initialize recordings folder watcher")
         notify(title: "Macrowhisper", message: "Failed to initialize watcher")
@@ -451,13 +462,18 @@ let requireDaemonCommands = [
     "--check-updates", "--exec-insert", "--auto-return", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
     "--remove-url", "--remove-shortcut", "--remove-shell", "--remove-as", 
-    "--remove-insert", "--quit", "--stop", "--insert"
+    "--remove-insert", "--insert"
 ]
 
 // Check if any of the commands that require a daemon are present
 let hasDaemonCommand = requireDaemonCommands.contains { args.contains($0) }
 
 if hasDaemonCommand {
+    // Suppress console logging for cleaner output unless verbose mode is enabled
+    if !verboseLogging {
+        suppressConsoleLogging = true
+    }
+    
     let socketCommunication = SocketCommunication(socketPath: socketPath)
     
     // Check for status command first (has different error message)
@@ -712,14 +728,7 @@ if hasDaemonCommand {
         exit(0)
     }
     
-    if args.contains("--quit") || args.contains("--stop") {
-        if let response = socketCommunication.sendCommand(.quit) {
-            print(response)
-        } else {
-            print("No running instance to quit.")
-        }
-        exit(0)
-    }
+
     
     // Handle configuration update commands (require daemon)
     var arguments: [String: String] = [:]
@@ -736,7 +745,7 @@ if hasDaemonCommand {
     // If we have config update arguments, send updateConfig
     if !arguments.isEmpty {
         if let response = socketCommunication.sendCommand(.updateConfig, arguments: arguments) {
-            print("Response from running instance: \(response)")
+            print(response)
         } else {
             print("Failed to communicate with running instance.")
         }
@@ -804,6 +813,54 @@ if args.contains("--version-state") || args.contains("--version-clear") {
 }
 
 // ---- END QUICK COMMANDS ----
+
+// Validate arguments before starting daemon
+// Only perform validation if there are arguments (allow no-args daemon startup)
+if args.count > 1 {
+    // Define all valid arguments
+    let validDaemonArgs = ["--config", "--verbose"]
+    let validQuickCommands = [
+        "-h", "--help", "-v", "--version", "--reveal-config", "--set-config", 
+        "--reset-config", "--get-config", "--install-service", "--start-service", 
+        "--stop-service", "--restart-service", "--uninstall-service", "--service-status",
+        "--test-update-dialog", "--test-version", "--test-description", "--version-state", "--version-clear"
+    ]
+    let allValidCommands = validDaemonArgs + validQuickCommands + requireDaemonCommands
+    
+    // Check for unrecognized arguments (skip the program name at index 0)
+    var hasUnrecognizedArgs = false
+    var unrecognizedArgs: [String] = []
+    
+    for i in 1..<args.count {
+        let arg = args[i]
+        
+        // Skip arguments that are values for flags (like paths after --config)
+        if i > 1 && (args[i-1] == "--config" || args[i-1] == "--set-config" || 
+                     args[i-1] == "--exec-insert" || args[i-1] == "--get-insert" ||
+                     args[i-1] == "--add-url" || args[i-1] == "--add-shortcut" ||
+                     args[i-1] == "--add-shell" || args[i-1] == "--add-as" ||
+                     args[i-1] == "--add-insert" || args[i-1] == "--remove-url" ||
+                     args[i-1] == "--remove-shortcut" || args[i-1] == "--remove-shell" ||
+                     args[i-1] == "--remove-as" || args[i-1] == "--remove-insert" ||
+                     args[i-1] == "--insert" || args[i-1] == "--auto-return" ||
+                     args[i-1] == "--test-version" || args[i-1] == "--test-description") {
+            continue
+        }
+        
+        // Check if this argument is recognized
+        if !allValidCommands.contains(arg) {
+            hasUnrecognizedArgs = true
+            unrecognizedArgs.append(arg)
+        }
+    }
+    
+    // If there are unrecognized arguments, show error and exit
+    if hasUnrecognizedArgs {
+        print("Error: Unrecognized command(s): \(unrecognizedArgs.joined(separator: ", "))")
+        print("Use 'macrowhisper --help' to see available commands.")
+        exit(1)
+    }
+}
 
 if !acquireSingleInstanceLock(lockFilePath: lockPath) {
     exit(1)
@@ -878,8 +935,8 @@ func printHelp() {
       --get-icon                    Get the icon of the active insert
       --get-insert [<name>]         Get name of active insert (if run without <name>)
                                     If a name is provided, returns the action content
-      --insert [<name>]             Clears active insert (if run without <name>).
-                                    If a name is provided, it sets it as active insert.
+      --insert [<name>]             Clears active insert (if run without <name>)
+                                    If a name is provided, it sets it as active insert
 
     ACTION MANAGEMENT (require running instance):
       --add-url <name>              Add a URL action
@@ -987,9 +1044,11 @@ if runWatcher { logDebug("Watcher: \(watchFolderPath)/recordings") }
 logDebug("About to start socket server...")
 socketCommunication.startServer(configManager: configManager)
 
-// Add a deinit to stop the server when the app terminates
+// Add a deinit to stop the server and watchers when the app terminates
 defer {
     socketCommunication.stopServer()
+    recordingsWatcher?.stop()
+    superwhisperFolderWatcher?.stop()
 }
 
 // Initialize the recordings folder watcher if enabled
@@ -997,23 +1056,51 @@ if runWatcher {
     // Validate the watch folder exists
     let recordingsPath = "\(watchFolderPath)/recordings"
     if !FileManager.default.fileExists(atPath: recordingsPath) {
-        logError("Error: Recordings folder not found at \(recordingsPath)")
-        notify(title: "Macrowhisper", message: "Error: Recordings folder not found at \(recordingsPath)")
-        exit(1)
-    }
-    
-    guard let historyManager = historyManager else {
-        logError("History manager not initialized. Exiting.")
-        exit(1)
-    }
-    
-    recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
-    if recordingsWatcher == nil {
-        logWarning("Warning: Failed to initialize recordings folder watcher")
-        notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")
+        logWarning("Recordings folder not found at \(recordingsPath). Starting folder watcher to wait for it to appear.")
+        
+        // Notify user that the folder is missing (with cooldown to prevent spam)
+        let now = Date()
+        if now.timeIntervalSince(lastMissingFolderNotification) > notificationCooldown {
+            notify(title: "Macrowhisper", message: "Recordings folder not found. Waiting for Superwhisper setup.")
+            lastMissingFolderNotification = now
+        }
+        
+        // Start watching for the recordings folder to appear instead of exiting
+        superwhisperFolderWatcher = SuperwhisperFolderWatcher(parentPath: watchFolderPath) {
+            logInfo("Recordings folder appeared! Initializing recordings watcher...")
+            
+            // Now that the recordings folder exists, initialize the recordings watcher
+            guard let historyManager = historyManager else {
+                logError("History manager not initialized during late initialization.")
+                return
+            }
+            
+            recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
+            if recordingsWatcher == nil {
+                logWarning("Failed to initialize recordings folder watcher after folder appeared")
+                notify(title: "Macrowhisper", message: "Failed to initialize recordings watcher")
+            } else {
+                logDebug("Successfully started watching recordings folder at \(recordingsPath)")
+                recordingsWatcher?.start()
+                // No notification here - folder appearing is the expected good outcome
+            }
+        }
+        superwhisperFolderWatcher?.start()
     } else {
-        logDebug("Watching recordings folder at \(recordingsPath)")
-        recordingsWatcher?.start()
+        // Recordings folder exists, initialize normally
+        guard let historyManager = historyManager else {
+            logError("History manager not initialized. Exiting.")
+            exit(1)
+        }
+        
+        recordingsWatcher = RecordingsFolderWatcher(basePath: watchFolderPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
+        if recordingsWatcher == nil {
+            logWarning("Warning: Failed to initialize recordings folder watcher")
+            notify(title: "Macrowhisper", message: "Warning: Failed to initialize recordings folder watcher")
+        } else {
+            logDebug("Watching recordings folder at \(recordingsPath)")
+            recordingsWatcher?.start()
+        }
     }
 }
 
@@ -1024,9 +1111,13 @@ configManager.onConfigChanged = { reason in
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
     disableNotifications = configManager.config.defaults.noNoti
-    // If updates were disabled but are now enabled, reset the version checker state
+    // If updates were disabled but are now enabled, reset the version checker state and perform immediate check
     if previousDisableUpdates == true && disableUpdates == false {
         versionChecker.resetLastCheckDate()
+        // Perform an immediate version check when user enables updates
+        // This ensures they get update notifications right away rather than waiting for the next recording
+        versionChecker.checkForUpdates()
+        logDebug("Performed immediate version check after enabling updates in configuration")
     }
     
     // Handle watch path changes and validation
@@ -1037,11 +1128,16 @@ configManager.onConfigChanged = { reason in
     // Only reinitialize watcher if the watch path actually changed
     if lastWatchPath != currentWatchPath {
         logDebug("Watch path changed from '\(lastWatchPath ?? "<none>")' to '\(currentWatchPath)'. Handling watcher reinitialization.")
-        // Stop any existing watcher
+        // Stop any existing watchers
         if recordingsWatcher != nil {
             recordingsWatcher?.stop()
             recordingsWatcher = nil
-            logDebug("Stopped previous watcher for path: \(lastWatchPath ?? "<none>")")
+            logDebug("Stopped previous recordings watcher for path: \(lastWatchPath ?? "<none>")")
+        }
+        if superwhisperFolderWatcher != nil {
+            superwhisperFolderWatcher?.stop()
+            superwhisperFolderWatcher = nil
+            logDebug("Stopped previous superwhisper folder watcher for path: \(lastWatchPath ?? "<none>")")
         }
         // Update lastWatchPath
         lastWatchPath = currentWatchPath
@@ -1051,7 +1147,7 @@ configManager.onConfigChanged = { reason in
                 logError("History manager not initialized. Exiting.")
                 return
             }
-            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
             if recordingsWatcher == nil {
                 logWarning("Failed to initialize recordings folder watcher for new path: \(currentWatchPath)")
                 notify(title: "Macrowhisper", message: "Failed to initialize watcher for new path.")
@@ -1060,9 +1156,34 @@ configManager.onConfigChanged = { reason in
                 recordingsWatcher?.start()
             }
         } else {
-            // If the new path is invalid, notify and wait for a valid path
-            logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath)")
-            notify(title: "Macrowhisper", message: "Recordings folder not found at new path. Please check the path.")
+            // If the new path is invalid, start folder watcher and wait for recordings folder to appear
+            logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath). Starting folder watcher.")
+            let now = Date()
+            if now.timeIntervalSince(lastMissingFolderNotification) > notificationCooldown {
+                notify(title: "Macrowhisper", message: "Recordings folder not found at new path. Waiting for it to appear.")
+                lastMissingFolderNotification = now
+            }
+            
+            // Start watching for the recordings folder to appear
+            superwhisperFolderWatcher = SuperwhisperFolderWatcher(parentPath: currentWatchPath) {
+                logInfo("Recordings folder appeared at new path! Initializing recordings watcher...")
+                
+                guard let historyManager = historyManager else {
+                    logError("History manager not initialized during late initialization.")
+                    return
+                }
+                
+                recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
+                if recordingsWatcher == nil {
+                    logWarning("Failed to initialize recordings folder watcher after folder appeared at new path")
+                    notify(title: "Macrowhisper", message: "Failed to initialize recordings watcher for new path")
+                } else {
+                    logDebug("Successfully started watching recordings folder at \(recordingsPath)")
+                    recordingsWatcher?.start()
+                    // No notification here - folder appearing is the expected good outcome
+                }
+            }
+            superwhisperFolderWatcher?.start()
         }
     } else if reason == "watchPathChanged" || recordingsWatcher == nil {
         // If the watcher is nil (e.g., app just started or was stopped due to invalid path), try to start it if the path is valid
@@ -1071,7 +1192,7 @@ configManager.onConfigChanged = { reason in
                 logError("History manager not initialized. Exiting.")
                 return
             }
-            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication)
+            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
             if recordingsWatcher == nil {
                 logWarning("Failed to initialize recordings folder watcher for path: \(currentWatchPath)")
                 notify(title: "Macrowhisper", message: "Failed to initialize watcher for path.")
@@ -1079,10 +1200,34 @@ configManager.onConfigChanged = { reason in
                 logDebug("Watching recordings folder at \(recordingsPath)")
                 recordingsWatcher?.start()
             }
-        } else if !recordingsFolderExists {
-            // If the path is still invalid, notify again
-            logWarning("Watch path invalid: Recordings folder not found at \(recordingsPath)")
-            notify(title: "Macrowhisper", message: "Recordings folder not found. Please check the path.")
+        } else if !recordingsFolderExists && superwhisperFolderWatcher == nil {
+            // If the recordings folder doesn't exist and we don't have a folder watcher yet, start one
+            logWarning("Recordings folder still not found at \(recordingsPath). Starting folder watcher.")
+            let now = Date()
+            if now.timeIntervalSince(lastMissingFolderNotification) > notificationCooldown {
+                notify(title: "Macrowhisper", message: "Recordings folder not found. Waiting for it to appear.")
+                lastMissingFolderNotification = now
+            }
+            
+            superwhisperFolderWatcher = SuperwhisperFolderWatcher(parentPath: currentWatchPath) {
+                logInfo("Recordings folder appeared! Initializing recordings watcher...")
+                
+                guard let historyManager = historyManager else {
+                    logError("History manager not initialized during late initialization.")
+                    return
+                }
+                
+                recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
+                if recordingsWatcher == nil {
+                    logWarning("Failed to initialize recordings folder watcher after folder appeared")
+                    notify(title: "Macrowhisper", message: "Failed to initialize recordings watcher")
+                } else {
+                    logDebug("Successfully started watching recordings folder at \(recordingsPath)")
+                    recordingsWatcher?.start()
+                    // No notification here - folder appearing is the expected good outcome
+                }
+            }
+            superwhisperFolderWatcher?.start()
         }
     }
 }

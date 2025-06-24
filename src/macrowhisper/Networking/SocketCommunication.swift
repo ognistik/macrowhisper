@@ -145,20 +145,9 @@ class SocketCommunication {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             return (swResult, true)
         }
-        // Apply newline conversion to the template before processing placeholders
-        // This allows users to type \n in their action templates while preserving literal \n in placeholder content
-        var result = action.replacingOccurrences(of: "\\n", with: "\n")
-        var updatedMetaJson = metaJson
-        if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
-            let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
-            updatedMetaJson["llmResult"] = cleaned
-            result = replaceXmlPlaceholders(action: result, extractedTags: tags)
-        } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
-            let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
-            result = replaceXmlPlaceholders(action: result, extractedTags: tags)
-        }
-        // Use the ActionType-aware function for insert actions to prevent unnecessary escaping
-        result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson, actionType: .insert)
+        // Use the unified placeholder processing function for consistency across all action types
+        // (newline conversion is handled within processAllPlaceholders for Insert actions)
+        let result = processAllPlaceholders(action: action, metaJson: metaJson, actionType: .insert)
         return (result, false)
     }
 
@@ -350,20 +339,33 @@ class SocketCommunication {
                 write(clientSocket, response, response.utf8.count)
                 
             case .updateConfig:
-                if let args = commandMessage.arguments {
-                    if let insertName = args["activeInsert"], !insertName.isEmpty, !validateInsertExists(insertName, configManager: configMgr) {
-                        response = "Error: Insert '\(insertName)' does not exist."
-                        write(clientSocket, response, response.utf8.count)
-                        logError("Attempted to set non-existent insert: \(insertName)")
-                        notify(title: "Macrowhisper", message: "Non-existent insert: \(insertName)")
-                        return
+                // Handle configuration updates
+                if let arguments = commandMessage.arguments {
+                    var updated = false
+                    
+                    // Update active insert with validation
+                    if let activeInsert = arguments["activeInsert"] {
+                        // Validate insert exists if it's not empty
+                        if !activeInsert.isEmpty && !validateInsertExists(activeInsert, configManager: configMgr) {
+                            response = "Error: Insert '\(activeInsert)' does not exist."
+                            write(clientSocket, response, response.utf8.count)
+                            logError("Attempted to set non-existent insert: \(activeInsert)")
+                            notify(title: "Macrowhisper", message: "Non-existent insert: \(activeInsert)")
+                            return
+                        }
+                        configMgr.config.defaults.activeInsert = activeInsert
+                        updated = true
                     }
-                    configMgr.updateFromCommandLineAsync(arguments: args) {
-                        logInfo("Configuration updated successfully in background")
+                    
+                    if updated {
+                        configMgr.saveConfig()
+                        configMgr.onConfigChanged?(nil)
+                        response = "Configuration has been updated"
+                    } else {
+                        response = "No configuration changes were made"
                     }
-                    response = "Configuration update queued"
                 } else {
-                    response = "No arguments for config update"
+                    response = "Configuration has been updated"
                 }
                 write(clientSocket, response, response.utf8.count)
                 
@@ -386,6 +388,7 @@ class SocketCommunication {
                 }
                 let socketPathStr = self.socketPath
                 let watcherRunning = recordingsWatcher != nil
+                let folderWatcherRunning = superwhisperFolderWatcher != nil
                 let watchPath = defaults.watch
                 let expandedWatchPath = (watchPath as NSString).expandingTildeInPath
                 let recordingsPath = "\(expandedWatchPath)/recordings"
@@ -397,7 +400,8 @@ class SocketCommunication {
                 // Config
                 lines.append("Config file: \(configPath ?? ".unknown")")
                 // Watcher
-                lines.append("Watcher running: \(watcherRunning ? "yes" : "no")")
+                lines.append("Recordings watcher: \(watcherRunning ? "yes" : "no")")
+                lines.append("Folder watcher: \(folderWatcherRunning ? "yes (waiting for recordings folder)" : "no")")
                 lines.append("Superwhisper folder: \(expandedWatchPath)")
                 lines.append("Recordings folder: \(recordingsPath) (exists: \(recordingsFolderExists ? "yes" : "no"))")
                 // Active insert
@@ -418,11 +422,14 @@ class SocketCommunication {
                     lines.append("history retention: (disabled)")
                 }
                 // Health checks
-                if !recordingsFolderExists {
-                    lines.append("Warning: Recordings folder does not exist at the expected path.")
+                if !recordingsFolderExists && !folderWatcherRunning {
+                    lines.append("Warning: Recordings folder does not exist and no folder watcher is active.")
+                }
+                if folderWatcherRunning {
+                    lines.append("Info: Waiting for recordings folder to appear at expected path.")
                 }
                 if watcherRunning && !recordingsFolderExists {
-                    lines.append("Warning: Watcher is running but recordings folder is missing!")
+                    lines.append("Warning: Recordings watcher is running but recordings folder is missing!")
                 }
                 // Print all lines
                 response = lines.joined(separator: "\n")
@@ -772,10 +779,10 @@ class SocketCommunication {
             return nil
         }
         
-        // Only log successful connections for non-quiet commands
-        let quietCommands: [Command] = [.status, .version, .listInserts, .getIcon, .getInsert]
-        if !quietCommands.contains(command) {
-            logInfo("Sending command: \(command.rawValue) to \(socketPath)")
+        // Only log for debugging commands or when explicitly needed for troubleshooting
+        let debugCommands: [Command] = [.debug, .versionState, .versionClear, .forceUpdateCheck]
+        if debugCommands.contains(command) {
+            logDebug("Sending command: \(command.rawValue) to \(socketPath)")
         }
         
         let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)

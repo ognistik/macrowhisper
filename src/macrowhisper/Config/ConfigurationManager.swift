@@ -76,10 +76,17 @@ class ConfigurationManager {
             // File doesn't exist, create it with defaults
             logInfo("No configuration file found at \(self.configPath). Creating a new one with default settings.")
             syncQueue.async {
+                logDebug("About to create configuration file at \(self.configPath)")
                 self.saveConfig()
+                if self.fileManager.fileExists(atPath: self.configPath) {
+                    logDebug("Configuration file successfully created")
+                } else {
+                    logError("Failed to create configuration file at \(self.configPath)")
+                }
             }
         }
         
+        // Always set up file watcher - it's now smart enough to handle both existing and non-existing files
         setupFileWatcher()
     }
     

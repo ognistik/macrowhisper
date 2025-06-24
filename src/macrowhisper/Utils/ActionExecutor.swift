@@ -21,14 +21,15 @@ class ActionExecutor {
         name: String,
         type: ActionType,
         metaJson: [String: Any],
-        recordingPath: String
+        recordingPath: String,
+        isTriggeredAction: Bool = true  // Default to true since this is typically called for trigger actions
     ) {
         logInfo("[TriggerEval] Executing action '\(name)' (type: \(type)) due to trigger match.")
         
         switch type {
         case .insert:
             if let insert = action as? AppConfiguration.Insert {
-                executeInsertAction(insert, metaJson: metaJson, recordingPath: recordingPath)
+                executeInsertAction(insert, metaJson: metaJson, recordingPath: recordingPath, isTriggeredAction: isTriggeredAction)
             }
         case .url:
             if let url = action as? AppConfiguration.Url {
@@ -49,7 +50,7 @@ class ActionExecutor {
         }
     }
     
-    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String) {
+    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool = true) {
         // Check if the insert action is ".none" or empty - if so, skip action but apply delay
         if insert.action == ".none" || insert.action.isEmpty {
             logDebug("Insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
@@ -60,7 +61,10 @@ class ActionExecutor {
                 logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
             }
             
-            handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: insert)
+            // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
+            if isTriggeredAction {
+                handleMoveToSetting(folderPath: recordingPath, activeInsert: insert)
+            }
             return
         }
         
@@ -88,7 +92,13 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSetting(folderPath: (recordingPath as NSString).deletingLastPathComponent, activeInsert: insert)
+        // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
+        if isTriggeredAction {
+            logDebug("Handling moveTo for triggered insert action")
+            handleMoveToSetting(folderPath: recordingPath, activeInsert: insert)
+        } else {
+            logDebug("Skipping moveTo for active insert action (handled by RecordingsFolderWatcher)")
+        }
     }
     
     private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String) {
@@ -106,7 +116,9 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: url)
+        // FIX: Pass the individual recording folder path, not its parent
+        logDebug("Handling moveTo for triggered URL action")
+        handleMoveToSettingForAction(folderPath: recordingPath, action: url)
     }
     
     private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String) {
@@ -124,7 +136,8 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shortcut)
+        // FIX: Pass the individual recording folder path, not its parent
+        handleMoveToSettingForAction(folderPath: recordingPath, action: shortcut)
     }
     
     private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String) {
@@ -142,7 +155,8 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: shell)
+        // FIX: Pass the individual recording folder path, not its parent
+        handleMoveToSettingForAction(folderPath: recordingPath, action: shell)
     }
     
     private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String) {
@@ -160,14 +174,15 @@ class ActionExecutor {
             restoreClipboard: configManager.config.defaults.restoreClipboard
         )
         
-        handleMoveToSettingForAction(folderPath: (recordingPath as NSString).deletingLastPathComponent, action: ascript)
+        // FIX: Pass the individual recording folder path, not its parent
+        handleMoveToSettingForAction(folderPath: recordingPath, action: ascript)
     }
     
     // MARK: - Action Processing Methods
     
     private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) {
-        // Process the URL action with placeholders
-        let processedAction = processDynamicPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
+        // Process the URL action with both XML and dynamic placeholders
+        let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
         
         // URL encode the processed action
         guard let encodedUrl = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
@@ -198,31 +213,48 @@ class ActionExecutor {
     }
     
     private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {
-        let processedAction = processDynamicPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
-        let task = Process()
-        task.launchPath = "/usr/bin/shortcuts"
-        task.arguments = ["run", shortcutName, "-i", "-"]
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        let inputPipe = Pipe()
-        task.standardInput = inputPipe
+        let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
+        
+        logDebug("[ShortcutAction] Processed action before sending to shortcuts: '\(processedAction)'")
+        
+        // Use temporary file approach to ensure proper UTF-8 encoding
+        let tempDir = NSTemporaryDirectory()
+        let tempFile = tempDir + "macrowhisper_shortcut_input_\(UUID().uuidString).txt"
+        
         do {
+            // Write the processed action to a temporary file with explicit UTF-8 encoding
+            try processedAction.write(toFile: tempFile, atomically: true, encoding: .utf8)
+            logDebug("[ShortcutAction] Wrote UTF-8 content to temporary file: \(tempFile)")
+            
+            let task = Process()
+            task.launchPath = "/usr/bin/shortcuts"
+            task.arguments = ["run", shortcutName, "-i", tempFile]
+            task.standardOutput = FileHandle.nullDevice
+            task.standardError = FileHandle.nullDevice
+            
             try task.run()
-            // Write the action to stdin (do NOT escape again)
-            if let data = processedAction.data(using: .utf8) {
-                inputPipe.fileHandleForWriting.write(data)
+            logDebug("[ShortcutAction] Shortcut launched with temporary file input")
+            
+            // Clean up the temporary file after a short delay to ensure shortcuts has read it
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+                do {
+                    try FileManager.default.removeItem(atPath: tempFile)
+                    logDebug("[ShortcutAction] Cleaned up temporary file: \(tempFile)")
+                } catch {
+                    logWarning("[ShortcutAction] Failed to clean up temporary file \(tempFile): \(error)")
+                }
             }
-            inputPipe.fileHandleForWriting.closeFile()
-            logDebug("Shortcut launched asynchronously with direct stdin input")
+            
         } catch {
             logError("Failed to execute shortcut action: \(error)")
+            // Clean up temp file on error
+            try? FileManager.default.removeItem(atPath: tempFile)
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
-        autoReturnEnabled = false
     }
     
     private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) {
-        let processedAction = processDynamicPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+        let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
         let task = Process()
         task.launchPath = "/bin/bash"
         task.arguments = ["-c", processedAction]
@@ -235,11 +267,10 @@ class ActionExecutor {
             logError("Failed to execute shell script: \(error)")
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
-        autoReturnEnabled = false
     }
     
     private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) {
-        let processedAction = processDynamicPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
+        let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", processedAction]
@@ -252,7 +283,6 @@ class ActionExecutor {
             logError("Failed to execute AppleScript action: \(error)")
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
-        autoReturnEnabled = false
     }
     
     // MARK: - Helper Methods

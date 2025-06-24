@@ -24,38 +24,69 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
     
     // If no XML tags are requested, return the original LLM result
     if requestedTags.isEmpty {
+        logDebug("[XMLPlaceholders] No XML placeholders found in action, returning original llmResult unchanged")
         return (cleanedLlmResult, extractedTags)
     }
     
+    logDebug("[XMLPlaceholders] Found XML placeholders in action: \(requestedTags)")
+    
+    // Track if any tags were actually found and removed
+    var tagsWereRemoved = false
+    
     // For each requested tag, extract content and remove from LLM result
     for tagName in requestedTags {
-        // Pattern to match the specific XML tag
+        logDebug("[XMLPlaceholders] Processing requested tag: '\(tagName)'")
+        
+        // Pattern to match the specific XML tag (only this exact tag name)
         let tagPattern = "<\(tagName)>(.*?)</\(tagName)>"
         let tagRegex = try? NSRegularExpression(pattern: tagPattern, options: [.dotMatchesLineSeparators])
         
-        // Find the tag in the LLM result
-        if let match = tagRegex?.firstMatch(in: cleanedLlmResult, options: [], range: NSRange(cleanedLlmResult.startIndex..., in: cleanedLlmResult)),
-           let contentRange = Range(match.range(at: 1), in: cleanedLlmResult),
-           let fullMatchRange = Range(match.range, in: cleanedLlmResult) {
+        // Find ALL occurrences of this specific tag in the LLM result
+        if let regex = tagRegex {
+            let matches = regex.matches(in: cleanedLlmResult, options: [], range: NSRange(cleanedLlmResult.startIndex..., in: cleanedLlmResult))
             
-            // Extract content and clean it
-            var content = String(cleanedLlmResult[contentRange])
-            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            // Store the cleaned content
-            extractedTags[tagName] = content
-            
-            // Remove the XML tag and its content from the result
-            cleanedLlmResult.replaceSubrange(fullMatchRange, with: "")
+            if matches.isEmpty {
+                logDebug("[XMLPlaceholders] Tag '\(tagName)' not found in llmResult")
+                // Store empty content for missing tags
+                extractedTags[tagName] = ""
+            } else {
+                // Process matches in reverse order to avoid index shifting issues
+                for match in matches.reversed() {
+                    if let contentRange = Range(match.range(at: 1), in: cleanedLlmResult),
+                       let fullMatchRange = Range(match.range, in: cleanedLlmResult) {
+                        
+                        // Extract content and clean it
+                        var content = String(cleanedLlmResult[contentRange])
+                        content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        // For multiple occurrences, we'll use the content from the first match found
+                        // (which is the last one processed due to reverse order)
+                        if extractedTags[tagName] == nil {
+                            extractedTags[tagName] = content
+                            logDebug("[XMLPlaceholders] Extracted tag '\(tagName)': '\(content)'")
+                        }
+                        
+                        // Remove the XML tag and its content from the result
+                        cleanedLlmResult.replaceSubrange(fullMatchRange, with: "")
+                        tagsWereRemoved = true
+                        logDebug("[XMLPlaceholders] Removed tag '\(tagName)' from llmResult")
+                    }
+                }
+            }
+        } else {
+            logError("[XMLPlaceholders] Failed to create regex for tag '\(tagName)'")
+            extractedTags[tagName] = ""
         }
     }
     
-    // Clean up the LLM result after removing all requested tags
-    // Remove any consecutive empty lines
-    cleanedLlmResult = cleanedLlmResult.replacingOccurrences(of: "\n\\s*\n+", with: "\n\n", options: .regularExpression)
-    
-    // Trim leading and trailing whitespace
-    cleanedLlmResult = cleanedLlmResult.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Only clean up the LLM result if tags were actually removed
+    if tagsWereRemoved {
+        // Remove any consecutive empty lines
+        cleanedLlmResult = cleanedLlmResult.replacingOccurrences(of: "\n\\s*\n+", with: "\n\n", options: .regularExpression)
+        
+        // Trim leading and trailing whitespace
+        cleanedLlmResult = cleanedLlmResult.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     
     return (cleanedLlmResult, extractedTags)
 }
@@ -423,5 +454,42 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
         }
     }
     
+    return result
+}
+
+// MARK: - Unified Placeholder Processing
+
+/// Processes both XML and dynamic placeholders for any action type
+/// This ensures XML placeholders work consistently across all action types (Insert, URL, Shortcut, Shell, AppleScript)
+func processAllPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
+    logDebug("[UnifiedPlaceholders] Processing placeholders for \(actionType) action")
+    var result = action
+    var updatedMetaJson = metaJson
+    
+    // Apply newline conversion for Insert actions only
+    // This allows users to type \n in their action templates while preserving literal \n in placeholder content
+    if actionType == .insert {
+        result = result.replacingOccurrences(of: "\\n", with: "\n")
+    }
+    
+    // First, process XML placeholders if llmResult or result is available
+    if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
+        logDebug("[UnifiedPlaceholders] Original llmResult: '\(llmResult)'")
+        let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
+        logDebug("[UnifiedPlaceholders] Cleaned llmResult: '\(cleaned)'")
+        logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
+        updatedMetaJson["llmResult"] = cleaned
+        result = replaceXmlPlaceholders(action: result, extractedTags: tags)
+    } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
+        logDebug("[UnifiedPlaceholders] Original result: '\(regularResult)'")
+        let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
+        logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
+        result = replaceXmlPlaceholders(action: result, extractedTags: tags)
+    }
+    
+    // Then process dynamic placeholders with appropriate escaping based on action type
+    result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson, actionType: actionType)
+    
+    logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
     return result
 } 

@@ -2,6 +2,12 @@ import Foundation
 import Dispatch
 import Cocoa
 
+/// RecordingsFolderWatcher - Monitors Superwhisper recordings folder
+/// 
+/// CORE PRINCIPLE: Macrowhisper only processes the most recent recording with a valid result.
+/// - On startup: Mark all existing recordings as processed
+/// - When multiple new recordings appear simultaneously: Process only the most recent, mark others as processed
+/// - This prevents processing storms and handles cloud sync scenarios elegantly
 class RecordingsFolderWatcher {
     private let path: String
     private var source: DispatchSourceFileSystemObject?
@@ -16,8 +22,9 @@ class RecordingsFolderWatcher {
     private let actionExecutor: ActionExecutor
     private let clipboardMonitor: ClipboardMonitor
     private let processedRecordingsFile: String
+    private let versionChecker: VersionChecker?
 
-    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication) {
+    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?) {
         self.path = "\(basePath)/recordings"
         self.configManager = configManager
         self.historyManager = historyManager
@@ -25,6 +32,7 @@ class RecordingsFolderWatcher {
         self.triggerEvaluator = TriggerEvaluator(logger: logger)
         self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager)
         self.clipboardMonitor = ClipboardMonitor(logger: logger)
+        self.versionChecker = versionChecker
         
         // Create a file to track processed recordings
         let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -49,8 +57,10 @@ class RecordingsFolderWatcher {
         // Get the initial state
         self.lastKnownSubdirectories = self.getCurrentSubdirectories()
         
-        // Mark the most recent recording as processed on startup
-        markMostRecentRecordingAsProcessed()
+        // CORE PRINCIPLE: On startup, mark ALL existing recordings as processed
+        // This prevents processing storms and aligns with the principle that we only process
+        // the most recent recording that appears AFTER the app starts
+        markAllExistingRecordingsAsProcessed()
     }
 
     func start() {
@@ -112,14 +122,24 @@ class RecordingsFolderWatcher {
         try? content.write(toFile: processedRecordingsFile, atomically: true, encoding: .utf8)
     }
     
-    private func markMostRecentRecordingAsProcessed() {
-        // Get all recording directories sorted by name (which should be timestamps)
-        let sortedDirectories = lastKnownSubdirectories.sorted(by: >)
+    private func markAllExistingRecordingsAsProcessed() {
+        // CORE PRINCIPLE: Mark all existing recordings as processed on startup
+        // We only want to process recordings that appear AFTER the app starts
+        let existingDirectories = lastKnownSubdirectories
+        var markedCount = 0
         
-        if let mostRecent = sortedDirectories.first {
-            let fullPath = "\(path)/\(mostRecent)"
-            markAsProcessed(recordingPath: fullPath)
-            logDebug("Marked most recent recording as processed on startup: \(fullPath)")
+        for dirName in existingDirectories {
+            let fullPath = "\(path)/\(dirName)"
+            if !isAlreadyProcessed(recordingPath: fullPath) {
+                markAsProcessed(recordingPath: fullPath)
+                markedCount += 1
+            }
+        }
+        
+        if markedCount > 0 {
+            logInfo("Startup: Marked \(markedCount) existing recordings as processed. Will only process new recordings that appear after startup.")
+        } else {
+            logDebug("Startup: All existing recordings were already marked as processed.")
         }
     }
     
@@ -154,9 +174,57 @@ class RecordingsFolderWatcher {
         let newSubdirectories = currentSubdirectories.subtracting(lastKnownSubdirectories)
         if !newSubdirectories.isEmpty {
             logDebug("Detected new recording directories: \(newSubdirectories.joined(separator: ", "))")
-            for dirName in newSubdirectories {
-                let fullPath = "\(path)/\(dirName)"
-                processNewRecording(atPath: fullPath)
+            
+            // ENHANCED LOGIC: Check if any new recording is older than existing processed recordings
+            // This handles cloud sync scenarios where older recordings appear after newer ones
+            let allExistingDirs = lastKnownSubdirectories
+            let mostRecentExistingDir = allExistingDirs.max() // Most recent existing directory
+            
+            // CORE PRINCIPLE: Only process the most recent recording, mark all others as processed
+            // Enhanced to also mark recordings older than existing ones as processed
+            if newSubdirectories.count > 1 {
+                // Multiple new recordings detected - sort by name (timestamp) and only process the most recent
+                let sortedNewDirs = newSubdirectories.sorted(by: >)  // Most recent first
+                let mostRecentNewDir = sortedNewDirs.first!
+                
+                // Check if even the most recent new recording is older than existing recordings
+                if let mostRecentExisting = mostRecentExistingDir, mostRecentNewDir < mostRecentExisting {
+                    // All new recordings are older than existing ones - mark all as processed
+                    logInfo("All new recordings (\(newSubdirectories.count)) are older than existing recordings. Marking all as processed to prevent cloud sync interference.")
+                    for dirName in newSubdirectories {
+                        let fullPath = "\(path)/\(dirName)"
+                        markAsProcessed(recordingPath: fullPath)
+                        logDebug("Marked as processed (older than existing): \(dirName)")
+                    }
+                } else {
+                    // At least one new recording is recent enough to consider
+                    logInfo("Multiple new recordings detected (\(newSubdirectories.count)). Processing only the most recent: \(mostRecentNewDir)")
+                    
+                    // Mark all others as processed immediately (except the most recent)
+                    for dirName in sortedNewDirs.dropFirst() {
+                        let fullPath = "\(path)/\(dirName)"
+                        markAsProcessed(recordingPath: fullPath)
+                        logDebug("Marked as processed (not most recent): \(dirName)")
+                    }
+                    
+                    // Process only the most recent
+                    let mostRecentPath = "\(path)/\(mostRecentNewDir)"
+                    processNewRecording(atPath: mostRecentPath)
+                }
+            } else {
+                // Single new recording - check if it's older than existing recordings
+                let dirName = newSubdirectories.first!
+                
+                if let mostRecentExisting = mostRecentExistingDir, dirName < mostRecentExisting {
+                    // This new recording is older than existing ones - mark as processed
+                    let fullPath = "\(path)/\(dirName)"
+                    markAsProcessed(recordingPath: fullPath)
+                    logInfo("New recording \(dirName) is older than existing recordings. Marked as processed to prevent cloud sync interference.")
+                } else {
+                    // This recording is recent enough to process
+                    let fullPath = "\(path)/\(dirName)"
+                    processNewRecording(atPath: fullPath)
+                }
             }
         }
         
@@ -368,7 +436,38 @@ class RecordingsFolderWatcher {
                 pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
             }
             
-            // FIRST: Evaluate triggers for all actions - this has precedence over active inserts and auto-return
+            // FIRST: Check for auto-return (highest priority - overrides everything)
+            if autoReturnEnabled {
+                // Apply the result directly using {{swResult}}
+                let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
+                
+                // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
+                let actionDelay = configManager.config.defaults.actionDelay
+                let shouldEsc = !configManager.config.defaults.noEsc
+                
+                clipboardMonitor.executeInsertWithEnhancedClipboardSync(
+                    insertAction: { [weak self] in
+                        // Apply the result without ESC (handled by clipboard monitor)
+                        self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
+                        // Reset the flag after using it once
+                        autoReturnEnabled = false
+                    },
+                    actionDelay: actionDelay,
+                    shouldEsc: shouldEsc,
+                    isAutoPaste: false,  // Auto-return is not autoPaste
+                    recordingPath: recordingPath,
+                    metaJson: enhancedMetaJson,
+                    restoreClipboard: configManager.config.defaults.restoreClipboard
+                )
+                
+                logDebug("Applied auto-return with enhanced clipboard monitoring")
+                handlePostProcessing(recordingPath: recordingPath)
+                
+                // Early monitoring will be stopped by ClipboardMonitor when done
+                return
+            }
+            
+            // SECOND: Evaluate triggers for all actions - this has precedence over active inserts
             let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
                 configManager: configManager,
                 result: String(describing: result),
@@ -395,42 +494,11 @@ class RecordingsFolderWatcher {
                         name: name,
                         type: type,
                         metaJson: updatedJson,
-                        recordingPath: recordingPath
+                        recordingPath: recordingPath,
+                        isTriggeredAction: true  // This is a trigger action
                     )
                 }
                 
-                // Continue processing to allow auto-return to work if enabled
-                handlePostProcessing(recordingPath: recordingPath)
-                
-                // Early monitoring will be stopped by ClipboardMonitor when done
-                return
-            }
-            
-            // SECOND: Check for auto-return (has precedence over active inserts)
-            if autoReturnEnabled {
-                // Apply the result directly using {{swResult}}
-                let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
-                
-                // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
-                let actionDelay = configManager.config.defaults.actionDelay
-                let shouldEsc = !configManager.config.defaults.noEsc
-                
-                clipboardMonitor.executeInsertWithEnhancedClipboardSync(
-                    insertAction: { [weak self] in
-                        // Apply the result without ESC (handled by clipboard monitor)
-                        self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
-                        // Reset the flag after using it once
-                        autoReturnEnabled = false
-                    },
-                    actionDelay: actionDelay,
-                    shouldEsc: shouldEsc,
-                    isAutoPaste: false,  // Auto-return is not autoPaste
-                    recordingPath: recordingPath,
-                    metaJson: enhancedMetaJson,
-                    restoreClipboard: configManager.config.defaults.restoreClipboard
-                )
-                
-                logDebug("Applied auto-return with enhanced clipboard monitoring")
                 handlePostProcessing(recordingPath: recordingPath)
                 
                 // Early monitoring will be stopped by ClipboardMonitor when done
@@ -517,5 +585,14 @@ class RecordingsFolderWatcher {
         }
 
         historyManager.performHistoryCleanup()
+        
+        // Check for version updates during active usage with a 30-second delay
+        // This ensures users get update notifications during normal app usage, but not immediately
+        // after dictation to avoid interrupting their workflow
+        if let versionChecker = self.versionChecker {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 30.0) {
+                versionChecker.checkForUpdates()
+            }
+        }
     }
 } 

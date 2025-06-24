@@ -1,12 +1,176 @@
 # Macrowhisper
 
-This repository contains **[Macrowhisper](https://by.afadingthought.com/macrowhisper)**, a set of Keyboard Maestro macros designed to extend Superwhisper's functionality by enabling actions after dictation processing. All individual macros are in the `MW` folder.
+**A powerful automation helper app for [Superwhisper](https://superwhisper.com/?via=robert)**
 
-This repository provides access to the latest releases. You can track releases using GitHub notifications or by subscribing to the releases RSS feed at  
-`https://github.com/ognistik/macrowhisper/releases.atom`
+[![Swift Version](https://img.shields.io/badge/Swift-6.1.2-orange.svg)](https://swift.org)
+[![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
+[![License](https://img.shields.io/badge/License-GMT-blue.svg)](LICENSE)
 
-Feel free to report issues here if you encounter any.
+---
+## What It Does
+Macrowhisper monitors your Superwhisper recordings and executes intelligent automated actions based on configurable rules.
 
-*Each release contains the entire macro group, which is ideal for new users. If you have customized your macros, you can check the release notes to see if a specific macro was updated and get just that updated macro from the `MW` folder. The repository always has the latest versions, so you don’t need to re-download the whole group when only one macro has changed.*
+### Key Features
+- ****🎙️ Voice-Triggered Automations****: Execute actions based on voice patterns or keywords
+- ****🧠 Intelligent Trigger System****: Advanced pattern matching for applications and Superwhisper active mode
+- ****📝 Multiple Action Types****: Text insertion, URL opening, shell scripts, AppleScript, and macOS Shortcuts
+- ****⚙️ Service Integration****: Run as background service as a launch agent
+- ****🔄 Live Configuration****: JSON-based configuration with real-time reloading
+- ****🗂️ History Management****: Automatic cleanup of old recordings
+- ****🔌 CLI Interface****: Comprehensive command-line interface which allows for easy integration with automation apps
 
-**For documentation, updates, and detailed explanations, visit [Macrowhisper's docs](https://by.afadingthought.com/macrowhisper).**
+---
+## Learn More
+**💫 [Check the full docs and sample use cases](https://by.afadingthought.com/macrowhisper)**
+
+---
+## Quick Start
+
+### Install
+```bash
+brew install ognistik/formulae/macrowhisper
+```
+
+Or you can insall via a script:
+```bash
+# Installs Macrowhisper's binary in /usr/local/bin
+curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sh
+```
+
+### Configure & Start
+```bash
+# Reveal/create configuration file
+# By default auto-created at ~/.config/macrowhisper/macrowhisper.json
+macrowhisper --reveal-config
+
+# Start background service
+macrowhisper --start-service
+```
+
+### Essential Superwhisper Settings
+To prevent conflicts between the two apps:
+- **Turn OFF**: Paste Result Text, Restore Clipboard After Paste, Simulate Key Presses
+- **Keep ON**: Recording Window
+
+### Test Your Setup
+After granting accessibility permissions, test dictation in different apps. By default, Macrowhisper mimics Superwhisper's auto-paste behavior.
+
+---
+## Key Commands
+
+```bash
+# Service Management
+macrowhisper --start-service        # Start background service
+macrowhisper --stop-service         # Stop service
+macrowhisper --uninstall-service    # Uninstall service
+macrowhisper --service-status       # Check service status
+
+# Configuration
+macrowhisper --reveal-config        # Open config file
+macrowhisper --set-config <path>    # Set custom config location
+
+# Insert Actions (text pasting)
+macrowhisper --insert <name>        # Set active insert action
+macrowhisper --add-insert <name>    # Add new insert action
+macrowhisper --exec-insert <name>   # Execute insert with last result
+
+# Other Actions
+macrowhisper --add-url <name>       # Add URL action
+macrowhisper --add-shell <name>     # Add shell script action
+macrowhisper --add-shortcut <name>  # Add macOS Shortcut action
+macrowhisper --add-as <name>        # Add AppleScript action
+
+# Status & Help
+macrowhisper --status               # Show running status
+macrowhisper --help                 # Full command list
+```
+
+---
+## How It Works
+1. **Monitor**: Watches your Superwhisper recordings folder
+2. **Evaluate**: Checks triggers (voice patterns, active app, Superwhisper mode)
+3. **Execute**: Runs matching actions (paste text, open URLs, run scripts, etc.)
+
+---
+## Configuration Example
+Macrowhisper uses JSON configuration with dynamic placeholders:
+
+```json
+{
+  "defaults": {
+    "activeInsert": "autoPaste",
+    "pressReturn": false,
+    "actionDelay": 0.0
+  },
+  "inserts": {
+    "autoPaste": {
+      "action": "{{swResult}}"
+    }
+  },
+  "urls": {
+    "googleSearch": {
+      "action": "https://www.google.com/search?q={{swResult}}",
+      "triggerVoice": "ask google|search online"
+    }
+  }
+}
+```
+
+**Available Placeholders:**
+- `{{swResult}}` - Your transcription result
+- `{{metaKeyName}}` - Any key from Superwhisper's meta.json file
+- `{{frontApp}}` - Expands to your application
+- `{{date:yyyy-MM-dd}}` - Formatted dates
+- `{{xml:tagname}}` - Extract XML content from LLM results
+- Plus regex replacements and contextual escaping
+
+**[Sample Configuration File](https://github.com/ognistik/macrowhisper/blob/main/samples/macrowhisper.json)**  
+*Make sure to run `macrowhisper --restart-service` if you set this as your default config.*
+
+---
+## Project Structure
+This is a Swift-based CLI application with the following architecture:
+
+```
+src/macrowhisper/
+├── main.swift                   # CLI interface & app entry
+├── Config/                      # Configuration management
+├── Watcher/                     # File system monitoring
+├── Utils/                       # Core utilities & action execution
+├── Networking/                  # Socket communication & updates
+└── History/                     # Recording cleanup
+```
+
+[Codebase Map](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)  
+[The Processing Flow](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
+
+---
+## Contributing
+This project is open source and welcomes contributions! 
+
+- **Source code**: All project files are in the `src/` directory
+- **Issues & PRs**: Use GitHub's issue tracker and pull request system
+
+Whether you're fixing bugs, adding features, improving documentation, or sharing creative use cases, your contributions help make Macrowhisper better for everyone.
+
+---
+## Documentation
+
+This README covers the basics. For comprehensive documentation including:
+- Advanced trigger system and logic
+- Complete settings reference  
+- Automation examples and workflows
+- Troubleshooting and debugging
+- Integration with Keyboard Maestro and automation apps
+
+**📖 Visit the full documentation: [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)**
+
+---
+## Support
+If you find Macrowhisper useful, consider supporting its development:
+**☕ [Buy me a coffee](https://buymeacoffee.com/afadingthought/)**
+
+This is an open source project with no monetization. Your support helps cover development costs and keeps the project active.
+
+---
+*Macrowhisper is an independent project and is not affiliated with Superwhisper.* 

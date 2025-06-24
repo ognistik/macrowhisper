@@ -33,6 +33,7 @@ macrowhisper-cli/src/
     │   └── ConfigurationManager.swift # Configuration loading/saving/watching (348 lines)
     ├── Watcher/                     # File system monitoring
     │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings (521 lines)
+    │   ├── SuperwhisperFolderWatcher.swift # Parent directory watcher for graceful startup (85 lines)
     │   └── ConfigChangeWatcher.swift     # Configuration file watcher (42 lines)
     ├── Networking/                  # Network and IPC functionality
     │   ├── SocketCommunication.swift    # Unix socket server for CLI commands (794 lines)
@@ -63,6 +64,7 @@ macrowhisper-cli/src/
 **Key Global Variables**:
 - `globalConfigManager`: Shared configuration manager instance
 - `recordingsWatcher`: File system watcher for recordings
+- `superwhisperFolderWatcher`: Parent directory watcher for graceful startup
 - `socketCommunication`: IPC server for CLI commands
 - `historyManager`: Recording cleanup manager
 - `logger`: Global logging instance
@@ -91,6 +93,7 @@ macrowhisper-cli/src/
 - Advanced configuration path management with persistence
 - Socket health monitoring with automatic recovery
 - System sleep/wake awareness
+- Graceful handling of missing Superwhisper folders with automatic detection
 
 ---
 
@@ -212,6 +215,31 @@ macrowhisper-cli/src/
 - **ClipboardMonitor**: Early clipboard state capture
 - **Persistent Tracking**: File-based processing history
 
+#### `macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` (85 lines)
+**Purpose**: Graceful startup watcher for scenarios where Superwhisper folder doesn't exist yet
+
+**Problem Solved**: When users configure a Superwhisper path that doesn't exist yet (first-time setup, cloud sync, etc.), the app can now wait gracefully instead of failing to start.
+
+**Key Features**:
+- **Parent directory monitoring**: Watches the Superwhisper parent directory for changes
+- **Auto-directory creation**: Creates parent directories if they don't exist
+- **Event-driven detection**: Efficiently detects when the recordings subdirectory appears
+- **Seamless handoff**: Automatically initializes RecordingsFolderWatcher when recordings folder is detected
+- **One-time operation**: Stops itself once the target folder is found
+
+**Usage Scenarios**:
+1. **First-time setup**: User hasn't created Superwhisper folder yet
+2. **Cloud sync**: Folder is syncing and temporarily unavailable
+3. **Configuration changes**: User changes watch path to non-existent location
+4. **Startup reliability**: Ensures app continues running while waiting for folder
+
+**Integration Flow**:
+1. **Startup Check**: If recordings folder doesn't exist, SuperwhisperFolderWatcher starts instead of RecordingsFolderWatcher
+2. **Directory Monitoring**: Watches parent directory for filesystem changes
+3. **Detection**: When recordings folder appears, triggers callback
+4. **Handoff**: Stops itself and initializes RecordingsFolderWatcher
+5. **Status Reporting**: Reports status via `--status` command as "Folder watcher: yes (waiting for recordings folder)"
+
 ---
 
 ### 5. Advanced Trigger System
@@ -273,29 +301,35 @@ macrowhisper-cli/src/
 
 ### 7. Enhanced Clipboard Management
 
-#### `macrowhisper/Utils/ClipboardMonitor.swift` (753 lines)
+#### `macrowhisper/Utils/ClipboardMonitor.swift` (759 lines)
 **Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts
 
 **Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content.
 
 **Key Features**:
 - **Early monitoring sessions**: Capture clipboard state when recording folder appears
-- **Smart restoration logic**: Determine correct clipboard content to restore
-- **Timing coordination**: Handle ESC simulation and action delays properly
-- **Thread-safe session management**: Concurrent monitoring with proper synchronization
+- **Smart restoration logic**: Determine correct clipboard content to restore based on session history
+- **Timing coordination**: Handle ESC simulation and action delays with precise timing
+- **Thread-safe session management**: Concurrent monitoring with proper synchronization using barriers
 - **Configurable restoration**: Optional clipboard restoration for user preference
+- **Enhanced vs. Basic sync**: Two-tier system with fallback for missing early monitoring data
 
 **Session Lifecycle**:
-1. **Early Start**: Begin monitoring when recording folder detected
-2. **Change Tracking**: Monitor all clipboard changes during session
-3. **Smart Analysis**: Determine user vs. system clipboard changes
-4. **Coordinated Execution**: Execute actions with proper timing
-5. **Intelligent Restoration**: Restore appropriate clipboard content
+1. **Early Start**: Begin monitoring immediately when recording folder detected
+2. **Change Tracking**: Monitor all clipboard changes during session with timestamps
+3. **Smart Analysis**: Determine user vs. system clipboard changes using session history
+4. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
+5. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
 
 **Restoration Logic**:
-- Prefer user's original clipboard over system-generated content
-- Handle cases where user intentionally copied system result
-- Respect user preference to disable restoration entirely
+- **Case 1**: If Superwhisper was faster, restore content from just before swResult
+- **Case 2**: If Macrowhisper was faster, preserve current clipboard content
+- **Case 3**: Handle user intentional clipboard changes during processing
+- **Timing Thresholds**: Use actionDelay vs. maxWaitTime (0.1s) for synchronization decisions
+
+**Critical Timing Constants**:
+- `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
+- `pollInterval: 0.01` seconds - 10ms polling interval for clipboard changes
 
 ---
 
@@ -318,6 +352,12 @@ macrowhisper-cli/src/
 3. **Action Management**: `addInsert`, `removeInsert`, `execInsert`
 4. **Service Control**: `serviceStatus`, `serviceStart`, `serviceStop`
 5. **System Control**: `quit`, `autoReturn`
+
+**Enhanced Status Reporting**:
+- **Recordings watcher status**: Shows if actively watching recordings folder
+- **Folder watcher status**: Shows if waiting for recordings folder to appear ("yes (waiting for recordings folder)")
+- **Path validation**: Reports both Superwhisper folder and recordings folder existence
+- **Health warnings**: Alerts if watchers are in inconsistent states
 
 **Advanced Features**:
 - **Placeholder processing**: Full XML and dynamic placeholder support
@@ -395,14 +435,20 @@ macrowhisper-cli/src/
 ### 11. Network Services
 
 #### `macrowhisper/Networking/VersionChecker.swift` (514 lines)
-**Purpose**: Intelligent update checking with advanced notification system
+**Purpose**: Intelligent update checking with user-centric notification system
 
 **Key Features**:
-- **Dual component tracking**: Monitors both CLI and Keyboard Maestro components
+- **Usage-triggered checking**: Checks during active app usage (recording processing)
 - **Smart notifications**: Different notification types based on update requirements
 - **Backoff strategy**: Prevents excessive checking after failures
 - **Configuration respect**: Honors `noUpdates` setting and timing constraints
 - **Comprehensive state management**: Tracks update states and user responses
+
+**Check Triggers**:
+1. **Application startup**: Initial check when app starts
+2. **Recording processing**: Check during active usage every 24 hours
+3. **Configuration changes**: Immediate check when updates are enabled
+4. **Manual trigger**: Force check via `--check-updates` command
 
 **Update Flow**:
 1. **Version comparison**: Semantic version comparison logic
@@ -423,7 +469,9 @@ main.swift
 ├── Initialize configuration manager with path priority
 ├── Start socket server for IPC
 ├── Initialize history manager for cleanup
-├── Start recordings watcher (if path valid)
+├── Check recordings folder existence
+│   ├── If exists: Start recordings watcher normally
+│   └── If missing: Start SuperwhisperFolderWatcher to wait for folder creation
 ├── Register for system sleep/wake notifications
 ├── Start socket health monitoring
 ├── Initialize version checker
@@ -433,24 +481,36 @@ main.swift
 ### 2. Recording Processing Flow (Enhanced)
 ```
 RecordingsFolderWatcher detects new directory
-├── Start early clipboard monitoring (ClipboardMonitor)
 ├── Check if already processed (persistent tracking)
+├── Start early clipboard monitoring IMMEDIATELY (ClipboardMonitor)
 ├── Look for meta.json file
 ├── If not found, watch for creation with timeout
-├── Once available, parse meta.json
-├── Gather application context (foreground app, bundle ID)
-├── Evaluate triggers (TriggerEvaluator)
-│   ├── Check voice triggers (with exceptions)
-│   ├── Check application triggers
-│   ├── Check mode triggers
-│   └── Apply trigger logic (AND/OR)
-├── Execute matched actions (ActionExecutor)
-│   ├── Process placeholders (Placeholders.swift)
+├── Once available, parse and validate meta.json
+├── Gather application context (foreground app, bundle ID, mode)
+├── Action Priority Evaluation (STRICT ORDER):
+│   ├── 1. Auto-Return (highest priority - overrides everything)
+│   ├── 2. Trigger Actions (TriggerEvaluator)
+│   │   ├── Check voice triggers (with exceptions and result stripping)
+│   │   ├── Check application triggers (bundle ID and name)
+│   │   ├── Check mode triggers (Superwhisper modes)
+│   │   ├── Apply trigger logic (AND/OR)
+│   │   └── Return first alphabetically sorted match
+│   └── 3. Active Insert (lowest priority - fallback only)
+├── Execute matched action (ActionExecutor)
+│   ├── Determine action-specific settings (actionDelay, noEsc, etc.)
+│   ├── Process placeholders with context (Placeholders.swift)
 │   ├── Execute with enhanced clipboard sync (ClipboardMonitor)
-│   ├── Handle accessibility requirements (Accessibility.swift)
-│   └── Apply delays and context changes
+│   │   ├── Apply actionDelay before ESC and action
+│   │   ├── Handle ESC simulation with accessibility checks
+│   │   ├── Coordinate timing with Superwhisper clipboard changes
+│   │   └── Restore intelligent clipboard content
+│   └── Handle action-specific execution (insert/URL/shortcut/shell/AppleScript)
 ├── Mark as processed (persistent tracking)
-└── Clean up monitoring sessions
+├── Perform post-processing tasks:
+│   ├── Handle moveTo operations with precedence (action > default)
+│   ├── Execute history cleanup (HistoryManager)
+│   └── Check for version updates with 30s delay (VersionChecker)
+└── Clean up monitoring sessions and watchers
 ```
 
 ### 3. Service Management Flow
@@ -606,6 +666,7 @@ The application uses a comprehensive JSON configuration file:
 - **Configuration errors**: JSON validation with user notification
 - **Socket failures**: Automatic socket recovery with health monitoring
 - **File system errors**: Graceful degradation and retry logic
+- **Missing folders**: SuperwhisperFolderWatcher provides graceful waiting instead of app failure
 - **Service failures**: Automatic restart and recovery procedures
 - **Accessibility errors**: Clear user guidance and fallback behavior
 
@@ -647,5 +708,12 @@ The application uses a comprehensive JSON configuration file:
   - API calls and webhooks
   - System automation (brightness, volume, etc.)
   - Multi-step actions/workflows
+
+## Additional Documentation
+
+For detailed technical analysis of the complete processing flow, timing, and clipboard synchronization, see:
+- **[PROCESSING_FLOW.md](./PROCESSING_FLOW.md)** - Comprehensive developer documentation covering the complete flow from recording detection to action execution, including all timing variables, conditions, and edge cases.
+
+---
 
 This comprehensive codebase map serves as a complete guide for understanding, maintaining, and extending the Macrowhisper application. The architecture supports robust operation, easy extensibility, and maintainable code organization across all components.

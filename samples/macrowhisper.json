@@ -1,0 +1,175 @@
+{
+  "defaults" : {
+    "actionDelay" : 0,
+    "activeInsert" : "autoPaste",
+    "history" : null,
+    "icon" : "",
+    "moveTo" : "",
+    "noEsc" : false,
+    "noNoti" : false,
+    "noUpdates" : false,
+    "pressReturn" : false,
+    "restoreClipboard" : true,
+    "returnDelay" : 0.14,
+    "simKeypress" : false,
+    "watch" : "~/Documents/superwhisper"
+  },
+  "inserts" : {
+    "autoPaste" : {
+      "action" : ".autoPaste",
+      "actionDelay" : null,
+      "icon" : "•",
+      "moveTo" : "",
+      "noEsc" : null,
+      "pressReturn" : null,
+      "simKeypress" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
+    "pasteChat" : {
+      "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
+      "actionDelay" : null,
+      "icon" : "⇄",
+      "moveTo" : "",
+      "noEsc" : null,
+      "pressReturn" : null,
+      "simKeypress" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
+    "pasteResult" : {
+      "action" : "{{swResult}}",
+      "actionDelay" : null,
+      "icon" : "⏎",
+      "moveTo" : "",
+      "noEsc" : null,
+      "pressReturn" : null,
+      "simKeypress" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
+    "textChat" : {
+      "action" : "## AI\n{{swResult}}\n\n---\n## USER\n",
+      "actionDelay" : null,
+      "icon" : "⚛",
+      "moveTo" : "",
+      "noEsc" : null,
+      "pressReturn" : null,
+      "simKeypress" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    }
+  },
+  "scriptsAS" : {
+    "AppleScript Sample" : {
+      "action" : "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\"",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    }
+  },
+  "scriptsShell" : {
+    "Shell Script Sample" : {
+      "action" : "echo \"{{swResult}}\" > ~/Desktop/testFile.txt",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    }
+  },
+  "shortcuts" : {
+    "AI Memos" : {
+      "action" : "∞∞{{date:long}}∞∞{{swResult}}∞∞{{result}}",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "Make note"
+    }
+  },
+  "urls" : {
+    "Google" : {
+      "action" : "https://www.google.com/search?q={{result}}",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "openWith" : "",
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "ask google"
+    },
+    "Letterboxd" : {
+      "action" : "https://letterboxd.com/search/{{result||\\.$||}}",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "openWith" : "",
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "ask letterboxd|ask letterboxed"
+    },
+    "OpenAI" : {
+      "action" : "https://chat.openai.com/?q={{result}}",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "openWith" : "",
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "ask openai|ask open ai"
+    },
+    "Perplexity" : {
+      "action" : "https://www.perplexity.ai/?q={{result||\\.$||}}",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "openWith" : "",
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "ask perplexity"
+    },
+    "Rotten Tomatoes" : {
+      "action" : "https://www.rottentomatoes.com/search?search={{result||\\.$||}}",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "openWith" : "",
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "ask rotten|ask roten"
+    },
+    "YouTube" : {
+      "action" : "https://www.youtube.com/results?search_query={{result||\\.$||}}",
+      "actionDelay" : null,
+      "moveTo" : "",
+      "noEsc" : null,
+      "openWith" : "",
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "ask youtube"
+    }
+  }
+}

@@ -45,7 +45,7 @@ class ClipboardMonitor {
         }
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
-        logDebug("[ClipboardMonitor] Captured user original clipboard: '\(userOriginal?.prefix(50) ?? "nil")...'")
+        logDebug("[ClipboardMonitor] Captured user original clipboard content")
         
         // Start monitoring clipboard changes
         monitorClipboardChangesForSession(recordingPath: recordingPath)
@@ -91,7 +91,7 @@ class ClipboardMonitor {
                     self?.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
                 }
                 
-                logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring: '\(currentContent?.prefix(50) ?? "nil")...'")
+                logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring")
             }
         }
         
@@ -107,7 +107,7 @@ class ClipboardMonitor {
     /// - Parameters:
     ///   - insertAction: The closure that executes the actual insert action
     ///   - actionDelay: The user-configured action delay
-    ///   - shouldEsc: Whether ESC should be simulated for responsiveness
+    ///   - shouldEsc: Whether ESC should be simulated
     ///   - isAutoPaste: Whether this is an autoPaste action (affects ESC simulation logic)
     ///   - recordingPath: The recording path to use early monitoring data from
     ///   - metaJson: The meta.json data to extract swResult from
@@ -148,7 +148,13 @@ class ClipboardMonitor {
             if !shouldRestoreClipboard {
                 logDebug("[ClipboardMonitor] Clipboard restoration disabled - executing action directly (ESC=\(escWillBeSimulated), restore=\(restoreClipboard))")
                 
-                // Step 1: Simulate ESC immediately for responsiveness if enabled
+                // Step 1: Apply actionDelay before ESC simulation and action execution
+                if actionDelay > 0 {
+                    Thread.sleep(forTimeInterval: actionDelay)
+                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and action")
+                }
+                
+                // Step 2: Simulate ESC after actionDelay if enabled
                 if shouldEsc {
                     if isAutoPaste {
                         // For autoPaste, use the cached input field status
@@ -165,12 +171,6 @@ class ClipboardMonitor {
                         simulateKeyDown(key: 53) // ESC key
                         logDebug("[ClipboardMonitor] ESC key pressed for responsiveness")
                     }
-                }
-                
-                // Step 2: Apply actionDelay before executing insert action
-                if actionDelay > 0 {
-                    Thread.sleep(forTimeInterval: actionDelay)
-                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s")
                 }
                 
                 // Step 3: Execute the insert action
@@ -210,7 +210,13 @@ class ClipboardMonitor {
             // This should be the content that was on clipboard just before anyone (Superwhisper or CLI) modifies it
             let clipboardToRestore = self.determineClipboardToRestore(session: validSession, swResult: swResult)
             
-            // Step 1: Simulate ESC immediately for responsiveness if enabled
+            // Step 1: Apply actionDelay before ESC simulation and clipboard sync
+            if actionDelay > 0 {
+                Thread.sleep(forTimeInterval: actionDelay)
+                logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and clipboard sync")
+            }
+            
+            // Step 2: Simulate ESC after actionDelay if enabled
             if shouldEsc {
                 if isAutoPaste {
                     // For autoPaste, use the cached input field status
@@ -229,25 +235,25 @@ class ClipboardMonitor {
                 }
             }
             
-            // Step 2: Determine if we need to wait for Superwhisper or if we can proceed immediately
+            // Step 3: Determine if we need to wait for Superwhisper or if we can proceed immediately
+            // If actionDelay > maxWaitTime, skip waiting as Superwhisper must have already acted
             let pasteboard = NSPasteboard.general
             let currentClipboard = pasteboard.string(forType: .string)
             
-            if currentClipboard == swResult {
-                // Superwhisper was faster - it already placed swResult on clipboard
-                logDebug("[ClipboardMonitor] Superwhisper was faster - swResult already on clipboard")
-                self.proceedWithAction(
+            if currentClipboard == swResult || actionDelay >= maxWaitTime {
+                // Superwhisper was faster OR actionDelay exceeded maxWaitTime - proceed immediately
+                let reason = currentClipboard == swResult ? "swResult already on clipboard" : "actionDelay (\(actionDelay)s) >= maxWaitTime (\(maxWaitTime)s)"
+                logDebug("[ClipboardMonitor] Proceeding immediately: \(reason)")
+                self.proceedWithActionAfterDelay(
                     insertAction: insertAction,
-                    actionDelay: actionDelay,
                     clipboardToRestore: clipboardToRestore,
-                    superwhisperWasFaster: true,
+                    superwhisperWasFaster: currentClipboard == swResult,
                     recordingPath: recordingPath
                 )
             } else {
                 // Need to wait for Superwhisper or proceed if maxWaitTime reached
                 self.waitForSuperwhisperOrProceed(
                     insertAction: insertAction,
-                    actionDelay: actionDelay,
                     swResult: swResult,
                     clipboardToRestore: clipboardToRestore,
                     recordingPath: recordingPath
@@ -267,12 +273,12 @@ class ClipboardMonitor {
             // Look for the most recent change that is NOT swResult
             for change in session.clipboardChanges.reversed() {
                 if change.content != swResult {
-                    logDebug("[ClipboardMonitor] Found clipboard to restore from session history: '\(change.content?.prefix(50) ?? "nil")...'")
+                    logDebug("[ClipboardMonitor] Found clipboard to restore from session history")
                     return change.content
                 }
             }
             // If no changes found, use the original clipboard from when folder appeared
-            logDebug("[ClipboardMonitor] Using original clipboard from folder appearance: '\(session.userOriginalClipboard?.prefix(50) ?? "nil")...'")
+            logDebug("[ClipboardMonitor] Using original clipboard from folder appearance")
             return session.userOriginalClipboard
         }
         
@@ -287,22 +293,21 @@ class ClipboardMonitor {
             // Check if current clipboard is one we've seen in our change history
             let isKnownChange = session.clipboardChanges.contains { $0.content == currentClipboard }
             if isKnownChange {
-                logDebug("[ClipboardMonitor] Current clipboard is from tracked changes, will restore: '\(currentClipboard?.prefix(50) ?? "nil")...'")
+                logDebug("[ClipboardMonitor] Current clipboard is from tracked changes, will restore")
             } else {
-                logDebug("[ClipboardMonitor] Current clipboard is unknown change, will restore: '\(currentClipboard?.prefix(50) ?? "nil")...'")
+                logDebug("[ClipboardMonitor] Current clipboard is unknown change, will restore")
             }
             return currentClipboard
         }
         
         // Case 3: Current clipboard is same as original, use it
-        logDebug("[ClipboardMonitor] Current clipboard same as original, will restore: '\(currentClipboard?.prefix(50) ?? "nil")...'")
+        logDebug("[ClipboardMonitor] Current clipboard same as original, will restore")
         return currentClipboard
     }
     
     /// Wait for Superwhisper to update clipboard or proceed after maxWaitTime
     private func waitForSuperwhisperOrProceed(
         insertAction: @escaping () -> Void,
-        actionDelay: TimeInterval,
         swResult: String,
         clipboardToRestore: String?,
         recordingPath: String
@@ -317,7 +322,6 @@ class ClipboardMonitor {
             initialClipboard: initialClipboard,
             swResult: swResult,
             insertAction: insertAction,
-            actionDelay: actionDelay,
             clipboardToRestore: clipboardToRestore,
             recordingPath: recordingPath
         )
@@ -329,7 +333,6 @@ class ClipboardMonitor {
         initialClipboard: String?,
         swResult: String,
         insertAction: @escaping () -> Void,
-        actionDelay: TimeInterval,
         clipboardToRestore: String?,
         recordingPath: String
     ) {
@@ -343,9 +346,8 @@ class ClipboardMonitor {
             // Update the clipboard to restore - it should be what was there just before swResult
             let finalClipboardToRestore = initialClipboard ?? clipboardToRestore
             
-            proceedWithAction(
+            proceedWithActionAfterDelay(
                 insertAction: insertAction,
-                actionDelay: actionDelay,
                 clipboardToRestore: finalClipboardToRestore,
                 superwhisperWasFaster: true,
                 recordingPath: recordingPath
@@ -360,9 +362,8 @@ class ClipboardMonitor {
             // Update the clipboard to restore - it should be what's currently there (just before CLI modifies it)
             let finalClipboardToRestore = currentClipboard
             
-            proceedWithAction(
+            proceedWithActionAfterDelay(
                 insertAction: insertAction,
-                actionDelay: actionDelay,
                 clipboardToRestore: finalClipboardToRestore,
                 superwhisperWasFaster: false,
                 recordingPath: recordingPath
@@ -377,37 +378,29 @@ class ClipboardMonitor {
                 initialClipboard: initialClipboard,
                 swResult: swResult,
                 insertAction: insertAction,
-                actionDelay: actionDelay,
                 clipboardToRestore: clipboardToRestore,
                 recordingPath: recordingPath
             )
         }
     }
     
-    /// Proceeds with the action execution and handles restoration
-    private func proceedWithAction(
+    /// Proceeds with the action execution and handles restoration (actionDelay already applied)
+    private func proceedWithActionAfterDelay(
         insertAction: @escaping () -> Void,
-        actionDelay: TimeInterval,
         clipboardToRestore: String?,
         superwhisperWasFaster: Bool,
         recordingPath: String
     ) {
-        // Step 1: Apply actionDelay before executing insert action
-        if actionDelay > 0 {
-            Thread.sleep(forTimeInterval: actionDelay)
-            logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s")
-        }
-        
-        // Step 2: Execute the insert action
+        // Step 1: Execute the insert action (actionDelay already applied)
         insertAction()
         
-                    // Step 3: Restore the correct clipboard after a minimum wait time for paste to complete
-            let restoreDelay = 0.1 // Minimum delay for paste operation to complete
-            DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
-                self?.restoreCorrectClipboard(clipboardToRestore)
-                // Stop early monitoring after clipboard restoration is complete
-                self?.stopEarlyMonitoring(for: recordingPath)
-            }
+        // Step 2: Restore the correct clipboard after a minimum wait time for paste to complete
+        let restoreDelay = 0.1 // Minimum delay for paste operation to complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
+            self?.restoreCorrectClipboard(clipboardToRestore)
+            // Stop early monitoring after clipboard restoration is complete
+            self?.stopEarlyMonitoring(for: recordingPath)
+        }
         
         logDebug("[ClipboardMonitor] Action completed. Superwhisper was faster: \(superwhisperWasFaster)")
     }
@@ -468,7 +461,13 @@ class ClipboardMonitor {
             if !shouldRestoreClipboard {
                 logDebug("[ClipboardMonitor] Clipboard restoration disabled - executing action directly (fallback, ESC=\(escWillBeSimulated), restore=\(restoreClipboard))")
                 
-                // Step 1: Simulate ESC immediately for responsiveness if enabled
+                // Step 1: Apply actionDelay before ESC simulation and action execution
+                if actionDelay > 0 {
+                    Thread.sleep(forTimeInterval: actionDelay)
+                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and action (fallback)")
+                }
+                
+                // Step 2: Simulate ESC after actionDelay if enabled
                 if shouldEsc {
                     if isAutoPaste {
                         // For autoPaste, use the cached input field status
@@ -487,12 +486,6 @@ class ClipboardMonitor {
                     }
                 }
                 
-                // Step 2: Apply actionDelay before executing insert action
-                if actionDelay > 0 {
-                    Thread.sleep(forTimeInterval: actionDelay)
-                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s")
-                }
-                
                 // Step 3: Execute the insert action
                 insertAction()
                 
@@ -507,7 +500,13 @@ class ClipboardMonitor {
             let pasteboard = NSPasteboard.general
             self.originalClipboard = pasteboard.string(forType: .string)
             
-            // Step 2: Simulate ESC immediately for responsiveness if enabled
+            // Step 2: Apply actionDelay before ESC simulation and clipboard monitoring
+            if actionDelay > 0 {
+                Thread.sleep(forTimeInterval: actionDelay)
+                logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and clipboard monitoring (fallback)")
+            }
+            
+            // Step 3: Simulate ESC after actionDelay if enabled
             // For autoPaste, only simulate ESC if user is in an input field
             if shouldEsc {
                 if isAutoPaste {
@@ -527,25 +526,31 @@ class ClipboardMonitor {
                 }
             }
             
-            // Step 3: Start monitoring for Superwhisper's clipboard change
-            self.monitorClipboardChanges { [weak self] in
-                guard let self = self else { return }
-                
-                // Step 4: Apply actionDelay before executing insert action (matches original timing)
-                if actionDelay > 0 {
-                    Thread.sleep(forTimeInterval: actionDelay)
-                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s")
-                }
-                
-                // Step 5: Execute the insert action after Superwhisper has updated clipboard and delay
+            // Step 4: Start monitoring for Superwhisper's clipboard change
+            // If actionDelay >= maxWaitTime, skip waiting as Superwhisper must have already acted
+            if actionDelay >= maxWaitTime {
+                logDebug("[ClipboardMonitor] ActionDelay (\(actionDelay)s) >= maxWaitTime (\(maxWaitTime)s), proceeding immediately (fallback)")
                 insertAction()
                 
-                // Step 6: Restore original clipboard after a minimum wait time for paste to complete
                 let restoreDelay = 0.1 // Minimum delay for paste operation to complete
                 DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                     self?.restoreOriginalClipboard()
-                    // Stop early monitoring after clipboard restoration is complete
                     self?.stopEarlyMonitoring(for: recordingPath)
+                }
+            } else {
+                self.monitorClipboardChanges { [weak self] in
+                    guard let self = self else { return }
+                    
+                    // Step 5: Execute the insert action after Superwhisper has updated clipboard (no additional delay)
+                    insertAction()
+                    
+                    // Step 6: Restore original clipboard after a minimum wait time for paste to complete
+                    let restoreDelay = 0.1 // Minimum delay for paste operation to complete
+                    DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
+                        self?.restoreOriginalClipboard()
+                        // Stop early monitoring after clipboard restoration is complete
+                        self?.stopEarlyMonitoring(for: recordingPath)
+                    }
                 }
             }
         }
@@ -638,16 +643,16 @@ class ClipboardMonitor {
             if !shouldRestoreClipboard {
                 logDebug("[ClipboardMonitor] Non-insert action: No clipboard restoration (ESC=\(shouldEsc), restore=\(restoreClipboard))")
                 
-                // Still simulate ESC if requested, even without clipboard restoration
+                // Apply action delay before ESC and action execution
+                if actionDelay > 0 {
+                    Thread.sleep(forTimeInterval: actionDelay)
+                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and action (non-insert)")
+                }
+                
+                // Simulate ESC after actionDelay if requested
                 if shouldEsc {
                     simulateKeyDown(key: 53) // ESC key
                     logDebug("[ClipboardMonitor] ESC key pressed for non-insert action")
-                }
-                
-                // Apply action delay if needed
-                if actionDelay > 0 {
-                    Thread.sleep(forTimeInterval: actionDelay)
-                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s for non-insert action")
                 }
                 
                 // Execute action directly without clipboard monitoring
@@ -684,16 +689,16 @@ class ClipboardMonitor {
             
             logDebug("[ClipboardMonitor] Non-insert action with clipboard restoration")
             
-            // Simulate ESC if requested
+            // Apply action delay before ESC and action execution
+            if actionDelay > 0 {
+                Thread.sleep(forTimeInterval: actionDelay)
+                logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and action (non-insert with restore)")
+            }
+            
+            // Simulate ESC after actionDelay if requested
             if shouldEsc {
                 simulateKeyDown(key: 53) // ESC key
                 logDebug("[ClipboardMonitor] ESC key pressed for non-insert action with restore")
-            }
-            
-            // Apply action delay if needed
-            if actionDelay > 0 {
-                Thread.sleep(forTimeInterval: actionDelay)
-                logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s for non-insert action with restore")
             }
             
             // Execute the action
@@ -720,16 +725,16 @@ class ClipboardMonitor {
         
         logDebug("[ClipboardMonitor] Non-insert action with simple clipboard restore")
         
-        // Simulate ESC if requested
+        // Apply action delay before ESC and action execution
+        if actionDelay > 0 {
+            Thread.sleep(forTimeInterval: actionDelay)
+            logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and action (simple restore)")
+        }
+        
+        // Simulate ESC after actionDelay if requested
         if shouldEsc {
             simulateKeyDown(key: 53) // ESC key
             logDebug("[ClipboardMonitor] ESC key pressed for non-insert action (simple restore)")
-        }
-        
-        // Apply action delay if needed
-        if actionDelay > 0 {
-            Thread.sleep(forTimeInterval: actionDelay)
-            logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s for non-insert action (simple restore)")
         }
         
         // Execute the action
