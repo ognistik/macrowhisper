@@ -175,30 +175,56 @@ class RecordingsFolderWatcher {
         if !newSubdirectories.isEmpty {
             logDebug("Detected new recording directories: \(newSubdirectories.joined(separator: ", "))")
             
+            // ENHANCED LOGIC: Check if any new recording is older than existing processed recordings
+            // This handles cloud sync scenarios where older recordings appear after newer ones
+            let allExistingDirs = lastKnownSubdirectories
+            let mostRecentExistingDir = allExistingDirs.max() // Most recent existing directory
+            
             // CORE PRINCIPLE: Only process the most recent recording, mark all others as processed
-            // This handles cloud sync scenarios where multiple recordings appear simultaneously
+            // Enhanced to also mark recordings older than existing ones as processed
             if newSubdirectories.count > 1 {
                 // Multiple new recordings detected - sort by name (timestamp) and only process the most recent
                 let sortedNewDirs = newSubdirectories.sorted(by: >)  // Most recent first
-                let mostRecentDir = sortedNewDirs.first!
-                let mostRecentPath = "\(path)/\(mostRecentDir)"
+                let mostRecentNewDir = sortedNewDirs.first!
                 
-                logInfo("Multiple new recordings detected (\(newSubdirectories.count)). Processing only the most recent: \(mostRecentDir)")
+                // Check if even the most recent new recording is older than existing recordings
+                if let mostRecentExisting = mostRecentExistingDir, mostRecentNewDir < mostRecentExisting {
+                    // All new recordings are older than existing ones - mark all as processed
+                    logInfo("All new recordings (\(newSubdirectories.count)) are older than existing recordings. Marking all as processed to prevent cloud sync interference.")
+                    for dirName in newSubdirectories {
+                        let fullPath = "\(path)/\(dirName)"
+                        markAsProcessed(recordingPath: fullPath)
+                        logDebug("Marked as processed (older than existing): \(dirName)")
+                    }
+                } else {
+                    // At least one new recording is recent enough to consider
+                    logInfo("Multiple new recordings detected (\(newSubdirectories.count)). Processing only the most recent: \(mostRecentNewDir)")
+                    
+                    // Mark all others as processed immediately (except the most recent)
+                    for dirName in sortedNewDirs.dropFirst() {
+                        let fullPath = "\(path)/\(dirName)"
+                        markAsProcessed(recordingPath: fullPath)
+                        logDebug("Marked as processed (not most recent): \(dirName)")
+                    }
+                    
+                    // Process only the most recent
+                    let mostRecentPath = "\(path)/\(mostRecentNewDir)"
+                    processNewRecording(atPath: mostRecentPath)
+                }
+            } else {
+                // Single new recording - check if it's older than existing recordings
+                let dirName = newSubdirectories.first!
                 
-                // Mark all others as processed immediately (except the most recent)
-                for dirName in sortedNewDirs.dropFirst() {
+                if let mostRecentExisting = mostRecentExistingDir, dirName < mostRecentExisting {
+                    // This new recording is older than existing ones - mark as processed
                     let fullPath = "\(path)/\(dirName)"
                     markAsProcessed(recordingPath: fullPath)
-                    logDebug("Marked as processed (not most recent): \(dirName)")
+                    logInfo("New recording \(dirName) is older than existing recordings. Marked as processed to prevent cloud sync interference.")
+                } else {
+                    // This recording is recent enough to process
+                    let fullPath = "\(path)/\(dirName)"
+                    processNewRecording(atPath: fullPath)
                 }
-                
-                // Process only the most recent
-                processNewRecording(atPath: mostRecentPath)
-            } else {
-                // Single new recording - process normally
-                let dirName = newSubdirectories.first!
-                let fullPath = "\(path)/\(dirName)"
-                processNewRecording(atPath: fullPath)
             }
         }
         
