@@ -462,7 +462,7 @@ let requireDaemonCommands = [
     "--check-updates", "--exec-insert", "--auto-return", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
     "--remove-url", "--remove-shortcut", "--remove-shell", "--remove-as", 
-    "--remove-insert", "--quit", "--stop", "--insert"
+    "--remove-insert", "--insert"
 ]
 
 // Check if any of the commands that require a daemon are present
@@ -728,14 +728,7 @@ if hasDaemonCommand {
         exit(0)
     }
     
-    if args.contains("--quit") || args.contains("--stop") {
-        if let response = socketCommunication.sendCommand(.quit) {
-            print(response)
-        } else {
-            print("No running instance to quit.")
-        }
-        exit(0)
-    }
+
     
     // Handle configuration update commands (require daemon)
     var arguments: [String: String] = [:]
@@ -820,6 +813,54 @@ if args.contains("--version-state") || args.contains("--version-clear") {
 }
 
 // ---- END QUICK COMMANDS ----
+
+// Validate arguments before starting daemon
+// Only perform validation if there are arguments (allow no-args daemon startup)
+if args.count > 1 {
+    // Define all valid arguments
+    let validDaemonArgs = ["--config", "--verbose"]
+    let validQuickCommands = [
+        "-h", "--help", "-v", "--version", "--reveal-config", "--set-config", 
+        "--reset-config", "--get-config", "--install-service", "--start-service", 
+        "--stop-service", "--restart-service", "--uninstall-service", "--service-status",
+        "--test-update-dialog", "--test-version", "--test-description", "--version-state", "--version-clear"
+    ]
+    let allValidCommands = validDaemonArgs + validQuickCommands + requireDaemonCommands
+    
+    // Check for unrecognized arguments (skip the program name at index 0)
+    var hasUnrecognizedArgs = false
+    var unrecognizedArgs: [String] = []
+    
+    for i in 1..<args.count {
+        let arg = args[i]
+        
+        // Skip arguments that are values for flags (like paths after --config)
+        if i > 1 && (args[i-1] == "--config" || args[i-1] == "--set-config" || 
+                     args[i-1] == "--exec-insert" || args[i-1] == "--get-insert" ||
+                     args[i-1] == "--add-url" || args[i-1] == "--add-shortcut" ||
+                     args[i-1] == "--add-shell" || args[i-1] == "--add-as" ||
+                     args[i-1] == "--add-insert" || args[i-1] == "--remove-url" ||
+                     args[i-1] == "--remove-shortcut" || args[i-1] == "--remove-shell" ||
+                     args[i-1] == "--remove-as" || args[i-1] == "--remove-insert" ||
+                     args[i-1] == "--insert" || args[i-1] == "--auto-return" ||
+                     args[i-1] == "--test-version" || args[i-1] == "--test-description") {
+            continue
+        }
+        
+        // Check if this argument is recognized
+        if !allValidCommands.contains(arg) {
+            hasUnrecognizedArgs = true
+            unrecognizedArgs.append(arg)
+        }
+    }
+    
+    // If there are unrecognized arguments, show error and exit
+    if hasUnrecognizedArgs {
+        print("Error: Unrecognized command(s): \(unrecognizedArgs.joined(separator: ", "))")
+        print("Use 'macrowhisper --help' to see available commands.")
+        exit(1)
+    }
+}
 
 if !acquireSingleInstanceLock(lockFilePath: lockPath) {
     exit(1)
