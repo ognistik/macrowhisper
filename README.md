@@ -34,7 +34,7 @@ brew install ognistik/formulae/macrowhisper
 Or you can insall via a script:
 ```bash
 # Installs Macrowhisper's binary in /usr/local/bin
-curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sh
+curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 ```
 
 ### Configure & Start
