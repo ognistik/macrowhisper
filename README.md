@@ -40,6 +40,7 @@ curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/ins
 ### Configure & Start
 ```bash
 # Reveal/create configuration file
+# By default auto-created at ~/.config/macrowhisper/macrowhisper.json
 macrowhisper --reveal-config
 
 # Start background service
@@ -122,6 +123,9 @@ Macrowhisper uses JSON configuration with dynamic placeholders:
 - `{{date:yyyy-MM-dd}}` - Formatted dates
 - `{{xml:tagname}}` - Extract XML content from LLM results
 - Plus regex replacements and contextual escaping
+
+**[Sample Configuration File](https://github.com/ognistik/macrowhisper/blob/main/samples/macrowhisper.json)**
+*Make sure to run `macrowhisper --restart-service` if you set this as your default config.*
 
 ---
 ## Project Structure
