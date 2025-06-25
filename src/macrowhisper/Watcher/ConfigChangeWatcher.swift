@@ -35,10 +35,39 @@ class ConfigChangeWatcher {
             return
         }
 
-        source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fileDescriptor, eventMask: .write, queue: queue)
+        // Watch for write, delete, rename, and link events to handle atomic writes
+        source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor, 
+            eventMask: [.write, .delete, .rename, .link], 
+            queue: queue
+        )
 
         source?.setEventHandler { [weak self] in
-            self?.onChanged()
+            guard let self = self else { return }
+            
+            // Check what type of event occurred
+            let events = self.source?.mask ?? []
+            logDebug("ConfigChangeWatcher: File system event detected for \(self.filePath), events: \(events)")
+            
+            // If file was deleted/renamed (atomic write), restart the watcher
+            if events.contains(.delete) || events.contains(.rename) {
+                logDebug("ConfigChangeWatcher: File was deleted/renamed (likely atomic write), restarting watcher")
+                
+                // Stop current watcher
+                self.source?.cancel()
+                self.source = nil
+                
+                // Wait a brief moment for the atomic write to complete
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    // Restart watching - this will handle both file recreation and directory watching
+                    self.start()
+                    // Trigger change notification since file was updated
+                    self.onChanged()
+                }
+            } else {
+                // Regular write event
+                self.onChanged()
+            }
         }
 
         source?.setCancelHandler {
