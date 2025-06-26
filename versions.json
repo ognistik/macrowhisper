@@ -1,4 +1,4 @@
 {
-  "version" : "1.1.1",
-  "description" : "Important improvements to the configuration file watcher for auto-reload of edits."
+  "version" : "1.1.2",
+  "description" : "* Removed extra notification for syntax errors on JSON files.\n* Fix for repeated update dialogs."
 }

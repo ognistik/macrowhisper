@@ -1,8 +1,12 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2)
 ### Changed
 * Removed extra notification for syntax errors on JSON files.
+* Fix for repeated update dialogs
 
 ---
 ## [v1.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.1) - 2025/06/25
