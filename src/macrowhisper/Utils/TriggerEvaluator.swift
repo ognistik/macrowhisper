@@ -191,7 +191,7 @@ class TriggerEvaluator {
             }
             logDebug("[TriggerEval] Voice trigger result for action '\(actionName)': matched=\(voiceMatched)")
         } else {
-            // No voice trigger set, treat as matched for AND logic
+            // No voice trigger set, will be handled in final logic determination
             voiceMatched = true
         }
         
@@ -236,7 +236,7 @@ class TriggerEvaluator {
             }
             logDebug("[TriggerEval] Mode trigger result for action '\(actionName)': matched=\(modeMatched)")
         } else {
-            // No mode trigger set, treat as matched for AND logic
+            // No mode trigger set, will be handled in final logic determination
             modeMatched = true
         }
         
@@ -289,22 +289,34 @@ class TriggerEvaluator {
                 appMatched = false
             }
         } else {
-            // No app trigger set, treat as matched for AND logic
+            // No app trigger set, will be handled in final logic determination
             appMatched = true
         }
         
         // Determine logic
         let logic = (triggerLogic ?? "or").lowercased()
+        
+        // Check which triggers are actually set (not empty)
+        let voiceTriggerSet = triggerVoice != nil && !triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let modeTriggerSet = triggerModes != nil && !triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let appTriggerSet = triggerApps != nil && !triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        
         if logic == "and" {
-            // All must match
-            let allMatch = voiceMatched && modeMatched && appMatched
+            // AND logic: all set triggers must match
+            // If no triggers are set at all, don't match
+            if !voiceTriggerSet && !modeTriggerSet && !appTriggerSet {
+                return (false, strippedResult)
+            }
+            
+            // All set triggers must match
+            var allMatch = true
+            if voiceTriggerSet && !voiceMatched { allMatch = false }
+            if modeTriggerSet && !modeMatched { allMatch = false }
+            if appTriggerSet && !appMatched { allMatch = false }
+            
             return (allMatch, strippedResult)
         } else {
             // OR logic: only non-empty triggers are considered
-            let voiceTriggerSet = triggerVoice != nil && !triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let modeTriggerSet = triggerModes != nil && !triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let appTriggerSet = triggerApps != nil && !triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            
             var anyMatch = false
             if voiceTriggerSet && voiceMatched { anyMatch = true }
             if modeTriggerSet && modeMatched { anyMatch = true }

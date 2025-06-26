@@ -1,6 +1,9 @@
 # CHANGELOG
 
 ## UNRELEASED
+### Changed
+* Improved trigger logic for "and"
+  * *Fixed `and` logic bug where empty triggers would incorrectly match everything. Now `and` and `or` both ignore empty triggers, only evaluating those with actual values.*
 
 ---
 ## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2)
