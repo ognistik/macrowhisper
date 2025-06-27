@@ -9,7 +9,7 @@ import ApplicationServices
 import Cocoa
 import Carbon.HIToolbox
 
-let APP_VERSION = "1.1.2"
+let APP_VERSION = "1.1.3"
 private let UNIX_PATH_MAX = 104
 
 // Dependency version check - Swifter 1.5.0+ required
@@ -47,6 +47,14 @@ let uid = getuid()
 let socketPath = "/tmp/macrowhisper-\(uid).sock"
 
 let socketCommunication = SocketCommunication(socketPath: socketPath)
+
+// MARK: - AutoReturn Management
+func cancelAutoReturn(reason: String) {
+    if autoReturnEnabled {
+        autoReturnEnabled = false
+        logInfo("Auto-return cancelled due to: \(reason)")
+    }
+}
 
 // MARK: - Helper functions for logging and notifications
 // Utility function to expand tilde in paths
@@ -461,8 +469,10 @@ let requireDaemonCommands = [
     "-s", "--status", "--get-icon", "--get-insert", "--list-inserts", 
     "--check-updates", "--exec-insert", "--auto-return", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
-    "--remove-url", "--remove-shortcut", "--remove-shell", "--remove-as", 
-    "--remove-insert", "--insert"
+    "--remove-action", "--insert", 
+    // New unified action commands
+    "--list-actions", "--list-urls", "--list-shortcuts", "--list-shell", 
+    "--list-as", "--exec-action", "--get-action", "--action"
 ]
 
 // Check if any of the commands that require a daemon are present
@@ -647,87 +657,97 @@ if hasDaemonCommand {
         exit(0)
     }
     
-    // Remove commands
-    if args.contains("--remove-url") {
-        let removeUrlIndex = args.firstIndex(where: { $0 == "--remove-url" })
-        if let index = removeUrlIndex, index + 1 < args.count {
-            let urlName = args[index + 1]
-            let arguments: [String: String] = ["name": urlName]
-            if let response = socketCommunication.sendCommand(.removeUrl, arguments: arguments) {
+    if args.contains("--remove-action") {
+        let removeActionIndex = args.firstIndex(where: { $0 == "--remove-action" })
+        if let index = removeActionIndex, index + 1 < args.count {
+            let actionName = args[index + 1]
+            let arguments: [String: String] = ["name": actionName]
+            if let response = socketCommunication.sendCommand(.removeAction, arguments: arguments) {
                 print(response)
             } else {
-                print("Failed to remove URL action.")
+                print("Failed to remove action.")
             }
         } else {
-            print("Missing name after --remove-url")
+            print("Missing action name after --remove-action")
         }
         exit(0)
     }
     
-    if args.contains("--remove-shortcut") {
-        let removeShortcutIndex = args.firstIndex(where: { $0 == "--remove-shortcut" })
-        if let index = removeShortcutIndex, index + 1 < args.count {
-            let shortcutName = args[index + 1]
-            let arguments: [String: String] = ["name": shortcutName]
-            if let response = socketCommunication.sendCommand(.removeShortcut, arguments: arguments) {
-                print(response)
-            } else {
-                print("Failed to remove shortcut action.")
-            }
+    // New unified action commands
+    if args.contains("--list-actions") {
+        if let response = socketCommunication.sendCommand(.listActions) {
+            print(response)
         } else {
-            print("Missing name after --remove-shortcut")
+            print("Failed to list actions.")
         }
         exit(0)
     }
     
-    if args.contains("--remove-shell") {
-        let removeShellIndex = args.firstIndex(where: { $0 == "--remove-shell" })
-        if let index = removeShellIndex, index + 1 < args.count {
-            let shellName = args[index + 1]
-            let arguments: [String: String] = ["name": shellName]
-            if let response = socketCommunication.sendCommand(.removeShell, arguments: arguments) {
-                print(response)
-            } else {
-                print("Failed to remove shell script action.")
-            }
+    if args.contains("--list-urls") {
+        if let response = socketCommunication.sendCommand(.listUrls) {
+            print(response)
         } else {
-            print("Missing name after --remove-shell")
+            print("Failed to list URL actions.")
         }
         exit(0)
     }
     
-    if args.contains("--remove-as") {
-        let removeASIndex = args.firstIndex(where: { $0 == "--remove-as" })
-        if let index = removeASIndex, index + 1 < args.count {
-            let asName = args[index + 1]
-            let arguments: [String: String] = ["name": asName]
-            if let response = socketCommunication.sendCommand(.removeAppleScript, arguments: arguments) {
-                print(response)
-            } else {
-                print("Failed to remove AppleScript action.")
-            }
+    if args.contains("--list-shortcuts") {
+        if let response = socketCommunication.sendCommand(.listShortcuts) {
+            print(response)
         } else {
-            print("Missing name after --remove-as")
+            print("Failed to list shortcut actions.")
         }
         exit(0)
     }
     
-    if args.contains("--remove-insert") {
-        let removeInsertIndex = args.firstIndex(where: { $0 == "--remove-insert" })
-        if let index = removeInsertIndex, index + 1 < args.count {
-            let insertName = args[index + 1]
-            let arguments: [String: String] = ["name": insertName]
-            if let response = socketCommunication.sendCommand(.removeInsert, arguments: arguments) {
-                print(response)
-            } else {
-                print("Failed to remove insert.")
-            }
+    if args.contains("--list-shell") {
+        if let response = socketCommunication.sendCommand(.listShell) {
+            print(response)
         } else {
-            print("Missing name after --remove-insert")
+            print("Failed to list shell script actions.")
         }
         exit(0)
     }
     
+    if args.contains("--list-as") {
+        if let response = socketCommunication.sendCommand(.listAppleScript) {
+            print(response)
+        } else {
+            print("Failed to list AppleScript actions.")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--exec-action") {
+        let execActionIndex = args.firstIndex(where: { $0 == "--exec-action" })
+        if let index = execActionIndex, index + 1 < args.count {
+            let actionName = args[index + 1]
+            let arguments: [String: String] = ["name": actionName]
+            if let response = socketCommunication.sendCommand(.execAction, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to execute action.")
+            }
+        } else {
+            print("Missing action name after --exec-action")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--get-action") {
+        let getActionIndex = args.firstIndex(where: { $0 == "--get-action" })
+        var arguments: [String: String]? = nil
+        if let index = getActionIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+            arguments = ["name": args[index + 1]]
+        }
+        if let response = socketCommunication.sendCommand(.getAction, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to get action.")
+        }
+        exit(0)
+    }
 
     
     // Handle configuration update commands (require daemon)
@@ -736,9 +756,18 @@ if hasDaemonCommand {
     if args.contains("--insert") {
         let insertIndex = args.firstIndex(where: { $0 == "--insert" })
         if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-            arguments["activeInsert"] = args[index + 1]
+            arguments["activeInsert"] = args[index + 1]  // Backward compatibility
         } else {
-            arguments["activeInsert"] = ""
+            arguments["activeInsert"] = ""  // Backward compatibility
+        }
+    }
+    
+    if args.contains("--action") {
+        let actionIndex = args.firstIndex(where: { $0 == "--action" })
+        if let index = actionIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+            arguments["activeAction"] = args[index + 1]
+        } else {
+            arguments["activeAction"] = ""
         }
     }
     
@@ -839,11 +868,11 @@ if args.count > 1 {
                      args[i-1] == "--exec-insert" || args[i-1] == "--get-insert" ||
                      args[i-1] == "--add-url" || args[i-1] == "--add-shortcut" ||
                      args[i-1] == "--add-shell" || args[i-1] == "--add-as" ||
-                     args[i-1] == "--add-insert" || args[i-1] == "--remove-url" ||
-                     args[i-1] == "--remove-shortcut" || args[i-1] == "--remove-shell" ||
-                     args[i-1] == "--remove-as" || args[i-1] == "--remove-insert" ||
-                     args[i-1] == "--insert" || args[i-1] == "--auto-return" ||
-                     args[i-1] == "--test-version" || args[i-1] == "--test-description") {
+                     args[i-1] == "--add-insert" || args[i-1] == "--remove-action" || 
+                     args[i-1] == "--insert" || args[i-1] == "--auto-return" || 
+                     args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
+                     args[i-1] == "--exec-action" || args[i-1] == "--get-action" || 
+                     args[i-1] == "--action") {
             continue
         }
         
@@ -926,42 +955,52 @@ func printHelp() {
     RUNTIME COMMANDS (require running instance):
       -s, --status                  Get the status of the running instance
 
-    INSERT MANAGEMENT (require running instance):
-      --list-inserts                List all configured inserts
-      --add-insert <name>           Add an insert action
-      --remove-insert <name>        Remove an insert action
-      --exec-insert <name>          Execute an insert action using the last valid result
-      --auto-return <true/false>    Simulate return for one interaction with insert actions
-      --get-icon                    Get the icon of the active insert
-      --get-insert [<name>]         Get name of active insert (if run without <name>)
-                                    If a name is provided, returns the action content
-      --insert [<name>]             Clears active insert (if run without <name>)
-                                    If a name is provided, it sets it as active insert
-
     ACTION MANAGEMENT (require running instance):
+      --action [<name>]             Sets active action (if name provided) or clears it (if no name)
+      --exec-action <name>          Execute any action using the last valid result
+      --get-icon                    Get the icon of the active action
+      --get-action [<name>]         Get name of active action (if run without <name>)
+                                    If a name is provided, returns the action content
+      --list-actions                List all configured actions (all types)
+      --list-inserts                List all configured insert actions  
+      --list-urls                   List all configured URL actions
+      --list-shortcuts              List all configured shortcut actions
+      --list-shell                  List all configured shell script actions
+      --list-as                     List all configured AppleScript actions
+      --add-insert <name>           Add an insert action
       --add-url <name>              Add a URL action
       --add-shortcut <name>         Add a Shortcuts action
       --add-shell <name>            Add a shell script action
       --add-as <name>               Add an AppleScript action
-      --remove-url <name>           Remove a URL action
-      --remove-shortcut <name>      Remove a Shortcuts action
-      --remove-shell <name>         Remove a shell script action
-      --remove-as <name>            Remove an AppleScript action
-    
+      --remove-action <name>        Remove any action by name (works for all action types)
+      --auto-return <true/false>    Paste result and simulate return for one interaction
+                                    (takes priority over active action and triggers)
+
     OTHER (require running daemon):
       --check-updates               Force check for updates
       --version-state               Checks the state of update checks
                                     (useful for debugging)
+    
+    DEPRECATED COMMANDS (temporarily maintained for backward compatibility):
+      --exec-insert <name>          Use --exec-action instead
+      --get-insert [<name>]         Use --get-action instead  
+      --insert [<name>]             Use --action instead
 
     Examples:
-      macrowhisper --insert pasteResult
-        # Sets the active insert to 'pasteResult'
+      macrowhisper --action pasteResult
+        # Sets the active action to 'pasteResult' (works for any action type)
 
-      macrowhisper --get-insert
-        # Gets the name of the current active insert
+      macrowhisper --get-action
+        # Gets the name of the current active action
 
-      macrowhisper --get-insert pasteResult
+      macrowhisper --get-action pasteResult
         # Gets the processed action content for 'pasteResult'
+        
+      macrowhisper --exec-action myURLAction
+        # Executes 'myURLAction' (works for any action type)
+        
+      macrowhisper --list-actions
+        # Lists all actions with their types (INSERT: name, URL: name, etc.)
 
       macrowhisper --reveal-config
         # Opens the configuration file in Finder (creates it if missing)

@@ -247,14 +247,14 @@ class ConfigurationManager {
         }
     }
     
-    func updateFromCommandLine(watcher: Bool? = nil, activeInsert: String? = nil) {
+    func updateFromCommandLine(watcher: Bool? = nil, activeAction: String? = nil) {
         
         var shouldSave = false
         
-        if let activeInsert = activeInsert { _config.defaults.activeInsert = activeInsert.isEmpty ? "" : activeInsert; shouldSave = true }
+        if let activeAction = activeAction { _config.defaults.activeAction = activeAction.isEmpty ? "" : activeAction; shouldSave = true }
 
-        // Validate activeInsert after updating config
-        validateActiveInsertAndNotifyIfNeeded()
+        // Validate activeAction after updating config
+        validateActiveActionAndNotifyIfNeeded()
 
         if shouldSave {
             saveConfig()
@@ -267,7 +267,7 @@ class ConfigurationManager {
             
             self.updateFromCommandLine(
                 watcher: arguments["watcher"].flatMap { Bool($0) },
-                activeInsert: arguments["activeInsert"]
+                activeAction: arguments["activeAction"]
             )
             
             DispatchQueue.main.async {
@@ -297,8 +297,8 @@ class ConfigurationManager {
                 if let newConfig = self.loadConfig() {
                     self._config = newConfig
                     self.configurationSuccessfullyLoaded()
-                    // Validate activeInsert after loading config from external file change
-                    self.validateActiveInsertAndNotifyIfNeeded()
+                    // Validate activeAction after loading config from external file change
+                    self.validateActiveActionAndNotifyIfNeeded()
                     DispatchQueue.main.async {
                         self.onConfigChanged?("configFileChanged")
                     }
@@ -338,13 +338,21 @@ class ConfigurationManager {
         }
     }
     
-    // MARK: - Validation for activeInsert
-    /// Checks if the activeInsert in config.defaults exists in config.inserts. Notifies user if not.
-    private func validateActiveInsertAndNotifyIfNeeded() {
-        let activeInsert = _config.defaults.activeInsert ?? ""
-        if !activeInsert.isEmpty && _config.inserts[activeInsert] == nil {
-            notify(title: "Macrowhisper - Invalid Insert",
-                   message: "Your configuration references an active insert named '\(activeInsert)', but no such insert exists. Please check your configuration.")
+    // MARK: - Validation for activeAction
+    /// Checks if the activeAction in config.defaults exists across all action types. Notifies user if not.
+    private func validateActiveActionAndNotifyIfNeeded() {
+        let activeActionName = _config.defaults.activeAction ?? ""
+        if !activeActionName.isEmpty {
+            let actionExists = _config.inserts[activeActionName] != nil ||
+                              _config.urls[activeActionName] != nil ||
+                              _config.shortcuts[activeActionName] != nil ||
+                              _config.scriptsShell[activeActionName] != nil ||
+                              _config.scriptsAS[activeActionName] != nil
+            
+            if !actionExists {
+                notify(title: "Macrowhisper - Invalid Action",
+                       message: "Your configuration references an active action named '\(activeActionName)', but no such action exists. Please check your configuration.")
+            }
         }
     }
 

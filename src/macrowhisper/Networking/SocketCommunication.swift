@@ -19,21 +19,16 @@ class SocketCommunication {
         case status
         case debug
         case version
-        case listInserts
+        case listInserts  // Deprecated, but maintained for backward compatibility
         case addInsert
-        case removeInsert
         case getIcon
-        case getInsert
+        case getInsert    // Deprecated, but maintained for backward compatibility
         case autoReturn
-        case execInsert
+        case execInsert   // Deprecated, but maintained for backward compatibility
         case addUrl
         case addShortcut
         case addShell
         case addAppleScript
-        case removeUrl
-        case removeShortcut
-        case removeShell
-        case removeAppleScript
         case quit
         case versionState
         case forceUpdateCheck
@@ -45,6 +40,16 @@ class SocketCommunication {
         case serviceStop
         case serviceRestart
         case serviceUninstall
+        
+        // New unified action commands
+        case listActions
+        case listUrls
+        case listShortcuts
+        case listShell
+        case listAppleScript
+        case execAction
+        case getAction
+        case removeAction
     }
     
     struct CommandMessage: Codable {
@@ -138,6 +143,58 @@ class SocketCommunication {
         if insertName.isEmpty { return true }
         return configManager.config.inserts[insertName] != nil
     }
+    
+    // Helper function to find any action by name across all types
+    private func findActionByName(_ name: String, configManager: ConfigurationManager) -> (ActionType, Any?) {
+        let config = configManager.config
+        
+        if let insert = config.inserts[name] {
+            return (.insert, insert)
+        }
+        if let url = config.urls[name] {
+            return (.url, url)
+        }
+        if let shortcut = config.shortcuts[name] {
+            return (.shortcut, shortcut)
+        }
+        if let shell = config.scriptsShell[name] {
+            return (.shell, shell)
+        }
+        if let script = config.scriptsAS[name] {
+            return (.appleScript, script)
+        }
+        
+        return (.insert, nil) // Default type for not found
+    }
+    
+    // Helper to validate any action exists
+    private func validateActionExists(_ actionName: String, configManager: ConfigurationManager) -> Bool {
+        if actionName.isEmpty { return true }
+        let (_, action) = findActionByName(actionName, configManager: configManager)
+        return action != nil
+    }
+    
+    // Helper to check if an action name already exists (for duplicate prevention)
+    private func actionNameExists(_ actionName: String, configManager: ConfigurationManager) -> Bool {
+        let config = configManager.config
+        return config.inserts[actionName] != nil ||
+               config.urls[actionName] != nil ||
+               config.shortcuts[actionName] != nil ||
+               config.scriptsShell[actionName] != nil ||
+               config.scriptsAS[actionName] != nil
+    }
+    
+    // Function to get the current active action (generalizes validateInsertExists for activeInsert)
+    private func getActiveAction(configManager: ConfigurationManager) -> (type: ActionType, action: Any?, name: String) {
+        let activeActionName = configManager.config.defaults.activeAction ?? ""
+        
+        if activeActionName.isEmpty {
+            return (.insert, nil, "")
+        }
+        
+        let (type, action) = findActionByName(activeActionName, configManager: configManager)
+        return (type, action, activeActionName)
+    }
 
     func processInsertAction(_ action: String, metaJson: [String: Any]) -> (String, Bool) {
         if action == ".none" { return ("", false) }
@@ -228,6 +285,105 @@ class SocketCommunication {
         // No ESC key press or actionDelay - these are handled by ClipboardMonitor
         pasteTextNoRestore(text, activeInsert: activeInsert)
         checkAndSimulatePressReturn(activeInsert: activeInsert)
+    }
+    
+    // MARK: - CLI Execution Methods for Non-Insert Actions
+    
+    // Simple execution methods for CLI commands (no ESC, no clipboard monitoring, no moveTo handling)
+    func executeUrlForCLI(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) {
+        let actionDelay = urlAction.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
+        if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
+        
+        let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
+        
+        guard let encodedUrl = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+              let url = URL(string: encodedUrl) else {
+            logError("Invalid URL after processing: \(processedAction)")
+            return
+        }
+        
+        if let openWith = urlAction.openWith, !openWith.isEmpty {
+            let expandedOpenWith = (openWith as NSString).expandingTildeInPath
+            let task = Process()
+            task.launchPath = "/usr/bin/open"
+            task.arguments = ["-a", expandedOpenWith, url.absoluteString]
+            do {
+                try task.run()
+            } catch {
+                logError("Failed to open URL with specified app: \(error)")
+                NSWorkspace.shared.open(url)
+            }
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    func executeShortcutForCLI(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {
+        let actionDelay = shortcut.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
+        if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
+        
+        let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
+        
+        let tempDir = NSTemporaryDirectory()
+        let tempFile = tempDir + "macrowhisper_shortcut_input_\(UUID().uuidString).txt"
+        
+        do {
+            try processedAction.write(toFile: tempFile, atomically: true, encoding: .utf8)
+            
+            let task = Process()
+            task.launchPath = "/usr/bin/shortcuts"
+            task.arguments = ["run", shortcutName, "-i", tempFile]
+            task.standardOutput = FileHandle.nullDevice
+            task.standardError = FileHandle.nullDevice
+            
+            try task.run()
+            
+            // Clean up temp file after delay
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+                try? FileManager.default.removeItem(atPath: tempFile)
+            }
+        } catch {
+            logError("Failed to execute shortcut action: \(error)")
+            try? FileManager.default.removeItem(atPath: tempFile)
+        }
+    }
+    
+    func executeShellForCLI(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) {
+        let actionDelay = shell.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
+        if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
+        
+        let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+        
+        let task = Process()
+        task.launchPath = "/bin/bash"
+        task.arguments = ["-c", processedAction]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        
+        do {
+            try task.run()
+        } catch {
+            logError("Failed to execute shell script: \(error)")
+        }
+    }
+    
+    func executeAppleScriptForCLI(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) {
+        let actionDelay = ascript.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
+        if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
+        
+        let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
+        
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", processedAction]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        
+        do {
+            try task.run()
+        } catch {
+            logError("Failed to execute AppleScript action: \(error)")
+        }
     }
 
     private func pasteText(_ text: String, activeInsert: AppConfiguration.Insert?) {
@@ -343,17 +499,17 @@ class SocketCommunication {
                 if let arguments = commandMessage.arguments {
                     var updated = false
                     
-                    // Update active insert with validation
-                    if let activeInsert = arguments["activeInsert"] {
-                        // Validate insert exists if it's not empty
-                        if !activeInsert.isEmpty && !validateInsertExists(activeInsert, configManager: configMgr) {
-                            response = "Error: Insert '\(activeInsert)' does not exist."
+                    // Update active action with validation (supports both new activeAction and legacy activeInsert)
+                    if let activeAction = arguments["activeAction"] ?? arguments["activeInsert"] {
+                        // Validate action exists if it's not empty
+                        if !activeAction.isEmpty && !validateActionExists(activeAction, configManager: configMgr) {
+                            response = "Error: Action '\(activeAction)' does not exist."
                             write(clientSocket, response, response.utf8.count)
-                            logError("Attempted to set non-existent insert: \(activeInsert)")
-                            notify(title: "Macrowhisper", message: "Non-existent insert: \(activeInsert)")
+                            logError("Attempted to set non-existent action: \(activeAction)")
+                            notify(title: "Macrowhisper", message: "Non-existent action: \(activeAction)")
                             return
                         }
-                        configMgr.config.defaults.activeInsert = activeInsert
+                        configMgr.config.defaults.activeAction = activeAction
                         updated = true
                     }
                     
@@ -375,7 +531,7 @@ class SocketCommunication {
                 let configMgr = configManagerRef ?? globalConfigManager!
                 let config = configMgr.config
                 let defaults = config.defaults
-                let activeInsert = defaults.activeInsert ?? ""
+                let activeActionName = defaults.activeAction ?? ""
                 let icon = defaults.icon ?? ""
                 let moveTo = defaults.moveTo ?? ""
                 let configPathMirror = Mirror(reflecting: configMgr)
@@ -404,8 +560,8 @@ class SocketCommunication {
                 lines.append("Folder watcher: \(folderWatcherRunning ? "yes (waiting for recordings folder)" : "no")")
                 lines.append("Superwhisper folder: \(expandedWatchPath)")
                 lines.append("Recordings folder: \(recordingsPath) (exists: \(recordingsFolderExists ? "yes" : "no"))")
-                // Active insert
-                lines.append("Active insert: \(activeInsert.isEmpty ? "(none)" : activeInsert)")
+                // Active action
+                lines.append("Active action: \(activeActionName.isEmpty ? "(none)" : activeActionName)")
                 lines.append("Icon: \(icon.isEmpty ? "(none)" : icon)")
                 lines.append("moveTo: \(moveTo.isEmpty ? "(none)" : moveTo)")
                 // Settings
@@ -441,30 +597,49 @@ class SocketCommunication {
                 
             case .listInserts:
                 let inserts = configMgr.config.inserts
-                let activeInsert = configMgr.config.defaults.activeInsert ?? ""
-                let displayActiveInsert = activeInsert.isEmpty ? "none" : activeInsert
+                let activeActionName = configMgr.config.defaults.activeAction ?? ""
                 if inserts.isEmpty {
                     response = "No inserts configured."
                 } else {
-                    response = inserts.map { "\($0.key)\($0.key == displayActiveInsert ? " (active)" : "")" }.joined(separator: "\n")
+                    response = inserts.keys.sorted().map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
                 }
                 write(clientSocket, response, response.utf8.count)
                 
             case .getIcon:
-                let activeInsertName = configMgr.config.defaults.activeInsert
+                let (activeType, activeAction, _) = getActiveAction(configManager: configMgr)
                 var icon: String?
                 
-                // Check if there's an active insert and get its icon
-                if let activeInsertName = activeInsertName, !activeInsertName.isEmpty, let activeInsert = configMgr.config.inserts[activeInsertName] {
-                    if let insertIcon = activeInsert.icon, !insertIcon.isEmpty {
-                        // Insert has an explicit icon value (including ".none")
-                        icon = insertIcon
-                    } else {
-                        // Insert icon is nil or empty, fall back to default
+                if let action = activeAction {
+                    // Get icon based on action type
+                    switch activeType {
+                    case .insert:
+                        if let insert = action as? AppConfiguration.Insert {
+                            icon = insert.icon
+                        }
+                    case .url:
+                        if let url = action as? AppConfiguration.Url {
+                            icon = url.icon
+                        }
+                    case .shortcut:
+                        if let shortcut = action as? AppConfiguration.Shortcut {
+                            icon = shortcut.icon
+                        }
+                    case .shell:
+                        if let shell = action as? AppConfiguration.ScriptShell {
+                            icon = shell.icon
+                        }
+                    case .appleScript:
+                        if let script = action as? AppConfiguration.ScriptAppleScript {
+                            icon = script.icon
+                        }
+                    }
+                    
+                    // Fall back to default if action icon is nil or empty
+                    if icon == nil || icon?.isEmpty == true {
                         icon = configMgr.config.defaults.icon
                     }
                 } else {
-                    // No active insert, use default
+                    // No active action, use default
                     icon = configMgr.config.defaults.icon
                 }
                 
@@ -496,13 +671,13 @@ class SocketCommunication {
                         logError("Insert not found for get-insert: \(insertName)")
                     }
                 } else {
-                    let activeInsert = configMgr.config.defaults.activeInsert ?? ""
-                    if activeInsert.isEmpty {
-                        response = "No active insert is set."
-                        logInfo("No active insert is set for get-insert.")
+                    let activeActionName = configMgr.config.defaults.activeAction ?? ""
+                    if activeActionName.isEmpty {
+                        response = "No active action is set."
+                        logInfo("No active action is set for get-insert.")
                     } else {
-                        response = activeInsert
-                        logInfo("Returning active insert: '\(response)'")
+                        response = activeActionName
+                        logInfo("Returning active action: '\(response)'")
                     }
                 }
                 write(clientSocket, response, response.utf8.count)
@@ -541,135 +716,115 @@ class SocketCommunication {
                 
             case .addUrl:
                 if let name = commandMessage.arguments?["name"] {
-                    if configMgr.config.urls[name] == nil {
-                        configMgr.config.urls[name] = AppConfiguration.Url(action: "")
+                    if actionNameExists(name, configManager: configMgr) {
+                        response = "Action name '\(name)' already exists"
+                        notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
+                    } else {
+                        configMgr.config.urls[name] = AppConfiguration.Url(action: "", icon: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
                         response = "URL action '\(name)' added"
-                    } else {
-                        response = "URL action '\(name)' already exists"
                     }
                 } else { response = "Missing name for URL action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addShortcut:
                  if let name = commandMessage.arguments?["name"] {
-                    if configMgr.config.shortcuts[name] == nil {
-                        configMgr.config.shortcuts[name] = AppConfiguration.Shortcut(action: "")
+                    if actionNameExists(name, configManager: configMgr) {
+                        response = "Action name '\(name)' already exists"
+                        notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
+                    } else {
+                        configMgr.config.shortcuts[name] = AppConfiguration.Shortcut(action: "", icon: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
                         response = "Shortcut action '\(name)' added"
-                    } else {
-                        response = "Shortcut action '\(name)' already exists"
                     }
                 } else { response = "Missing name for Shortcut action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addShell:
                  if let name = commandMessage.arguments?["name"] {
-                    if configMgr.config.scriptsShell[name] == nil {
-                        configMgr.config.scriptsShell[name] = AppConfiguration.ScriptShell(action: "")
+                    if actionNameExists(name, configManager: configMgr) {
+                        response = "Action name '\(name)' already exists"
+                        notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
+                    } else {
+                        configMgr.config.scriptsShell[name] = AppConfiguration.ScriptShell(action: "", icon: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
                         response = "Shell script action '\(name)' added"
-                    } else {
-                        response = "Shell script action '\(name)' already exists"
                     }
                 } else { response = "Missing name for Shell script action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addAppleScript:
                  if let name = commandMessage.arguments?["name"] {
-                    if configMgr.config.scriptsAS[name] == nil {
-                        configMgr.config.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "")
+                    if actionNameExists(name, configManager: configMgr) {
+                        response = "Action name '\(name)' already exists"
+                        notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
+                    } else {
+                        configMgr.config.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "", icon: "")
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
                         response = "AppleScript action '\(name)' added"
-                    } else {
-                        response = "AppleScript action '\(name)' already exists"
                     }
                 } else { response = "Missing name for AppleScript action" }
                 write(clientSocket, response, response.utf8.count)
                 
             case .addInsert:
                 if let name = commandMessage.arguments?["name"] {
-                    if configMgr.config.inserts[name] == nil {
+                    if actionNameExists(name, configManager: configMgr) {
+                        response = "Action name '\(name)' already exists"
+                        notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
+                    } else {
                         let newInsert = AppConfiguration.Insert(action: "", icon: "")
                         configMgr.config.inserts[name] = newInsert
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
                         response = "Insert '\(name)' added"
-                    } else {
-                        response = "Insert '\(name)' already exists"
                     }
                 } else {
                     response = "Missing name for insert"
                 }
                 write(clientSocket, response, response.utf8.count)
                 
-            case .removeInsert:
-                 guard let name = commandMessage.arguments?["name"] else {
-                    response = "Missing name for action"; write(clientSocket, response, response.utf8.count); return
+            case .removeAction:
+                guard let name = commandMessage.arguments?["name"] else {
+                    response = "Missing name for action"
+                    write(clientSocket, response, response.utf8.count)
+                    return
                 }
+                
+                var actionRemoved = false
+                var actionType = ""
+                
+                // Try to remove from each action type
                 if configMgr.config.inserts.removeValue(forKey: name) != nil {
-                    if configMgr.config.defaults.activeInsert == name { configMgr.config.defaults.activeInsert = "" }
-                    configMgr.saveConfig()
-                    configMgr.onConfigChanged?(nil)
-                    response = "Insert '\(name)' removed"
-                } else {
-                    response = "Insert '\(name)' not found"
+                    actionRemoved = true
+                    actionType = "insert"
+                } else if configMgr.config.urls.removeValue(forKey: name) != nil {
+                    actionRemoved = true
+                    actionType = "URL"
+                } else if configMgr.config.shortcuts.removeValue(forKey: name) != nil {
+                    actionRemoved = true
+                    actionType = "shortcut"
+                } else if configMgr.config.scriptsShell.removeValue(forKey: name) != nil {
+                    actionRemoved = true
+                    actionType = "shell script"
+                } else if configMgr.config.scriptsAS.removeValue(forKey: name) != nil {
+                    actionRemoved = true
+                    actionType = "AppleScript"
                 }
-                write(clientSocket, response, response.utf8.count)
                 
-            case .removeUrl:
-                guard let name = commandMessage.arguments?["name"] else {
-                    response = "Missing name for URL action"; write(clientSocket, response, response.utf8.count); return
-                }
-                if configMgr.config.urls.removeValue(forKey: name) != nil {
+                if actionRemoved {
+                    // Clear active action if it was the one being removed
+                    if configMgr.config.defaults.activeAction == name {
+                        configMgr.config.defaults.activeAction = ""
+                    }
                     configMgr.saveConfig()
                     configMgr.onConfigChanged?(nil)
-                    response = "URL action '\(name)' removed"
+                    response = "\(actionType.capitalized) action '\(name)' removed"
                 } else {
-                    response = "URL action '\(name)' not found"
-                }
-                write(clientSocket, response, response.utf8.count)
-                
-            case .removeShortcut:
-                guard let name = commandMessage.arguments?["name"] else {
-                    response = "Missing name for Shortcut action"; write(clientSocket, response, response.utf8.count); return
-                }
-                if configMgr.config.shortcuts.removeValue(forKey: name) != nil {
-                    configMgr.saveConfig()
-                    configMgr.onConfigChanged?(nil)
-                    response = "Shortcut action '\(name)' removed"
-                } else {
-                    response = "Shortcut action '\(name)' not found"
-                }
-                write(clientSocket, response, response.utf8.count)
-                
-            case .removeShell:
-                guard let name = commandMessage.arguments?["name"] else {
-                    response = "Missing name for Shell script action"; write(clientSocket, response, response.utf8.count); return
-                }
-                if configMgr.config.scriptsShell.removeValue(forKey: name) != nil {
-                    configMgr.saveConfig()
-                    configMgr.onConfigChanged?(nil)
-                    response = "Shell script action '\(name)' removed"
-                } else {
-                    response = "Shell script action '\(name)' not found"
-                }
-                write(clientSocket, response, response.utf8.count)
-                
-            case .removeAppleScript:
-                guard let name = commandMessage.arguments?["name"] else {
-                    response = "Missing name for AppleScript action"; write(clientSocket, response, response.utf8.count); return
-                }
-                if configMgr.config.scriptsAS.removeValue(forKey: name) != nil {
-                    configMgr.saveConfig()
-                    configMgr.onConfigChanged?(nil)
-                    response = "AppleScript action '\(name)' removed"
-                } else {
-                    response = "AppleScript action '\(name)' not found"
+                    response = "Action '\(name)' not found"
                 }
                 write(clientSocket, response, response.utf8.count)
                 
@@ -728,6 +883,160 @@ class SocketCommunication {
                 let serviceManager = ServiceManager()
                 let result = serviceManager.uninstallService()
                 response = result.message
+                write(clientSocket, response, response.utf8.count)
+                
+            // New unified action commands
+            case .listActions:
+                let inserts = configMgr.config.inserts
+                let urls = configMgr.config.urls
+                let shortcuts = configMgr.config.shortcuts
+                let shells = configMgr.config.scriptsShell
+                let scripts = configMgr.config.scriptsAS
+                let activeActionName = configMgr.config.defaults.activeAction ?? ""
+                
+                var actionsList: [String] = []
+                actionsList.append(contentsOf: inserts.keys.map { "INSERT: \($0)\($0 == activeActionName ? " (active)" : "")" })
+                actionsList.append(contentsOf: urls.keys.map { "URL: \($0)\($0 == activeActionName ? " (active)" : "")" })
+                actionsList.append(contentsOf: shortcuts.keys.map { "SHORTCUT: \($0)\($0 == activeActionName ? " (active)" : "")" })
+                actionsList.append(contentsOf: shells.keys.map { "SHELL: \($0)\($0 == activeActionName ? " (active)" : "")" })
+                actionsList.append(contentsOf: scripts.keys.map { "APPLESCRIPT: \($0)\($0 == activeActionName ? " (active)" : "")" })
+                
+                response = actionsList.sorted().joined(separator: "\n")
+                write(clientSocket, response, response.utf8.count)
+                
+            case .listUrls:
+                let urls = configMgr.config.urls.keys.sorted()
+                let activeActionName = configMgr.config.defaults.activeAction ?? ""
+                response = urls.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
+                write(clientSocket, response, response.utf8.count)
+                
+            case .listShortcuts:
+                let shortcuts = configMgr.config.shortcuts.keys.sorted()
+                let activeActionName = configMgr.config.defaults.activeAction ?? ""
+                response = shortcuts.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
+                write(clientSocket, response, response.utf8.count)
+                
+            case .listShell:
+                let shells = configMgr.config.scriptsShell.keys.sorted()
+                let activeActionName = configMgr.config.defaults.activeAction ?? ""
+                response = shells.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
+                write(clientSocket, response, response.utf8.count)
+                
+            case .listAppleScript:
+                let scripts = configMgr.config.scriptsAS.keys.sorted()
+                let activeActionName = configMgr.config.defaults.activeAction ?? ""
+                response = scripts.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
+                write(clientSocket, response, response.utf8.count)
+                
+            case .execAction:
+                if let actionName = commandMessage.arguments?["name"] {
+                    let (actionType, action) = findActionByName(actionName, configManager: configMgr)
+                    
+                    if let action = action {
+                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                            autoReturnEnabled = false
+                            
+                            // Execute based on action type using CLI-specific methods
+                            switch actionType {
+                            case .insert:
+                                if let insert = action as? AppConfiguration.Insert {
+                                    let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
+                                    applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
+                                }
+                            case .url:
+                                if let url = action as? AppConfiguration.Url {
+                                    executeUrlForCLI(url, metaJson: lastValidJson)
+                                }
+                            case .shortcut:
+                                if let shortcut = action as? AppConfiguration.Shortcut {
+                                    executeShortcutForCLI(shortcut, shortcutName: actionName, metaJson: lastValidJson)
+                                }
+                            case .shell:
+                                if let shell = action as? AppConfiguration.ScriptShell {
+                                    executeShellForCLI(shell, metaJson: lastValidJson)
+                                }
+                            case .appleScript:
+                                if let script = action as? AppConfiguration.ScriptAppleScript {
+                                    executeAppleScriptForCLI(script, metaJson: lastValidJson)
+                                }
+                            }
+                            
+                            response = "Executed \(actionType) action '\(actionName)'"
+                            logInfo("Successfully executed \(actionType) action: \(actionName)")
+                        } else {
+                            response = "No valid JSON file found with results"
+                            logError("No valid JSON file found for exec-action")
+                            notify(title: "Macrowhisper", message: "No valid result found for action: \(actionName). Please check Superwhisper recordings.")
+                        }
+                    } else {
+                        response = "Action not found: \(actionName)"
+                        logError(response)
+                        notify(title: "Macrowhisper", message: "Action not found: \(actionName)")
+                    }
+                } else {
+                    response = "Action name missing"
+                    logError(response)
+                }
+                write(clientSocket, response, response.utf8.count)
+                
+            case .getAction:
+                if let actionName = commandMessage.arguments?["name"], !actionName.isEmpty {
+                    let (actionType, action) = findActionByName(actionName, configManager: configMgr)
+                    
+                    if let action = action {
+                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                            // Return processed action content based on type
+                            switch actionType {
+                            case .insert:
+                                if let insert = action as? AppConfiguration.Insert {
+                                    let (processedAction, _) = processInsertAction(insert.action, metaJson: lastValidJson)
+                                    response = processedAction
+                                    logInfo("Returning processed action for \(actionType) '\(actionName)'.")
+                                }
+                            case .url:
+                                if let url = action as? AppConfiguration.Url {
+                                    let processedAction = processAllPlaceholders(action: url.action, metaJson: lastValidJson, actionType: .url)
+                                    response = processedAction
+                                    logInfo("Returning processed action for URL '\(actionName)'.")
+                                }
+                            case .shortcut:
+                                if let shortcut = action as? AppConfiguration.Shortcut {
+                                    let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: lastValidJson, actionType: .shortcut)
+                                    response = processedAction
+                                    logInfo("Returning processed action for shortcut '\(actionName)'.")
+                                }
+                            case .shell:
+                                if let shell = action as? AppConfiguration.ScriptShell {
+                                    let processedAction = processAllPlaceholders(action: shell.action, metaJson: lastValidJson, actionType: .shell)
+                                    response = processedAction
+                                    logInfo("Returning processed action for shell script '\(actionName)'.")
+                                }
+                            case .appleScript:
+                                if let script = action as? AppConfiguration.ScriptAppleScript {
+                                    let processedAction = processAllPlaceholders(action: script.action, metaJson: lastValidJson, actionType: .appleScript)
+                                    response = processedAction
+                                    logInfo("Returning processed action for AppleScript '\(actionName)'.")
+                                }
+                            }
+                        } else {
+                            response = "No valid JSON file found with results"
+                            logError("No valid JSON file found for get-action <name>")
+                        }
+                    } else {
+                        response = "Action not found: \(actionName)"
+                        logError("Action not found for get-action: \(actionName)")
+                    }
+                } else {
+                    // No action name provided, return the active action name
+                    let activeActionName = configMgr.config.defaults.activeAction ?? ""
+                    if activeActionName.isEmpty {
+                        response = "No active action is set."
+                        logInfo("No active action is set for get-action.")
+                    } else {
+                        response = activeActionName
+                        logInfo("Returning active action: '\(response)'")
+                    }
+                }
                 write(clientSocket, response, response.utf8.count)
                 
             case .quit:

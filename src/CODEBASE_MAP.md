@@ -4,15 +4,16 @@
 
 **Macrowhisper** is a sophisticated automation helper application designed to work seamlessly with **Superwhisper**, a dictation application. It functions as a file watcher and automation engine that monitors transcribed results from Superwhisper (stored in `meta.json` files) and executes various automated actions based on configurable rules and intelligent triggers.
 
-> **Note**: This codebase map reflects the current state as of version 1.1.0, with all line counts and feature descriptions updated to match the actual implementation.
+> **Note**: This codebase map reflects the current state as of version 1.1.3, with all line counts and feature descriptions updated to match the actual implementation including the unified action system.
 
 ### Core Functionality
 - **File Watching**: Monitors Superwhisper's recordings folder for new transcriptions
-- **Intelligent Action Execution**: Supports multiple action types including text insertion, URL opening, shell scripts, AppleScript execution, and keyboard shortcuts
-- **Advanced Trigger System**: Rule-based automation with voice patterns, application context, and mode matching
+- **Unified Action System**: Supports multiple action types (insert, URL, shortcut, shell script, AppleScript) with consistent management and execution
+- **Advanced Trigger System**: Rule-based automation with voice patterns, application context, and mode matching across all action types
+- **Enhanced AutoReturn**: Intelligent autoReturn cancellation when recording sessions are interrupted or superseded
 - **Service Management**: Full launchd service integration for background operation
 - **Inter-Process Communication**: Unix socket-based communication for CLI commands and status queries
-- **Configuration Management**: JSON-based configuration with live reloading and persistent path management
+- **Configuration Management**: JSON-based configuration with live reloading, auto-migration, and persistent path management
 - **History Management**: Automatic cleanup of old recordings based on retention policies
 - **Enhanced Clipboard Management**: Smart clipboard monitoring and restoration to handle timing conflicts
 - **Update Checking**: Automatic version checking with intelligent notification system
@@ -68,7 +69,7 @@ macrowhisper-cli/src/
 - `socketCommunication`: IPC server for CLI commands
 - `historyManager`: Recording cleanup manager
 - `logger`: Global logging instance
-- `autoReturnEnabled`: Auto-return functionality state
+- `autoReturnEnabled`: Auto-return functionality state with intelligent cancellation
 - `lastDetectedFrontApp`: Application context tracking
 
 **Key Functions**:
@@ -77,30 +78,33 @@ macrowhisper-cli/src/
 - `checkWatcherAvailability()`: Validates Superwhisper folder existence
 - `checkSocketHealth()` / `recoverSocket()`: Socket health monitoring and recovery
 - `registerForSleepWakeNotifications()`: System sleep/wake handling
+- `cancelAutoReturn()`: Intelligent autoReturn cancellation with logging
 - `printHelp()`: Comprehensive CLI help system
 
 **CLI Commands Supported**:
 - **Service Management**: `--install-service`, `--start-service`, `--stop-service`, `--restart-service`, `--uninstall-service`, `--service-status`
 - **Configuration**: `--reveal-config`, `--set-config`, `--reset-config`, `--get-config`
 - **Information**: `--help`, `--version`, `--status`, `--verbose`
-- **Insert Management**: `--exec-insert <name>`, `--get-insert`, `--list-inserts`, `--add-insert <name>`, `--remove-insert <name>`
-- **Action Management**: `--add-url <name>`, `--add-shortcut <name>`, `--add-shell <name>`, `--add-as <name>`, `--remove-url <name>`, `--remove-shortcut <name>`, `--remove-shell <name>`, `--remove-as <name>`
-- **Runtime Control**: `--auto-return [true/false]`, `--quit`, `--stop`
+- **Unified Action Management**: `--list-actions`, `--exec-action <name>`, `--get-action [<name>]`, `--action [<name>]`, `--remove-action <name>`
+- **Type-Specific Action Creation**: `--add-insert <name>`, `--add-url <name>`, `--add-shortcut <name>`, `--add-shell <name>`, `--add-as <name>`
+- **Type-Specific Action Listing**: `--list-inserts`, `--list-urls`, `--list-shortcuts`, `--list-shell`, `--list-as`
+- **Legacy Commands (Deprecated)**: `--exec-insert <name>`, `--get-insert [<name>]`, `--insert [<name>]`
+- **Runtime Control**: `--auto-return [true/false]`, `--get-icon`
 - **Update Management**: `--check-updates`, `--version-state`, `--version-clear`
 
-**Other Features**:
-- Complete service management integration
-- Advanced configuration path management with persistence
-- Socket health monitoring with automatic recovery
-- System sleep/wake awareness
-- Graceful handling of missing Superwhisper folders with automatic detection
+**Enhanced Features**:
+- **Unified Action System**: All action types managed consistently with type-aware validation
+- **Intelligent AutoReturn**: Cancellation when recordings are interrupted or superseded
+- **Active Action Indicators**: List commands show which action is currently active
+- **Duplicate Prevention**: Action names are unique across all action types
+- **Auto-Migration**: Seamless transition from `activeInsert` to `activeAction` in configurations
 
 ---
 
 ### 2. Configuration System
 
 #### `macrowhisper/Config/AppConfiguration.swift` (473 lines)
-**Purpose**: Defines the complete configuration data structure with advanced features
+**Purpose**: Defines the complete configuration data structure with unified action system and auto-migration
 
 **Key Structures**:
 
@@ -108,7 +112,7 @@ macrowhisper-cli/src/
 - `watch`: Path to Superwhisper folder
 - `noUpdates`: Disable update checking
 - `noNoti`: Disable notifications
-- `activeInsert`: Currently active insert name
+- `activeAction`: Currently active action name (supports all action types)
 - `icon`: Default icon for actions
 - `moveTo`: Default window/app to move to after actions
 - `noEsc`: Disable ESC key simulation
@@ -119,12 +123,22 @@ macrowhisper-cli/src/
 - `returnDelay`: Delay before pressing return (default: 0.1s)
 - `restoreClipboard`: Restore original clipboard content (default: true)
 
-**Action Configurations (All support triggers)**:
+**Unified Action System** (All action types support the same features):
 - **`AppConfiguration.Insert`**: Text insertion with advanced placeholder support
 - **`AppConfiguration.Url`**: URL actions with custom application opening
 - **`AppConfiguration.Shortcut`**: macOS Shortcuts integration
 - **`AppConfiguration.ScriptShell`**: Shell script execution
 - **`AppConfiguration.ScriptAppleScript`**: AppleScript execution
+
+**Universal Action Properties** (Available for all action types):
+- `action`: The action content/command
+- `icon`: Custom icon for the action
+- `moveTo`: Application/window to focus after execution
+- `actionDelay`: Custom delay before execution
+- `noEsc`: Disable ESC key simulation for this action
+- `simKeypress`: Use keystroke simulation for this action
+- `pressReturn`: Auto-press return after this action
+- Plus action-type specific properties (e.g., `openWith` for URLs)
 
 **Advanced Trigger System** (All action types):
 - `triggerVoice`: Regex pattern for voice matching (supports exceptions with `!` prefix)
@@ -132,10 +146,11 @@ macrowhisper-cli/src/
 - `triggerModes`: Regex pattern for Superwhisper mode matching
 - `triggerLogic`: "and"/"or" logic for combining triggers
 
-**Custom Encoding/Decoding**:
-- Preserves null values in JSON output
-- Ensures backward compatibility
-- Automatic defaults for missing fields
+**Auto-Migration Features**:
+- **Backward Compatibility**: Seamless migration from `activeInsert` to `activeAction`
+- **Preserves null values** in JSON output for clean configuration files
+- **Automatic defaults** for missing fields
+- **Version-safe decoding** with fallback logic
 
 #### `macrowhisper/Config/ConfigurationManager.swift` (348 lines)
 **Purpose**: Advanced configuration management with persistence and live reloading
@@ -192,28 +207,37 @@ macrowhisper-cli/src/
 ### 4. File System Monitoring
 
 #### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (521 lines)
-**Purpose**: Advanced file system watcher with intelligent processing
+**Purpose**: Advanced file system watcher with intelligent processing and enhanced autoReturn management
 
 **Key Features**:
 - **Persistent processing tracking**: Prevents duplicate processing using file-based storage
 - **Intelligent startup behavior**: Marks most recent recording as processed on startup
+- **Enhanced AutoReturn Management**: Intelligent cancellation when recordings are interrupted or superseded
 - **Early clipboard monitoring integration**: Captures user clipboard state before conflicts
-- **Advanced trigger evaluation**: Uses TriggerEvaluator for smart action selection
+- **Advanced trigger evaluation**: Uses TriggerEvaluator for smart action selection across all action types
 - **Graceful cleanup**: Handles deleted recordings and orphaned watchers
+
+**Enhanced AutoReturn Logic**:
+- **Normal Operation**: AutoReturn applies to the intended recording and gets reset after use
+- **Interruption Handling**: AutoReturn cancelled if recording folder is deleted during processing
+- **Supersession Logic**: AutoReturn cancelled if newer recordings appear before current one completes
+- **Smart Timing**: Only cancels when recordings are actually interrupted, not when they naturally complete
 
 **Enhanced Processing Flow**:
 1. **Early Monitoring**: Start clipboard monitoring when folder appears
 2. **Meta.json Waiting**: Handle delayed meta.json creation with timeout
 3. **Context Gathering**: Capture application context and mode information
-4. **Trigger Evaluation**: Use TriggerEvaluator to find matching actions
-5. **Action Execution**: Execute matched actions via ActionExecutor
-6. **Cleanup**: Mark as processed and clean up monitoring
+4. **AutoReturn Priority Check**: Highest priority action with intelligent cancellation
+5. **Unified Trigger Evaluation**: Use TriggerEvaluator to find matching actions across all types
+6. **Unified Action Execution**: Execute matched actions via ActionExecutor
+7. **Cleanup**: Mark as processed and clean up monitoring
 
 **Key Components**:
-- **TriggerEvaluator**: Intelligent action matching
-- **ActionExecutor**: Coordinated action execution
-- **ClipboardMonitor**: Early clipboard state capture
+- **Enhanced TriggerEvaluator**: Intelligent action matching across all action types
+- **Unified ActionExecutor**: Coordinated action execution for all action types
+- **Enhanced ClipboardMonitor**: Early clipboard state capture with smart restoration
 - **Persistent Tracking**: File-based processing history
+- **AutoReturn Cancellation**: Context-aware cancellation with detailed logging
 
 #### `macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` (85 lines)
 **Purpose**: Graceful startup watcher for scenarios where Superwhisper folder doesn't exist yet
@@ -272,30 +296,38 @@ macrowhisper-cli/src/
 
 ---
 
-### 6. Action Execution System
+### 6. Unified Action Execution System
 
 #### `macrowhisper/Utils/ActionExecutor.swift` (347 lines)
-**Purpose**: Coordinated execution of all action types with advanced features
+**Purpose**: Coordinated execution of all action types with unified interface and advanced features
 
 **Key Features**:
-- **Unified execution interface**: Single entry point for all action types
-- **Enhanced clipboard management**: Integration with ClipboardMonitor
-- **Context-aware execution**: Application-specific behavior
-- **Advanced placeholder processing**: Dynamic content replacement
+- **Unified execution interface**: Single entry point for all action types (insert, URL, shortcut, shell, AppleScript)
+- **Type-aware execution**: Intelligent handling based on action type detection
+- **Enhanced clipboard management**: Integration with ClipboardMonitor for all action types
+- **Context-aware execution**: Application-specific behavior for all actions
+- **Advanced placeholder processing**: Dynamic content replacement across all action types
 - **Graceful error handling**: Comprehensive error recovery
 
-**Action Types**:
-1. **Insert Actions**: Text insertion with clipboard management
-2. **URL Actions**: Web/application launching with custom handlers
-3. **Shortcut Actions**: macOS Shortcuts integration with stdin piping
-4. **Shell Scripts**: Bash command execution with environment isolation
-5. **AppleScript**: Native AppleScript execution
+**Unified Action Types**:
+1. **Insert Actions**: Text insertion with clipboard management and smart paste detection
+2. **URL Actions**: Web/application launching with custom handlers and opening preferences
+3. **Shortcut Actions**: macOS Shortcuts integration with stdin piping and temp file handling
+4. **Shell Script Actions**: Bash command execution with environment isolation
+5. **AppleScript Actions**: Native AppleScript execution with proper error handling
+
+**Universal Action Features**:
+- **Custom Delays**: Per-action `actionDelay` settings with fallback to global defaults
+- **ESC Key Management**: Per-action `noEsc` settings with intelligent simulation
+- **Icon Support**: Custom icons for all action types with fallback hierarchy
+- **Move-To Functionality**: Application/window focus management for all action types
+- **Trigger Coordination**: Seamless integration with trigger-based action execution
 
 **Special Features**:
-- **`.none` handling**: Skip action but apply delays and context changes
-- **`.autoPaste` intelligence**: Smart paste behavior based on input field detection
-- **Move-to functionality**: Application/window focus management
-- **ESC key coordination**: Intelligent ESC simulation for responsiveness
+- **`.none` handling**: Skip action but apply delays and context changes for all action types
+- **`.autoPaste` intelligence**: Smart paste behavior based on input field detection (insert actions)
+- **Placeholder Processing**: XML tags, dynamic content, and context variables for all actions
+- **CLI Execution Methods**: Separate execution paths for CLI commands vs. automated triggers
 
 ---
 
@@ -336,33 +368,44 @@ macrowhisper-cli/src/
 ### 8. Inter-Process Communication
 
 #### `macrowhisper/Networking/SocketCommunication.swift` (794 lines)
-**Purpose**: Comprehensive Unix socket server for CLI commands and action execution
+**Purpose**: Comprehensive Unix socket server for unified CLI commands and action execution
 
 **Key Features**:
-- **Extensive command set**: 25+ different CLI commands
+- **Unified command system**: Streamlined command set with consistent action management
 - **Service integration**: Service management commands
-- **Configuration commands**: Live configuration updates
-- **Action execution**: Direct insert execution for CLI
+- **Configuration commands**: Live configuration updates with auto-migration
+- **Universal action execution**: Unified execution system for all action types
 - **Health monitoring**: Socket health checking and recovery
 - **Thread-safe operation**: Proper queue management
 
-**Command Categories**:
+**Unified Command Categories**:
 1. **Configuration**: `reloadConfig`, `updateConfig`
-2. **Information**: `status`, `version`, `debug`, `listInserts`
-3. **Action Management**: `addInsert`, `removeInsert`, `execInsert`
-4. **Service Control**: `serviceStatus`, `serviceStart`, `serviceStop`
-5. **System Control**: `quit`, `autoReturn`
+2. **Information**: `status`, `version`, `debug`
+3. **Unified Action Management**: `listActions`, `execAction`, `getAction`, `removeAction`
+4. **Type-Specific Listing**: `listInserts`, `listUrls`, `listShortcuts`, `listShell`, `listAppleScript`
+5. **Action Creation**: `addInsert`, `addUrl`, `addShortcut`, `addShell`, `addAppleScript`
+6. **Legacy Support**: `execInsert`, `getInsert`, `listInserts` (deprecated but functional)
+7. **Service Control**: `serviceStatus`, `serviceStart`, `serviceStop`, `serviceRestart`, `serviceInstall`, `serviceUninstall`
+8. **Runtime Control**: `autoReturn`, `getIcon`
+
+**Enhanced Action Management**:
+- **Universal Action Validation**: Consistent validation across all action types
+- **Active Action Indicators**: All list commands show which action is currently active
+- **Duplicate Prevention**: Action names must be unique across all action types
+- **Type-Aware Execution**: Intelligent execution based on action type detection
+- **Icon Management**: Smart icon resolution with fallback to defaults
 
 **Enhanced Status Reporting**:
 - **Recordings watcher status**: Shows if actively watching recordings folder
 - **Folder watcher status**: Shows if waiting for recordings folder to appear ("yes (waiting for recordings folder)")
+- **Active action display**: Shows current active action with type information
 - **Path validation**: Reports both Superwhisper folder and recordings folder existence
 - **Health warnings**: Alerts if watchers are in inconsistent states
 
 **Advanced Features**:
-- **Placeholder processing**: Full XML and dynamic placeholder support
-- **Clipboard integration**: Proper clipboard handling for CLI commands
-- **Context awareness**: Application and mode detection
+- **Unified placeholder processing**: Full XML and dynamic placeholder support for all action types
+- **Enhanced clipboard integration**: Proper clipboard handling for CLI commands
+- **Context awareness**: Application and mode detection for all actions
 - **Error recovery**: Graceful handling of connection failures
 
 ---
@@ -478,7 +521,7 @@ main.swift
 └── Enter main run loop
 ```
 
-### 2. Recording Processing Flow (Enhanced)
+### 2. Recording Processing Flow (Enhanced with Unified Actions)
 ```
 RecordingsFolderWatcher detects new directory
 ├── Check if already processed (persistent tracking)
@@ -487,24 +530,39 @@ RecordingsFolderWatcher detects new directory
 ├── If not found, watch for creation with timeout
 ├── Once available, parse and validate meta.json
 ├── Gather application context (foreground app, bundle ID, mode)
-├── Action Priority Evaluation (STRICT ORDER):
+├── Unified Action Priority Evaluation (STRICT ORDER):
 │   ├── 1. Auto-Return (highest priority - overrides everything)
-│   ├── 2. Trigger Actions (TriggerEvaluator)
+│   │   ├── Check if autoReturnEnabled is true
+│   │   ├── Apply result directly with enhanced clipboard sync
+│   │   ├── Reset autoReturnEnabled to false after use
+│   │   └── Handle cancellation if recording gets interrupted
+│   ├── 2. Trigger Actions (medium priority - all action types)
+│   │   ├── Evaluate triggers across ALL action types (TriggerEvaluator)
 │   │   ├── Check voice triggers (with exceptions and result stripping)
 │   │   ├── Check application triggers (bundle ID and name)
 │   │   ├── Check mode triggers (Superwhisper modes)
-│   │   ├── Apply trigger logic (AND/OR)
-│   │   └── Return first alphabetically sorted match
-│   └── 3. Active Insert (lowest priority - fallback only)
-├── Execute matched action (ActionExecutor)
-│   ├── Determine action-specific settings (actionDelay, noEsc, etc.)
+│   │   ├── Apply trigger logic (AND/OR) for each action
+│   │   ├── Return first matched action (sorted alphabetically by name)
+│   │   └── Execute via unified ActionExecutor
+│   └── 3. Active Action (lowest priority - fallback only)
+│       ├── Check config.defaults.activeAction (supports all action types)
+│       ├── Find action by name across all action types
+│       └── Execute via unified ActionExecutor if found
+├── Execute matched action (Unified ActionExecutor)
+│   ├── Determine action type (insert/URL/shortcut/shell/AppleScript)
+│   ├── Apply action-specific settings (actionDelay, noEsc, icon, moveTo, etc.)
 │   ├── Process placeholders with context (Placeholders.swift)
 │   ├── Execute with enhanced clipboard sync (ClipboardMonitor)
 │   │   ├── Apply actionDelay before ESC and action
 │   │   ├── Handle ESC simulation with accessibility checks
 │   │   ├── Coordinate timing with Superwhisper clipboard changes
 │   │   └── Restore intelligent clipboard content
-│   └── Handle action-specific execution (insert/URL/shortcut/shell/AppleScript)
+│   └── Handle action-type-specific execution with universal features
+├── AutoReturn Cancellation Logic:
+│   ├── Cancel if recording folder is deleted during processing
+│   ├── Cancel if newer recordings appear before current completes
+│   ├── Cancel if meta.json is deleted during processing
+│   └── Preserve autoReturn for intended recording session
 ├── Mark as processed (persistent tracking)
 ├── Perform post-processing tasks:
 │   ├── Handle moveTo operations with precedence (action > default)
@@ -581,9 +639,9 @@ CLI command received
 
 ---
 
-## Configuration Schema (Enhanced)
+## Configuration Schema (Unified Action System)
 
-The application uses a comprehensive JSON configuration file:
+The application uses a comprehensive JSON configuration file with unified action management:
 
 ```json
 {
@@ -591,7 +649,7 @@ The application uses a comprehensive JSON configuration file:
     "watch": "~/Documents/superwhisper",
     "noUpdates": false,
     "noNoti": false,
-    "activeInsert": "",
+    "activeAction": "",
     "icon": "",
     "moveTo": "",
     "noEsc": false,
@@ -617,12 +675,53 @@ The application uses a comprehensive JSON configuration file:
       "pressReturn": false
     }
   },
-  "urls": { /* Similar structure with openWith field */ },
-  "shortcuts": { /* Similar structure for macOS Shortcuts */ },
-  "scriptsShell": { /* Similar structure for shell scripts */ },
-  "scriptsAS": { /* Similar structure for AppleScript */ }
+  "urls": {
+    "urlName": {
+      "action": "https://example.com/search?q={{swResult}}",
+      "openWith": "/Applications/Safari.app",
+      "triggerVoice": "^search|!private",
+      "triggerApps": "com.apple.finder",
+      "triggerModes": "search",
+      "triggerLogic": "and",
+      "icon": "🔍",
+      "moveTo": "com.apple.Safari",
+      "actionDelay": 0.5
+    }
+  },
+  "shortcuts": {
+    "shortcutName": {
+      "action": "MyShortcut",
+      "triggerVoice": "^run shortcut",
+      "triggerApps": "com.apple.Notes",
+      "icon": "⚡",
+      "actionDelay": 1.0
+    }
+  },
+  "scriptsShell": {
+    "shellName": {
+      "action": "echo '{{swResult}}' | pbcopy",
+      "triggerVoice": "^copy result",
+      "icon": "📋",
+      "actionDelay": 0.0
+    }
+  },
+  "scriptsAS": {
+    "applescriptName": {
+      "action": "tell application \"TextEdit\" to make new document with properties {text:\"{{swResult}}\"}",
+      "triggerVoice": "^new document",
+      "icon": "📝",
+      "moveTo": "com.apple.TextEdit"
+    }
+  }
 }
 ```
+
+**Key Features**:
+- **Unified Action Management**: All action types share the same property structure
+- **Universal Triggers**: Every action type supports voice, app, and mode triggers
+- **Consistent Icons**: All actions support custom icons with fallback hierarchy
+- **Smart Defaults**: Missing properties inherit from global defaults
+- **Auto-Migration**: Seamless upgrade from `activeInsert` to `activeAction`
 
 ---
 

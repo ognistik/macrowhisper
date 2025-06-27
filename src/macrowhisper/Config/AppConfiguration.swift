@@ -7,7 +7,7 @@ struct AppConfiguration: Codable {
         var watch: String
         var noUpdates: Bool
         var noNoti: Bool
-        var activeInsert: String?
+        var activeAction: String?
         var icon: String?
         var moveTo: String?
         var noEsc: Bool
@@ -20,7 +20,7 @@ struct AppConfiguration: Codable {
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeInsert, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard
         }
         
         // Custom encoding to preserve null values
@@ -29,7 +29,7 @@ struct AppConfiguration: Codable {
             try container.encode(watch, forKey: .watch)
             try container.encode(noUpdates, forKey: .noUpdates)
             try container.encode(noNoti, forKey: .noNoti)
-            try container.encode(activeInsert, forKey: .activeInsert)
+            try container.encode(activeAction, forKey: .activeAction)
             try container.encode(icon, forKey: .icon)
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(noEsc, forKey: .noEsc)
@@ -41,14 +41,23 @@ struct AppConfiguration: Codable {
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
         }
         
-        // Custom decoding to ensure activeInsert defaults to empty string instead of null
+        // Custom decoding with migration logic from activeInsert to activeAction
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             watch = try container.decode(String.self, forKey: .watch)
             noUpdates = try container.decode(Bool.self, forKey: .noUpdates)
             noNoti = try container.decode(Bool.self, forKey: .noNoti)
-            // Ensure activeInsert is always empty string instead of null for consistency
-            activeInsert = try container.decodeIfPresent(String.self, forKey: .activeInsert) ?? ""
+            
+            // Migration logic: try new activeAction first, fall back to old activeInsert
+            if let newActiveAction = try container.decodeIfPresent(String.self, forKey: .activeAction) {
+                activeAction = newActiveAction
+            } else {
+                // Try to decode the old activeInsert field using a separate container for backward compatibility
+                let legacyContainer = try decoder.container(keyedBy: AnyCodingKey.self)
+                let activeInsertKey = AnyCodingKey(stringValue: "activeInsert")
+                activeAction = try legacyContainer.decodeIfPresent(String.self, forKey: activeInsertKey) ?? ""
+            }
+            
             icon = try container.decodeIfPresent(String.self, forKey: .icon)
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
             noEsc = try container.decode(Bool.self, forKey: .noEsc)
@@ -61,11 +70,11 @@ struct AppConfiguration: Codable {
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeInsert: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
-            self.activeInsert = activeInsert
+            self.activeAction = activeAction
             self.icon = icon
             self.moveTo = moveTo
             self.noEsc = noEsc
@@ -82,12 +91,12 @@ struct AppConfiguration: Codable {
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
                 noUpdates: false,
                 noNoti: false,
-                activeInsert: "autoPaste",
+                activeAction: "autoPaste",
                 icon: "",
                 moveTo: "",
                 noEsc: false,
                 simKeypress: false,
-                actionDelay: 0.0,
+                actionDelay: 0.05,
                 history: nil,
                 pressReturn: false,
                 returnDelay: 0.1,
@@ -169,6 +178,7 @@ struct AppConfiguration: Codable {
     
     struct Url: Codable {
         var action: String
+        var icon: String? = ""  // New field for activeAction support
         var moveTo: String? = ""  // Default to empty string
         var noEsc: Bool?
         var actionDelay: Double?
@@ -185,7 +195,7 @@ struct AppConfiguration: Codable {
         var openWith: String? = ""
         
         enum CodingKeys: String, CodingKey {
-            case action, moveTo, noEsc, actionDelay
+            case action, icon, moveTo, noEsc, actionDelay
             case triggerVoice, triggerApps, triggerModes, triggerLogic
             case openWith
         }
@@ -194,6 +204,7 @@ struct AppConfiguration: Codable {
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(action, forKey: .action)
+            try container.encode(icon, forKey: .icon)
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(actionDelay, forKey: .actionDelay)
@@ -208,6 +219,7 @@ struct AppConfiguration: Codable {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             action = try container.decode(String.self, forKey: .action)
+            icon = try container.decodeIfPresent(String.self, forKey: .icon) ?? ""
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
             noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
@@ -218,8 +230,9 @@ struct AppConfiguration: Codable {
             openWith = try container.decodeIfPresent(String.self, forKey: .openWith) ?? ""
         }
         // Default initializer for new URLs
-        init(action: String, moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or", openWith: String? = "") {
+        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or", openWith: String? = "") {
             self.action = action
+            self.icon = icon
             self.moveTo = moveTo
             self.noEsc = noEsc
             self.actionDelay = actionDelay
@@ -233,6 +246,7 @@ struct AppConfiguration: Codable {
     
     struct Shortcut: Codable {
         var action: String
+        var icon: String? = ""  // New field for activeAction support
         var moveTo: String? = ""  // Default to empty string
         var noEsc: Bool?
         var actionDelay: Double?
@@ -247,7 +261,7 @@ struct AppConfiguration: Codable {
         var triggerLogic: String? = "or"
         
         enum CodingKeys: String, CodingKey {
-            case action, moveTo, noEsc, actionDelay
+            case action, icon, moveTo, noEsc, actionDelay
             case triggerVoice, triggerApps, triggerModes, triggerLogic
         }
         
@@ -255,6 +269,7 @@ struct AppConfiguration: Codable {
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(action, forKey: .action)
+            try container.encode(icon, forKey: .icon)
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(actionDelay, forKey: .actionDelay)
@@ -269,6 +284,7 @@ struct AppConfiguration: Codable {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             action = try container.decode(String.self, forKey: .action)
+            icon = try container.decodeIfPresent(String.self, forKey: .icon) ?? ""
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
             noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
@@ -279,8 +295,9 @@ struct AppConfiguration: Codable {
         }
         
         // Default initializer for new shortcuts
-        init(action: String, moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
             self.action = action
+            self.icon = icon
             self.moveTo = moveTo
             self.noEsc = noEsc
             self.actionDelay = actionDelay
@@ -293,6 +310,7 @@ struct AppConfiguration: Codable {
     
     struct ScriptShell: Codable {
         var action: String
+        var icon: String? = ""  // New field for activeAction support
         var moveTo: String? = ""  // Default to empty string
         var noEsc: Bool?
         var actionDelay: Double?
@@ -307,7 +325,7 @@ struct AppConfiguration: Codable {
         var triggerLogic: String? = "or"
         
         enum CodingKeys: String, CodingKey {
-            case action, moveTo, noEsc, actionDelay
+            case action, icon, moveTo, noEsc, actionDelay
             case triggerVoice, triggerApps, triggerModes, triggerLogic
         }
         
@@ -315,6 +333,7 @@ struct AppConfiguration: Codable {
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(action, forKey: .action)
+            try container.encode(icon, forKey: .icon)
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(actionDelay, forKey: .actionDelay)
@@ -329,6 +348,7 @@ struct AppConfiguration: Codable {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             action = try container.decode(String.self, forKey: .action)
+            icon = try container.decodeIfPresent(String.self, forKey: .icon) ?? ""
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
             noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
@@ -339,8 +359,9 @@ struct AppConfiguration: Codable {
         }
         
         // Default initializer for new shell scripts
-        init(action: String, moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
             self.action = action
+            self.icon = icon
             self.moveTo = moveTo
             self.noEsc = noEsc
             self.actionDelay = actionDelay
@@ -353,6 +374,7 @@ struct AppConfiguration: Codable {
     
     struct ScriptAppleScript: Codable {
         var action: String
+        var icon: String? = ""  // New field for activeAction support
         var moveTo: String? = ""
         var noEsc: Bool?
         var actionDelay: Double?
@@ -362,12 +384,13 @@ struct AppConfiguration: Codable {
         var triggerLogic: String? = "or"
 
         enum CodingKeys: String, CodingKey {
-            case action, moveTo, noEsc, actionDelay, triggerVoice, triggerApps, triggerModes, triggerLogic
+            case action, icon, moveTo, noEsc, actionDelay, triggerVoice, triggerApps, triggerModes, triggerLogic
         }
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(action, forKey: .action)
+            try container.encode(icon, forKey: .icon)
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(noEsc, forKey: .noEsc)
             try container.encode(actionDelay, forKey: .actionDelay)
@@ -380,6 +403,7 @@ struct AppConfiguration: Codable {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             action = try container.decode(String.self, forKey: .action)
+            icon = try container.decodeIfPresent(String.self, forKey: .icon) ?? ""
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
             noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc)
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
@@ -389,8 +413,9 @@ struct AppConfiguration: Codable {
             triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
         }
 
-        init(action: String, moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
             self.action = action
+            self.icon = icon
             self.moveTo = moveTo
             self.noEsc = noEsc
             self.actionDelay = actionDelay
@@ -470,5 +495,21 @@ struct AppConfiguration: Codable {
         return AppConfiguration(
             inserts: ["autoPaste": autoPasteInsert]
         )
+    }
+}
+
+// Helper struct for dynamic coding keys in migration
+private struct AnyCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+    
+    init(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+    
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
     }
 } 

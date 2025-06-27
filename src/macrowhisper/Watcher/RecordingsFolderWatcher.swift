@@ -207,6 +207,11 @@ class RecordingsFolderWatcher {
                         logDebug("Marked as processed (not most recent): \(dirName)")
                     }
                     
+                    // Cancel auto-return since multiple recordings appeared - autoReturn should only apply to the first recording
+                    if sortedNewDirs.count > 1 {
+                        cancelAutoReturn(reason: "multiple recordings appeared simultaneously - autoReturn was intended for a single recording session")
+                    }
+                    
                     // Process only the most recent
                     let mostRecentPath = "\(path)/\(mostRecentNewDir)"
                     processNewRecording(atPath: mostRecentPath)
@@ -223,6 +228,12 @@ class RecordingsFolderWatcher {
                 } else {
                     // This recording is recent enough to process
                     let fullPath = "\(path)/\(dirName)"
+                    
+                    // Cancel auto-return if this is a newer recording superseding a previous one being processed
+                    if let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
+                        cancelAutoReturn(reason: "newer recording \(dirName) appeared while processing older recording - autoReturn was intended for the original recording")
+                    }
+                    
                     processNewRecording(atPath: fullPath)
                 }
             }
@@ -240,6 +251,9 @@ class RecordingsFolderWatcher {
                     watcher.cancel()
                     pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
                     logDebug("Removed watcher for deleted directory: \(fullPath)")
+                    
+                    // Cancel auto-return if it was enabled - recording was interrupted
+                    cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
                 }
                 
                 // Stop early clipboard monitoring for deleted folder
@@ -357,6 +371,9 @@ class RecordingsFolderWatcher {
                 // File was deleted, clean up
                 watcher.cancel()
                 self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
+                
+                // Cancel auto-return if it was enabled - meta.json was deleted during processing
+                cancelAutoReturn(reason: "meta.json was deleted during processing")
                 return
             }
             
@@ -505,43 +522,67 @@ class RecordingsFolderWatcher {
                 return
             }
             
-            // THIRD: Process active insert if there is one
-            if let activeInsertName = configManager.config.defaults.activeInsert,
-               !activeInsertName.isEmpty,
-               let activeInsert = configManager.config.inserts[activeInsertName] {
+            // THIRD: Process active action if there is one (supports all action types)
+            if let activeActionName = configManager.config.defaults.activeAction,
+               !activeActionName.isEmpty {
                 
-                logDebug("Processing with active insert: \(activeInsertName)")
+                // Find the active action across all action types
+                let (actionType, action) = findActionByName(activeActionName, configManager: configManager)
                 
-                // Check if the insert action is ".none" or empty - if so, skip action but apply delay
-                if activeInsert.action == ".none" || activeInsert.action.isEmpty {
-                    logDebug("Active insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
-                    // Apply actionDelay if specified, but don't do anything else
-                    let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
-                    if actionDelay > 0 {
-                        Thread.sleep(forTimeInterval: actionDelay)
-                        logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
+                if let action = action {
+                    logDebug("Processing with active action: \(activeActionName) (type: \(actionType))")
+                    
+                    // Handle based on action type
+                    switch actionType {
+                    case .insert:
+                        if let activeInsert = action as? AppConfiguration.Insert {
+                            // Check if the insert action is ".none" or empty - if so, skip action but apply delay
+                            if activeInsert.action == ".none" || activeInsert.action.isEmpty {
+                                logDebug("Active insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
+                                // Apply actionDelay if specified, but don't do anything else
+                                let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
+                                if actionDelay > 0 {
+                                    Thread.sleep(forTimeInterval: actionDelay)
+                                    logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
+                                }
+                            } else {
+                                // Use enhanced clipboard monitoring for active insert to handle Superwhisper interference
+                                let (processedAction, isAutoPaste) = socketCommunication.processInsertAction(activeInsert.action, metaJson: enhancedMetaJson)
+                                let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
+                                let shouldEsc = !(activeInsert.noEsc ?? configManager.config.defaults.noEsc)
+                                
+                                clipboardMonitor.executeInsertWithEnhancedClipboardSync(
+                                    insertAction: { [weak self] in
+                                        // Apply the insert without ESC (handled by clipboard monitor)
+                                        self?.socketCommunication.applyInsertWithoutEsc(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
+                                    },
+                                    actionDelay: actionDelay,
+                                    shouldEsc: shouldEsc,
+                                    isAutoPaste: isAutoPaste,
+                                    recordingPath: recordingPath,
+                                    metaJson: enhancedMetaJson,
+                                    restoreClipboard: configManager.config.defaults.restoreClipboard
+                                )
+                            }
+                        }
+                    case .url, .shortcut, .shell, .appleScript:
+                        // For non-insert active actions, execute directly
+                        DispatchQueue.main.async { [weak self] in
+                            self?.actionExecutor.executeAction(
+                                action: action,
+                                name: activeActionName,
+                                type: actionType,
+                                metaJson: enhancedMetaJson,
+                                recordingPath: recordingPath,
+                                isTriggeredAction: false  // This is an active action, not triggered
+                            )
+                        }
                     }
                 } else {
-                    // Use enhanced clipboard monitoring for active insert to handle Superwhisper interference
-                    let (processedAction, isAutoPaste) = socketCommunication.processInsertAction(activeInsert.action, metaJson: enhancedMetaJson)
-                    let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
-                    let shouldEsc = !(activeInsert.noEsc ?? configManager.config.defaults.noEsc)
-                    
-                                    clipboardMonitor.executeInsertWithEnhancedClipboardSync(
-                    insertAction: { [weak self] in
-                        // Apply the insert without ESC (handled by clipboard monitor)
-                        self?.socketCommunication.applyInsertWithoutEsc(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
-                    },
-                    actionDelay: actionDelay,
-                    shouldEsc: shouldEsc,
-                    isAutoPaste: isAutoPaste,
-                    recordingPath: recordingPath,
-                    metaJson: enhancedMetaJson,
-                    restoreClipboard: configManager.config.defaults.restoreClipboard
-                )
+                    logDebug("Active action '\(activeActionName)' not found, skipping action.")
                 }
             } else {
-                logDebug("No active insert, skipping action.")
+                logDebug("No active action, skipping action.")
             }
             
             handlePostProcessing(recordingPath: recordingPath)
@@ -555,16 +596,53 @@ class RecordingsFolderWatcher {
     }
 
     private func handlePostProcessing(recordingPath: String) {
-        // Determine the moveTo value with proper precedence (active insert takes precedence over default)
+        // Determine the moveTo value with proper precedence (active action takes precedence over default)
         var moveTo: String?
-        if let activeInsertName = configManager.config.defaults.activeInsert,
-           !activeInsertName.isEmpty,
-           let activeInsert = configManager.config.inserts[activeInsertName],
-           let insertMoveTo = activeInsert.moveTo, !insertMoveTo.isEmpty {
-            // Active insert has an explicit moveTo value (including ".none" and ".delete")
-            moveTo = insertMoveTo
+        
+        if let activeActionName = configManager.config.defaults.activeAction,
+           !activeActionName.isEmpty {
+            // Find the active action and get its moveTo value
+            let (actionType, action) = findActionByName(activeActionName, configManager: configManager)
+            
+            if let action = action {
+                var actionMoveTo: String?
+                
+                switch actionType {
+                case .insert:
+                    if let insert = action as? AppConfiguration.Insert {
+                        actionMoveTo = insert.moveTo
+                    }
+                case .url:
+                    if let url = action as? AppConfiguration.Url {
+                        actionMoveTo = url.moveTo
+                    }
+                case .shortcut:
+                    if let shortcut = action as? AppConfiguration.Shortcut {
+                        actionMoveTo = shortcut.moveTo
+                    }
+                case .shell:
+                    if let shell = action as? AppConfiguration.ScriptShell {
+                        actionMoveTo = shell.moveTo
+                    }
+                case .appleScript:
+                    if let script = action as? AppConfiguration.ScriptAppleScript {
+                        actionMoveTo = script.moveTo
+                    }
+                }
+                
+                if let actionMoveTo = actionMoveTo, !actionMoveTo.isEmpty {
+                    // Active action has an explicit moveTo value (including ".none" and ".delete")
+                    moveTo = actionMoveTo
+                } else {
+                    // Active action moveTo is nil/empty, fall back to default
+                    moveTo = configManager.config.defaults.moveTo
+                }
+            } else {
+                // Active action not found, fall back to default
+                moveTo = configManager.config.defaults.moveTo
+            }
         } else {
-            // No active insert or insert moveTo is nil/empty, fall back to default
+            // No active action, use default
             moveTo = configManager.config.defaults.moveTo
         }
         
@@ -594,5 +672,28 @@ class RecordingsFolderWatcher {
                 versionChecker.checkForUpdates()
             }
         }
+    }
+    
+    // Helper function to find any action by name across all types
+    private func findActionByName(_ name: String, configManager: ConfigurationManager) -> (ActionType, Any?) {
+        let config = configManager.config
+        
+        if let insert = config.inserts[name] {
+            return (.insert, insert)
+        }
+        if let url = config.urls[name] {
+            return (.url, url)
+        }
+        if let shortcut = config.shortcuts[name] {
+            return (.shortcut, shortcut)
+        }
+        if let shell = config.scriptsShell[name] {
+            return (.shell, shell)
+        }
+        if let script = config.scriptsAS[name] {
+            return (.appleScript, script)
+        }
+        
+        return (.insert, nil) // Default type for not found
     }
 } 

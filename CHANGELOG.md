@@ -4,6 +4,19 @@
 ### Changed
 * Improved trigger logic for "and"
   * *Fixed `and` logic bug where empty triggers would incorrectly match everything. Now `and` and `or` both ignore empty triggers, only evaluating those with actual values.*
+* `--exec-action` now works correctly for all action types. You can easily run any of your actions with the last Superwhisper result via CLI.
+* `activeInsert` has been replaced with `activeAction`. Any action can now be set as default.
+* All action types now support icons
+* New unified `--remove-action <name>` command handles any action type (insert, URL, shortcut, shell, AppleScript)
+* There's been updates to CLI commands for a more unified "action" terminology and experience.
+  * `--get-action [<name>]` is replacing `--get-insert [<name>]`
+  * `--action [<name>]` is replacing `--insert [<name>]`
+  * `--remove-action <name>` is replacing all individual `--remove-insert`, `remove-url`, etc.
+  * New `--list-actions` lists all actions in the configuration file.
+* New CLI commands and config changes are backward compatible.
+  * These are not breaking changes, so it's not a requirement, but users can update their config file by simply adding an action via CLI (for example, `--add-insert AnyName`)
+* Improved `--auto-return <true/false>`
+  * Auto-return (which is meant to be triggered for a single interaction) will now be auto-deactivated if the recording is cancelled.
 
 ---
 ## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2)
