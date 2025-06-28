@@ -96,7 +96,7 @@ struct AppConfiguration: Codable {
                 moveTo: "",
                 noEsc: false,
                 simKeypress: false,
-                actionDelay: 0.05,
+                actionDelay: 0,
                 history: nil,
                 pressReturn: false,
                 returnDelay: 0.1,

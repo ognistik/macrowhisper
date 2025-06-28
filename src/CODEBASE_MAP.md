@@ -554,7 +554,7 @@ RecordingsFolderWatcher detects new directory
 │   ├── Apply action-specific settings (actionDelay, noEsc, icon, moveTo, etc.)
 │   ├── Process placeholders with context (Placeholders.swift)
 │   ├── Execute with enhanced clipboard sync (ClipboardMonitor)
-│   │   ├── Apply actionDelay before ESC and action
+│   │   ├── Apply actionDelay after clipboard sync
 │   │   ├── Handle ESC simulation with accessibility checks
 │   │   ├── Coordinate timing with Superwhisper clipboard changes
 │   │   └── Restore intelligent clipboard content

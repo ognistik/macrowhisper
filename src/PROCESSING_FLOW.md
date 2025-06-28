@@ -212,28 +212,31 @@ ActionDelay can be configured at multiple levels with specific precedence:
 3. **Fallback**: `0.0` seconds if not configured
 
 ### Application Points:
-ActionDelay is applied **before** ESC simulation and action execution:
+ActionDelay is applied **after** clipboard synchronization but **before** ESC simulation and action execution:
 
 ```swift
-// Step 1: Apply actionDelay
+// Step 1: Handle clipboard synchronization with Superwhisper (up to maxWaitTime)
+// ... clipboard sync logic ...
+
+// Step 2: Apply actionDelay after clipboard sync is complete
 if actionDelay > 0 {
     Thread.sleep(forTimeInterval: actionDelay)
-    logDebug("Applied actionDelay: \(actionDelay)s before ESC and action")
+    logDebug("Applied actionDelay: \(actionDelay)s after clipboard sync")
 }
 
-// Step 2: Simulate ESC (if enabled)
+// Step 3: Simulate ESC (if enabled)
 if shouldEsc {
     simulateKeyDown(key: 53) // ESC key
 }
 
-// Step 3: Execute action
+// Step 4: Execute action
 insertAction()
 ```
 
-### Special Timing Behavior:
-- **Long Delays**: If `actionDelay >= maxWaitTime (0.1s)`, skip Superwhisper synchronization
-- **Short Delays**: If `actionDelay < maxWaitTime`, wait for Superwhisper clipboard changes
-- **Zero Delay**: Still participates in clipboard synchronization
+### Corrected Timing Behavior:
+- **Clipboard Sync First**: Always wait up to `maxWaitTime (0.1s)` for Superwhisper, regardless of actionDelay
+- **ActionDelay Second**: Applied after clipboard synchronization is complete
+- **Independent Timing**: ActionDelay value does not affect clipboard synchronization logic
 
 ### Files Involved:
 - **Configuration**: `macrowhisper/Config/AppConfiguration.swift` (all action types have `actionDelay: Double?`)
@@ -289,6 +292,25 @@ func executeNonInsertActionWithClipboardRestore(
     restoreClipboard: Bool = true
 )
 ```
+
+#### Corrected Timing Flow:
+The clipboard synchronization system now follows the proper sequence:
+
+```
+1. Extract swResult from metaJson
+2. Check if Superwhisper already placed swResult on clipboard
+3. If not, wait up to maxWaitTime (0.1s) for Superwhisper to do so
+4. Determine correct clipboard content to restore
+5. Apply actionDelay (user's setting)
+6. Simulate ESC key if enabled
+7. Execute insert action
+8. Restore clipboard content
+```
+
+**Key Fix**: Clipboard synchronization now happens **before** actionDelay is applied, ensuring:
+- `maxWaitTime` is always respected (0.1 seconds)
+- ActionDelay doesn't interfere with Superwhisper synchronization
+- Proper clipboard restoration regardless of actionDelay value
 
 #### Restoration Logic:
 The system intelligently determines what clipboard content to restore:
@@ -481,17 +503,12 @@ All action types support:
 
 ### Clipboard Synchronization Edge Cases:
 
-#### 1. Long Action Delays:
-- **Condition**: `actionDelay >= maxWaitTime (0.1s)`
-- **Behavior**: Skip Superwhisper synchronization, proceed immediately
-- **Reason**: Superwhisper must have already acted
-
-#### 2. Missing Early Monitoring:
+#### 1. Missing Early Monitoring:
 - **Condition**: No early monitoring session found
 - **Behavior**: Fall back to basic clipboard monitoring
 - **Impact**: Less intelligent clipboard restoration
 
-#### 3. Clipboard Restoration Disabled:
+#### 2. Clipboard Restoration Disabled:
 - **Condition**: `restoreClipboard == false` or `shouldEsc == false`
 - **Behavior**: Execute action directly without clipboard handling
 - **Performance**: Faster execution, no synchronization overhead

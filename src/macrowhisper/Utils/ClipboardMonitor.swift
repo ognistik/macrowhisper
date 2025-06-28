@@ -206,56 +206,36 @@ class ClipboardMonitor {
             // Extract swResult from metaJson (llmResult takes precedence over result)
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             
-            // Determine what clipboard content should be restored
-            // This should be the content that was on clipboard just before anyone (Superwhisper or CLI) modifies it
-            let clipboardToRestore = self.determineClipboardToRestore(session: validSession, swResult: swResult)
-            
-            // Step 1: Apply actionDelay before ESC simulation and clipboard sync
-            if actionDelay > 0 {
-                Thread.sleep(forTimeInterval: actionDelay)
-                logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and clipboard sync")
-            }
-            
-            // Step 2: Simulate ESC after actionDelay if enabled
-            if shouldEsc {
-                if isAutoPaste {
-                    // For autoPaste, use the cached input field status
-                    if !requestAccessibilityPermission() {
-                        logWarning("[ClipboardMonitor] Accessibility permission denied for autoPaste input field check")
-                    } else if userIsInInputField {
-                        simulateKeyDown(key: 53) // ESC key
-                        logDebug("[ClipboardMonitor] ESC key pressed for autoPaste (user is in input field)")
-                    } else {
-                        logDebug("[ClipboardMonitor] ESC key skipped for autoPaste (user not in input field)")
-                    }
-                } else {
-                    // For regular inserts, always simulate ESC if enabled
-                    simulateKeyDown(key: 53) // ESC key
-                    logDebug("[ClipboardMonitor] ESC key pressed for responsiveness")
-                }
-            }
-            
-            // Step 3: Determine if we need to wait for Superwhisper or if we can proceed immediately
-            // If actionDelay > maxWaitTime, skip waiting as Superwhisper must have already acted
+            // Step 1: First, handle clipboard synchronization with Superwhisper BEFORE applying actionDelay
+            // This ensures proper timing coordination regardless of user's actionDelay setting
             let pasteboard = NSPasteboard.general
             let currentClipboard = pasteboard.string(forType: .string)
             
-            if currentClipboard == swResult || actionDelay >= maxWaitTime {
-                // Superwhisper was faster OR actionDelay exceeded maxWaitTime - proceed immediately
-                let reason = currentClipboard == swResult ? "swResult already on clipboard" : "actionDelay (\(actionDelay)s) >= maxWaitTime (\(maxWaitTime)s)"
-                logDebug("[ClipboardMonitor] Proceeding immediately: \(reason)")
-                self.proceedWithActionAfterDelay(
+            if currentClipboard == swResult {
+                // Superwhisper was faster - we already have swResult on clipboard
+                logDebug("[ClipboardMonitor] Superwhisper was faster: swResult already on clipboard")
+                let clipboardToRestore = self.determineClipboardToRestore(session: validSession, swResult: swResult)
+                self.proceedWithActionAndDelay(
                     insertAction: insertAction,
                     clipboardToRestore: clipboardToRestore,
-                    superwhisperWasFaster: currentClipboard == swResult,
+                    superwhisperWasFaster: true,
+                    actionDelay: actionDelay,
+                    shouldEsc: shouldEsc,
+                    isAutoPaste: isAutoPaste,
+                    userIsInInputField: userIsInInputField,
                     recordingPath: recordingPath
                 )
             } else {
-                // Need to wait for Superwhisper or proceed if maxWaitTime reached
-                self.waitForSuperwhisperOrProceed(
+                // Need to wait for Superwhisper up to maxWaitTime, then proceed regardless
+                logDebug("[ClipboardMonitor] Waiting for Superwhisper clipboard change (maxWaitTime: \(maxWaitTime)s)")
+                self.waitForSuperwhisperThenProceed(
                     insertAction: insertAction,
                     swResult: swResult,
-                    clipboardToRestore: clipboardToRestore,
+                    session: validSession,
+                    actionDelay: actionDelay,
+                    shouldEsc: shouldEsc,
+                    isAutoPaste: isAutoPaste,
+                    userIsInInputField: userIsInInputField,
                     recordingPath: recordingPath
                 )
             }
@@ -305,11 +285,15 @@ class ClipboardMonitor {
         return currentClipboard
     }
     
-    /// Wait for Superwhisper to update clipboard or proceed after maxWaitTime
-    private func waitForSuperwhisperOrProceed(
+    /// Wait for Superwhisper to update clipboard or proceed after maxWaitTime, then apply actionDelay
+    private func waitForSuperwhisperThenProceed(
         insertAction: @escaping () -> Void,
         swResult: String,
-        clipboardToRestore: String?,
+        session: EarlyMonitoringSession,
+        actionDelay: TimeInterval,
+        shouldEsc: Bool,
+        isAutoPaste: Bool,
+        userIsInInputField: Bool,
         recordingPath: String
     ) {
         let startTime = Date()
@@ -321,8 +305,12 @@ class ClipboardMonitor {
             startTime: startTime,
             initialClipboard: initialClipboard,
             swResult: swResult,
+            session: session,
             insertAction: insertAction,
-            clipboardToRestore: clipboardToRestore,
+            actionDelay: actionDelay,
+            shouldEsc: shouldEsc,
+            isAutoPaste: isAutoPaste,
+            userIsInInputField: userIsInInputField,
             recordingPath: recordingPath
         )
     }
@@ -332,8 +320,12 @@ class ClipboardMonitor {
         startTime: Date,
         initialClipboard: String?,
         swResult: String,
+        session: EarlyMonitoringSession,
         insertAction: @escaping () -> Void,
-        clipboardToRestore: String?,
+        actionDelay: TimeInterval,
+        shouldEsc: Bool,
+        isAutoPaste: Bool,
+        userIsInInputField: Bool,
         recordingPath: String
     ) {
         let pasteboard = NSPasteboard.general
@@ -341,15 +333,19 @@ class ClipboardMonitor {
         
         // Check if Superwhisper has placed swResult on clipboard
         if currentClipboard == swResult {
-            logDebug("[ClipboardMonitor] Detected Superwhisper placed swResult on clipboard")
+            logDebug("[ClipboardMonitor] Detected Superwhisper placed swResult on clipboard during polling")
             
-            // Update the clipboard to restore - it should be what was there just before swResult
-            let finalClipboardToRestore = initialClipboard ?? clipboardToRestore
+            // Determine clipboard to restore using updated session state
+            let clipboardToRestore = self.determineClipboardToRestore(session: session, swResult: swResult)
             
-            proceedWithActionAfterDelay(
+            proceedWithActionAndDelay(
                 insertAction: insertAction,
-                clipboardToRestore: finalClipboardToRestore,
+                clipboardToRestore: clipboardToRestore,
                 superwhisperWasFaster: true,
+                actionDelay: actionDelay,
+                shouldEsc: shouldEsc,
+                isAutoPaste: isAutoPaste,
+                userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath
             )
             return
@@ -357,15 +353,19 @@ class ClipboardMonitor {
         
         // Check if we've exceeded maximum wait time
         if Date().timeIntervalSince(startTime) >= maxWaitTime {
-            logDebug("[ClipboardMonitor] Max wait time reached - CLI will be first to modify clipboard")
+            logDebug("[ClipboardMonitor] Max wait time (\(maxWaitTime)s) reached - proceeding without Superwhisper sync")
             
-            // Update the clipboard to restore - it should be what's currently there (just before CLI modifies it)
-            let finalClipboardToRestore = currentClipboard
+            // Determine clipboard to restore - use what's currently there (before we modify it)
+            let clipboardToRestore = currentClipboard
             
-            proceedWithActionAfterDelay(
+            proceedWithActionAndDelay(
                 insertAction: insertAction,
-                clipboardToRestore: finalClipboardToRestore,
+                clipboardToRestore: clipboardToRestore,
                 superwhisperWasFaster: false,
+                actionDelay: actionDelay,
+                shouldEsc: shouldEsc,
+                isAutoPaste: isAutoPaste,
+                userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath
             )
             return
@@ -377,24 +377,57 @@ class ClipboardMonitor {
                 startTime: startTime,
                 initialClipboard: initialClipboard,
                 swResult: swResult,
+                session: session,
                 insertAction: insertAction,
-                clipboardToRestore: clipboardToRestore,
+                actionDelay: actionDelay,
+                shouldEsc: shouldEsc,
+                isAutoPaste: isAutoPaste,
+                userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath
             )
         }
     }
     
-    /// Proceeds with the action execution and handles restoration (actionDelay already applied)
-    private func proceedWithActionAfterDelay(
+    /// Proceeds with action execution: applies actionDelay, simulates ESC, executes action, restores clipboard
+    private func proceedWithActionAndDelay(
         insertAction: @escaping () -> Void,
         clipboardToRestore: String?,
         superwhisperWasFaster: Bool,
+        actionDelay: TimeInterval,
+        shouldEsc: Bool,
+        isAutoPaste: Bool,
+        userIsInInputField: Bool,
         recordingPath: String
     ) {
-        // Step 1: Execute the insert action (actionDelay already applied)
+        // Step 1: Apply actionDelay now that clipboard synchronization is complete
+        if actionDelay > 0 {
+            Thread.sleep(forTimeInterval: actionDelay)
+            logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s after clipboard sync")
+        }
+        
+        // Step 2: Simulate ESC after actionDelay if enabled
+        if shouldEsc {
+            if isAutoPaste {
+                // For autoPaste, use the cached input field status
+                if !requestAccessibilityPermission() {
+                    logWarning("[ClipboardMonitor] Accessibility permission denied for autoPaste input field check")
+                } else if userIsInInputField {
+                    simulateKeyDown(key: 53) // ESC key
+                    logDebug("[ClipboardMonitor] ESC key pressed for autoPaste (user is in input field)")
+                } else {
+                    logDebug("[ClipboardMonitor] ESC key skipped for autoPaste (user not in input field)")
+                }
+            } else {
+                // For regular inserts, always simulate ESC if enabled
+                simulateKeyDown(key: 53) // ESC key
+                logDebug("[ClipboardMonitor] ESC key pressed for responsiveness")
+            }
+        }
+        
+        // Step 3: Execute the insert action
         insertAction()
         
-        // Step 2: Restore the correct clipboard after a minimum wait time for paste to complete
+        // Step 4: Restore the correct clipboard after a minimum wait time for paste to complete
         let restoreDelay = 0.1 // Minimum delay for paste operation to complete
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             self?.restoreCorrectClipboard(clipboardToRestore)
@@ -500,57 +533,45 @@ class ClipboardMonitor {
             let pasteboard = NSPasteboard.general
             self.originalClipboard = pasteboard.string(forType: .string)
             
-            // Step 2: Apply actionDelay before ESC simulation and clipboard monitoring
-            if actionDelay > 0 {
-                Thread.sleep(forTimeInterval: actionDelay)
-                logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and clipboard monitoring (fallback)")
-            }
-            
-            // Step 3: Simulate ESC after actionDelay if enabled
-            // For autoPaste, only simulate ESC if user is in an input field
-            if shouldEsc {
-                if isAutoPaste {
-                    // For autoPaste, use the cached input field status
-                    if !requestAccessibilityPermission() {
-                        logWarning("[ClipboardMonitor] Accessibility permission denied for autoPaste input field check")
-                    } else if userIsInInputField {
-                        simulateKeyDown(key: 53) // ESC key
-                        logDebug("[ClipboardMonitor] ESC key pressed for autoPaste (user is in input field)")
-                    } else {
-                        logDebug("[ClipboardMonitor] ESC key skipped for autoPaste (user not in input field)")
-                    }
-                } else {
-                    // For regular inserts, always simulate ESC if enabled
-                    simulateKeyDown(key: 53) // ESC key
-                    logDebug("[ClipboardMonitor] ESC key pressed for responsiveness")
+            // Step 2: Monitor for Superwhisper's clipboard change BEFORE applying actionDelay
+            logDebug("[ClipboardMonitor] Fallback: monitoring clipboard changes (maxWaitTime: \(maxWaitTime)s)")
+            self.monitorClipboardChanges { [weak self] in
+                guard let self = self else { return }
+                
+                // Step 3: Apply actionDelay after clipboard synchronization is complete
+                if actionDelay > 0 {
+                    Thread.sleep(forTimeInterval: actionDelay)
+                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s after clipboard sync (fallback)")
                 }
-            }
-            
-            // Step 4: Start monitoring for Superwhisper's clipboard change
-            // If actionDelay >= maxWaitTime, skip waiting as Superwhisper must have already acted
-            if actionDelay >= maxWaitTime {
-                logDebug("[ClipboardMonitor] ActionDelay (\(actionDelay)s) >= maxWaitTime (\(maxWaitTime)s), proceeding immediately (fallback)")
+                
+                // Step 4: Simulate ESC after actionDelay if enabled
+                if shouldEsc {
+                    if isAutoPaste {
+                        // For autoPaste, use the cached input field status
+                        if !requestAccessibilityPermission() {
+                            logWarning("[ClipboardMonitor] Accessibility permission denied for autoPaste input field check")
+                        } else if userIsInInputField {
+                            simulateKeyDown(key: 53) // ESC key
+                            logDebug("[ClipboardMonitor] ESC key pressed for autoPaste (user is in input field)")
+                        } else {
+                            logDebug("[ClipboardMonitor] ESC key skipped for autoPaste (user not in input field)")
+                        }
+                    } else {
+                        // For regular inserts, always simulate ESC if enabled
+                        simulateKeyDown(key: 53) // ESC key
+                        logDebug("[ClipboardMonitor] ESC key pressed for responsiveness")
+                    }
+                }
+                
+                // Step 5: Execute the insert action
                 insertAction()
                 
+                // Step 6: Restore original clipboard after a minimum wait time for paste to complete
                 let restoreDelay = 0.1 // Minimum delay for paste operation to complete
                 DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                     self?.restoreOriginalClipboard()
+                    // Stop early monitoring after clipboard restoration is complete
                     self?.stopEarlyMonitoring(for: recordingPath)
-                }
-            } else {
-                self.monitorClipboardChanges { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // Step 5: Execute the insert action after Superwhisper has updated clipboard (no additional delay)
-                    insertAction()
-                    
-                    // Step 6: Restore original clipboard after a minimum wait time for paste to complete
-                    let restoreDelay = 0.1 // Minimum delay for paste operation to complete
-                    DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
-                        self?.restoreOriginalClipboard()
-                        // Stop early monitoring after clipboard restoration is complete
-                        self?.stopEarlyMonitoring(for: recordingPath)
-                    }
                 }
             }
         }
