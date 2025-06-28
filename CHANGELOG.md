@@ -17,6 +17,8 @@
   * These are not breaking changes, so it's not a requirement, but users can update their config file by simply adding an action via CLI (for example, `--add-insert AnyName`)
 * Improved `--auto-return <true/false>`
   * Auto-return (which is meant to be triggered for a single interaction) will now be auto-deactivated if the recording is cancelled.
+* ActionDelay is set to 0.05 when auto-creating the config file.
+  * Minor adjustment to avoid clash with Superwhisper's rec window animation.
 
 ---
 ## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2)

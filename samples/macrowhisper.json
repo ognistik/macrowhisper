@@ -1,6 +1,6 @@
 {
   "defaults" : {
-    "actionDelay" : 0,
+    "actionDelay" : 0.05,
     "activeInsert" : "autoPaste",
     "history" : null,
     "icon" : "",
