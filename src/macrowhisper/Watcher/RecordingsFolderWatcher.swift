@@ -551,6 +551,9 @@ class RecordingsFolderWatcher {
                                 let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
                                 let shouldEsc = !(activeInsert.noEsc ?? configManager.config.defaults.noEsc)
                                 
+                                // Use action-level restoreClipboard if set, otherwise fall back to global default
+                                let restoreClipboard = activeInsert.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+                                
                                 clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                                     insertAction: { [weak self] in
                                         // Apply the insert without ESC (handled by clipboard monitor)
@@ -561,7 +564,7 @@ class RecordingsFolderWatcher {
                                     isAutoPaste: isAutoPaste,
                                     recordingPath: recordingPath,
                                     metaJson: enhancedMetaJson,
-                                    restoreClipboard: configManager.config.defaults.restoreClipboard
+                                    restoreClipboard: restoreClipboard
                                 )
                             }
                         }

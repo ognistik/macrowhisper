@@ -50,30 +50,13 @@ class ActionExecutor {
         }
     }
     
-    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool = true) {
-        // Check if the insert action is ".none" or empty - if so, skip action but apply delay
-        if insert.action == ".none" || insert.action.isEmpty {
-            logDebug("Insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
-            // Apply actionDelay if specified, but don't do anything else
-            let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
-            if actionDelay > 0 {
-                Thread.sleep(forTimeInterval: actionDelay)
-                logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
-            }
-            
-            // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
-            if isTriggeredAction {
-                handleMoveToSetting(folderPath: recordingPath, activeInsert: insert)
-            }
-            return
-        }
-        
+    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool) {
         let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: metaJson)
-        
-        // Use enhanced clipboard monitoring for insert actions triggered by valid results (from watcher)
-        // This handles the timing issue where Superwhisper puts content on clipboard simultaneously
-        let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
         let shouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
+        let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
+        
+        // Use action-level restoreClipboard if set, otherwise fall back to global default
+        let restoreClipboard = insert.restoreClipboard ?? configManager.config.defaults.restoreClipboard
         
         clipboardMonitor.executeInsertWithEnhancedClipboardSync(
             insertAction: { [weak self] in
@@ -89,7 +72,7 @@ class ActionExecutor {
             isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult,
             recordingPath: recordingPath,
             metaJson: metaJson,
-            restoreClipboard: configManager.config.defaults.restoreClipboard
+            restoreClipboard: restoreClipboard
         )
         
         // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
@@ -105,6 +88,9 @@ class ActionExecutor {
         let shouldEsc = !(url.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = url.actionDelay ?? configManager.config.defaults.actionDelay
         
+        // Use action-level restoreClipboard if set, otherwise fall back to global default
+        let restoreClipboard = url.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
                 self?.processUrlAction(url, metaJson: metaJson)
@@ -113,7 +99,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: metaJson,
-            restoreClipboard: configManager.config.defaults.restoreClipboard
+            restoreClipboard: restoreClipboard
         )
         
         // FIX: Pass the individual recording folder path, not its parent
@@ -125,6 +111,9 @@ class ActionExecutor {
         let shouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
         
+        // Use action-level restoreClipboard if set, otherwise fall back to global default
+        let restoreClipboard = shortcut.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
                 self?.processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: metaJson)
@@ -133,7 +122,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: metaJson,
-            restoreClipboard: configManager.config.defaults.restoreClipboard
+            restoreClipboard: restoreClipboard
         )
         
         // FIX: Pass the individual recording folder path, not its parent
@@ -144,6 +133,9 @@ class ActionExecutor {
         let shouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = shell.actionDelay ?? configManager.config.defaults.actionDelay
         
+        // Use action-level restoreClipboard if set, otherwise fall back to global default
+        let restoreClipboard = shell.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
                 self?.processShellScriptAction(shell, metaJson: metaJson)
@@ -152,7 +144,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: metaJson,
-            restoreClipboard: configManager.config.defaults.restoreClipboard
+            restoreClipboard: restoreClipboard
         )
         
         // FIX: Pass the individual recording folder path, not its parent
@@ -163,6 +155,9 @@ class ActionExecutor {
         let shouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
         
+        // Use action-level restoreClipboard if set, otherwise fall back to global default
+        let restoreClipboard = ascript.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
                 self?.processAppleScriptAction(ascript, metaJson: metaJson)
@@ -171,7 +166,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: metaJson,
-            restoreClipboard: configManager.config.defaults.restoreClipboard
+            restoreClipboard: restoreClipboard
         )
         
         // FIX: Pass the individual recording folder path, not its parent

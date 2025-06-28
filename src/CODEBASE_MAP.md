@@ -138,6 +138,7 @@ macrowhisper-cli/src/
 - `noEsc`: Disable ESC key simulation for this action
 - `simKeypress`: Use keystroke simulation for this action
 - `pressReturn`: Auto-press return after this action
+- `restoreClipboard`: Override clipboard restoration setting for this action (null = use global default)
 - Plus action-type specific properties (e.g., `openWith` for URLs)
 
 **Advanced Trigger System** (All action types):
@@ -672,7 +673,8 @@ The application uses a comprehensive JSON configuration file with unified action
       "noEsc": false,
       "simKeypress": false,
       "actionDelay": 0.0,
-      "pressReturn": false
+      "pressReturn": false,
+      "restoreClipboard": null
     }
   },
   "urls": {
@@ -685,7 +687,8 @@ The application uses a comprehensive JSON configuration file with unified action
       "triggerLogic": "and",
       "icon": "🔍",
       "moveTo": "com.apple.Safari",
-      "actionDelay": 0.5
+      "actionDelay": 0.5,
+      "restoreClipboard": false
     }
   },
   "shortcuts": {
@@ -694,7 +697,8 @@ The application uses a comprehensive JSON configuration file with unified action
       "triggerVoice": "^run shortcut",
       "triggerApps": "com.apple.Notes",
       "icon": "⚡",
-      "actionDelay": 1.0
+      "actionDelay": 1.0,
+      "restoreClipboard": null
     }
   },
   "scriptsShell": {
@@ -702,7 +706,8 @@ The application uses a comprehensive JSON configuration file with unified action
       "action": "echo '{{swResult}}' | pbcopy",
       "triggerVoice": "^copy result",
       "icon": "📋",
-      "actionDelay": 0.0
+      "actionDelay": 0.0,
+      "restoreClipboard": true
     }
   },
   "scriptsAS": {
@@ -710,7 +715,8 @@ The application uses a comprehensive JSON configuration file with unified action
       "action": "tell application \"TextEdit\" to make new document with properties {text:\"{{swResult}}\"}",
       "triggerVoice": "^new document",
       "icon": "📝",
-      "moveTo": "com.apple.TextEdit"
+      "moveTo": "com.apple.TextEdit",
+      "restoreClipboard": null
     }
   }
 }

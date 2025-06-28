@@ -243,8 +243,8 @@ class SocketCommunication {
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         
-        // Check if clipboard restoration is disabled
-        let restoreClipboard = globalConfigManager?.config.defaults.restoreClipboard ?? true
+        // Use action-level restoreClipboard if set, otherwise fall back to global default
+        let restoreClipboard = activeInsert?.restoreClipboard ?? globalConfigManager?.config.defaults.restoreClipboard ?? true
         
         if isAutoPaste {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
