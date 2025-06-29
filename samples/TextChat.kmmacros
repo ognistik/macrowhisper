@@ -122,7 +122,7 @@
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>Get the active insert from Macrowhisper</string>
+						<string>Get the active action from Macrowhisper</string>
 						<key>ActionUID</key>
 						<integer>15609667</integer>
 						<key>DisplayKind</key>
@@ -153,7 +153,7 @@ open -g -a "superwhisper" "$KMVAR_localRec"
 # Activate the original app using bundle identifier
 osascript -e "tell application id \"$current_app_bundle\" to activate"
 
-$KMVAR_sw_mwPath --get-insert</string>
+$KMVAR_sw_mwPath --get-action</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 						<key>TrimResults</key>
@@ -163,7 +163,7 @@ $KMVAR_sw_mwPath --get-insert</string>
 						<key>UseText</key>
 						<true/>
 						<key>Variable</key>
-						<string>localActiveInsert</string>
+						<string>localActiveAction</string>
 					</dict>
 					<dict>
 						<key>ActionName</key>
@@ -178,7 +178,7 @@ $KMVAR_sw_mwPath --get-insert</string>
 									<key>ConditionType</key>
 									<string>Variable</string>
 									<key>Variable</key>
-									<string>localActiveInsert</string>
+									<string>localActiveAction</string>
 									<key>VariableConditionType</key>
 									<string>IsNot</string>
 									<key>VariableValue</key>
@@ -211,8 +211,6 @@ $KMVAR_sw_mwPath --get-insert</string>
 								<array>
 									<string>9999</string>
 								</array>
-								<key>IsDisclosed</key>
-								<false/>
 								<key>MacroActionType</key>
 								<string>ExecuteShellScript</string>
 								<key>Path</key>
@@ -220,7 +218,7 @@ $KMVAR_sw_mwPath --get-insert</string>
 								<key>Source</key>
 								<string>Nothing</string>
 								<key>Text</key>
-								<string>$KMVAR_sw_mwPath --insert textChat</string>
+								<string>$KMVAR_sw_mwPath --action textChat</string>
 								<key>TimeOutAbortsMacro</key>
 								<true/>
 								<key>TrimResults</key>
@@ -258,7 +256,7 @@ $KMVAR_sw_mwPath --get-insert</string>
 				<key>CustomIconData</key>
 				<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
 				<key>ModificationDate</key>
-				<real>772134725.84677804</real>
+				<real>772891629.05513406</real>
 				<key>Name</key>
 				<string>TextChat</string>
 				<key>Triggers</key>

@@ -51,7 +51,7 @@
 						<key>Source</key>
 						<string>Nothing</string>
 						<key>Text</key>
-						<string>$KMVAR_sw_mwPath --get-insert pasteResult</string>
+						<string>$KMVAR_sw_mwPath --get-action pasteResult</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 						<key>TrimResults</key>
@@ -86,10 +86,12 @@
 				<real>772134420.36369002</real>
 				<key>CustomIconData</key>
 				<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
+				<key>IsActive</key>
+				<false/>
 				<key>ModificationDate</key>
-				<real>772134578.27184606</real>
+				<real>772891476.22666001</real>
 				<key>Name</key>
-				<string>Get Insert - PasteResult</string>
+				<string>Get Action - PasteResult</string>
 				<key>Triggers</key>
 				<array/>
 				<key>UID</key>

@@ -33,7 +33,7 @@
 						<key>ActionName</key>
 						<string>How this works</string>
 						<key>ActionUID</key>
-						<integer>15623292</integer>
+						<integer>15623294</integer>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
@@ -41,8 +41,8 @@
 						<key>StyledText</key>
 						<data>
 						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC4fAgAAKwAAAAEA
-						AAAXAgAAe1xydGYxXGFuc2lcYW5z
+						WFQucnRmAQAAAC4/AgAAKwAAAAEA
+						AAA3AgAAe1xydGYxXGFuc2lcYW5z
 						aWNwZzEyNTJcY29jb2FydGYyODIy
 						Clxjb2NvYXRleHRzY2FsaW5nMFxj
 						b2NvYXBsYXRmb3JtMHtcZm9udHRi
@@ -60,69 +60,57 @@
 						eDU2MDBcdHg2MTYwXHR4NjcyMFxw
 						YXJkaXJuYXR1cmFsXHBhcnRpZ2h0
 						ZW5mYWN0b3IwCgpcZjBcZnMyNiBc
-						Y2YyIEFzc2lnbiBhIHRyaWdnZXIg
-						dG8gdGhpcyBtYWNybyBhbmQgeW91
-						IHdpbGwgYmUgYWJsZSB0byBxdWlj
-						a2x5IHBhc3RlIGFueSBvZiB5b3Vy
-						IGluc2VydCBhY3Rpb25zLiBBdm9p
-						ZCB1c2luZyB0aGlzIHdpdGggYXV0
-						b1Bhc3RlIG9yIHdpdGggZW1wdHkg
-						aW5zZXJ0IGFjdGlvbnMufQEAAAAj
-						AAAAAQAAAAcAAABUWFQucnRmEAAA
-						AAGaUWi2AQAAAAAAAAAAAAA=
+						Y2YyIFRoaXMgbWFjcm8gaXMgYW4g
+						ZXhhbXBsZSB0aGF0IHNob3dzIGhv
+						dyB5b3UgY2FuIHRvZ2dsZSBhbiBp
+						bnNlcnQgYWN0aW9uIE9OIGFuZCBP
+						RkYuIEl0IHJlcXVpcmVzIGFuIGFk
+						ZGl0aW9uYWwgbWFjcm86ICJUb2dn
+						bGUgQWN0aW9uIiBhbmQgYW4gZXhp
+						c3RpbmcgaW5zZXJ0IGFjdGlvbiB3
+						aXRoIHRoZSBuYW1lIGBwYXN0ZVJl
+						c3VsdGB9AQAAACMAAAABAAAABwAA
+						AFRYVC5ydGYQAAAA0CxhaLYBAAAA
+						AAAAAAAAAA==
 						</data>
 						<key>Title</key>
 						<string>How this works</string>
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>Run Command</string>
+						<string>Toggle "pasteResult" Insert Action</string>
 						<key>ActionUID</key>
-						<integer>15623293</integer>
-						<key>DisplayKind</key>
-						<string>None</string>
-						<key>HonourFailureSettings</key>
-						<true/>
-						<key>IncludeStdErr</key>
+						<integer>15623295</integer>
+						<key>Asynchronously</key>
 						<false/>
-						<key>IncludedVariables</key>
-						<array>
-							<string>9999</string>
-						</array>
 						<key>IsDisclosed</key>
 						<false/>
 						<key>MacroActionType</key>
-						<string>ExecuteShellScript</string>
-						<key>NotifyOnFailure</key>
-						<false/>
-						<key>Path</key>
-						<string></string>
-						<key>Source</key>
-						<string>Nothing</string>
-						<key>Text</key>
-						<string>$KMVAR_sw_mwPath --exec-insert pasteResult</string>
+						<string>ExecuteMacro</string>
+						<key>MacroUID</key>
+						<string>154C6928-62FB-45BD-A26C-36D81A60330C</string>
+						<key>Parameter</key>
+						<string>pasteResult</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
-						<key>TrimResults</key>
-						<true/>
-						<key>TrimResultsNew</key>
-						<true/>
-						<key>UseText</key>
+						<key>UseParameter</key>
 						<true/>
 					</dict>
 				</array>
 				<key>CreationDate</key>
-				<real>771870907.86090899</real>
+				<real>771871495.47734904</real>
 				<key>CustomIconData</key>
 				<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
+				<key>IsActive</key>
+				<false/>
 				<key>ModificationDate</key>
-				<real>772134267.34481704</real>
+				<real>772891745.82534897</real>
 				<key>Name</key>
-				<string>Execute Insert</string>
+				<string>Toggle Action - PasteResult</string>
 				<key>Triggers</key>
 				<array/>
 				<key>UID</key>
-				<string>986D443D-FDAB-4FA1-8180-56A53CDEA6B5</string>
+				<string>3D4D6118-41E3-450A-9F62-762CCD8C067E</string>
 			</dict>
 		</array>
 		<key>Name</key>

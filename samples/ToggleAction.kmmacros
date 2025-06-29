@@ -41,8 +41,8 @@
 						<key>StyledText</key>
 						<data>
 						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC5gAgAAKwAAAAEA
-						AABYAgAAe1xydGYxXGFuc2lcYW5z
+						WFQucnRmAQAAAC5ZAgAAKwAAAAEA
+						AABRAgAAe1xydGYxXGFuc2lcYW5z
 						aWNwZzEyNTJcY29jb2FydGYyODIy
 						Clxjb2NvYXRleHRzY2FsaW5nMFxj
 						b2NvYXBsYXRmb3JtMHtcZm9udHRi
@@ -63,16 +63,16 @@
 						Y2YyIFRvIHNldCBhbiBhY3Rpb24g
 						dGhpcyBtYWNybyBtdXN0IGJlIHJ1
 						biBleHRlcm5hbGx5IHdpdGggdGhl
-						IG5hbWUgb2YgeW91ciBpbnNlcnQg
-						YWN0aW9uIGFzIGFuIGFyZ3VtZW50
-						LiBUbyBjbGVhbiB0aGUgYWN0aXZl
-						IGluc2VydCwgeW91IG5lZWQgdG8g
-						c2VuZCB0aGUgZXhhY3Qgc2FtZSBh
-						cmd1bWVudCAob3Igc2ltcGx5IHRy
-						aWdnZXIgdGhpcyBtYWNybyB3aXRo
-						b3V0IGFuIGFyZ3VtZW50KS59AQAA
-						ACMAAAABAAAABwAAAFRYVC5ydGYQ
-						AAAA25dRaLYBAAAAAAAAAAAAAA==
+						IG5hbWUgb2YgeW91ciBhY3Rpb24g
+						YXMgYW4gYXJndW1lbnQuIFRvIGNs
+						ZWFuIHRoZSBhY3RpdmUgYWN0aW9u
+						LCB5b3UgbmVlZCB0byBzZW5kIHRo
+						ZSBleGFjdCBzYW1lIGFyZ3VtZW50
+						IChvciBzaW1wbHkgdHJpZ2dlciB0
+						aGlzIG1hY3JvIHdpdGhvdXQgYW4g
+						YXJndW1lbnQpLn0BAAAAIwAAAAEA
+						AAAHAAAAVFhULnJ0ZhAAAAB1Bl9o
+						tgEAAAAAAAAAAAAA
 						</data>
 						<key>Title</key>
 						<string>How to set action</string>
@@ -81,7 +81,7 @@
 						<key>ActionColor</key>
 						<string>Orange</string>
 						<key>ActionName</key>
-						<string>Name of desired default insert action (empty for no insert)</string>
+						<string>Name of desired default action (empty for no activeAction)</string>
 						<key>ActionUID</key>
 						<integer>15621330</integer>
 						<key>IsDisclosed</key>
@@ -105,13 +105,13 @@
 						<key>SemaphoreAction</key>
 						<string>Lock</string>
 						<key>SemaphoreName</key>
-						<string>MW SetInsert</string>
+						<string>MW SetAction</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>First we grab the incoming argument (insert name we want to set or toggle)</string>
+						<string>First we grab the incoming argument (action name we want to set or toggle)</string>
 						<key>ActionUID</key>
 						<integer>15621325</integer>
 						<key>IsDisclosed</key>
@@ -125,11 +125,11 @@
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>Then we grab the active insert from the running cli</string>
+						<string>Then we grab the active action from the running cli</string>
 						<key>ActionUID</key>
 						<integer>15621319</integer>
 						<key>DisplayKind</key>
-						<string>AppendVar</string>
+						<string>Variable</string>
 						<key>HonourFailureSettings</key>
 						<true/>
 						<key>IncludeStdErr</key>
@@ -149,7 +149,7 @@
 						<key>Source</key>
 						<string>Nothing</string>
 						<key>Text</key>
-						<string>$KMVAR_sw_mwPath --get-insert</string>
+						<string>$KMVAR_sw_mwPath --get-action</string>
 						<key>TimeOutAbortsMacro</key>
 						<true/>
 						<key>TrimResults</key>
@@ -159,11 +159,11 @@
 						<key>UseText</key>
 						<true/>
 						<key>Variable</key>
-						<string>localCurrentInsert</string>
+						<string>localCurrentAction</string>
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>This toggles an insert OFF if the previous one is toggled again. Otherwise it sets it.</string>
+						<string>This toggles an action OFF if the previous one is toggled again. Otherwise it sets it.</string>
 						<key>ActionUID</key>
 						<integer>15621302</integer>
 						<key>Conditions</key>
@@ -174,7 +174,7 @@
 									<key>ConditionType</key>
 									<string>Variable</string>
 									<key>Variable</key>
-									<string>localCurrentInsert</string>
+									<string>localCurrentAction</string>
 									<key>VariableConditionType</key>
 									<string>Is</string>
 									<key>VariableValue</key>
@@ -211,7 +211,7 @@
 								<array>
 									<dict>
 										<key>ActionName</key>
-										<string>User ran macro with a different insert name to activate</string>
+										<string>User ran macro with a different action name to activate</string>
 										<key>ActionUID</key>
 										<integer>15621322</integer>
 										<key>DisplayKind</key>
@@ -224,8 +224,6 @@
 										<array>
 											<string>9999</string>
 										</array>
-										<key>IsDisclosed</key>
-										<false/>
 										<key>MacroActionType</key>
 										<string>ExecuteShellScript</string>
 										<key>Path</key>
@@ -233,7 +231,7 @@
 										<key>Source</key>
 										<string>Nothing</string>
 										<key>Text</key>
-										<string>$KMVAR_sw_mwPath --insert $KMVAR_localTrigger</string>
+										<string>$KMVAR_sw_mwPath --action $KMVAR_localTrigger</string>
 										<key>TimeOutAbortsMacro</key>
 										<true/>
 										<key>TrimResults</key>
@@ -264,15 +262,13 @@
 										<false/>
 									</dict>
 								</array>
-								<key>IsDisclosed</key>
-								<false/>
 								<key>MacroActionType</key>
 								<string>IfThenElse</string>
 								<key>ThenActions</key>
 								<array>
 									<dict>
 										<key>ActionName</key>
-										<string>User ran with nothing... wants to set default insert (or clear)</string>
+										<string>User ran with nothing... wants to set default action (or clear)</string>
 										<key>ActionUID</key>
 										<integer>15621328</integer>
 										<key>DisplayKind</key>
@@ -285,8 +281,6 @@
 										<array>
 											<string>9999</string>
 										</array>
-										<key>IsDisclosed</key>
-										<false/>
 										<key>MacroActionType</key>
 										<string>ExecuteShellScript</string>
 										<key>Path</key>
@@ -294,7 +288,7 @@
 										<key>Source</key>
 										<string>Nothing</string>
 										<key>Text</key>
-										<string>$KMVAR_sw_mwPath --insert $KMVAR_localDefault</string>
+										<string>$KMVAR_sw_mwPath --action $KMVAR_localDefault</string>
 										<key>TimeOutAbortsMacro</key>
 										<true/>
 										<key>TrimResults</key>
@@ -337,7 +331,7 @@
 						<array>
 							<dict>
 								<key>ActionName</key>
-								<string>Incoming Argument is already Active Insert - Turn Off</string>
+								<string>Incoming Argument is already Active Action - Turn Off</string>
 								<key>ActionUID</key>
 								<integer>15621321</integer>
 								<key>DisplayKind</key>
@@ -350,8 +344,6 @@
 								<array>
 									<string>9999</string>
 								</array>
-								<key>IsDisclosed</key>
-								<false/>
 								<key>MacroActionType</key>
 								<string>ExecuteShellScript</string>
 								<key>Path</key>
@@ -359,7 +351,7 @@
 								<key>Source</key>
 								<string>Nothing</string>
 								<key>Text</key>
-								<string>$KMVAR_sw_mwPath --insert $KMVAR_localDefault</string>
+								<string>$KMVAR_sw_mwPath --action $KMVAR_localDefault</string>
 								<key>TimeOutAbortsMacro</key>
 								<true/>
 								<key>TrimResults</key>
@@ -375,8 +367,6 @@
 								<key>ActionUID</key>
 								<integer>15621304</integer>
 								<key>Asynchronously</key>
-								<false/>
-								<key>IsDisclosed</key>
 								<false/>
 								<key>MacroActionType</key>
 								<string>ExecuteMacro</string>
@@ -405,7 +395,7 @@
 						<key>SemaphoreAction</key>
 						<string>Unlock</string>
 						<key>SemaphoreName</key>
-						<string>MW SetInsert</string>
+						<string>MW SetAction</string>
 					</dict>
 				</array>
 				<key>CreationDate</key>
@@ -413,16 +403,16 @@
 				<key>CustomIconData</key>
 				<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
 				<key>ModificationDate</key>
-				<real>772133943.361426</real>
+				<real>772891684.74151695</real>
 				<key>Name</key>
-				<string>Toggle Insert</string>
+				<string>Toggle Action</string>
 				<key>Triggers</key>
 				<array>
 					<dict>
 						<key>AutoRun</key>
 						<false/>
 						<key>Display</key>
-						<string>Clear Active Insert</string>
+						<string>Clear Active Action</string>
 						<key>MacroTriggerType</key>
 						<string>GroupStatusMenu</string>
 					</dict>

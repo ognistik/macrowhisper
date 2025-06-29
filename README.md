@@ -69,12 +69,10 @@ macrowhisper --service-status       # Check service status
 macrowhisper --reveal-config        # Open config file
 macrowhisper --set-config <path>    # Set custom config location
 
-# Insert Actions (text pasting)
-macrowhisper --insert <name>        # Set active insert action
+# Actions
+macrowhisper --action <name>        # Set active action
+macrowhisper --exec-action <name>   # Execute action with last result
 macrowhisper --add-insert <name>    # Add new insert action
-macrowhisper --exec-insert <name>   # Execute insert with last result
-
-# Other Actions
 macrowhisper --add-url <name>       # Add URL action
 macrowhisper --add-shell <name>     # Add shell script action
 macrowhisper --add-shortcut <name>  # Add macOS Shortcut action
@@ -98,7 +96,7 @@ Macrowhisper uses JSON configuration with dynamic placeholders:
 ```json
 {
   "defaults": {
-    "activeInsert": "autoPaste",
+    "activeAction": "autoPaste",
     "pressReturn": false,
     "actionDelay": 0.0
   },

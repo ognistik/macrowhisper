@@ -41,8 +41,8 @@
 						<key>StyledText</key>
 						<data>
 						cnRmZAAAAAADAAAAAgAAAAcAAABU
-						WFQucnRmAQAAAC4DBQAAKwAAAAEA
-						AAD7BAAAe1xydGYxXGFuc2lcYW5z
+						WFQucnRmAQAAAC6FBAAAKwAAAAEA
+						AAB9BAAAe1xydGYxXGFuc2lcYW5z
 						aWNwZzEyNTJcY29jb2FydGYyODIy
 						Clxjb2NvYXRleHRzY2FsaW5nMFxj
 						b2NvYXBsYXRmb3JtMHtcZm9udHRi
@@ -68,17 +68,11 @@
 						ciBwYXRoLiBZb3UgY2FuIGZpbmQg
 						dGhpcyBwYXRoIGJ5IHJ1bm5pbmcg
 						YHdoaWNoIG1hY3Jvd2hpc3BlcmAg
-						aW4gVGVybWluYWwuXApccGFyZFx0
-						eDU2MFx0eDExMjBcdHgxNjgwXHR4
-						MjI0MFx0eDI4MDBcdHgzMzYwXHR4
-						MzkyMFx0eDQ0ODBcdHg1MDQwXHR4
-						NTYwMFx0eDYxNjBcdHg2NzIwXHBh
-						cmRpcm5hdHVyYWxccGFydGlnaHRl
-						bmZhY3RvcjAKXGNmMiBcClRoaXMg
+						aW4gVGVybWluYWwuXApcClRoaXMg
 						bWFjcm8gZG9lcyB0d28gdGhpbmdz
 						LiBGaXJzdCwgaXQgZ3JhYnMgeW91
 						ciBpY29uIGZyb20geW91ciBhY3Rp
-						dmUgaW5zZXJ0IGluIE1hY3Jvd2hp
+						dmUgYWN0aW9uIGluIE1hY3Jvd2hp
 						c3Blci4gIFRoZW4sIGl0IGdyYWJz
 						IHRoZSBjdXJyZW50IG1vZGUgZnJv
 						bSBTdXBlcndoaXNwZXIncyBtZW51
@@ -104,7 +98,7 @@
 						cmVjdCBTdXBlcndoaXNwZXIgcmVj
 						b3JkaW5ncyBmb2xkZXIgcGF0aC59
 						AQAAACMAAAABAAAABwAAAFRYVC5y
-						dGYQAAAAgpxVaLYBAAAAAAAAAAAA
+						dGYQAAAACixhaLYBAAAAAAAAAAAA
 						AA==
 						</data>
 						<key>Title</key>
@@ -144,7 +138,7 @@
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>Grab Active Insert Icon</string>
+						<string>Grab Active Action Icon</string>
 						<key>ActionUID</key>
 						<integer>15621299</integer>
 						<key>DisplayKind</key>
@@ -182,7 +176,7 @@
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>We clean up the active icon if current insert doesn't have one (blank space is returned)</string>
+						<string>We clean up the active icon if current action doesn't have one (blank space is returned)</string>
 						<key>ActionUID</key>
 						<integer>15622897</integer>
 						<key>Conditions</key>
@@ -210,8 +204,6 @@
 								<string>We add a space after current icon</string>
 								<key>ActionUID</key>
 								<integer>15622899</integer>
-								<key>IsDisclosed</key>
-								<false/>
 								<key>MacroActionType</key>
 								<string>SetVariableToText</string>
 								<key>Text</key>
@@ -231,8 +223,6 @@
 								<string>We clean the current icon</string>
 								<key>ActionUID</key>
 								<integer>15622898</integer>
-								<key>IsDisclosed</key>
-								<false/>
 								<key>MacroActionType</key>
 								<string>SetVariableToText</string>
 								<key>Text</key>
@@ -246,7 +236,7 @@
 					</dict>
 					<dict>
 						<key>ActionName</key>
-						<string>Grab Active Mode from SW Menu</string>
+						<string>Grab Mode from SW Menu</string>
 						<key>ActionUID</key>
 						<integer>15621296</integer>
 						<key>DisplayKind</key>
@@ -336,7 +326,7 @@ end tell</string>
 				<key>CustomIconData</key>
 				<string>KMEP-GenericApplication-/Applications/superwhisper.app</string>
 				<key>ModificationDate</key>
-				<real>772133908.21085596</real>
+				<real>772891563.417732</real>
 				<key>Name</key>
 				<string>MW MBar</string>
 				<key>Triggers</key>

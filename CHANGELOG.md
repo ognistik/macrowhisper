@@ -2,26 +2,27 @@
 
 ## UNRELEASED
 ### Changed
-* All action types now support icons
-* Any action can now be set as default. `activeInsert` has been replaced with `activeAction`. 
-* Improved clipboard restoration and clipboard syncing (with Superwhisper's result)
-  * This tweak should prevent trouble with Superwhisper’s recording window animation. Remember the `actionDelay` setting can help with this too, though with this small change to how clipboard restoration and syncing work, things already feel more reliable even with `actionDelay` set to 0.
-* `--exec-action` now works correctly for all action types. You can easily run any of your actions with the last Superwhisper result via CLI.
+* All action types now support icons.
+* Any action can now be set as default—`activeInsert` has been replaced with `activeAction`
+* Improved clipboard restoration and clipboard syncing with Superwhisper's result
+  * This tweak should prevent trouble with Superwhisper’s recording window animation
+  * Most users will now get a better experience with `actionDelay` set to 0, but if you run into issues you can still adjust this setting.
+* The `--exec-action` flag now works correctly for all action types. You can run any action using the last Superwhisper result right from the command line.
 * Improved trigger logic for "and"
-  * *Fixed `and` logic bug where empty triggers would incorrectly match everything. Now `and` and `or` both ignore empty triggers, only evaluating those with actual values.*
-* New unified `--remove-action <name>` command handles any action type (insert, URL, shortcut, shell, AppleScript)
-* There's been updates to CLI commands for a more unified "action" terminology and experience.
-  * `--get-action [<name>]` is replacing `--get-insert [<name>]`
-  * `--action [<name>]` is replacing `--insert [<name>]`
-  * `--remove-action <name>` is replacing all individual `--remove-insert`, `remove-url`, etc.
-  * New `--list-actions` lists all actions in the configuration file.
-* Improved `--auto-return <true/false>`
-  * Auto-return (which is meant to be triggered for a single interaction) will now be auto-deactivated if the recording is cancelled.
-* New CLI commands and config changes are backward compatible.
-  * It's not a requirement to update your config file, since these changes won't break anything. If you want, you can auto-refresh your config by adding an action with the CLI—for example: `--add-insert AnyName`. After this, all your actions should have `icon`, your `activeInsert` will be converted to `activeAction`, etc.
+  * Fixed a bug where empty triggers in and logic matched everything. Now, both and and or will ignore empty triggers and only use those that have values.
+* The new unified `--remove-action <name>` command works with any action type (insert, URL, shortcut, shell, AppleScript).
+* CLI commands now use more consistent "action" terminology:
+  * `--get-action [<name>]` replaces `--get-insert [<name>]`
+  * `--action [<name>]` replaces `--insert [<name>]`
+  * `--remove-action <name>` replaces all individual `--remove-insert`, `remove-url`, etc.
+  * New `--list-actions` to see all actions in the configuration file.
+* Improved --auto-return <true/false>:
+  * If a recording is cancelled, auto-return (meant for single interactions) will now turn itself off.
+
+**The new CLI commands and config changes are backward compatible, so you don’t have to update your config file—nothing should break.** If you want, you can refresh your config by adding an action via the CLI (for example: `--add-insert AnyName`). After that, all actions will have `icon`, and `activeInsert` will become `activeAction`. Sample macros have received updates to use the new flags (though the previous ones still work). If you do decide to update your config, it’s smart to make a quick backup first—just in case.
 
 ---
-## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2)
+## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2) - 2025/06/26
 ### Changed
 * Removed extra notification for syntax errors on JSON files.
 * Fix for repeated update dialogs
