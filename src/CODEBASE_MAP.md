@@ -418,8 +418,11 @@ macrowhisper-cli/src/
 
 **Placeholder Types**:
 1. **XML Placeholders**: `{{xml:tagname}}` extracts content from `<tagname>` in LLM results
+   - **JSON-escaped XML**: `{{json:xml:tagname}}` applies JSON string escaping to extracted XML content
 2. **Meta.json Fields**: `{{result}}`, `{{llmResult}}`, `{{modeName}}`, etc.
+   - **JSON-escaped fields**: `{{json:swResult}}`, `{{json:frontApp}}`, etc. apply JSON string escaping
 3. **Date Placeholders**: `{{date:format}}` with various format options
+   - **JSON-escaped dates**: `{{json:date:short}}` applies JSON string escaping to formatted dates
 4. **Smart Result**: `{{swResult}}` (intelligent result selection: llmResult > result)
 
 **Advanced Features**:

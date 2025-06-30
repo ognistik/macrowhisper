@@ -4,6 +4,7 @@
 ### Changed
 * All action types now support icons.
 * Any action can now be set as default—`activeInsert` has been replaced with `activeAction`
+* The `restoreClipboard` setting can now be set at he action level as well.
 * Improved clipboard restoration and clipboard syncing with Superwhisper's result
   * This tweak should prevent trouble with Superwhisper’s recording window animation
   * Most users will now get a better experience with `actionDelay` set to 0, but if you run into issues you can still adjust this setting.
@@ -18,8 +19,12 @@
   * New `--list-actions` to see all actions in the configuration file.
 * Improved --auto-return <true/false>:
   * If a recording is cancelled, auto-return (meant for single interactions) will now turn itself off.
+* Fixed date placeholders like `{{date:yyyy-MM-dd}}`. Macrowhisper was previously converting UTS 35 patterns to localized formats, now it follows user's template.
+* Added special escaping template for use with Shortcut actions. If you want to build dictionaries with placeholders, you can now add the `json:` prefix for any existing placeholder. It will escape correctly.
+  * Simple Shortcut Action with Dictionary: `"{\"theResult\": \"{{json:swResult}}\"}"`
+  * More complex example now included in the sample config.
 
-**The new CLI commands and config changes are backward compatible, so you don’t have to update your config file—nothing should break.** If you want, you can refresh your config by adding an action via the CLI (for example: `--add-insert AnyName`). After that, all actions will have `icon`, and `activeInsert` will become `activeAction`. Sample macros have received updates to use the new flags (though the previous ones still work). If you do decide to update your config, it’s smart to make a quick backup first—just in case.
+**The new CLI commands and config changes are backward compatible, so you don’t have to update your config file—nothing should break. Sample KM Macros have been updated with new flags.** If you want, you can refresh your config by adding an action via the CLI (for example: `--add-insert AnyName`). After that, all actions will have `icon`, `restoreClipboard`, and `activeInsert` will become `activeAction`. Sample macros have received updates to use the new flags (though the previous ones still work). **If you do decide to update your config, it’s smart to make a quick backup first—just in case.**
 
 ---
 ## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2) - 2025/06/26

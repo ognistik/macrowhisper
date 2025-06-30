@@ -16,3 +16,16 @@ func escapeAppleScriptString(_ input: String) -> String {
     return input.replacingOccurrences(of: "\\", with: "\\\\") // Must be first to avoid double-escaping
                .replacingOccurrences(of: "\"", with: "\\\"")
 } 
+
+/// Helper function to escape JSON special characters in placeholder values
+/// This is used for special cases where users need to embed placeholder content in JSON strings
+func escapeJsonString(_ input: String) -> String {
+    // Escape characters that would break JSON string literals
+    return input.replacingOccurrences(of: "\\", with: "\\\\") // Must be first to avoid double-escaping
+               .replacingOccurrences(of: "\"", with: "\\\"")
+               .replacingOccurrences(of: "\r", with: "\\r")
+               .replacingOccurrences(of: "\n", with: "\\n")
+               .replacingOccurrences(of: "\t", with: "\\t")
+               .replacingOccurrences(of: "\u{08}", with: "\\b") // backspace
+               .replacingOccurrences(of: "\u{0C}", with: "\\f") // form feed
+} 
