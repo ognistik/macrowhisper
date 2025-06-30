@@ -9,7 +9,7 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
     
     // First, identify which XML tags are requested in the action - supports both {{xml:tag}} and {{json:xml:tag}}
     let placeholderPattern = "\\{\\{(?:(json):)?xml:([A-Za-z0-9_]+)\\}\\}"
-    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     var requestedTags: Set<String> = []
     
@@ -100,7 +100,7 @@ func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> 
     
     // Find all XML placeholders using regex - supports both {{xml:tag}} and {{json:xml:tag}}
     let pattern = "\\{\\{(?:(json):)?xml:([A-Za-z0-9_]+)\\}\\}"
-    let regex = try? NSRegularExpression(pattern: pattern, options: [])
+    let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
     
     // Get all matches
     if let matches = regex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
@@ -137,7 +137,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
     
     // Updated regex for {{key}}, {{json:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
     let placeholderPattern = "\\{\\{(?:(json):)?([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
-    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     // Check if this is an AppleScript action by looking for "tell application" or "osascript"
     let isAppleScript = action.contains("tell application") || action.contains("osascript")
@@ -244,17 +244,22 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                     value = ""
                 }
                 
-                // Apply regex replacements if any
-                value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                
-                // Use appropriate escaping based on JSON prefix or action type
-                let escapedValue: String
-                if isJsonEscaped {
-                    escapedValue = escapeJsonString(value)
+                // Check if value is empty - if so, remove the placeholder entirely (including regex replacements)
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on JSON prefix or action type
+                    let escapedValue: String
+                    if isJsonEscaped {
+                        escapedValue = escapeJsonString(value)
+                    } else {
+                        escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
-                result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
                 var value: String
                 
@@ -298,17 +303,22 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                     }
                 }
                 
-                // Apply regex replacements if any
-                value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                
-                // Use appropriate escaping based on JSON prefix or action type
-                let escapedValue: String
-                if isJsonEscaped {
-                    escapedValue = escapeJsonString(value)
+                // Check if value is empty - if so, remove the placeholder entirely (including regex replacements)
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on JSON prefix or action type
+                    let escapedValue: String
+                    if isJsonEscaped {
+                        escapedValue = escapeJsonString(value)
+                    } else {
+                        escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
-                result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else {
                 // Key doesn't exist in metaJson, remove the placeholder
                 result.replaceSubrange(fullMatchRange, with: "")
@@ -327,7 +337,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
     
     // Updated regex for {{key}}, {{json:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
     let placeholderPattern = "\\{\\{(?:(json):)?([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
-    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [])
+    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     // --- BEGIN: FrontApp Placeholder Logic ---
     // Only fetch the front app if the placeholder is present and not already in metaJson
@@ -438,24 +448,29 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     value = ""
                 }
                 
-                // Apply regex replacements if any
-                value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                
-                // Use appropriate escaping based on action type and JSON prefix
-                let escapedValue: String
-                if isJsonEscaped {
-                    escapedValue = escapeJsonString(value)
+                // Check if value is empty - if so, remove the placeholder entirely (including regex replacements)
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    switch actionType {
-                    case .shortcut, .insert:
-                        escapedValue = value // No escaping for shortcuts and insert actions
-                    case .appleScript:
-                        escapedValue = escapeAppleScriptString(value)
-                    case .shell, .url:
-                        escapedValue = escapeShellCharacters(value)
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on action type and JSON prefix
+                    let escapedValue: String
+                    if isJsonEscaped {
+                        escapedValue = escapeJsonString(value)
+                    } else {
+                        switch actionType {
+                        case .shortcut, .insert:
+                            escapedValue = value // No escaping for shortcuts and insert actions
+                        case .appleScript:
+                            escapedValue = escapeAppleScriptString(value)
+                        case .shell, .url:
+                            escapedValue = escapeShellCharacters(value)
+                        }
                     }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
-                result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
                 var value: String
                 
@@ -499,24 +514,29 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     }
                 }
                 
-                // Apply regex replacements if any
-                value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                
-                // Use appropriate escaping based on action type and JSON prefix
-                let escapedValue: String
-                if isJsonEscaped {
-                    escapedValue = escapeJsonString(value)
+                // Check if value is empty - if so, remove the placeholder entirely (including regex replacements)
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    switch actionType {
-                    case .shortcut, .insert:
-                        escapedValue = value // No escaping for shortcuts and insert actions
-                    case .appleScript:
-                        escapedValue = escapeAppleScriptString(value)
-                    case .shell, .url:
-                        escapedValue = escapeShellCharacters(value)
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on JSON prefix or action type
+                    let escapedValue: String
+                    if isJsonEscaped {
+                        escapedValue = escapeJsonString(value)
+                    } else {
+                        switch actionType {
+                        case .shortcut, .insert:
+                            escapedValue = value // No escaping for shortcuts and insert actions
+                        case .appleScript:
+                            escapedValue = escapeAppleScriptString(value)
+                        case .shell, .url:
+                            escapedValue = escapeShellCharacters(value)
+                        }
                     }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
-                result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else {
                 // Key doesn't exist in metaJson, remove the placeholder
                 result.replaceSubrange(fullMatchRange, with: "")
