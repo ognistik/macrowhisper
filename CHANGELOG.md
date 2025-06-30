@@ -21,8 +21,9 @@
   * If a recording is cancelled, auto-return (meant for single interactions) will now turn itself off.
 * Fixed date placeholders like `{{date:yyyy-MM-dd}}`. Macrowhisper was previously converting UTS 35 patterns to localized formats, now it follows user's template.
 * Added special escaping template for use with Shortcut actions. If you want to build dictionaries with placeholders, you can now add the `json:` prefix for any existing placeholder. It will escape correctly.
-  * Simple Shortcut Action with Dictionary: `"{\"theResult\": \"{{json:swResult}}\"}"`
-  * More complex example now included in the sample config.
+  * Simple Shortcut Action with Dictionary: `"action" : "{\"theResult\": \"{{json:swResult}}\"}"`
+  * More complex sample now included in the [sample config](https://github.com/ognistik/macrowhisper/blob/main/samples/macrowhisper.json).
+* The values of `{{duration}}`, `{{processingTime}}`, and `{{languageModelProcessingTime}}` are now converted to seconds when used in actions (instead of the original miliseconds) for readability.
 
 **The new CLI commands and config changes are backward compatible, so you don’t have to update your config file—nothing should break. Sample KM Macros have been updated with new flags.** If you want, you can refresh your config by adding an action via the CLI (for example: `--add-insert AnyName`). After that, all actions will have `icon`, `restoreClipboard`, and `activeInsert` will become `activeAction`. Sample macros have received updates to use the new flags (though the previous ones still work). **If you do decide to update your config, it’s smart to make a quick backup first—just in case.**
 

@@ -257,19 +257,45 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
                 var value: String
-                if let stringValue = jsonValue as? String {
-                    value = stringValue
-                } else if let numberValue = jsonValue as? NSNumber {
-                    value = numberValue.stringValue
-                } else if let boolValue = jsonValue as? Bool {
-                    value = boolValue ? "true" : "false"
-                } else if jsonValue is NSNull {
-                    value = ""
-                } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
-                          let jsonString = String(data: jsonData, encoding: .utf8) {
-                    value = jsonString
+                
+                // Handle time-related placeholders: convert milliseconds to seconds
+                if (key == "duration" || key == "languageModelProcessingTime" || key == "processingTime") {
+                    if let numberValue = jsonValue as? NSNumber {
+                        let milliseconds = numberValue.doubleValue
+                        let seconds = milliseconds / 1000.0
+                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                    } else if let stringValue = jsonValue as? String, let milliseconds = Double(stringValue) {
+                        let seconds = milliseconds / 1000.0
+                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                    } else {
+                        // Fallback to original value if conversion fails
+                        if let stringValue = jsonValue as? String {
+                            value = stringValue
+                        } else if let numberValue = jsonValue as? NSNumber {
+                            value = numberValue.stringValue
+                        } else {
+                            value = String(describing: jsonValue)
+                        }
+                        logDebug("[TimePlaceholder] Could not convert \(key), using original value: \(value)")
+                    }
                 } else {
-                    value = String(describing: jsonValue)
+                    // Standard metaJson value processing
+                    if let stringValue = jsonValue as? String {
+                        value = stringValue
+                    } else if let numberValue = jsonValue as? NSNumber {
+                        value = numberValue.stringValue
+                    } else if let boolValue = jsonValue as? Bool {
+                        value = boolValue ? "true" : "false"
+                    } else if jsonValue is NSNull {
+                        value = ""
+                    } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                              let jsonString = String(data: jsonData, encoding: .utf8) {
+                        value = jsonString
+                    } else {
+                        value = String(describing: jsonValue)
+                    }
                 }
                 
                 // Apply regex replacements if any
@@ -432,19 +458,45 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 result.replaceSubrange(fullMatchRange, with: escapedValue)
             } else if let jsonValue = metaJson[key] {
                 var value: String
-                if let stringValue = jsonValue as? String {
-                    value = stringValue
-                } else if let numberValue = jsonValue as? NSNumber {
-                    value = numberValue.stringValue
-                } else if let boolValue = jsonValue as? Bool {
-                    value = boolValue ? "true" : "false"
-                } else if jsonValue is NSNull {
-                    value = ""
-                } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
-                          let jsonString = String(data: jsonData, encoding: .utf8) {
-                    value = jsonString
+                
+                // Handle time-related placeholders: convert milliseconds to seconds
+                if (key == "duration" || key == "languageModelProcessingTime" || key == "processingTime") {
+                    if let numberValue = jsonValue as? NSNumber {
+                        let milliseconds = numberValue.doubleValue
+                        let seconds = milliseconds / 1000.0
+                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                    } else if let stringValue = jsonValue as? String, let milliseconds = Double(stringValue) {
+                        let seconds = milliseconds / 1000.0
+                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                    } else {
+                        // Fallback to original value if conversion fails
+                        if let stringValue = jsonValue as? String {
+                            value = stringValue
+                        } else if let numberValue = jsonValue as? NSNumber {
+                            value = numberValue.stringValue
+                        } else {
+                            value = String(describing: jsonValue)
+                        }
+                        logDebug("[TimePlaceholder] Could not convert \(key), using original value: \(value)")
+                    }
                 } else {
-                    value = String(describing: jsonValue)
+                    // Standard metaJson value processing
+                    if let stringValue = jsonValue as? String {
+                        value = stringValue
+                    } else if let numberValue = jsonValue as? NSNumber {
+                        value = numberValue.stringValue
+                    } else if let boolValue = jsonValue as? Bool {
+                        value = boolValue ? "true" : "false"
+                    } else if jsonValue is NSNull {
+                        value = ""
+                    } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+                              let jsonString = String(data: jsonData, encoding: .utf8) {
+                        value = jsonString
+                    } else {
+                        value = String(describing: jsonValue)
+                    }
                 }
                 
                 // Apply regex replacements if any
