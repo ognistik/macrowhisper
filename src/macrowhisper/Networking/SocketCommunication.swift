@@ -1100,8 +1100,8 @@ class SocketCommunication {
             logError(err); return err
         }
         
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096); defer { buffer.deallocate() }
-        let bytesRead = read(clientSocket, buffer, 4096)
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536); defer { buffer.deallocate() }
+        let bytesRead = read(clientSocket, buffer, 65536)
         
         guard bytesRead > 0 else {
             let err = "Failed to read from socket: \(errno) (\(String(cString: strerror(errno))))"
