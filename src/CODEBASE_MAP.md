@@ -419,18 +419,27 @@ macrowhisper-cli/src/
 **Placeholder Types**:
 1. **XML Placeholders**: `{{xml:tagname}}` extracts content from `<tagname>` in LLM results
    - **JSON-escaped XML**: `{{json:xml:tagname}}` applies JSON string escaping to extracted XML content
+   - **Raw XML**: `{{raw:xml:tagname}}` applies no escaping to extracted XML content (useful for AppleScript)
 2. **Meta.json Fields**: `{{result}}`, `{{llmResult}}`, `{{modeName}}`, etc.
    - **JSON-escaped fields**: `{{json:swResult}}`, `{{json:frontApp}}`, etc. apply JSON string escaping
+   - **Raw fields**: `{{raw:swResult}}`, `{{raw:frontApp}}`, etc. apply no escaping (useful for AppleScript)
 3. **Date Placeholders**: `{{date:format}}` with various format options
    - **JSON-escaped dates**: `{{json:date:short}}` applies JSON string escaping to formatted dates
+   - **Raw dates**: `{{raw:date:short}}` applies no escaping to formatted dates
 4. **Smart Result**: `{{swResult}}` (intelligent result selection: llmResult > result)
+5. **Regex Replacements**: All placeholders support `{{placeholder||regex||replacement}}` syntax
+   - **Multiple replacements**: `{{key||pattern1||replace1||pattern2||replace2}}` applied sequentially
+   - **Works with prefixes**: `{{raw:swResult||\\n||newline||"||quote}}` for precise control
+   - **Escape sequences**: Standard regex escape sequences and replacement templates supported
 
 **Advanced Features**:
 - **XML content extraction**: Parse and clean LLM-generated XML tags
 - **Content sanitization**: Remove HTML/XML artifacts
 - **Date formatting**: Flexible date/time insertion
+- **Processing order**: Regex replacements applied first, then prefix-based or action-type escaping
+- **Prefix hierarchy**: `raw:` = no escaping, `json:` = JSON escaping, default = action-type escaping
 - **Shell escaping**: Safe command execution for shell actions
-- **Action-type awareness**: Different escaping for different action types
+- **Action-type awareness**: Different escaping for different action types (Insert/Shortcut = none, AppleScript = quotes, Shell/URL = full shell escaping)
 
 #### `macrowhisper/Utils/Accessibility.swift` (254 lines)
 **Purpose**: macOS accessibility system integration with enhanced capabilities

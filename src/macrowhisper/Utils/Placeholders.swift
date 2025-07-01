@@ -7,8 +7,8 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
     var cleanedLlmResult = llmResult
     var extractedTags: [String: String] = [:]
     
-    // First, identify which XML tags are requested in the action - supports both {{xml:tag}} and {{json:xml:tag}}
-    let placeholderPattern = "\\{\\{(?:(json):)?xml:([A-Za-z0-9_]+)\\}\\}"
+    // First, identify which XML tags are requested in the action - supports both {{xml:tag}}, {{json:xml:tag}}, and {{raw:xml:tag}}
+    let placeholderPattern = "\\{\\{(?:(json|raw):)?xml:([A-Za-z0-9_]+)\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     var requestedTags: Set<String> = []
@@ -93,13 +93,14 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
 }
 
 // Function to replace XML placeholders in an action string
-// Supports both {{xml:tagName}} and {{json:xml:tagName}} formats
+// Supports {{xml:tagName}}, {{json:xml:tagName}}, and {{raw:xml:tagName}} formats
 // The json: prefix applies JSON string escaping to the extracted XML content
+// The raw: prefix applies no escaping to the extracted XML content
 func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> String {
     var result = action
     
-    // Find all XML placeholders using regex - supports both {{xml:tag}} and {{json:xml:tag}}
-    let pattern = "\\{\\{(?:(json):)?xml:([A-Za-z0-9_]+)\\}\\}"
+    // Find all XML placeholders using regex - supports {{xml:tag}}, {{json:xml:tag}}, and {{raw:xml:tag}}
+    let pattern = "\\{\\{(?:(json|raw):)?xml:([A-Za-z0-9_]+)\\}\\}"
     let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
     
     // Get all matches
@@ -110,12 +111,24 @@ func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> 
                 
                 let tagName = String(action[tagNameRange])
                 
-                // Check if this is a JSON-escaped XML placeholder
-                let isJsonEscaped = match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound
+                // Check the prefix type for escaping
+                var prefixType: String? = nil
+                if match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound,
+                   let prefixRange = Range(match.range(at: 1), in: action) {
+                    prefixType = String(action[prefixRange])
+                }
                 
                 // Replace the placeholder with the extracted content if available and not empty
                 if let content = extractedTags[tagName], !content.isEmpty {
-                    let finalContent = isJsonEscaped ? escapeJsonString(content) : content
+                    let finalContent: String
+                    switch prefixType {
+                    case "json":
+                        finalContent = escapeJsonString(content)
+                    case "raw":
+                        finalContent = content  // No escaping for raw prefix
+                    default:
+                        finalContent = content  // Default: no escaping
+                    }
                     result.replaceSubrange(fullMatchRange, with: finalContent)
                 } else {
                     // If content is missing or empty, remove the placeholder entirely
@@ -157,14 +170,15 @@ func formatTimeValue(_ milliseconds: Double) -> String {
     }
 }
 
-/// Expands dynamic placeholders in the form {{key}}, {{json:key}}, and {{date:format}} in the action string.
+/// Expands dynamic placeholders in the form {{key}}, {{json:key}}, {{raw:key}}, and {{date:format}} in the action string.
 /// The json: prefix applies JSON string escaping to the placeholder value, useful for embedding content in JSON strings.
+/// The raw: prefix applies no escaping to the placeholder value, useful for AppleScript and other contexts where escaping breaks functionality.
 func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
     var result = action
     var metaJson = metaJson // Make mutable copy
     
-    // Updated regex for {{key}}, {{json:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
-    let placeholderPattern = "\\{\\{(?:(json):)?([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
+    // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
+    let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     // Check if this is an AppleScript action by looking for "tell application" or "osascript"
@@ -208,8 +222,12 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                   let fullMatchRange = Range(match.range, in: action) else { continue }
             let key = String(action[keyRange])
             
-            // Check if this is a JSON-escaped placeholder
-            let isJsonEscaped = match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound
+            // Check the prefix type for escaping
+            var prefixType: String? = nil
+            if match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound,
+               let prefixRange = Range(match.range(at: 1), in: action) {
+                prefixType = String(action[prefixRange])
+            }
             
             // Extract regex replacements if present
             var regexReplacements: [(regex: String, replacement: String)] = []
@@ -251,11 +269,14 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 // Apply regex replacements if any
                 replacement = applyRegexReplacements(to: replacement, replacements: regexReplacements)
                 
-                // Use appropriate escaping based on JSON prefix or action type
+                // Use appropriate escaping based on prefix type
                 let escapedReplacement: String
-                if isJsonEscaped {
+                switch prefixType {
+                case "json":
                     escapedReplacement = escapeJsonString(replacement)
-                } else {
+                case "raw":
+                    escapedReplacement = replacement  // No escaping for raw prefix
+                default:
                     escapedReplacement = isAppleScript ? escapeAppleScriptString(replacement) : escapeShellCharacters(replacement)
                 }
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
@@ -279,11 +300,14 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on JSON prefix or action type
+                    // Use appropriate escaping based on prefix type or action type
                     let escapedValue: String
-                    if isJsonEscaped {
+                    switch prefixType {
+                    case "json":
                         escapedValue = escapeJsonString(value)
-                    } else {
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
                         escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -336,11 +360,14 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on JSON prefix or action type
+                    // Use appropriate escaping based on prefix type or action type
                     let escapedValue: String
-                    if isJsonEscaped {
+                    switch prefixType {
+                    case "json":
                         escapedValue = escapeJsonString(value)
-                    } else {
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
                         escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -355,14 +382,15 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
 }
 
 /// Expands dynamic placeholders with context-aware escaping based on action type
-/// Supports {{key}}, {{json:key}}, {{date:format}}, and regex replacements {{key||regex||replacement}}
-/// The json: prefix applies JSON string escaping regardless of action type, useful for embedding content in JSON strings
+/// Supports {{key}}, {{json:key}}, {{raw:key}}, {{date:format}}, and regex replacements {{key||regex||replacement}}
+/// The json: prefix applies JSON string escaping regardless of action type, useful for embedding content in JSON strings.
+/// The raw: prefix applies no escaping regardless of action type, useful for AppleScript and other contexts where escaping breaks functionality.
 func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
     var result = action
     var metaJson = metaJson // Make mutable copy
     
-    // Updated regex for {{key}}, {{json:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
-    let placeholderPattern = "\\{\\{(?:(json):)?([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
+    // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
+    let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     // --- BEGIN: FrontApp Placeholder Logic ---
@@ -403,8 +431,12 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                   let fullMatchRange = Range(match.range, in: action) else { continue }
             let key = String(action[keyRange])
             
-            // Check if this is a JSON-escaped placeholder
-            let isJsonEscaped = match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound
+            // Check the prefix type for escaping
+            var prefixType: String? = nil
+            if match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound,
+               let prefixRange = Range(match.range(at: 1), in: action) {
+                prefixType = String(action[prefixRange])
+            }
             
             // Extract regex replacements if present
             var regexReplacements: [(regex: String, replacement: String)] = []
@@ -446,11 +478,14 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 // Apply regex replacements if any
                 replacement = applyRegexReplacements(to: replacement, replacements: regexReplacements)
                 
-                // Use appropriate escaping based on action type and JSON prefix
+                // Use appropriate escaping based on prefix type and action type
                 let escapedReplacement: String
-                if isJsonEscaped {
+                switch prefixType {
+                case "json":
                     escapedReplacement = escapeJsonString(replacement)
-                } else {
+                case "raw":
+                    escapedReplacement = replacement  // No escaping for raw prefix
+                default:
                     switch actionType {
                     case .shortcut, .insert:
                         escapedReplacement = replacement // No escaping for shortcuts and insert actions
@@ -481,11 +516,14 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on action type and JSON prefix
+                    // Use appropriate escaping based on prefix type and action type
                     let escapedValue: String
-                    if isJsonEscaped {
+                    switch prefixType {
+                    case "json":
                         escapedValue = escapeJsonString(value)
-                    } else {
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
                         switch actionType {
                         case .shortcut, .insert:
                             escapedValue = value // No escaping for shortcuts and insert actions
@@ -545,11 +583,14 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on JSON prefix or action type
+                    // Use appropriate escaping based on prefix type and action type
                     let escapedValue: String
-                    if isJsonEscaped {
+                    switch prefixType {
+                    case "json":
                         escapedValue = escapeJsonString(value)
-                    } else {
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
                         switch actionType {
                         case .shortcut, .insert:
                             escapedValue = value // No escaping for shortcuts and insert actions
