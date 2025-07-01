@@ -2,6 +2,7 @@
 
 ## UNRELEASED
 ### Changed
+
 * All action types now support icons.
 * Any action can now be set as default—`activeInsert` has been replaced with `activeAction`
 * The `restoreClipboard` setting can now be set at he action level as well.
@@ -28,8 +29,8 @@
   * For example, to remove double line breaks, your actions can now have: `{{prompt||\\n\\n||\\n}}`
 * Improved logic for regex replacements and removal of empty meta.json key placeholders.
   * If a placeholder is used in an action but found empty in the meta.json file, it will simply be extracted.
-
-**The new CLI commands and config changes are backward compatible, so you don’t have to update your config file—nothing should break. Sample KM Macros have been updated with new flags.** If you want, you can refresh your config by adding an action via the CLI (for example: `--add-insert AnyName`). After that, all actions will have `icon`, `restoreClipboard`, and `activeInsert` will become `activeAction`. Sample macros have received updates to use the new flags (though the previous ones still work). **If you do decide to update your config, it’s smart to make a quick backup first—just in case.**
+  
+**The new CLI commands and config changes are backward compatible, so it's not "necessary" to update your config file—nothing should break. However, sample KM Macros and docs have been updated for new flags.** If you want, you can refresh quickly your config by adding an action via the CLI (for example: `--add-insert AnyName`). After that, all actions will have `icon`, `restoreClipboard`, and `activeInsert` will become `activeAction`. **If you do decide to update your config, it’s smart to make a quick backup first—just in case.**
 
 ---
 ## [v1.1.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.1.2) - 2025/06/26
