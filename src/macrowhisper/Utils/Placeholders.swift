@@ -129,6 +129,34 @@ func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> 
 }
 
 // MARK: - Dynamic Placeholder Expansion (Refactored)
+
+// MARK: - Time Formatting Helper
+
+/// Formats milliseconds into human-readable time format
+/// - Parameter milliseconds: Time value in milliseconds
+/// - Returns: Formatted string with appropriate unit (ms, s, or m s)
+func formatTimeValue(_ milliseconds: Double) -> String {
+    if milliseconds < 1000 {
+        // Less than 1 second: show as milliseconds
+        return "\(Int(milliseconds))ms"
+    } else if milliseconds < 60000 {
+        // Less than 1 minute: show as seconds with one decimal
+        let seconds = milliseconds / 1000.0
+        return String(format: "%.1f", seconds) + "s"
+    } else {
+        // 1 minute or more: show as minutes and seconds
+        let totalSeconds = Int(milliseconds / 1000.0)
+        let minutes = totalSeconds / 60
+        let remainingSeconds = totalSeconds % 60
+        
+        if remainingSeconds == 0 {
+            return "\(minutes)m"
+        } else {
+            return "\(minutes)m \(remainingSeconds)s"
+        }
+    }
+}
+
 /// Expands dynamic placeholders in the form {{key}}, {{json:key}}, and {{date:format}} in the action string.
 /// The json: prefix applies JSON string escaping to the placeholder value, useful for embedding content in JSON strings.
 func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> String {
@@ -263,17 +291,15 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
             } else if let jsonValue = metaJson[key] {
                 var value: String
                 
-                // Handle time-related placeholders: convert milliseconds to seconds
+                // Handle time-related placeholders: format milliseconds dynamically
                 if (key == "duration" || key == "languageModelProcessingTime" || key == "processingTime") {
                     if let numberValue = jsonValue as? NSNumber {
                         let milliseconds = numberValue.doubleValue
-                        let seconds = milliseconds / 1000.0
-                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
-                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                        value = formatTimeValue(milliseconds)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(value)")
                     } else if let stringValue = jsonValue as? String, let milliseconds = Double(stringValue) {
-                        let seconds = milliseconds / 1000.0
-                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
-                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                        value = formatTimeValue(milliseconds)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(value)")
                     } else {
                         // Fallback to original value if conversion fails
                         if let stringValue = jsonValue as? String {
@@ -474,17 +500,15 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             } else if let jsonValue = metaJson[key] {
                 var value: String
                 
-                // Handle time-related placeholders: convert milliseconds to seconds
+                // Handle time-related placeholders: format milliseconds dynamically
                 if (key == "duration" || key == "languageModelProcessingTime" || key == "processingTime") {
                     if let numberValue = jsonValue as? NSNumber {
                         let milliseconds = numberValue.doubleValue
-                        let seconds = milliseconds / 1000.0
-                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
-                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                        value = formatTimeValue(milliseconds)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(value)")
                     } else if let stringValue = jsonValue as? String, let milliseconds = Double(stringValue) {
-                        let seconds = milliseconds / 1000.0
-                        value = String(format: "%.2f", seconds).replacingOccurrences(of: "\\.?0+$", with: "", options: .regularExpression)
-                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(seconds)s")
+                        value = formatTimeValue(milliseconds)
+                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(value)")
                     } else {
                         // Fallback to original value if conversion fails
                         if let stringValue = jsonValue as? String {
