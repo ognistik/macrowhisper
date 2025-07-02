@@ -1,6 +1,9 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v1.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.0) - 2025/07/02
 ### Changed
 
 * All action types now support icons.
@@ -38,7 +41,7 @@
   * A simpler approach to using dictionaries without dealing with escaping is creating a Superwhisper mode to give you the result in JSON. Then you just send `{{swResult}}` to a Shortcut, which will parse it correctly
 
 * Introduced a `raw:` prefix for placeholders, which strips any escaping added by default. Use this prefix if you need your placeholder output to remain untouched for a given action (this is the default for Shortcuts or Insert actions).
-  * With this, you can now instruct a Superwhisper mode to write AppleScript for you, then send it right to execution—letting you control your Mac with plain voice instructions. Be cautious if you do this, this is powerful stuff.
+  * For example, with this, you can now instruct a Superwhisper mode to write AppleScript for you, then send it right to execution—letting you control your Mac with plain voice instructions. Be cautious if you do this, it's powerful stuff.
 
 * The values of `{{duration}}`, `{{processingTime}}`, and `{{languageModelProcessingTime}}` are now dynmically converted to seconds or minutes when used in actions for better readability.
 

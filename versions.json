@@ -1,4 +1,4 @@
 {
-  "version" : "1.1.2",
-  "description" : "* Removed extra notification for syntax errors on JSON files.\n* Fix for repeated update dialogs."
+  "version" : "1.2.-",
+  "description" : "This is a major update with significant improvements to action management, clipboard handling, and CLI functionality. I've unified the action system, added icon support to all actions, fixed several bugs with triggers and placeholders, improved the regex replacement logic and streamlined the command-line interface.\n\nYou'll likely need to re-grant accessibility permissions after updating. All changes are backward compatible, so your existing configuration will continue working."
 }
