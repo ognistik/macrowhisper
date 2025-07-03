@@ -1,6 +1,8 @@
 # CHANGELOG
 
 ## UNRELEASED
+### Changed
+* Clipboard restoration now has a delay of 0.3 seconds instead of the previous 0.1, to prevent paste issues. [#3](https://github.com/ognistik/macrowhisper/issues/3)
 
 ---
 ## [v1.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.0) - 2025/07/02

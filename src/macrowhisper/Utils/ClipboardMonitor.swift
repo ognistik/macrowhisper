@@ -428,7 +428,7 @@ class ClipboardMonitor {
         insertAction()
         
         // Step 4: Restore the correct clipboard after a minimum wait time for paste to complete
-        let restoreDelay = 0.1 // Minimum delay for paste operation to complete
+        let restoreDelay = 0.3 // Minimum delay for paste operation to complete
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             self?.restoreCorrectClipboard(clipboardToRestore)
             // Stop early monitoring after clipboard restoration is complete
@@ -567,7 +567,7 @@ class ClipboardMonitor {
                 insertAction()
                 
                 // Step 6: Restore original clipboard after a minimum wait time for paste to complete
-                let restoreDelay = 0.1 // Minimum delay for paste operation to complete
+                let restoreDelay = 0.3 // Minimum delay for paste operation to complete
                 DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                     self?.restoreOriginalClipboard()
                     // Stop early monitoring after clipboard restoration is complete
@@ -726,7 +726,7 @@ class ClipboardMonitor {
             action()
             
             // Restore clipboard after a brief delay to let any action complete
-            let restoreDelay = 0.1
+            let restoreDelay = 0.3
             DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                 self?.restoreCorrectClipboard(clipboardToRestore)
             }
@@ -762,7 +762,7 @@ class ClipboardMonitor {
         action()
         
         // Restore clipboard after a brief delay
-        let restoreDelay = 0.1
+        let restoreDelay = 0.3
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             if let original = originalClipboard {
                 pasteboard.clearContents()
