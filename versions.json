@@ -1,4 +1,4 @@
 {
-  "version" : "1.2.-",
-  "description" : "This is a major update with significant improvements to action management, clipboard handling, and CLI functionality. I've unified the action system, added icon support to all actions, fixed several bugs with triggers and placeholders, improved the regex replacement logic and streamlined the command-line interface.\n\nYou'll likely need to re-grant accessibility permissions after updating. All changes are backward compatible, so your existing configuration will continue working."
+  "version" : "1.2.1",
+  "description" : "* Added a new openBackground option for URL Actions. This lets URLs open in the background without the app taking focus—perfect for automation workflows.\n* Clipboard restoration now has a delay of 0.3 seconds instead of the previous 0.1, to prevent paste issues.\n\nYou'll likely need to re-grant accessibility permissions after updating. All changes are backward compatible, so your existing configuration will continue working."
 }

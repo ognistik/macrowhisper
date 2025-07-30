@@ -302,18 +302,48 @@ class SocketCommunication {
             return
         }
         
+        // Check if URL should open in background
+        let shouldOpenInBackground = urlAction.openBackground ?? false
+        
         if let openWith = urlAction.openWith, !openWith.isEmpty {
             let expandedOpenWith = (openWith as NSString).expandingTildeInPath
             let task = Process()
             task.launchPath = "/usr/bin/open"
-            task.arguments = ["-a", expandedOpenWith, url.absoluteString]
+            // Add -g flag only if openBackground is true
+            if shouldOpenInBackground {
+                task.arguments = ["-g", "-a", expandedOpenWith, url.absoluteString]
+            } else {
+                task.arguments = ["-a", expandedOpenWith, url.absoluteString]
+            }
             do {
                 try task.run()
             } catch {
                 logError("Failed to open URL with specified app: \(error)")
-                NSWorkspace.shared.open(url)
+                // Fallback to opening with default handler
+                openUrlCLI(url, inBackground: shouldOpenInBackground)
             }
         } else {
+            // Open with default handler
+            openUrlCLI(url, inBackground: shouldOpenInBackground)
+        }
+    }
+
+    // Helper method for CLI URL opening with background option
+    private func openUrlCLI(_ url: URL, inBackground: Bool) {
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        // Use -g flag only if opening in background
+        if inBackground {
+            task.arguments = ["-g", url.absoluteString]
+        } else {
+            task.arguments = [url.absoluteString]
+        }
+        do {
+            try task.run()
+            logDebug("URL opened \(inBackground ? "in background" : "normally") via CLI: \(url.absoluteString)")
+        } catch {
+            logError("Failed to open URL \(inBackground ? "in background" : "normally") via CLI: \(error)")
+            // Ultimate fallback to standard opening
             NSWorkspace.shared.open(url)
         }
     }
@@ -720,7 +750,7 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.urls[name] = AppConfiguration.Url(action: "", icon: "")
+                        configMgr.config.urls[name] = AppConfiguration.Url(action: "", icon: "", openBackground: false)
                         configMgr.saveConfig()
                         configMgr.onConfigChanged?(nil)
                         response = "URL action '\(name)' added"

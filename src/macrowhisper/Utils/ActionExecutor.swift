@@ -186,25 +186,51 @@ class ActionExecutor {
             return
         }
         
+        // Check if URL should open in background
+        let shouldOpenInBackground = urlAction.openBackground ?? false
+        
         // If openWith is specified, use that app to open the URL
         if let openWith = urlAction.openWith, !openWith.isEmpty {
             let expandedOpenWith = (openWith as NSString).expandingTildeInPath
             let task = Process()
             task.launchPath = "/usr/bin/open"
-            task.arguments = ["-a", expandedOpenWith, url.absoluteString]
+            // Add -g flag only if openBackground is true
+            if shouldOpenInBackground {
+                task.arguments = ["-g", "-a", expandedOpenWith, url.absoluteString]
+            } else {
+                task.arguments = ["-a", expandedOpenWith, url.absoluteString]
+            }
             do {
                 try task.run()
             } catch {
                 logError("Failed to open URL with specified app: \(error)")
-                // Fallback to default URL handling
-                NSWorkspace.shared.open(url)
+                // Fallback to opening with default handler
+                openUrl(url, inBackground: shouldOpenInBackground)
             }
         } else {
             // Open with default handler
+            openUrl(url, inBackground: shouldOpenInBackground)
+        }
+    }
+
+    // Helper method to open URLs with background option
+    private func openUrl(_ url: URL, inBackground: Bool) {
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        // Use -g flag only if opening in background
+        if inBackground {
+            task.arguments = ["-g", url.absoluteString]
+        } else {
+            task.arguments = [url.absoluteString]
+        }
+        do {
+            try task.run()
+            logDebug("URL opened \(inBackground ? "in background" : "normally"): \(url.absoluteString)")
+        } catch {
+            logError("Failed to open URL \(inBackground ? "in background" : "normally"): \(error)")
+            // Ultimate fallback to standard opening
             NSWorkspace.shared.open(url)
         }
-        
-        // ESC simulation and action delay are now handled by ClipboardMonitor
     }
     
     private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {

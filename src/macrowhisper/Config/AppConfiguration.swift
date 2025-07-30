@@ -198,11 +198,12 @@ struct AppConfiguration: Codable {
         var triggerLogic: String? = "or"
         // ---------------------------------------------
         var openWith: String? = ""
+        var openBackground: Bool? = false  // New field to control background opening
         
         enum CodingKeys: String, CodingKey {
             case action, icon, moveTo, noEsc, actionDelay, restoreClipboard
             case triggerVoice, triggerApps, triggerModes, triggerLogic
-            case openWith
+            case openWith, openBackground
         }
         
         // Custom encoding to preserve null values and ensure trigger fields are always present
@@ -220,6 +221,7 @@ struct AppConfiguration: Codable {
             try container.encode(triggerModes ?? "", forKey: .triggerModes)
             try container.encode(triggerLogic ?? "or", forKey: .triggerLogic)
             try container.encode(openWith ?? "", forKey: .openWith)
+            try container.encode(openBackground ?? false, forKey: .openBackground)
         }
         // Custom decoding to ensure trigger fields are always present
         init(from decoder: Decoder) throws {
@@ -235,9 +237,10 @@ struct AppConfiguration: Codable {
             triggerModes = try container.decodeIfPresent(String.self, forKey: .triggerModes) ?? ""
             triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
             openWith = try container.decodeIfPresent(String.self, forKey: .openWith) ?? ""
+            openBackground = try container.decodeIfPresent(Bool.self, forKey: .openBackground) ?? false
         }
         // Default initializer for new URLs
-        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or", openWith: String? = "") {
+        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or", openWith: String? = "", openBackground: Bool? = false) {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
@@ -249,6 +252,7 @@ struct AppConfiguration: Codable {
             self.triggerModes = triggerModes ?? ""
             self.triggerLogic = triggerLogic ?? "or"
             self.openWith = openWith ?? ""
+            self.openBackground = openBackground ?? false
         }
     }
     

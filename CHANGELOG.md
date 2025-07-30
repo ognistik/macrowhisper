@@ -1,6 +1,12 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v1.2.1](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.1) - 2025/07/30
+### Added
+* Added a new `openBackground` option for URL Actions, which is set to `false` by default. This lets URLs open in the background without the app taking focus—perfect for automation workflows. To update all your URL actions with this new field, just add any action to your config via the CLI.
+
 ### Changed
 * Clipboard restoration now has a delay of 0.3 seconds instead of the previous 0.1, to prevent paste issues. [#3](https://github.com/ognistik/macrowhisper/issues/3)
 
