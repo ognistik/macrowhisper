@@ -654,14 +654,14 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     
     // First, process XML placeholders if llmResult or result is available
     if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
-        logDebug("[UnifiedPlaceholders] Original llmResult: '\(llmResult)'")
+        // logDebug("[UnifiedPlaceholders] Original llmResult: '\(llmResult)'")
         let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
-        logDebug("[UnifiedPlaceholders] Cleaned llmResult: '\(cleaned)'")
+        // logDebug("[UnifiedPlaceholders] Cleaned llmResult: '\(cleaned)'")
         logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
         updatedMetaJson["llmResult"] = cleaned
         result = replaceXmlPlaceholders(action: result, extractedTags: tags)
     } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
-        logDebug("[UnifiedPlaceholders] Original result: '\(regularResult)'")
+        // logDebug("[UnifiedPlaceholders] Original result: '\(regularResult)'")
         let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
         logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
         result = replaceXmlPlaceholders(action: result, extractedTags: tags)
@@ -670,6 +670,6 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     // Then process dynamic placeholders with appropriate escaping based on action type
     result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson, actionType: actionType)
     
-    logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
+    // logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
     return result
 } 

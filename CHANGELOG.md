@@ -2,6 +2,10 @@
 
 ## UNRELEASED
 
+## [v1.2.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.2)
+* The implementation for Keypress Simulation has been rewritten to use CGEvents (accessibility). Should be much more reliable now.
+* Cleaned up unnecessary log messages.
+
 ---
 ## [v1.2.1](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.1) - 2025/07/30
 ### Added

@@ -275,20 +275,6 @@ private func cacheResult(threadId: String, result: Bool) {
     }
 }
 
-func simulateKeyDown(key: Int, flags: CGEventFlags = []) {
-    let source = CGEventSource(stateID: .hidSystemState)
-    let keyCode = CGKeyCode(key)
-    
-    let keyDownEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
-    keyDownEvent?.flags = flags
-
-    let keyUpEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
-    keyUpEvent?.flags = flags
-
-    keyDownEvent?.post(tap: .cghidEventTap)
-    keyUpEvent?.post(tap: .cghidEventTap)
-}
-
 func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
     // First check if there's an insert-specific noEsc setting
     if let insert = activeInsert, let insertNoEsc = insert.noEsc {
@@ -306,4 +292,70 @@ func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
     
     // Simulate ESC key press
     simulateKeyDown(key: 53)
-} 
+}
+
+/// Enhanced key simulation with proper modifier handling
+func simulateKeyDown(key: Int, flags: CGEventFlags = []) {
+    let source = CGEventSource(stateID: .hidSystemState)
+    let keyCode = CGKeyCode(key)
+    
+    let keyDownEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+    keyDownEvent?.flags = flags
+
+    let keyUpEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+    keyUpEvent?.flags = flags
+
+    keyDownEvent?.post(tap: .cghidEventTap)
+    keyUpEvent?.post(tap: .cghidEventTap)
+}
+
+// MARK: - Simple Text Typing (Complete Solution)
+
+/// Main function to type any text
+func typeText(_ text: String) {
+    // Check if we have permission
+    guard AXIsProcessTrusted() else {
+        print("Need accessibility permission")
+        return
+    }
+    
+    // Small delay before starting
+    Thread.sleep(forTimeInterval: 0.1)
+    
+    // Type each character
+    for character in text {
+        typeUnicodeCharacter(character)
+        Thread.sleep(forTimeInterval: 0.01) // Small delay between characters
+    }
+}
+
+/// Type any Unicode character (works for all languages and symbols)
+private func typeUnicodeCharacter(_ character: Character) {
+    let source = CGEventSource(stateID: .hidSystemState)
+    let characterString = String(character)
+    
+    // Convert to UTF-16 (this handles all Unicode correctly)
+    let utf16Array = Array(characterString.utf16)
+    var mutableArray = utf16Array
+    
+    // Create key down event
+    let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
+    keyDown?.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: &mutableArray)
+    keyDown?.post(tap: .cghidEventTap)
+    
+    // Create key up event
+    let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+    keyUp?.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: &mutableArray)
+    keyUp?.post(tap: .cghidEventTap)
+}
+
+/// Simple key press function
+private func pressKey(_ keyCode: Int) {
+    let source = CGEventSource(stateID: .hidSystemState)
+    
+    let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(keyCode), keyDown: true)
+    let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(keyCode), keyDown: false)
+    
+    keyDown?.post(tap: .cghidEventTap)
+    keyUp?.post(tap: .cghidEventTap)
+}

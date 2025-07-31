@@ -419,31 +419,19 @@ class SocketCommunication {
     private func pasteText(_ text: String, activeInsert: AppConfiguration.Insert?) {
         let shouldSimulate = activeInsert?.simKeypress ?? globalConfigManager?.config.defaults.simKeypress ?? false
         if shouldSimulate {
-            let lines = text.components(separatedBy: "\n")
-            let scriptLines = lines.enumerated().map { index, line -> String in
-                let escapedLine = line.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                return (index > 0 ? "keystroke return\n" : "") + "keystroke \"\(escapedLine)\""
-            }.joined(separator: "\n")
-            let script = "tell application \"System Events\"\n\(scriptLines)\nend tell"
-            let task = Process(); task.launchPath = "/usr/bin/osascript"; task.arguments = ["-e", script]
-            do { try task.run(); task.waitUntilExit() } catch { logError("Failed to simulate keystrokes: \(error)"); pasteUsingClipboard(text) }
+            // Use the new comprehensive CGEvent-based typing
+            typeText(text)
         } else {
             pasteUsingClipboard(text)
         }
     }
-    
+
     // Version of pasteText that doesn't save/restore clipboard (used with ClipboardMonitor)
     private func pasteTextNoRestore(_ text: String, activeInsert: AppConfiguration.Insert?) {
         let shouldSimulate = activeInsert?.simKeypress ?? globalConfigManager?.config.defaults.simKeypress ?? false
         if shouldSimulate {
-            let lines = text.components(separatedBy: "\n")
-            let scriptLines = lines.enumerated().map { index, line -> String in
-                let escapedLine = line.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                return (index > 0 ? "keystroke return\n" : "") + "keystroke \"\(escapedLine)\""
-            }.joined(separator: "\n")
-            let script = "tell application \"System Events\"\n\(scriptLines)\nend tell"
-            let task = Process(); task.launchPath = "/usr/bin/osascript"; task.arguments = ["-e", script]
-            do { try task.run(); task.waitUntilExit() } catch { logError("Failed to simulate keystrokes: \(error)"); pasteUsingClipboardNoRestore(text) }
+            // Use the new comprehensive CGEvent-based typing
+            typeText(text)
         } else {
             pasteUsingClipboardNoRestore(text)
         }
