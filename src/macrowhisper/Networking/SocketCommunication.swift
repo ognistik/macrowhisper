@@ -132,8 +132,14 @@ class SocketCommunication {
             if FileManager.default.fileExists(atPath: metaJsonPath),
                let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let result = json["result"], !(result is NSNull), !String(describing: result).isEmpty {
-                return json
+               let duration = json["duration"], !(duration is NSNull) {
+                
+                // Check if duration is valid (greater than 0)
+                if let durationDouble = duration as? Double, durationDouble > 0 {
+                    return json
+                } else if let durationInt = duration as? Int, durationInt > 0 {
+                    return json
+                }
             }
         }
         return nil

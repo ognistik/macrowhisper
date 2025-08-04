@@ -1,7 +1,9 @@
 # CHANGELOG
 
 ## UNRELEASED
+* Macrowhisper can now work with empty "result" values—since Superwhisper itself can also do this.
 
+---
 ## [v1.2.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.2) - 2025/07/31
 * The implementation for Keypress Simulation has been rewritten to use CGEvents (accessibility). Should be much more reliable now.
 * Cleaned up unnecessary log messages.

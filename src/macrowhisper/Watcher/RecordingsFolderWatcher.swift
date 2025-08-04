@@ -411,17 +411,26 @@ class RecordingsFolderWatcher {
                 return
             }
             
-            // Check for a valid result
-            guard let result = metaJson["result"], !(result is NSNull), (result as? String)?.isEmpty == false else {
-                logDebug("No result found in meta.json for \(recordingPath), watching for updates.")
+            // Check for a valid duration
+            guard let duration = metaJson["duration"], !(duration is NSNull) else {
+                logDebug("No valid duration found in meta.json for \(recordingPath), watching for updates.")
                 // Watch for changes to the meta.json file
                 watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
                 // Don't stop early monitoring here as we're still watching for changes
                 return
             }
-            
-            // We have a valid result, process it immediately
-            logDebug("Valid result found in meta.json for \(recordingPath), processing.")
+
+            if let durationDouble = duration as? Double, durationDouble > 0 {
+                // Duration is a Double and is greater than 0
+            } else if let durationInt = duration as? Int, durationInt > 0 {
+                // Duration is an Int and is greater than 0
+            } else {
+                logDebug("No valid duration found in meta.json for \(recordingPath), watching for updates.")
+                // Watch for changes to the meta.json file
+                watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                // Don't stop early monitoring here as we're still watching for changes
+                return
+            }
             
             // Always update lastDetectedFrontApp to the current frontmost app for app triggers and input field detection
             var frontApp: NSRunningApplication?
@@ -485,9 +494,13 @@ class RecordingsFolderWatcher {
             }
             
             // SECOND: Evaluate triggers for all actions - this has precedence over active inserts
+            
+            // Extract result text for trigger evaluation (can be empty, that's fine for triggers)
+            let resultText = enhancedMetaJson["result"] as? String ?? ""
+
             let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
                 configManager: configManager,
-                result: String(describing: result),
+                result: resultText,
                 metaJson: enhancedMetaJson,
                 frontAppName: frontAppName,
                 frontAppBundleId: frontAppBundleId
