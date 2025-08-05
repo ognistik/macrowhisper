@@ -30,8 +30,8 @@ class RecordingsFolderWatcher {
         self.historyManager = historyManager
         self.socketCommunication = socketCommunication
         self.triggerEvaluator = TriggerEvaluator(logger: logger)
-        self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager)
         self.clipboardMonitor = ClipboardMonitor(logger: logger)
+        self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager, clipboardMonitor: clipboardMonitor)
         self.versionChecker = versionChecker
         
         // Create a file to track processed recordings

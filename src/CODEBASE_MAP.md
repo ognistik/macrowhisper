@@ -354,18 +354,21 @@ if meta.json exists immediately {
 
 ### 7. Enhanced Clipboard Management
 
-#### `macrowhisper/Utils/ClipboardMonitor.swift` (892 lines)
-**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts with smart logging and enhanced session management
+#### `macrowhisper/Utils/ClipboardMonitor.swift` (1024 lines)
+**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts with smart logging, enhanced session management, and lightweight pre-recording capture
 
-**Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content.
+**Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content. Additionally, users often copy content shortly before starting a recording and want to access it in actions.
 
 **Key Features**:
-- **Smart monitoring initiation**: Only starts monitoring when meta.json is incomplete; skips if recording is ready immediately
-- **Early session data capture**: Captures selectedText and userOriginalClipboard when recording folder appears
-- **Smart logging system**: Only logs clipboard changes during actual action execution periods
-- **Continuous monitoring**: Always tracks changes for restoration logic, but controls log visibility
+- **Lightweight app-lifetime monitoring**: Continuous 5-second rolling buffer of clipboard changes from app startup
+- **Smart session monitoring**: Only starts intensive session monitoring when meta.json is incomplete; skips if recording is ready immediately
+- **Early session data capture**: Captures selectedText, userOriginalClipboard, and pre-recording clipboard when recording folder appears
+- **Enhanced clipboardContent logic**: Prioritizes session changes, falls back to pre-recording clipboard content from global history
+- **Smart logging system**: Only logs clipboard changes during actual action execution periods (content not logged for privacy)
+- **Dual monitoring architecture**: Lightweight global monitoring (0.5s intervals) + intensive session monitoring (0.01s intervals)
+- **Single instance architecture**: Shared ClipboardMonitor instance prevents duplicate monitoring and logging
 - **Action execution boundaries**: Clear start/finish markers for relevant logging periods
-- **Thread-safe session management**: Concurrent monitoring with proper synchronization using barriers
+- **Thread-safe management**: Concurrent monitoring with proper synchronization using barriers
 - **Configurable restoration**: Optional clipboard restoration for user preference
 - **Independent placeholder support**: clipboardContent placeholder works regardless of restoreClipboard setting
 
@@ -378,18 +381,22 @@ private struct EarlyMonitoringSession {
     var isActive: Bool = true             // Session state
     let selectedText: String?             // Selected text captured at session start
     var isExecutingAction: Bool = false   // Controls clipboard change logging visibility
+    let preRecordingClipboard: String?    // Clipboard content from before recording started
 }
 ```
 
-**Session Lifecycle**:
-1. **Conditional Start**: Begin monitoring only if meta.json is incomplete or doesn't exist
-2. **Early Data Capture**: Capture selectedText and original clipboard immediately
-3. **Continuous Change Tracking**: Monitor all clipboard changes during session with timestamps
-4. **Action Execution Marking**: Mark start/finish of action execution for relevant logging
-5. **Smart Logging**: Only log clipboard changes during action execution periods
-6. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
-7. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
-8. **Natural Cleanup**: Session cleanup happens after action completion and restoration
+**Dual Monitoring Architecture**:
+1. **App Startup**: Begin lightweight global monitoring (0.5s intervals) with 5-second rolling buffer
+2. **Recording Detection**: When recording folder appears, capture pre-recording clipboard from global history
+3. **Conditional Session Start**: Begin intensive session monitoring only if meta.json is incomplete or doesn't exist
+4. **Early Data Capture**: Capture selectedText, original clipboard, and pre-recording clipboard immediately
+5. **Intensive Change Tracking**: Monitor all clipboard changes during session with high precision (0.01s intervals)
+6. **Action Execution Marking**: Mark start/finish of action execution for relevant logging
+7. **Smart Logging**: Only log clipboard changes during action execution periods
+8. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
+9. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
+10. **Session Cleanup**: Session cleanup happens after action completion and restoration
+11. **Continued Global Monitoring**: Lightweight monitoring continues for future recordings
 
 **Action Execution Control Methods**:
 - `startActionExecution(for:)`: Marks beginning of action execution, enables relevant clipboard logging
@@ -404,12 +411,17 @@ private struct EarlyMonitoringSession {
 
 **Placeholder Data Extraction**:
 - **selectedText**: From session start capture, independent of current selection
-- **clipboardContent**: Last clipboard change during session, empty if no changes occurred
+- **clipboardContent**: Enhanced with pre-recording support:
+  - **Priority 1**: Last clipboard change during recording session (maintains current behavior)
+  - **Priority 2**: Most recent clipboard change within 5 seconds before recording started (new feature)
+  - **Fallback**: Empty string if no relevant changes found
 - **Restoration Independence**: Placeholder data available regardless of restoreClipboard setting
 
 **Critical Timing Constants**:
 - `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
-- `pollInterval: 0.01` seconds - 10ms polling interval for clipboard changes
+- `pollInterval: 0.01` seconds - 10ms polling interval for intensive session monitoring
+- `globalMonitoringInterval: 0.5` seconds - Lightweight global monitoring frequency (500ms)
+- `preRecordingBuffer: 5.0` seconds - Rolling buffer size for pre-recording clipboard capture
 
 ---
 
@@ -486,13 +498,16 @@ private struct EarlyMonitoringSession {
    - **JSON-escaped app context**: `{{json:appContext}}` applies JSON string escaping
    - **Raw app context**: `{{raw:appContext}}` applies no escaping (useful for AppleScript)
    - **Performance optimized**: Fast capture with minimal processing overhead
-7. **Clipboard Content**: `{{clipboardContent}}` gets the last clipboard content captured during monitoring session
-   - **Capture timing**: Last clipboard change during recording session, not initial clipboard
-   - **Session-based**: Only captures clipboard changes that occurred after recording folder appeared
+7. **Clipboard Content**: `{{clipboardContent}}` gets clipboard content with enhanced pre-recording capture
+   - **Enhanced capture logic**: 
+     - **Priority 1**: Last clipboard change during recording session (maintains existing behavior)
+     - **Priority 2**: Most recent clipboard change within 5 seconds before recording started (new feature)
+   - **Pre-recording buffer**: Continuously monitors clipboard with 5-second rolling buffer before recordings
+   - **Intelligent fallback**: Uses pre-recording content only when no session changes occurred
    - **Independence**: Works regardless of `restoreClipboard` setting
    - **JSON-escaped clipboard**: `{{json:clipboardContent}}` applies JSON string escaping
    - **Raw clipboard**: `{{raw:clipboardContent}}` applies no escaping (useful for AppleScript)
-   - **Empty behavior**: If no clipboard changes during session, placeholder is removed entirely
+   - **Empty behavior**: If no relevant clipboard changes found, placeholder is removed entirely
 8. **Regex Replacements**: All placeholders support `{{placeholder||regex||replacement}}` syntax
    - **Multiple replacements**: `{{key||pattern1||replace1||pattern2||replace2}}` applied sequentially
    - **Works with prefixes**: `{{raw:swResult||\\n||newline||"||quote}}` for precise control

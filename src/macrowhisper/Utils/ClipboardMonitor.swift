@@ -9,6 +9,14 @@ class ClipboardMonitor {
     private let maxWaitTime: TimeInterval = 0.1 // Maximum time to wait for Superwhisper's clipboard change
     private let pollInterval: TimeInterval = 0.01 // 10ms polling interval
     
+    // Global clipboard history for pre-recording capture (lightweight, app-lifetime monitoring)
+    private let preRecordingBuffer: TimeInterval = 5.0 // Keep 5 seconds of history
+    private var globalClipboardHistory: [ClipboardChange] = []
+    private let globalHistoryQueue = DispatchQueue(label: "ClipboardMonitor.globalHistory", attributes: .concurrent)
+    private var globalMonitoringTimer: Timer?
+    private var isFirstGlobalCheck = true // Track if this is the first clipboard check
+    private var lastSeenClipboardContent: String? // Track last seen content independently of history
+    
     // Early monitoring state for recording sessions - made thread-safe
     private var earlyMonitoringSessions: [String: EarlyMonitoringSession] = [:]
     private let sessionsQueue = DispatchQueue(label: "ClipboardMonitor.sessions", attributes: .concurrent)
@@ -20,6 +28,7 @@ class ClipboardMonitor {
         var isActive: Bool = true
         let selectedText: String?  // Capture selected text at session start
         var isExecutingAction: Bool = false  // Only log clipboard changes during action execution
+        let preRecordingClipboard: String?  // Clipboard content captured from global history before recording
     }
     
     private struct ClipboardChange {
@@ -29,11 +38,17 @@ class ClipboardMonitor {
     
     init(logger: Logger) {
         self.logger = logger
+        startGlobalClipboardMonitoring()
+    }
+    
+    deinit {
+        stopGlobalClipboardMonitoring()
     }
     
     /// Starts early clipboard monitoring when a recording folder appears
     /// This captures the user's original clipboard before anyone (Superwhisper or CLI) modifies it
     /// Also captures selected text at the moment the recording folder appears
+    /// Enhanced to also capture clipboard content from approximately 5 seconds before recording
     func startEarlyMonitoring(for recordingPath: String) {
         let pasteboard = NSPasteboard.general
         let userOriginal = pasteboard.string(forType: .string)
@@ -41,10 +56,15 @@ class ClipboardMonitor {
         // Capture selected text immediately when recording folder appears
         let selectedText = getSelectedText()
         
+        // Capture pre-recording clipboard from global history (5 seconds before this recording started)
+        let sessionStartTime = Date()
+        let preRecordingClipboard = capturePreRecordingClipboard(beforeTime: sessionStartTime)
+        
         let session = EarlyMonitoringSession(
             userOriginalClipboard: userOriginal,
-            startTime: Date(),
-            selectedText: selectedText
+            startTime: sessionStartTime,
+            selectedText: selectedText,
+            preRecordingClipboard: preRecordingClipboard
         )
         
         sessionsQueue.async(flags: .barrier) { [weak self] in
@@ -102,22 +122,56 @@ class ClipboardMonitor {
     }
     
     /// Gets the last clipboard content that was captured during the monitoring session
-    /// Returns empty string if no clipboard changes occurred during monitoring
-    /// This represents the clipboard content the user had before Superwhisper changed it
+    /// Enhanced to also consider clipboard content from before recording started
+    /// Returns empty string if no relevant clipboard changes occurred
     func getSessionClipboardContent(for recordingPath: String, swResult: String) -> String {
         var clipboardContent = ""
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
             
-            // Return the last clipboard change during the session (not the initial clipboard)
-            // This represents what the user actually copied during the recording session
+            // Priority 1: Return the last clipboard change during the session (maintains current behavior)
             if let lastChange = session.clipboardChanges.last {
                 clipboardContent = lastChange.content ?? ""
+                return
             }
-            // If no clipboard changes occurred during monitoring, return empty
-            // (Don't return userOriginalClipboard as that's what was there before recording started)
+            
+            // Priority 2: If no changes during session, use pre-recording clipboard if available
+            if let preRecording = session.preRecordingClipboard, !preRecording.isEmpty {
+                clipboardContent = preRecording
+                logDebug("[ClipboardMonitor] Using pre-recording clipboard content (copied within 5s before recording)")
+                return
+            }
+            
+            // If we reach here, no clipboard content found (will return empty string)
+            logDebug("[ClipboardMonitor] No clipboard content found (no session changes, no pre-recording content within 5s window)")
         }
         return clipboardContent
+    }
+    
+    /// Captures clipboard content from the global clipboard history (5 seconds before recording started)
+    /// This uses the lightweight app-lifetime monitoring to get pre-recording clipboard content
+    /// - Parameter beforeTime: The recording session start time to use as reference point
+    private func capturePreRecordingClipboard(beforeTime sessionStartTime: Date) -> String? {
+        let fiveSecondsBeforeSession = sessionStartTime.addingTimeInterval(-preRecordingBuffer)
+        var recentClipboard: String?
+        
+        globalHistoryQueue.sync {
+            // Find clipboard changes that occurred within 5 seconds BEFORE the recording session started
+            let preRecordingChanges = globalClipboardHistory.filter { change in
+                change.timestamp >= fiveSecondsBeforeSession && change.timestamp < sessionStartTime
+            }
+            
+            // Use the most recent change from within the 5-second window before recording
+            if let mostRecent = preRecordingChanges.last {
+                recentClipboard = mostRecent.content
+                let timeBeforeRecording = sessionStartTime.timeIntervalSince(mostRecent.timestamp)
+                logDebug("[ClipboardMonitor] Using pre-recording clipboard change from \(String(format: "%.1f", timeBeforeRecording))s before recording")
+            } else {
+                logDebug("[ClipboardMonitor] No clipboard changes found within 5s before recording started")
+            }
+        }
+        
+        return recentClipboard
     }
     
     /// Monitors clipboard changes during early monitoring session
@@ -892,6 +946,90 @@ class ClipboardMonitor {
             }
             // Stop early monitoring after clipboard restoration is complete
             self?.stopEarlyMonitoring(for: recordingPath)
+        }
+    }
+    
+    // MARK: - Global Clipboard Monitoring (Lightweight App-Lifetime)
+    
+    /// Starts lightweight global clipboard monitoring to maintain 5-second rolling buffer
+    /// This ensures pre-recording clipboard content is available even for the first recording session
+    private func startGlobalClipboardMonitoring() {
+        // Prevent multiple timers from being created
+        guard globalMonitoringTimer == nil else {
+            logDebug("[ClipboardMonitor] Global monitoring already running, skipping start")
+            return
+        }
+        
+        logDebug("[ClipboardMonitor] Starting lightweight global clipboard monitoring")
+        
+        // Initialize with empty history - we only want to track actual clipboard CHANGES
+        // Don't timestamp existing clipboard content as "new" since we don't know when it was actually copied
+        globalHistoryQueue.async(flags: .barrier) { [weak self] in
+            self?.globalClipboardHistory = []
+            self?.lastSeenClipboardContent = nil
+            self?.isFirstGlobalCheck = true
+        }
+        
+        // Start periodic monitoring with longer interval (0.5s) to be lightweight
+        DispatchQueue.main.async { [weak self] in
+            self?.globalMonitoringTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                self?.checkGlobalClipboardChange()
+            }
+        }
+    }
+    
+    /// Stops global clipboard monitoring
+    private func stopGlobalClipboardMonitoring() {
+        globalMonitoringTimer?.invalidate()
+        globalMonitoringTimer = nil
+        
+        globalHistoryQueue.async(flags: .barrier) { [weak self] in
+            self?.globalClipboardHistory.removeAll()
+            self?.lastSeenClipboardContent = nil
+            self?.isFirstGlobalCheck = true
+        }
+        
+        logDebug("[ClipboardMonitor] Stopped global clipboard monitoring")
+    }
+    
+    /// Checks for clipboard changes and maintains the lightweight rolling buffer
+    private func checkGlobalClipboardChange() {
+        let pasteboard = NSPasteboard.general
+        let currentClipboard = pasteboard.string(forType: .string)
+        let now = Date()
+        
+        globalHistoryQueue.async(flags: .barrier) { [weak self] in
+            guard let self = self else { return }
+            
+            // On first check, just record what's there without treating it as a "change"
+            if self.isFirstGlobalCheck {
+                self.isFirstGlobalCheck = false
+                self.lastSeenClipboardContent = currentClipboard
+                logDebug("[ClipboardMonitor] Global monitoring initialized - recording baseline clipboard content")
+                return
+            }
+            
+            // Check if clipboard has actually changed since our last seen content
+            if currentClipboard != self.lastSeenClipboardContent {
+                // Add new change to history
+                let change = ClipboardChange(content: currentClipboard, timestamp: now)
+                self.globalClipboardHistory.append(change)
+                self.lastSeenClipboardContent = currentClipboard
+                logDebug("[ClipboardMonitor] Global monitoring detected new clipboard change")
+            }
+            
+            // Clean up old entries beyond the buffer time (keep only last 5 seconds)
+            let cutoffTime = now.addingTimeInterval(-self.preRecordingBuffer)
+            let beforeCount = self.globalClipboardHistory.count
+            self.globalClipboardHistory.removeAll { change in
+                change.timestamp < cutoffTime
+            }
+            let afterCount = self.globalClipboardHistory.count
+            
+            // Only log cleanup if entries were actually removed (reduce log noise)
+            if beforeCount != afterCount {
+                logDebug("[ClipboardMonitor] Global cleanup: removed \(beforeCount - afterCount) old entries, \(afterCount) remaining")
+            }
         }
     }
 } 

@@ -8,11 +8,11 @@ class ActionExecutor {
     private let configManager: ConfigurationManager
     private let clipboardMonitor: ClipboardMonitor
     
-    init(logger: Logger, socketCommunication: SocketCommunication, configManager: ConfigurationManager) {
+    init(logger: Logger, socketCommunication: SocketCommunication, configManager: ConfigurationManager, clipboardMonitor: ClipboardMonitor) {
         self.logger = logger
         self.socketCommunication = socketCommunication
         self.configManager = configManager
-        self.clipboardMonitor = ClipboardMonitor(logger: logger)
+        self.clipboardMonitor = clipboardMonitor
     }
     
     /// Executes an action based on its type

@@ -25,24 +25,27 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
 ## High-Level Processing Flow
 
 ```
+0. App Startup
+   └── Initialize Global Clipboard Monitoring (5-second rolling buffer)
+   ↓
 1. Recording Folder Detection (RecordingsFolderWatcher)
    ↓
-2. Smart Clipboard Monitoring Decision
-   ├── If meta.json complete → Skip monitoring
-   ├── If meta.json incomplete → Start monitoring
-   └── If meta.json missing → Start monitoring
-   ↓
-3. Early Data Capture (when monitoring starts)
+2. Pre-Recording Data Capture
+   ├── Capture clipboard from global history (5s before recording)
    ├── Capture selectedText
-   ├── Capture original clipboard
-   └── Begin change tracking
+   └── Capture original clipboard
+   ↓
+3. Smart Session Monitoring Decision
+   ├── If meta.json complete → Skip session monitoring
+   ├── If meta.json incomplete → Start session monitoring
+   └── If meta.json missing → Start session monitoring
    ↓
 4. Meta.json Processing (RecordingsFolderWatcher)
    ↓
 5. Context Gathering & Session Data Enhancement
    ├── Front App context
    ├── Add selectedText to metaJson
-   ├── Add clipboardContent to metaJson
+   ├── Add clipboardContent to metaJson (session priority, pre-recording fallback)
    └── Add appContext (if placeholder used)
    ↓
 6. Action Priority Evaluation
@@ -58,6 +61,8 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
    └── Action Execution
    ↓
 8. Post-Processing (MoveTo, History Cleanup)
+   ↓
+9. Continue Global Clipboard Monitoring (for future recordings)
 ```
 
 ---
@@ -89,19 +94,28 @@ The process begins when Superwhisper creates a new recording folder in the watch
 
 ---
 
-## Early Clipboard Monitoring System
+## Enhanced Clipboard Monitoring System
 
 ### Primary File: `macrowhisper/Utils/ClipboardMonitor.swift`
 
-This is the **most critical component** for handling clipboard synchronization between Superwhisper and Macrowhisper.
+This is the **most critical component** for handling clipboard synchronization between Superwhisper and Macrowhisper, now enhanced with pre-recording capture.
 
 #### The Problem:
 Superwhisper and Macrowhisper both modify the clipboard simultaneously, causing:
 - Lost user clipboard content
 - Race conditions between clipboard modifications
 - Incorrect content being pasted
+- Users often copy content shortly before recording and want to access it in actions
 
-#### The Solution - Smart Early Monitoring:
+#### The Solution - Dual Monitoring Architecture:
+
+##### 1. Lightweight Global Monitoring (App Lifetime):
+- **Purpose**: Maintains 5-second rolling buffer for pre-recording capture
+- **Frequency**: 0.5-second intervals (lightweight)
+- **Scope**: Single shared instance across all components
+- **Privacy**: Content not logged, only change events
+
+##### 2. Smart Session Monitoring (Recording Specific):
 ```swift
 // Started conditionally based on meta.json state
 func startEarlyMonitoring(for recordingPath: String) {
@@ -129,6 +143,7 @@ private struct EarlyMonitoringSession {
     var clipboardChanges: [ClipboardChange] = []  // All clipboard changes during session
     var isActive: Bool = true              // Session active state
     var isExecutingAction: Bool = false    // Controls clipboard change logging visibility
+    let preRecordingClipboard: String?     // Clipboard content from global history (5s before recording)
 }
 
 private struct ClipboardChange {
@@ -139,14 +154,18 @@ private struct ClipboardChange {
 
 #### Key Features:
 - **Thread-Safe**: Uses `sessionsQueue` with concurrent reads and barrier writes
-- **Smart Logging**: Only logs clipboard changes during actual action execution periods
+- **Smart Logging**: Only logs clipboard changes during actual action execution periods (content not logged for privacy)
+- **Single Instance**: Shared ClipboardMonitor prevents duplicate monitoring
 - **Continuous Monitoring**: Always tracks changes for restoration, but controls log visibility
+- **Pre-Recording Capture**: 5-second rolling buffer for {{clipboardContent}} placeholder
 - **Change Tracking**: Monitors all clipboard changes during the session
 - **Smart Restoration**: Determines correct clipboard content to restore based on session history
 - **Action Execution Boundaries**: Clear start/finish markers for relevant logging periods
 - **Timing Constants**:
   - `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
-  - `pollInterval: 0.01` seconds - 10ms polling interval
+  - `pollInterval: 0.01` seconds - 10ms polling interval for session monitoring
+  - `globalMonitoringInterval: 0.5` seconds - Global monitoring frequency
+  - `preRecordingBuffer: 5.0` seconds - Pre-recording clipboard capture window
 
 #### Action Execution Control Methods:
 ```swift
@@ -602,10 +621,11 @@ All action types support:
 - **Key Methods**: `processNewRecording()`, `processMetaJson()`, `handlePostProcessing()`
 - **State Management**: Processed recordings tracking, pending watchers
 
-#### 3. `macrowhisper/Utils/ClipboardMonitor.swift` (892 lines)
-- **Purpose**: Clipboard synchronization, timing coordination, smart logging
+#### 3. `macrowhisper/Utils/ClipboardMonitor.swift` (1024 lines)
+- **Purpose**: Clipboard synchronization, timing coordination, smart logging, pre-recording capture
 - **Key Methods**: `startEarlyMonitoring()`, `executeInsertWithEnhancedClipboardSync()`, `startActionExecution()`, `finishActionExecution()`
-- **Critical Features**: Early monitoring sessions, smart restoration logic, action execution boundaries
+- **Critical Features**: Dual monitoring architecture, single shared instance, smart restoration logic, action execution boundaries
+- **Architecture**: Single instance shared between RecordingsFolderWatcher and ActionExecutor to prevent duplicate monitoring
 
 #### 4. `macrowhisper/Utils/ActionExecutor.swift` (347 lines)
 - **Purpose**: Unified action execution, moveTo handling
