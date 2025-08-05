@@ -500,7 +500,7 @@ class RecordingsFolderWatcher {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             let sessionClipboardContent = clipboardMonitor.getSessionClipboardContent(for: recordingPath, swResult: swResult)
             if !sessionClipboardContent.isEmpty {
-                enhancedMetaJson["clipboardContent"] = sessionClipboardContent
+                enhancedMetaJson["clipboardContext"] = sessionClipboardContent
             }
             
             // Mark as processed before executing actions to prevent reprocessing

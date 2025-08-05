@@ -45,7 +45,7 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
 5. Context Gathering & Session Data Enhancement
    ├── Front App context
    ├── Add selectedText to metaJson
-   ├── Add clipboardContent to metaJson (session priority, pre-recording fallback)
+   ├── Add clipboardContext to metaJson (session priority, pre-recording fallback)
    └── Add appContext (if placeholder used)
    ↓
 6. Action Priority Evaluation
@@ -157,7 +157,7 @@ private struct ClipboardChange {
 - **Smart Logging**: Only logs clipboard changes during actual action execution periods (content not logged for privacy)
 - **Single Instance**: Shared ClipboardMonitor prevents duplicate monitoring
 - **Continuous Monitoring**: Always tracks changes for restoration, but controls log visibility
-- **Pre-Recording Capture**: 5-second rolling buffer for {{clipboardContent}} placeholder
+- **Pre-Recording Capture**: 5-second rolling buffer for {{clipboardContext}} placeholder
 - **Change Tracking**: Monitors all clipboard changes during the session
 - **Smart Restoration**: Determines correct clipboard content to restore based on session history
 - **Action Execution Boundaries**: Clear start/finish markers for relevant logging periods

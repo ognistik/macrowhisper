@@ -54,7 +54,7 @@ swift build
 
 **Session-Based Placeholders** (captured during recording):
 - `{{selectedText}}` - Text selected when recording starts (early capture)
-- `{{clipboardContent}}` - Last clipboard change during recording session
+- `{{clipboardContext}}` - Last clipboard change during recording session
 - `{{appContext}}` - Structured app context (captured on-demand)
 
 **Usage Examples:**
@@ -62,12 +62,12 @@ swift build
 - `{{json:selectedText}}` - Gets selected text with JSON escaping
 - `{{raw:selectedText}}` - Gets selected text with no escaping
 - `{{selectedText||\\n||newline}}` - Gets selected text and replaces newlines
-- `{{clipboardContent}}` - Last clipboard content during recording
+- `{{clipboardContext}}` - Last clipboard content during recording
 - `{{appContext}}` - Structured app context (app name, window, URL, input content)
 
 #### Implementation Notes:
 - **selectedText**: Captured immediately when recording folder appears (if text is selected)
-- **clipboardContent**: Captured from clipboard monitoring session (works regardless of restoreClipboard setting)
+- **clipboardContext**: Captured from clipboard monitoring session (works regardless of restoreClipboard setting)
 - **appContext**: Only captured when placeholder is used in action (performance optimization)
 
 #### Example: Adding Session-Based Placeholder

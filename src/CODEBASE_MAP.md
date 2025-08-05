@@ -247,7 +247,7 @@ if meta.json exists immediately {
 2. **Early Data Capture**: Capture selectedText and clipboard state when monitoring starts
 3. **Meta.json Waiting**: Handle delayed meta.json creation with timeout
 4. **Context Gathering**: Capture application context and mode information
-5. **Session Data Enhancement**: Add selectedText and clipboardContent to metaJson
+5. **Session Data Enhancement**: Add selectedText and clipboardContext to metaJson
 6. **AutoReturn Priority Check**: Highest priority action with intelligent cancellation
 7. **Unified Trigger Evaluation**: Use TriggerEvaluator to find matching actions across all types
 8. **Unified Action Execution**: Execute matched actions via ActionExecutor with enhanced metaJson
@@ -363,14 +363,14 @@ if meta.json exists immediately {
 - **Lightweight app-lifetime monitoring**: Continuous 5-second rolling buffer of clipboard changes from app startup
 - **Smart session monitoring**: Only starts intensive session monitoring when meta.json is incomplete; skips if recording is ready immediately
 - **Early session data capture**: Captures selectedText, userOriginalClipboard, and pre-recording clipboard when recording folder appears
-- **Enhanced clipboardContent logic**: Prioritizes session changes, falls back to pre-recording clipboard content from global history
+- **Enhanced clipboardContext logic**: Prioritizes session changes, falls back to pre-recording clipboard content from global history
 - **Smart logging system**: Only logs clipboard changes during actual action execution periods (content not logged for privacy)
 - **Dual monitoring architecture**: Lightweight global monitoring (0.5s intervals) + intensive session monitoring (0.01s intervals)
 - **Single instance architecture**: Shared ClipboardMonitor instance prevents duplicate monitoring and logging
 - **Action execution boundaries**: Clear start/finish markers for relevant logging periods
 - **Thread-safe management**: Concurrent monitoring with proper synchronization using barriers
 - **Configurable restoration**: Optional clipboard restoration for user preference
-- **Independent placeholder support**: clipboardContent placeholder works regardless of restoreClipboard setting
+- **Independent placeholder support**: clipboardContext placeholder works regardless of restoreClipboard setting
 
 **Enhanced Session Structure**:
 ```swift
@@ -411,7 +411,7 @@ private struct EarlyMonitoringSession {
 
 **Placeholder Data Extraction**:
 - **selectedText**: From session start capture, independent of current selection
-- **clipboardContent**: Enhanced with pre-recording support:
+- **clipboardContext**: Enhanced with pre-recording support:
   - **Priority 1**: Last clipboard change during recording session (maintains current behavior)
   - **Priority 2**: Most recent clipboard change within 5 seconds before recording started (new feature)
   - **Fallback**: Empty string if no relevant changes found
@@ -498,15 +498,15 @@ private struct EarlyMonitoringSession {
    - **JSON-escaped app context**: `{{json:appContext}}` applies JSON string escaping
    - **Raw app context**: `{{raw:appContext}}` applies no escaping (useful for AppleScript)
    - **Performance optimized**: Fast capture with minimal processing overhead
-7. **Clipboard Content**: `{{clipboardContent}}` gets clipboard content with enhanced pre-recording capture
+7. **Clipboard Content**: `{{clipboardContext}}` gets clipboard content with enhanced pre-recording capture
    - **Enhanced capture logic**: 
      - **Priority 1**: Last clipboard change during recording session (maintains existing behavior)
      - **Priority 2**: Most recent clipboard change within 5 seconds before recording started (new feature)
    - **Pre-recording buffer**: Continuously monitors clipboard with 5-second rolling buffer before recordings
    - **Intelligent fallback**: Uses pre-recording content only when no session changes occurred
    - **Independence**: Works regardless of `restoreClipboard` setting
-   - **JSON-escaped clipboard**: `{{json:clipboardContent}}` applies JSON string escaping
-   - **Raw clipboard**: `{{raw:clipboardContent}}` applies no escaping (useful for AppleScript)
+   - **JSON-escaped clipboard**: `{{json:clipboardContext}}` applies JSON string escaping
+   - **Raw clipboard**: `{{raw:clipboardContext}}` applies no escaping (useful for AppleScript)
    - **Empty behavior**: If no relevant clipboard changes found, placeholder is removed entirely
 8. **Regex Replacements**: All placeholders support `{{placeholder||regex||replacement}}` syntax
    - **Multiple replacements**: `{{key||pattern1||replace1||pattern2||replace2}}` applied sequentially
@@ -633,7 +633,7 @@ RecordingsFolderWatcher detects new directory
 ├── Gather application context (foreground app, bundle ID, mode)
 ├── Enhance metaJson with session data:
 │   ├── Add selectedText (from early capture)
-│   ├── Add clipboardContent (last clipboard change during session)
+│   ├── Add clipboardContext (last clipboard change during session)
 │   └── Add frontApp context
 ├── Unified Action Priority Evaluation (STRICT ORDER):
 │   ├── 1. Auto-Return (highest priority - overrides everything)

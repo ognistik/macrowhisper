@@ -333,9 +333,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 }
             }
             
-            // Handle clipboardContent (from clipboard monitoring session)
-            else if key == "clipboardContent" {
-                var value = metaJson["clipboardContent"] as? String ?? ""
+            // Handle clipboardContext (from clipboard monitoring session)
+            else if key == "clipboardContext" {
+                var value = metaJson["clipboardContext"] as? String ?? ""
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -639,9 +639,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 }
             }
             
-            // Handle clipboardContent (from clipboard monitoring session)
-            else if key == "clipboardContent" {
-                var value = metaJson["clipboardContent"] as? String ?? ""
+            // Handle clipboardContext (from clipboard monitoring session)
+            else if key == "clipboardContext" {
+                var value = metaJson["clipboardContext"] as? String ?? ""
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {

@@ -190,7 +190,7 @@ class ActionExecutor {
     
     // MARK: - Helper Methods
     
-    /// Enhances metaJson with session data from clipboard monitor (selectedText, clipboardContent)
+    /// Enhances metaJson with session data from clipboard monitor (selectedText, clipboardContext)
     private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String) -> [String: Any] {
         var enhanced = metaJson
         
@@ -200,11 +200,11 @@ class ActionExecutor {
             enhanced["selectedText"] = sessionSelectedText
         }
         
-        // Get clipboard content for the clipboardContent placeholder
+        // Get clipboard content for the clipboardContext placeholder
         let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
         let sessionClipboardContent = clipboardMonitor.getSessionClipboardContent(for: recordingPath, swResult: swResult)
         if !sessionClipboardContent.isEmpty {
-            enhanced["clipboardContent"] = sessionClipboardContent
+            enhanced["clipboardContext"] = sessionClipboardContent
         }
         
         return enhanced
