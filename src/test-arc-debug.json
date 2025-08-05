@@ -1,0 +1,27 @@
+{
+  "defaults": {
+    "watch": "~/Documents/superwhisper",
+    "noUpdates": false,
+    "noNoti": false,
+    "activeAction": "",
+    "icon": "",
+    "moveTo": "",
+    "noEsc": false,
+    "simKeypress": false,
+    "actionDelay": 0.0,
+    "history": null,
+    "pressReturn": false,
+    "returnDelay": 0.1,
+    "restoreClipboard": true
+  },
+  "inserts": {
+    "arc_debug_test": {
+      "action": "Arc Debug Test - App Context:\n{{appContext}}\n\nResult: {{swResult}}",
+      "icon": "🐛",
+      "triggerVoice": "debug arc",
+      "triggerApps": "",
+      "triggerModes": "",
+      "triggerLogic": "and"
+    }
+  }
+}

@@ -440,48 +440,380 @@ func getSelectedText() -> String {
     return ""
 }
 
-/// Gets all the text content from the frontmost application window using accessibility APIs
-/// Returns the text content if any, or empty string if no content found or accessibility fails
-func getWindowContent() -> String {
+/// Gets structured app context information from the frontmost application
+/// Returns formatted context with app name, window title, names, URL, and input field content
+func getAppContext() -> String {
     // Check if we have accessibility permissions
     guard AXIsProcessTrusted() else {
-        logDebug("[WindowContent] No accessibility permissions, cannot get window content")
+        logDebug("[AppContext] No accessibility permissions, cannot get app context")
         return ""
     }
     
     // Get the frontmost application
     guard let frontApp = NSWorkspace.shared.frontmostApplication else {
-        logDebug("[WindowContent] No frontmost application found")
+        logDebug("[AppContext] No frontmost application found")
         return ""
     }
+    
+    // Start building the context
+    var contextParts: [String] = []
+    
+    // Active App (always included)
+    let appName = frontApp.localizedName ?? "Unknown"
+    contextParts.append("ACTIVE APP: \(appName)")
     
     // Create accessibility element for the application
     let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
     
-    // Get the focused window
+    // Active Window (always included)
+    var windowTitle = "Unknown"
     var focusedWindow: CFTypeRef?
     let focusedWindowError = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
     
-    guard focusedWindowError == .success, let focusedWindow = focusedWindow else {
-        logDebug("[WindowContent] Could not get focused window for \(frontApp.localizedName ?? "unknown app")")
-        return ""
+    if focusedWindowError == .success, let focusedWindow = focusedWindow {
+        let windowElement = focusedWindow as! AXUIElement
+        var windowTitleValue: CFTypeRef?
+        let titleError = AXUIElementCopyAttributeValue(windowElement, kAXTitleAttribute as CFString, &windowTitleValue)
+        
+        if titleError == .success, let titleValue = windowTitleValue, let title = titleValue as? String, !title.isEmpty {
+            windowTitle = title
+        }
+    }
+    contextParts.append("ACTIVE WINDOW: \(windowTitle)")
+    
+    // Names and usernames removed for performance optimization
+    
+    // Active URL (optional - only for browsers)
+    if let url = getBrowserURL(appElement: appElement, frontApp: frontApp) {
+        contextParts.append("ACTIVE URL: \(url)")
+    }
+    
+    // Active Element Content (optional - only if in input field)
+    if let inputContent = getInputFieldContent(appElement: appElement) {
+        contextParts.append("ACTIVE ELEMENT CONTENT:\n\(inputContent)")
+    }
+    
+    let result = contextParts.joined(separator: "\n")
+    logDebug("[AppContext] Generated app context with \(contextParts.count) sections")
+    return result
+}
+
+/// Gets the current URL from browser applications
+private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplication) -> String? {
+    // Check if this is a known browser application
+    let browserBundleIds = [
+        "com.apple.Safari",
+        "com.google.Chrome", 
+        "org.mozilla.firefox",
+        "com.microsoft.edgemac",
+        "com.operasoftware.Opera",
+        "com.brave.Browser",
+        "com.vivaldi.Vivaldi",
+        "company.thebrowser.Browser",  // Arc Browser
+        "org.chromium.Chromium"
+    ]
+    
+    let bundleId = frontApp.bundleIdentifier ?? "unknown"
+    logDebug("[AppContext] Current app bundle ID: \(bundleId)")
+    
+    guard browserBundleIds.contains(bundleId) else {
+        logDebug("[AppContext] App with bundle ID '\(bundleId)' is not a recognized browser")
+        return nil
+    }
+    
+    logDebug("[AppContext] Recognized browser: \(bundleId)")
+    
+    // Try to get URL from address bar using accessibility
+    var focusedWindow: CFTypeRef?
+    let windowError = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+    
+    guard windowError == .success, let focusedWindow = focusedWindow else {
+        logDebug("[AppContext] Failed to get focused window for URL extraction")
+        return nil
     }
     
     let windowElement = focusedWindow as! AXUIElement
     
-    // Recursively collect all text content from the window
-    let allText = collectTextFromElement(windowElement)
+    // Special handling for Arc browser - prioritize AppleScript for full URL
+    if bundleId == "company.thebrowser.Browser" {
+        // Try AppleScript first to get the complete URL with path/parameters
+        if let scriptUrl = getArcURLViaAppleScript() {
+            logDebug("[AppContext] Successfully found full Arc URL via AppleScript: \(scriptUrl)")
+            return scriptUrl
+        } else {
+            // Fallback to accessibility method for basic domain
+            if let arcUrl = findArcBrowserURL(windowElement) {
+                logDebug("[AppContext] AppleScript failed, using accessibility Arc URL: \(arcUrl)")
+                return arcUrl
+            }
+        }
+    }
     
-    if !allText.isEmpty {
-        logDebug("[WindowContent] Found window content.")
-        return allText
+    // Look for URL in address bar for other browsers
+    let urlString = findAddressBarURL(windowElement)
+    
+    if let url = urlString, !url.isEmpty {
+        logDebug("[AppContext] Successfully found URL: \(url)")
     } else {
-        logDebug("[WindowContent] No text content found in window for \(frontApp.localizedName ?? "unknown app")")
-        return ""
+        logDebug("[AppContext] No URL found in browser window")
+    }
+    
+    return urlString?.isEmpty == false ? urlString : nil
+}
+
+/// Specifically searches for Arc browser URL using the commandBarPlaceholderTextField identifier
+private func findArcBrowserURL(_ element: AXUIElement) -> String? {
+    return findArcURLRecursively(element, depth: 0)
+}
+
+/// Recursively searches for Arc browser URL with the specific identifier
+private func findArcURLRecursively(_ element: AXUIElement, depth: Int) -> String? {
+    // Limit recursion depth for performance
+    guard depth < 10 else { return nil }
+    
+    // Check if this element has the Arc URL identifier
+    var identifier: CFTypeRef?
+    let identifierError = AXUIElementCopyAttributeValue(element, "AXIdentifier" as CFString, &identifier)
+    
+    if identifierError == .success, let identifier = identifier, let identifierString = identifier as? String {
+        if identifierString == "commandBarPlaceholderTextField" {
+            // This is Arc's URL element - get its value
+            var value: CFTypeRef?
+            let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+            
+            if valueError == .success, let value = value, let urlText = value as? String {
+                let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty && trimmed != "Search…" { // Ignore placeholder text
+                    // Arc stores URL without protocol most of the time, so add https:// if it looks like a domain
+                    if trimmed.contains(".") && !trimmed.hasPrefix("http") {
+                        logDebug("[ARC URL] Found Arc domain: \(trimmed), adding https://")
+                        return "https://\(trimmed)"
+                    } else if trimmed.hasPrefix("http") {
+                        logDebug("[ARC URL] Found Arc URL with protocol: \(trimmed)")
+                        return trimmed
+                    }
+                }
+            }
+        }
+    }
+    
+    // Check children elements
+    var children: CFTypeRef?
+    let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+    
+    if childrenError == .success, let children = children, let childrenArray = children as? [AXUIElement] {
+        for child in childrenArray {
+            if let foundURL = findArcURLRecursively(child, depth: depth + 1) {
+                return foundURL
+            }
+        }
+    }
+    
+    return nil
+}
+
+/// Gets the current URL from Arc browser using AppleScript as a fallback
+/// This provides the full URL including path, query parameters, etc.
+private func getArcURLViaAppleScript() -> String? {
+    // Try multiple AppleScript approaches for Arc
+    let scripts = [
+        // Standard approach
+        """
+        tell application "Arc"
+            try
+                set currentURL to URL of active tab of front window
+                return currentURL
+            on error
+                return ""
+            end try
+        end tell
+        """,
+        // Alternative approach using document
+        """
+        tell application "Arc"
+            try
+                set currentURL to URL of active tab of document 1
+                return currentURL
+            on error
+                return ""
+            end try
+        end tell
+        """,
+        // Direct window approach
+        """
+        tell application "Arc"
+            try
+                tell front window
+                    set currentURL to URL of active tab
+                    return currentURL
+                end tell
+            on error
+                return ""
+            end try
+        end tell
+        """
+    ]
+    
+    for (index, script) in scripts.enumerated() {
+        logDebug("[ARC APPLESCRIPT] Trying approach \(index + 1)")
+        
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", script]
+        
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+        
+        do {
+            try task.run()
+            task.waitUntilExit()
+            
+            if task.terminationStatus == 0 {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let output = String(data: data, encoding: .utf8) {
+                    let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty && trimmed != "" && isValidURL(trimmed) {
+                        logDebug("[ARC APPLESCRIPT] Successfully retrieved full URL (approach \(index + 1)): \(trimmed)")
+                        return trimmed
+                    } else {
+                        logDebug("[ARC APPLESCRIPT] Approach \(index + 1) returned empty/invalid: '\(trimmed)'")
+                    }
+                }
+            } else {
+                logDebug("[ARC APPLESCRIPT] Approach \(index + 1) failed with exit code: \(task.terminationStatus)")
+            }
+        } catch {
+            logDebug("[ARC APPLESCRIPT] Approach \(index + 1) error: \(error)")
+        }
+    }
+    
+    logDebug("[ARC APPLESCRIPT] All approaches failed")
+    return nil
+}
+
+/// Specifically searches for address bar URLs in browser windows
+private func findAddressBarURL(_ element: AXUIElement) -> String? {
+    // Look for address bar by checking for text fields with URL-like content
+    return findAddressBarRecursively(element, depth: 0)
+}
+
+/// Recursively searches for address bar URLs with depth limiting for performance
+private func findAddressBarRecursively(_ element: AXUIElement, depth: Int) -> String? {
+    // Limit recursion depth for performance
+    guard depth < 10 else { return nil }
+    
+    // Check if this element is a text field (potential address bar)
+    var role: CFTypeRef?
+    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+    
+    if roleError == .success, let role = role, let roleString = role as? String {
+        if roleString == "AXTextField" || roleString == "AXComboBox" {
+            // Check if it contains a URL
+            var value: CFTypeRef?
+            let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+            
+            if valueError == .success, let value = value, let text = value as? String {
+                // Use strict URL validation
+                if isValidURL(text) {
+                    return text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            
+            // Also check for placeholder or title attributes that might contain URL
+            let urlAttributes = ["AXPlaceholderValue"]
+            for attribute in urlAttributes {
+                var attrValue: CFTypeRef?
+                let attrError = AXUIElementCopyAttributeValue(element, attribute as CFString, &attrValue)
+                
+                if attrError == .success, let attrValue = attrValue, let text = attrValue as? String {
+                    if isValidURL(text) {
+                        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+            }
+        }
+    }
+    
+    // Check children elements (limit depth for performance)
+    var children: CFTypeRef?
+    let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+    
+    if childrenError == .success, let children = children, let childrenArray = children as? [AXUIElement] {
+        // Prioritize likely address bar containers (toolbars, etc.)
+        for child in childrenArray {
+            if let foundURL = findAddressBarRecursively(child, depth: depth + 1) {
+                return foundURL
+            }
+        }
+    }
+    
+    return nil
+}
+
+/// Validates if a string is a proper URL
+private func isValidURL(_ text: String) -> Bool {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    // Must not be empty and reasonable length
+    guard !trimmed.isEmpty && trimmed.count < 2000 else { return false }
+    
+    // Must start with http(s):// or be a valid domain
+    if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+        // Additional validation for HTTP URLs
+        return URL(string: trimmed) != nil
+    }
+    
+    // For non-HTTP URLs, check if it's a valid domain-like structure
+    let domainPattern = "^[a-zA-Z0-9]([a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?\\.[a-zA-Z]{2,}(:[0-9]+)?(/.*)?$"
+    do {
+        let regex = try NSRegularExpression(pattern: domainPattern, options: [])
+        let range = NSRange(location: 0, length: trimmed.utf16.count)
+        return regex.firstMatch(in: trimmed, options: [], range: range) != nil
+    } catch {
+        return false
     }
 }
 
-/// Recursively collects text content from an accessibility element and its children
+/// Gets the content of the currently focused input field
+private func getInputFieldContent(appElement: AXUIElement) -> String? {
+    // Get focused element
+    var focusedElement: CFTypeRef?
+    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    
+    guard focusedError == .success, let focusedElement = focusedElement else {
+        return nil
+    }
+    
+    let element = focusedElement as! AXUIElement
+    
+    // Check if this is an input field
+    var role: CFTypeRef?
+    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+    
+    guard roleError == .success, let role = role, let roleString = role as? String else {
+        return nil
+    }
+    
+    // Check for input field roles
+    let inputRoles = ["AXTextField", "AXTextArea", "AXSearchField"]
+    guard inputRoles.contains(roleString) else {
+        return nil
+    }
+    
+    // Get the value (content) of the input field
+    var value: CFTypeRef?
+    let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+    
+    if valueError == .success, let value = value, let content = value as? String, !content.isEmpty {
+        // Return content preserving line breaks and formatting
+        return content
+    }
+    
+    return nil
+}
+
+/// Recursively collects text content from an accessibility element and its children (legacy function)
 private func collectTextFromElement(_ element: AXUIElement) -> String {
     var collectedText: [String] = []
     
@@ -520,4 +852,117 @@ private func collectTextFromElement(_ element: AXUIElement) -> String {
         .joined(separator: " ")
     
     return cleanedText
+}
+
+/// Comprehensive debugging function to log all accessibility elements with their attributes
+/// Specifically designed to help debug Arc browser URL detection issues
+private func debugLogAllElements(_ element: AXUIElement, depth: Int, maxDepth: Int, prefix: String) {
+    // Limit recursion depth for performance
+    guard depth <= maxDepth else { return }
+    
+    let indent = String(repeating: "  ", count: depth)
+    
+    // Get basic element info
+    var role: CFTypeRef?
+    var roleDescription: CFTypeRef?
+    var title: CFTypeRef?
+    var value: CFTypeRef?
+    var description: CFTypeRef?
+    var help: CFTypeRef?
+    var placeholder: CFTypeRef?
+    var identifier: CFTypeRef?
+    var label: CFTypeRef?
+    
+    AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+    AXUIElementCopyAttributeValue(element, kAXRoleDescriptionAttribute as CFString, &roleDescription)
+    AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
+    AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+    AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &description)
+    AXUIElementCopyAttributeValue(element, kAXHelpAttribute as CFString, &help)
+    AXUIElementCopyAttributeValue(element, "AXPlaceholderValue" as CFString, &placeholder)
+    AXUIElementCopyAttributeValue(element, "AXIdentifier" as CFString, &identifier)
+    AXUIElementCopyAttributeValue(element, "AXLabel" as CFString, &label)
+    
+    let roleStr = (role as? String) ?? "nil"
+    let roleDescStr = (roleDescription as? String) ?? "nil"
+    let titleStr = (title as? String) ?? "nil"
+    let valueStr = (value as? String) ?? "nil"
+    let descStr = (description as? String) ?? "nil"
+    let helpStr = (help as? String) ?? "nil"
+    let placeholderStr = (placeholder as? String) ?? "nil"
+    let identifierStr = (identifier as? String) ?? "nil"
+    let labelStr = (label as? String) ?? "nil"
+    
+    // Create a comprehensive log entry for this element
+    var elementInfo = "\(prefix) \(indent)ELEMENT[depth=\(depth)]:"
+    elementInfo += "\n\(prefix) \(indent)  Role: \(roleStr)"
+    elementInfo += "\n\(prefix) \(indent)  RoleDescription: \(roleDescStr)"
+    elementInfo += "\n\(prefix) \(indent)  Title: \(titleStr)"
+    elementInfo += "\n\(prefix) \(indent)  Value: \(valueStr)"
+    elementInfo += "\n\(prefix) \(indent)  Description: \(descStr)"
+    elementInfo += "\n\(prefix) \(indent)  Help: \(helpStr)"
+    elementInfo += "\n\(prefix) \(indent)  Placeholder: \(placeholderStr)"
+    elementInfo += "\n\(prefix) \(indent)  Identifier: \(identifierStr)"
+    elementInfo += "\n\(prefix) \(indent)  Label: \(labelStr)"
+    
+    // Check if value looks like a URL
+    if let valueString = value as? String, !valueString.isEmpty {
+        if isValidURL(valueString) {
+            elementInfo += "\n\(prefix) \(indent)  *** POTENTIAL URL FOUND *** Value: \(valueString)"
+        } else if valueString.contains("http") || valueString.contains("www.") || valueString.contains(".com") {
+            elementInfo += "\n\(prefix) \(indent)  *** URL-LIKE TEXT *** Value: \(valueString)"
+        }
+    }
+    
+    // Check placeholder for URLs too
+    if let placeholderString = placeholder as? String, !placeholderString.isEmpty {
+        if isValidURL(placeholderString) {
+            elementInfo += "\n\(prefix) \(indent)  *** POTENTIAL URL IN PLACEHOLDER *** Placeholder: \(placeholderString)"
+        } else if placeholderString.contains("http") || placeholderString.contains("www.") || placeholderString.contains(".com") {
+            elementInfo += "\n\(prefix) \(indent)  *** URL-LIKE TEXT IN PLACEHOLDER *** Placeholder: \(placeholderString)"
+        }
+    }
+    
+    logInfo(elementInfo)
+    
+    // Get all available attributes for this element (additional debugging)
+    var attributeNames: CFArray?
+    let attributesError = AXUIElementCopyAttributeNames(element, &attributeNames)
+    
+    if attributesError == .success, let attributeNames = attributeNames, let attributeNamesArray = attributeNames as? [String] {
+        if !attributeNamesArray.isEmpty {
+            var allAttributes = "\(prefix) \(indent)  Available Attributes: \(attributeNamesArray.joined(separator: ", "))"
+            
+            // Check for any custom attributes that might contain URL
+            for attribute in attributeNamesArray {
+                if attribute.lowercased().contains("url") || attribute.lowercased().contains("address") || attribute.lowercased().contains("location") {
+                    var customValue: CFTypeRef?
+                    let customError = AXUIElementCopyAttributeValue(element, attribute as CFString, &customValue)
+                    if customError == .success, let customValue = customValue, let customString = customValue as? String {
+                        allAttributes += "\n\(prefix) \(indent)  *** CUSTOM URL ATTRIBUTE *** \(attribute): \(customString)"
+                    }
+                }
+            }
+            
+            logInfo(allAttributes)
+        }
+    }
+    
+    // Process children elements
+    var children: CFTypeRef?
+    let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+    
+    if childrenError == .success, let children = children, let childrenArray = children as? [AXUIElement] {
+        if !childrenArray.isEmpty {
+            logInfo("\(prefix) \(indent)  Children count: \(childrenArray.count)")
+            for (index, child) in childrenArray.enumerated() {
+                if index < 50 { // Limit children to prevent too much output
+                    debugLogAllElements(child, depth: depth + 1, maxDepth: maxDepth, prefix: prefix)
+                } else {
+                    logInfo("\(prefix) \(indent)  ... (truncated remaining \(childrenArray.count - 50) children)")
+                    break
+                }
+            }
+        }
+    }
 }

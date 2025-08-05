@@ -464,12 +464,13 @@ private struct EarlyMonitoringSession {
    - **JSON-escaped selected text**: `{{json:selectedText}}` applies JSON string escaping to selected text
    - **Raw selected text**: `{{raw:selectedText}}` applies no escaping to selected text (useful for AppleScript)
    - **Empty behavior**: If no text was selected at recording start, placeholder is removed entirely
-6. **Window Content**: `{{windowContent}}` gets all text content from the frontmost application window
+6. **App Context**: `{{appContext}}` gets structured context information from the frontmost application
    - **Capture timing**: Captured during placeholder processing only if placeholder is used in action
-   - **Accessibility-based**: Uses macOS accessibility APIs to recursively extract text from window elements
-   - **JSON-escaped window content**: `{{json:windowContent}}` applies JSON string escaping
-   - **Raw window content**: `{{raw:windowContent}}` applies no escaping (useful for AppleScript)
-   - **Performance**: Only captured when placeholder is actually used in action
+   - **Structured format**: Always includes Active App and Active Window, optionally includes Active URL (browsers) and Active Element Content (input fields)
+   - **Accessibility-based**: Uses macOS accessibility APIs to extract app, window, URL, and input field content
+   - **JSON-escaped app context**: `{{json:appContext}}` applies JSON string escaping
+   - **Raw app context**: `{{raw:appContext}}` applies no escaping (useful for AppleScript)
+   - **Performance optimized**: Fast capture with minimal processing overhead
 7. **Clipboard Content**: `{{clipboardContent}}` gets the last clipboard content captured during monitoring session
    - **Capture timing**: Last clipboard change during recording session, not initial clipboard
    - **Session-based**: Only captures clipboard changes that occurred after recording folder appeared

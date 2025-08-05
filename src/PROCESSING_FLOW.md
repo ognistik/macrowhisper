@@ -43,7 +43,7 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
    ├── Front App context
    ├── Add selectedText to metaJson
    ├── Add clipboardContent to metaJson
-   └── Add windowContent (if placeholder used)
+   └── Add appContext (if placeholder used)
    ↓
 6. Action Priority Evaluation
    ├── Auto-Return (Highest Priority)

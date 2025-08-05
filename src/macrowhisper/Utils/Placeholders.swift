@@ -308,9 +308,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 }
             }
             
-            // Handle windowContent (captured during placeholder processing if placeholder is present)
-            else if key == "windowContent" {
-                var value = getWindowContent()
+            // Handle appContext (captured during placeholder processing if placeholder is present)
+            else if key == "appContext" {
+                var value = getAppContext()
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -607,9 +607,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 }
             }
             
-            // Handle windowContent (captured during placeholder processing if placeholder is present)
-            else if key == "windowContent" {
-                var value = getWindowContent()
+            // Handle appContext (captured during placeholder processing if placeholder is present)
+            else if key == "appContext" {
+                var value = getAppContext()
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
