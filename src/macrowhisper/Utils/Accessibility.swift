@@ -459,7 +459,7 @@ func getAppContext() -> String {
     var contextParts: [String] = []
     
     // Active App (always included)
-    let appName = frontApp.localizedName ?? "Unknown"
+    let appName = (frontApp.localizedName ?? "Unknown").trimmingCharacters(in: .whitespacesAndNewlines)
     contextParts.append("ACTIVE APP: \(appName)")
     
     // Create accessibility element for the application
@@ -476,7 +476,7 @@ func getAppContext() -> String {
         let titleError = AXUIElementCopyAttributeValue(windowElement, kAXTitleAttribute as CFString, &windowTitleValue)
         
         if titleError == .success, let titleValue = windowTitleValue, let title = titleValue as? String, !title.isEmpty {
-            windowTitle = title
+            windowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
     contextParts.append("ACTIVE WINDOW: \(windowTitle)")
@@ -806,8 +806,8 @@ private func getInputFieldContent(appElement: AXUIElement) -> String? {
     let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
     
     if valueError == .success, let value = value, let content = value as? String, !content.isEmpty {
-        // Return content preserving line breaks and formatting
-        return content
+        // Return content with trimmed leading/trailing whitespace but preserve internal formatting
+        return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     return nil
