@@ -1,0 +1,353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
+  "title": "Macrowhisper Configuration",
+  "description": "Configuration schema for Macrowhisper, an automation helper for Superwhisper dictation app",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE validation support"
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Global default settings for all actions",
+      "properties": {
+        "watch": {
+          "type": "string",
+          "description": "Path to Superwhisper recordings folder",
+          "examples": ["~/Documents/superwhisper", "/Users/username/Documents/superwhisper"]
+        },
+        "noUpdates": {
+          "type": "boolean",
+          "description": "Disable automatic update checking",
+          "default": false
+        },
+        "noNoti": {
+          "type": "boolean",
+          "description": "Disable system notifications",
+          "default": false
+        },
+        "activeAction": {
+          "type": ["string", "null"],
+          "description": "Name of the currently active action (fallback when no triggers match)",
+          "examples": ["autoPaste", "myCustomAction", null]
+        },
+        "icon": {
+          "type": ["string", "null"],
+          "description": "Default icon for actions (emoji or empty string)",
+          "examples": ["🎤", "📝", "⚡", ""]
+        },
+        "moveTo": {
+          "type": ["string", "null"],
+          "description": "Default location to move recording folders after processing. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location)",
+          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", ""]
+        },
+        "noEsc": {
+          "type": "boolean",
+          "description": "Disable ESC key simulation before action execution",
+          "default": false
+        },
+        "simKeypress": {
+          "type": "boolean",
+          "description": "Use keystroke simulation instead of clipboard for text insertion",
+          "default": false
+        },
+        "actionDelay": {
+          "type": "number",
+          "description": "Default delay in seconds before executing actions",
+          "minimum": 0,
+          "default": 0
+        },
+        "history": {
+          "type": ["integer", "null"],
+          "description": "Number of days to retain recording history (null = keep forever, 0 = keep only latest)",
+          "minimum": 0,
+          "examples": [7, 30, null]
+        },
+        "pressReturn": {
+          "type": "boolean",
+          "description": "Automatically press Return/Enter after action execution",
+          "default": false
+        },
+        "returnDelay": {
+          "type": "number",
+          "description": "Delay in seconds before pressing Return (if pressReturn is enabled)",
+          "minimum": 0,
+          "default": 0.1
+        },
+        "restoreClipboard": {
+          "type": "boolean",
+          "description": "Restore original clipboard content after action execution",
+          "default": true
+        }
+      },
+      "required": ["watch", "noUpdates", "noNoti", "noEsc", "simKeypress", "actionDelay", "pressReturn", "returnDelay", "restoreClipboard"],
+      "additionalProperties": false
+    },
+    "inserts": {
+      "type": "object",
+      "description": "Text insertion actions with placeholder support. Manage via CLI: --add-insert <name>, --list-inserts, --remove-action <name>",
+      "patternProperties": {
+        ".*": {
+          "$ref": "#/definitions/insertAction"
+        }
+      }
+    },
+    "urls": {
+      "type": "object",
+      "description": "URL opening actions for web links and applications. Manage via CLI: --add-url <name>, --list-urls, --remove-action <name>",
+      "patternProperties": {
+        ".*": {
+          "$ref": "#/definitions/urlAction"
+        }
+      }
+    },
+    "shortcuts": {
+      "type": "object",
+      "description": "The property name is the actual Shortcut name to execute. Manage via CLI: --add-shortcut <name>, --list-shortcuts, --remove-action <name>.",
+      "patternProperties": {
+        ".*": {
+          "$ref": "#/definitions/shortcutAction"
+        }
+      }
+    },
+    "scriptsShell": {
+      "type": "object",
+      "description": "Shell script execution actions. Manage via CLI: --add-shell <name>, --list-shell, --remove-action <name>",
+      "patternProperties": {
+        ".*": {
+          "$ref": "#/definitions/shellScriptAction"
+        }
+      }
+    },
+    "scriptsAS": {
+      "type": "object",
+      "description": "AppleScript execution actions. Manage via CLI: --add-as <name>, --list-as, --remove-action <name>",
+      "patternProperties": {
+        ".*": {
+          "$ref": "#/definitions/applescriptAction"
+        }
+      }
+    }
+  },
+  "required": ["defaults"],
+  "additionalProperties": false,
+  "definitions": {
+    "baseAction": {
+      "type": "object",
+      "description": "Common properties shared by all action types",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "The action content (text, URL, script, etc.) with placeholder support. Can be empty for no-op actions"
+        },
+        "icon": {
+          "type": ["string", "null"],
+          "description": "Custom icon for this action (overrides default)",
+          "examples": ["🎤", "📝", "⚡", "🔗", ""]
+        },
+        "moveTo": {
+          "type": ["string", "null"],
+          "description": "Where to move the recording folder after processing. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location)",
+          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", ""]
+        },
+        "noEsc": {
+          "type": ["boolean", "null"],
+          "description": "Disable ESC key simulation for this action (overrides default)"
+        },
+        "actionDelay": {
+          "type": ["number", "null"],
+          "description": "Custom delay in seconds before executing this action (overrides default)",
+          "minimum": 0
+        },
+        "restoreClipboard": {
+          "type": ["boolean", "null"],
+          "description": "Override clipboard restoration setting for this action"
+        },
+        "triggerVoice": {
+          "type": ["string", "null"],
+          "description": "Regex pattern for voice trigger matching. Use '!' prefix for exceptions",
+          "examples": ["^summarize", "^(email|mail)", "^search|!private", ""],
+          "default": ""
+        },
+        "triggerApps": {
+          "type": ["string", "null"],
+          "description": "Regex pattern for application trigger matching (app name or bundle ID)",
+          "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", ""],
+          "default": ""
+        },
+        "triggerModes": {
+          "type": ["string", "null"],
+          "description": "Regex pattern for Superwhisper mode trigger matching",
+          "examples": ["email", "writing|notes", "^(email|writing)$", ""],
+          "default": ""
+        },
+        "triggerLogic": {
+          "type": ["string", "null"],
+          "description": "Logic for combining multiple triggers",
+          "enum": ["and", "or"],
+          "default": "or"
+        }
+      },
+      "required": ["action"]
+    },
+    "insertAction": {
+      "allOf": [
+        {"$ref": "#/definitions/baseAction"},
+        {
+          "type": "object",
+          "description": "Text insertion action with advanced placeholder support. Add new: macrowhisper --add-insert <name>",
+          "properties": {
+            "action": {
+              "description": "Text to insert. Supports placeholders: {{result}}, {{swResult}}, {{selectedText}}, {{clipboardContext}}, {{xml:tagname}}, {{date:format}}, {{appContext}}",
+              "examples": [
+                "Dear {{selectedText}}, here's the summary: {{result}}",
+                "{{xml:response}}",
+                ".autoPaste",
+                ".none",
+                ""
+              ]
+            },
+            "simKeypress": {
+              "type": ["boolean", "null"],
+              "description": "Use keystroke simulation instead of clipboard for this action (overrides default)"
+            },
+            "pressReturn": {
+              "type": ["boolean", "null"],
+              "description": "Automatically press Return after this action (overrides default)"
+            }
+          }
+        }
+      ]
+    },
+    "urlAction": {
+      "allOf": [
+        {"$ref": "#/definitions/baseAction"},
+        {
+          "type": "object",
+          "description": "URL opening action for web links and applications. Add new: macrowhisper --add-url <name>",
+          "properties": {
+            "action": {
+              "description": "URL to open. Supports placeholders for dynamic content",
+              "examples": [
+                "https://google.com/search?q={{swResult}}",
+                "https://example.com/api?data={{xml:result}}",
+                "mailto:someone@example.com?subject={{result}}"
+              ]
+            },
+            "openWith": {
+              "type": ["string", "null"],
+              "description": "Specific application to open the URL with",
+              "examples": ["/Applications/Safari.app", "/Applications/Google Chrome.app", ""],
+              "default": ""
+            },
+            "openBackground": {
+              "type": ["boolean", "null"],
+              "description": "Open URL in background without focusing the application",
+              "default": false
+            }
+          }
+        }
+      ]
+    },
+    "shortcutAction": {
+      "type": "object",
+      "description": "The property name is the actual Shortcut name to execute. Add new: --add-shortcut <name>",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Input text to pass to the macOS Shortcut. The shortcut name is the action name (property key) in the config. Supports placeholders for dynamic content",
+          "examples": ["{{swResult}}", "Process this: {{result}}", "{{xml:content}}", "Hello world"]
+        },
+        "icon": {
+          "type": ["string", "null"],
+          "description": "Custom icon for this shortcut action (overrides default)",
+          "examples": ["🎤", "📝", "⚡", "🔗", ""]
+        },
+        "moveTo": {
+          "type": ["string", "null"],
+          "description": "Where to move the recording folder after processing this shortcut. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location)",
+          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", ""]
+        },
+        "noEsc": {
+          "type": ["boolean", "null"],
+          "description": "Disable ESC key simulation for this shortcut (overrides default)"
+        },
+        "actionDelay": {
+          "type": ["number", "null"],
+          "description": "Custom delay in seconds before executing this shortcut (overrides default)",
+          "minimum": 0
+        },
+        "restoreClipboard": {
+          "type": ["boolean", "null"],
+          "description": "Override clipboard restoration setting for this shortcut"
+        },
+        "triggerVoice": {
+          "type": ["string", "null"],
+          "description": "Regex pattern for voice trigger matching. Use '!' prefix for exceptions",
+          "examples": ["^summarize", "^(email|mail)", "^search|!private", ""],
+          "default": ""
+        },
+        "triggerApps": {
+          "type": ["string", "null"],
+          "description": "Regex pattern for application trigger matching (app name or bundle ID)",
+          "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", ""],
+          "default": ""
+        },
+        "triggerModes": {
+          "type": ["string", "null"],
+          "description": "Regex pattern for Superwhisper mode trigger matching",
+          "examples": ["email", "writing|notes", "^(email|writing)$", ""],
+          "default": ""
+        },
+        "triggerLogic": {
+          "type": ["string", "null"],
+          "description": "Logic for combining multiple triggers",
+          "enum": ["and", "or"],
+          "default": "or"
+        }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    },
+    "shellScriptAction": {
+      "allOf": [
+        {"$ref": "#/definitions/baseAction"},
+        {
+          "type": "object",
+          "description": "Shell script execution action. Add new: macrowhisper --add-shell <name>",
+          "properties": {
+            "action": {
+              "description": "Shell command to execute. Supports placeholders and proper escaping",
+              "examples": [
+                "echo '{{swResult}}' | pbcopy",
+                "curl -X POST 'https://api.example.com' -d '{{json:result}}'",
+                "osascript -e 'display notification \"{{result}}\"'"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "applescriptAction": {
+      "allOf": [
+        {"$ref": "#/definitions/baseAction"},
+        {
+          "type": "object",
+          "description": "AppleScript execution action. Add new: macrowhisper --add-as <name>",
+          "properties": {
+            "action": {
+              "description": "AppleScript code to execute. Supports placeholders with proper quote escaping",
+              "examples": [
+                "tell application \"TextEdit\" to make new document with properties {text:\"{{raw:swResult}}\"}",
+                "tell application \"Mail\" to make new outgoing message with properties {subject:\"{{result}}\"}",
+                "display notification \"{{raw:result}}\" with title \"Macrowhisper\""
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

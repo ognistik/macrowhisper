@@ -365,6 +365,113 @@ if args.contains("--get-config") {
     exit(0)
 }
 
+if args.contains("--update-config") {
+    let configPath = ConfigurationManager.getEffectiveConfigPath()
+    
+    // Check if config file exists
+    if !FileManager.default.fileExists(atPath: configPath) {
+        print("❌ Configuration file not found at: \(configPath)")
+        print("Use --reveal-config to create a default configuration file first.")
+        exit(1)
+    }
+    
+    // Create a temporary configuration manager to perform the update
+    let tempConfigManager = ConfigurationManager(configPath: configPath)
+    
+    if tempConfigManager.updateConfiguration() {
+        print("✅ Configuration file updated successfully")
+        print("Applied any new schema changes and fixed formatting issues")
+        print("Your existing settings have been preserved")
+        
+        // Show the path that was updated
+        print("Updated: \(configPath)")
+    } else {
+        print("❌ Failed to update configuration file")
+        print("Please check that the file is valid JSON and try again")
+        exit(1)
+    }
+    exit(0)
+}
+
+// Schema management commands (work without daemon)
+if args.contains("--add-schema") {
+    let configPath = ConfigurationManager.getEffectiveConfigPath()
+    
+    // First check if local schema file exists
+    if SchemaManager.findSchemaPath() == nil {
+        print("❌ Cannot add schema reference: macrowhisper-schema.json not found")
+        print("")
+        print("The schema file should be located:")
+        print("  • Alongside the macrowhisper binary, or")
+        print("  • In Homebrew share directory (/opt/homebrew/share/macrowhisper/), or") 
+        print("  • In development environment")
+        print("")
+        print("If you installed via Homebrew, try: brew reinstall macrowhisper")
+        print("If you installed manually, ensure macrowhisper-schema.json is in the same directory as the binary")
+        exit(1)
+    }
+    
+    if SchemaManager.addSchemaToConfig(configPath: configPath) {
+        print("✅ Schema reference added to configuration file")
+        print("Your IDE should now provide validation and auto-completion for this config file")
+        print("")
+        print("Supported IDEs: VS Code, IntelliJ/WebStorm, Sublime Text (with LSP), Vim/Neovim")
+    } else {
+        print("❌ Failed to add schema reference to configuration file")
+        exit(1)
+    }
+    exit(0)
+}
+
+if args.contains("--remove-schema") {
+    let configPath = ConfigurationManager.getEffectiveConfigPath()
+    if SchemaManager.removeSchemaFromConfig(configPath: configPath) {
+        print("✅ Schema reference removed from configuration file")
+    } else {
+        print("❌ Failed to remove schema reference from configuration file")
+        exit(1)
+    }
+    exit(0)
+}
+
+if args.contains("--schema-info") {
+    let configPath = ConfigurationManager.getEffectiveConfigPath()
+    let hasSchema = SchemaManager.hasSchemaReference(configPath: configPath)
+    
+    print("JSON Schema Information:")
+    print("  Config file: \(configPath)")
+    print("  Has schema reference: \(hasSchema ? "Yes" : "No")")
+    print("")
+    
+    // Debug: Show the paths being checked
+    print("Debug - Paths being checked:")
+    SchemaManager.debugSchemaPaths()
+    print("")
+    
+    if let localSchemaPath = SchemaManager.findSchemaPath() {
+        print("  Local schema file: \(localSchemaPath)")
+        print("  Status: ✅ Schema available for IDE integration")
+        
+        if let schemaReference = SchemaManager.getSchemaReference() {
+            print("  Schema reference: \(schemaReference)")
+        }
+        
+        if !hasSchema {
+            print("")
+            print("To enable IDE validation, run: macrowhisper --add-schema")
+        }
+    } else {
+        print("  Local schema file: ❌ Not found")
+        print("  Status: Schema file missing - IDE integration not available")
+        print("")
+        print("To fix this:")
+        print("  • If installed via Homebrew: brew reinstall macrowhisper")
+        print("  • If installed manually: ensure macrowhisper-schema.json is alongside the binary")
+    }
+    
+    exit(0)
+}
+
 // Service management commands (work without daemon)
 if args.contains("--install-service") {
     suppressConsoleLogging = true
@@ -850,9 +957,10 @@ if args.count > 1 {
     let validDaemonArgs = ["--config", "--verbose"]
     let validQuickCommands = [
         "-h", "--help", "-v", "--version", "--reveal-config", "--set-config", 
-        "--reset-config", "--get-config", "--install-service", "--start-service", 
-        "--stop-service", "--restart-service", "--uninstall-service", "--service-status",
-        "--test-update-dialog", "--test-version", "--test-description", "--version-state", "--version-clear"
+        "--reset-config", "--get-config", "--update-config", "--add-schema", "--remove-schema", "--schema-info",
+        "--install-service", "--start-service", "--stop-service", "--restart-service", 
+        "--uninstall-service", "--service-status", "--test-update-dialog", "--test-version", 
+        "--test-description", "--version-state", "--version-clear"
     ]
     let allValidCommands = validDaemonArgs + validQuickCommands + requireDaemonCommands
     
@@ -941,8 +1049,15 @@ func printHelp() {
       --set-config <path>           Set the default config path for future runs
       --reset-config                Reset config path to default location  
       --get-config                  Show the currently saved config path
+      --update-config               Update configuration file with new schema changes
+                                    (preserves your settings, fixes formatting issues)
       --reveal-config               Open the configuration file in Finder
                                     (creates default config if none exists)
+      
+    IDE INTEGRATION (automatically handled, these are for debugging only):
+      --add-schema                  Manually add JSON schema reference to config file
+      --remove-schema               Remove JSON schema reference from config file  
+      --schema-info                 Show JSON schema information and status
 
     SERVICE MANAGEMENT (allows users to run in bg - work without running instance):
       --install-service             Install macrowhisper as a system service

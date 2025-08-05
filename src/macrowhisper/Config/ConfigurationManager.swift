@@ -33,6 +33,8 @@ class ConfigurationManager {
     private static let userDefaultsKey = "MacrowhisperConfigPath"
     private static let appDefaults = UserDefaults(suiteName: "com.macrowhisper.preferences") ?? UserDefaults.standard
     
+
+    
     init(configPath: String?) {
         let defaultConfigPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
         
@@ -206,6 +208,39 @@ class ConfigurationManager {
         }
     }
     
+    /// Post-process JSON string to round all floating point numbers to 3 decimal places
+    private func roundDoublesInJson(_ jsonString: String) -> String {
+        // This regex matches numbers with a decimal point and more than 3 decimals (not in scientific notation)
+        let pattern = "(-?\\d+\\.\\d{4,})(?![\\deE])"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { 
+            return jsonString 
+        }
+        
+        let nsrange = NSRange(jsonString.startIndex..<jsonString.endIndex, in: jsonString)
+        var result = jsonString
+        let matches = regex.matches(in: jsonString, options: [], range: nsrange)
+        
+        for match in matches.reversed() {
+            if let range = Range(match.range, in: result) {
+                let numberString = String(result[range])
+                if let number = Double(numberString) {
+                    // Round to 3 decimal places, but remove trailing zeros using NumberFormatter
+                    let formatter = NumberFormatter()
+                    formatter.minimumFractionDigits = 0
+                    formatter.maximumFractionDigits = 3
+                    formatter.numberStyle = .decimal
+                    formatter.usesGroupingSeparator = false
+                    
+                    if let formatted = formatter.string(from: NSNumber(value: number)) {
+                        result.replaceSubrange(range, with: formatted)
+                    }
+                }
+            }
+        }
+        
+        return result
+    }
+
     func saveConfig() {
         // Don't overwrite an existing file that failed to load (has invalid JSON)
         if fileManager.fileExists(atPath: configPath) &&
@@ -220,19 +255,68 @@ class ConfigurationManager {
         
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        
-        // Create a custom encoding strategy for paths
-        let pathEncodingStrategy: JSONEncoder.KeyEncodingStrategy = .useDefaultKeys
-        encoder.keyEncodingStrategy = pathEncodingStrategy
-        
+        encoder.keyEncodingStrategy = .useDefaultKeys
         do {
             let data = try encoder.encode(_config)
-            // Convert the data to a string to handle path formatting
             if let jsonString = String(data: data, encoding: .utf8) {
-                // Replace escaped forward slashes with regular forward slashes
-                let formattedJson = jsonString.replacingOccurrences(of: "\\/", with: "/")
+                var formattedJson = jsonString.replacingOccurrences(of: "\\/", with: "/")
+                formattedJson = roundDoublesInJson(formattedJson)
+                
+                // Auto-manage schema reference for seamless IDE integration
+                // This provides automatic schema management without user intervention
+                var finalJson = formattedJson
+                let currentSchemaRef = SchemaManager.getSchemaReference()
+                
+                // Check if schema exists in the JSON we're about to write (more reliable than reading from disk)
+                var hasExistingSchema = false
+                var existingSchemaRef: String? = nil
+                
+                if let jsonData = formattedJson.data(using: .utf8),
+                   let jsonObject = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    existingSchemaRef = jsonObject["$schema"] as? String
+                    hasExistingSchema = existingSchemaRef != nil
+                }
+                
+                logDebug("Schema management check:")
+                logDebug("  - hasExistingSchema: \(hasExistingSchema)")
+                logDebug("  - existingSchemaRef: \(existingSchemaRef ?? "nil")")
+                logDebug("  - currentSchemaRef: \(currentSchemaRef ?? "nil")")
+                
+                var shouldUpdateSchema = false
+                var schemaAction = ""
+                
+                if hasExistingSchema && currentSchemaRef != nil {
+                    // Validate existing schema reference is still correct
+                    if existingSchemaRef != currentSchemaRef {
+                        shouldUpdateSchema = true
+                        schemaAction = "Updated"
+                        logDebug("Schema reference needs updating: \(existingSchemaRef!) -> \(currentSchemaRef!)")
+                    } else {
+                        logDebug("Schema reference is already correct, no update needed")
+                    }
+                } else if !hasExistingSchema && currentSchemaRef != nil {
+                    // Add schema reference if not present and schema file is available
+                    shouldUpdateSchema = true
+                    schemaAction = "Added"
+                    logDebug("Auto-adding schema reference to configuration")
+                }
+                
+                if shouldUpdateSchema, let schemaRef = currentSchemaRef {
+                    // Parse the JSON, add/update schema, and re-serialize
+                    if let jsonData = formattedJson.data(using: .utf8),
+                       var jsonObject = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                        jsonObject["$schema"] = schemaRef
+                        if let updatedData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys]),
+                           let updatedString = String(data: updatedData, encoding: .utf8) {
+                            finalJson = updatedString.replacingOccurrences(of: "\\/", with: "/")
+                            finalJson = roundDoublesInJson(finalJson)  // Apply rounding again after re-serialization
+                            logInfo("\(schemaAction) schema reference for IDE validation: \(schemaRef)")
+                        }
+                    }
+                }
+                
                 // Write the formatted JSON back to data
-                if let formattedData = formattedJson.data(using: .utf8) {
+                if let formattedData = finalJson.data(using: .utf8) {
                     let configDir = (configPath as NSString).deletingLastPathComponent
                     if !fileManager.fileExists(atPath: configDir) {
                         try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
@@ -354,6 +438,31 @@ class ConfigurationManager {
                        message: "Your configuration references an active action named '\(activeActionName)', but no such action exists. Please check your configuration.")
             }
         }
+    }
+    
+    // MARK: - Configuration Update
+    /// Updates the configuration file by reloading from disk and re-saving
+    /// This ensures the configuration is updated with any new schema changes or defaults
+    /// while preserving user data
+    func updateConfiguration() -> Bool {
+        logInfo("Updating configuration file...")
+        
+        // First, try to load the current configuration from disk
+        guard let currentConfig = loadConfig() else {
+            logError("Failed to load current configuration for update")
+            return false
+        }
+        
+        // Update our in-memory config with the loaded data
+        syncQueue.sync {
+            _config = currentConfig
+        }
+        
+        // Save the configuration, which will apply any new schema changes and formatting
+        saveConfig()
+        
+        logInfo("Configuration file updated successfully")
+        return true
     }
 
 } 
