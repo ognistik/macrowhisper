@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
   "description": "Configuration schema for Macrowhisper, an automation helper for Superwhisper dictation app",
@@ -105,7 +105,7 @@
     },
     "shortcuts": {
       "type": "object",
-      "description": "The property name is the actual Shortcut name to execute. Manage via CLI: --add-shortcut <name>, --list-shortcuts, --remove-action <name>.",
+      "description": "MacOS Shortcut actions. Manage via CLI: --add-shortcut <name>, --list-shortcuts, --remove-action <name>.",
       "patternProperties": {
         ".*": {
           "$ref": "#/definitions/shortcutAction"
