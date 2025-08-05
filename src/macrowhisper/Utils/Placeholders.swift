@@ -282,6 +282,82 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
             }
+            
+            // Handle selectedText (now from metaJson, captured during early monitoring)
+            else if key == "selectedText" {
+                var value = metaJson["selectedText"] as? String ?? ""
+                
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on prefix type and action type
+                    let escapedValue: String
+                    switch prefixType {
+                    case "json":
+                        escapedValue = escapeJsonString(value)
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
+                        escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
+            
+            // Handle windowContent (captured during placeholder processing if placeholder is present)
+            else if key == "windowContent" {
+                var value = getWindowContent()
+                
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on prefix type and action type
+                    let escapedValue: String
+                    switch prefixType {
+                    case "json":
+                        escapedValue = escapeJsonString(value)
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
+                        escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
+            
+            // Handle clipboardContent (from clipboard monitoring session)
+            else if key == "clipboardContent" {
+                var value = metaJson["clipboardContent"] as? String ?? ""
+                
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on prefix type and action type
+                    let escapedValue: String
+                    switch prefixType {
+                    case "json":
+                        escapedValue = escapeJsonString(value)
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
+                        escapedValue = isAppleScript ? escapeAppleScriptString(value) : escapeShellCharacters(value)
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
+            
             // Handle swResult
             else if key == "swResult" {
                 var value: String
@@ -498,6 +574,103 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
             }
+            
+            // Handle selectedText (now from metaJson, captured during early monitoring)
+            else if key == "selectedText" {
+                var value = metaJson["selectedText"] as? String ?? ""
+                
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on prefix type and action type
+                    let escapedValue: String
+                    switch prefixType {
+                    case "json":
+                        escapedValue = escapeJsonString(value)
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
+                        switch actionType {
+                        case .shortcut, .insert:
+                            escapedValue = value // No escaping for shortcuts and insert actions
+                        case .appleScript:
+                            escapedValue = escapeAppleScriptString(value)
+                        case .shell, .url:
+                            escapedValue = escapeShellCharacters(value)
+                        }
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
+            
+            // Handle windowContent (captured during placeholder processing if placeholder is present)
+            else if key == "windowContent" {
+                var value = getWindowContent()
+                
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on prefix type and action type
+                    let escapedValue: String
+                    switch prefixType {
+                    case "json":
+                        escapedValue = escapeJsonString(value)
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
+                        switch actionType {
+                        case .shortcut, .insert:
+                            escapedValue = value // No escaping for shortcuts and insert actions
+                        case .appleScript:
+                            escapedValue = escapeAppleScriptString(value)
+                        case .shell, .url:
+                            escapedValue = escapeShellCharacters(value)
+                        }
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
+            
+            // Handle clipboardContent (from clipboard monitoring session)
+            else if key == "clipboardContent" {
+                var value = metaJson["clipboardContent"] as? String ?? ""
+                
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    
+                    // Use appropriate escaping based on prefix type and action type
+                    let escapedValue: String
+                    switch prefixType {
+                    case "json":
+                        escapedValue = escapeJsonString(value)
+                    case "raw":
+                        escapedValue = value  // No escaping for raw prefix
+                    default:
+                        switch actionType {
+                        case .shortcut, .insert:
+                            escapedValue = value // No escaping for shortcuts and insert actions
+                        case .appleScript:
+                            escapedValue = escapeAppleScriptString(value)
+                        case .shell, .url:
+                            escapedValue = escapeShellCharacters(value)
+                        }
+                    }
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
+            
             // Handle swResult
             else if key == "swResult" {
                 var value: String

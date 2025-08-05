@@ -33,7 +33,7 @@ macrowhisper-cli/src/
     │   ├── AppConfiguration.swift   # Configuration data structures (473 lines)
     │   └── ConfigurationManager.swift # Configuration loading/saving/watching (348 lines)
     ├── Watcher/                     # File system monitoring
-    │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings (521 lines)
+    │   ├── RecordingsFolderWatcher.swift # Main file watcher for recordings (766 lines)
     │   ├── SuperwhisperFolderWatcher.swift # Parent directory watcher for graceful startup (85 lines)
     │   └── ConfigChangeWatcher.swift     # Configuration file watcher (42 lines)
     ├── Networking/                  # Network and IPC functionality
@@ -43,11 +43,11 @@ macrowhisper-cli/src/
     │   └── HistoryManager.swift         # Cleanup of old recordings (115 lines)
     └── Utils/                       # Utility functions and helpers
         ├── ServiceManager.swift         # macOS launchd service management (437 lines)
-        ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (753 lines)
-        ├── ActionExecutor.swift         # Action execution coordination (347 lines)
+        ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (817 lines)
+        ├── ActionExecutor.swift         # Action execution coordination (402 lines)
         ├── TriggerEvaluator.swift       # Intelligent trigger evaluation system (385 lines)
-        ├── Accessibility.swift          # macOS accessibility and input simulation (254 lines)
-        ├── Placeholders.swift           # Dynamic content replacement system (427 lines)
+        ├── Accessibility.swift          # macOS accessibility and input simulation (524 lines)
+        ├── Placeholders.swift           # Dynamic content replacement system (785 lines)
         ├── Logger.swift                 # Logging system with rotation (110 lines)
         ├── NotificationManager.swift    # System notifications (23 lines)
         └── ShellUtils.swift             # Shell command escaping utilities (17 lines)
@@ -207,16 +207,16 @@ macrowhisper-cli/src/
 
 ### 4. File System Monitoring
 
-#### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (521 lines)
+#### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (766 lines)
 **Purpose**: Advanced file system watcher with intelligent processing and enhanced autoReturn management
 
 **Key Features**:
 - **Persistent processing tracking**: Prevents duplicate processing using file-based storage
 - **Intelligent startup behavior**: Marks most recent recording as processed on startup
+- **Smart clipboard monitoring initiation**: Only starts clipboard monitoring when needed (incomplete meta.json)
 - **Enhanced AutoReturn Management**: Intelligent cancellation when recordings are interrupted or superseded
-- **Early clipboard monitoring integration**: Captures user clipboard state before conflicts
 - **Advanced trigger evaluation**: Uses TriggerEvaluator for smart action selection across all action types
-- **Graceful cleanup**: Handles deleted recordings and orphaned watchers
+- **Comprehensive cleanup**: Handles deleted recordings, meta.json files, and orphaned watchers
 
 **Enhanced AutoReturn Logic**:
 - **Normal Operation**: AutoReturn applies to the intended recording and gets reset after use
@@ -224,14 +224,34 @@ macrowhisper-cli/src/
 - **Supersession Logic**: AutoReturn cancelled if newer recordings appear before current one completes
 - **Smart Timing**: Only cancels when recordings are actually interrupted, not when they naturally complete
 
+**Smart Clipboard Monitoring Logic**:
+```swift
+if meta.json exists immediately {
+    if isMetaJsonComplete(has valid duration) {
+        // Process immediately WITHOUT clipboard monitoring
+        processMetaJson()
+    } else {
+        // Start clipboard monitoring and process incomplete meta.json
+        clipboardMonitor.startEarlyMonitoring()
+        processMetaJson()
+    }
+} else {
+    // Start clipboard monitoring and wait for meta.json creation
+    clipboardMonitor.startEarlyMonitoring()
+    watchForMetaJsonCreation()
+}
+```
+
 **Enhanced Processing Flow**:
-1. **Early Monitoring**: Start clipboard monitoring when folder appears
-2. **Meta.json Waiting**: Handle delayed meta.json creation with timeout
-3. **Context Gathering**: Capture application context and mode information
-4. **AutoReturn Priority Check**: Highest priority action with intelligent cancellation
-5. **Unified Trigger Evaluation**: Use TriggerEvaluator to find matching actions across all types
-6. **Unified Action Execution**: Execute matched actions via ActionExecutor
-7. **Cleanup**: Mark as processed and clean up monitoring
+1. **Conditional Monitoring**: Start clipboard monitoring only if meta.json is incomplete or missing
+2. **Early Data Capture**: Capture selectedText and clipboard state when monitoring starts
+3. **Meta.json Waiting**: Handle delayed meta.json creation with timeout
+4. **Context Gathering**: Capture application context and mode information
+5. **Session Data Enhancement**: Add selectedText and clipboardContent to metaJson
+6. **AutoReturn Priority Check**: Highest priority action with intelligent cancellation
+7. **Unified Trigger Evaluation**: Use TriggerEvaluator to find matching actions across all types
+8. **Unified Action Execution**: Execute matched actions via ActionExecutor with enhanced metaJson
+9. **Comprehensive Cleanup**: Mark as processed and clean up all monitoring
 
 **Key Components**:
 - **Enhanced TriggerEvaluator**: Intelligent action matching across all action types
@@ -299,7 +319,7 @@ macrowhisper-cli/src/
 
 ### 6. Unified Action Execution System
 
-#### `macrowhisper/Utils/ActionExecutor.swift` (347 lines)
+#### `macrowhisper/Utils/ActionExecutor.swift` (402 lines)
 **Purpose**: Coordinated execution of all action types with unified interface and advanced features
 
 **Key Features**:
@@ -334,31 +354,43 @@ macrowhisper-cli/src/
 
 ### 7. Enhanced Clipboard Management
 
-#### `macrowhisper/Utils/ClipboardMonitor.swift` (759 lines)
-**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts
+#### `macrowhisper/Utils/ClipboardMonitor.swift` (817 lines)
+**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts with enhanced session management
 
 **Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content.
 
 **Key Features**:
-- **Early monitoring sessions**: Capture clipboard state when recording folder appears
-- **Smart restoration logic**: Determine correct clipboard content to restore based on session history
-- **Timing coordination**: Handle ESC simulation and action delays with precise timing
+- **Smart monitoring initiation**: Only starts monitoring when meta.json is incomplete; skips if recording is ready immediately
+- **Early session data capture**: Captures selectedText and userOriginalClipboard when recording folder appears
+- **Enhanced change tracking**: Monitors all clipboard changes during session with timestamps for placeholders
+- **Infinite loop prevention**: Intelligent session termination when monitoring is no longer active
 - **Thread-safe session management**: Concurrent monitoring with proper synchronization using barriers
 - **Configurable restoration**: Optional clipboard restoration for user preference
-- **Enhanced vs. Basic sync**: Two-tier system with fallback for missing early monitoring data
+- **Independent placeholder support**: clipboardContent placeholder works regardless of restoreClipboard setting
+
+**Enhanced Session Structure**:
+```swift
+private struct EarlyMonitoringSession {
+    let userOriginalClipboard: String?    // Initial clipboard when folder appears
+    let startTime: Date                   // Session start timestamp  
+    var clipboardChanges: [ClipboardChange] = []  // All changes during session
+    var isActive: Bool = true             // Session state
+    let selectedText: String?             // Selected text captured at session start
+}
+```
 
 **Session Lifecycle**:
-1. **Early Start**: Begin monitoring immediately when recording folder detected
-2. **Change Tracking**: Monitor all clipboard changes during session with timestamps
-3. **Smart Analysis**: Determine user vs. system clipboard changes using session history
-4. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
-5. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
+1. **Conditional Start**: Begin monitoring only if meta.json is incomplete or doesn't exist
+2. **Early Data Capture**: Capture selectedText and original clipboard immediately
+3. **Change Tracking**: Monitor all clipboard changes during session with timestamps
+4. **Smart Termination**: Stop monitoring when session becomes inactive with real-time checks
+5. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
+6. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
 
-**Restoration Logic**:
-- **Case 1**: If Superwhisper was faster, restore content from just before swResult
-- **Case 2**: If Macrowhisper was faster, preserve current clipboard content
-- **Case 3**: Handle user intentional clipboard changes during processing
-- **Timing Thresholds**: Use actionDelay vs. maxWaitTime (0.1s) for synchronization decisions
+**Placeholder Data Extraction**:
+- **selectedText**: From session start capture, independent of current selection
+- **clipboardContent**: Last clipboard change during session, empty if no changes occurred
+- **Restoration Independence**: Placeholder data available regardless of restoreClipboard setting
 
 **Critical Timing Constants**:
 - `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
@@ -413,7 +445,7 @@ macrowhisper-cli/src/
 
 ### 9. Utility Systems
 
-#### `macrowhisper/Utils/Placeholders.swift` (428 lines)
+#### `macrowhisper/Utils/Placeholders.swift` (785 lines)
 **Purpose**: Advanced placeholder processing system for dynamic content replacement
 
 **Placeholder Types**:
@@ -427,7 +459,25 @@ macrowhisper-cli/src/
    - **JSON-escaped dates**: `{{json:date:short}}` applies JSON string escaping to formatted dates
    - **Raw dates**: `{{raw:date:short}}` applies no escaping to formatted dates
 4. **Smart Result**: `{{swResult}}` (intelligent result selection: llmResult > result)
-5. **Regex Replacements**: All placeholders support `{{placeholder||regex||replacement}}` syntax
+5. **Selected Text**: `{{selectedText}}` gets text selected when recording folder appears (early capture)
+   - **Capture timing**: Selected text captured immediately when recording session starts, not during placeholder processing
+   - **JSON-escaped selected text**: `{{json:selectedText}}` applies JSON string escaping to selected text
+   - **Raw selected text**: `{{raw:selectedText}}` applies no escaping to selected text (useful for AppleScript)
+   - **Empty behavior**: If no text was selected at recording start, placeholder is removed entirely
+6. **Window Content**: `{{windowContent}}` gets all text content from the frontmost application window
+   - **Capture timing**: Captured during placeholder processing only if placeholder is used in action
+   - **Accessibility-based**: Uses macOS accessibility APIs to recursively extract text from window elements
+   - **JSON-escaped window content**: `{{json:windowContent}}` applies JSON string escaping
+   - **Raw window content**: `{{raw:windowContent}}` applies no escaping (useful for AppleScript)
+   - **Performance**: Only captured when placeholder is actually used in action
+7. **Clipboard Content**: `{{clipboardContent}}` gets the last clipboard content captured during monitoring session
+   - **Capture timing**: Last clipboard change during recording session, not initial clipboard
+   - **Session-based**: Only captures clipboard changes that occurred after recording folder appeared
+   - **Independence**: Works regardless of `restoreClipboard` setting
+   - **JSON-escaped clipboard**: `{{json:clipboardContent}}` applies JSON string escaping
+   - **Raw clipboard**: `{{raw:clipboardContent}}` applies no escaping (useful for AppleScript)
+   - **Empty behavior**: If no clipboard changes during session, placeholder is removed entirely
+8. **Regex Replacements**: All placeholders support `{{placeholder||regex||replacement}}` syntax
    - **Multiple replacements**: `{{key||pattern1||replace1||pattern2||replace2}}` applied sequentially
    - **Works with prefixes**: `{{raw:swResult||\\n||newline||"||quote}}` for precise control
    - **Escape sequences**: Standard regex escape sequences and replacement templates supported
@@ -441,7 +491,7 @@ macrowhisper-cli/src/
 - **Shell escaping**: Safe command execution for shell actions
 - **Action-type awareness**: Different escaping for different action types (Insert/Shortcut = none, AppleScript = quotes, Shell/URL = full shell escaping)
 
-#### `macrowhisper/Utils/Accessibility.swift` (254 lines)
+#### `macrowhisper/Utils/Accessibility.swift` (524 lines)
 **Purpose**: macOS accessibility system integration with enhanced capabilities
 
 **Key Features**:
@@ -449,6 +499,8 @@ macrowhisper-cli/src/
 - **Input field detection**: Advanced detection of text input contexts
 - **Keyboard simulation**: Proper key event generation
 - **Context awareness**: Smart ESC key handling based on application state
+- **Selected text retrieval**: Get currently selected text from any application using accessibility APIs
+- **Window content extraction**: Recursively extract all text content from application windows using accessibility APIs
 
 **Input Field Detection**:
 - **Role-based**: `AXTextField`, `AXTextArea`, `AXSearchField`
@@ -534,15 +586,24 @@ main.swift
 └── Enter main run loop
 ```
 
-### 2. Recording Processing Flow (Enhanced with Unified Actions)
+### 2. Recording Processing Flow (Enhanced with Smart Monitoring and Unified Actions)
 ```
 RecordingsFolderWatcher detects new directory
 ├── Check if already processed (persistent tracking)
-├── Start early clipboard monitoring IMMEDIATELY (ClipboardMonitor)
-├── Look for meta.json file
-├── If not found, watch for creation with timeout
-├── Once available, parse and validate meta.json
+├── Smart Clipboard Monitoring Decision:
+│   ├── If meta.json exists with valid duration → Process immediately WITHOUT monitoring
+│   ├── If meta.json exists but incomplete → Start monitoring + process
+│   └── If meta.json missing → Start monitoring + watch for creation
+├── Early Data Capture (when monitoring starts):
+│   ├── Capture selectedText using accessibility APIs
+│   ├── Capture userOriginalClipboard state
+│   └── Begin tracking all clipboard changes during session
+├── Meta.json processing and validation
 ├── Gather application context (foreground app, bundle ID, mode)
+├── Enhance metaJson with session data:
+│   ├── Add selectedText (from early capture)
+│   ├── Add clipboardContent (last clipboard change during session)
+│   └── Add frontApp context
 ├── Unified Action Priority Evaluation (STRICT ORDER):
 │   ├── 1. Auto-Return (highest priority - overrides everything)
 │   │   ├── Check if autoReturnEnabled is true

@@ -27,24 +27,37 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
 ```
 1. Recording Folder Detection (RecordingsFolderWatcher)
    ↓
-2. Early Clipboard Monitoring Start (ClipboardMonitor)
+2. Smart Clipboard Monitoring Decision
+   ├── If meta.json complete → Skip monitoring
+   ├── If meta.json incomplete → Start monitoring
+   └── If meta.json missing → Start monitoring
    ↓
-3. Meta.json Processing (RecordingsFolderWatcher)
+3. Early Data Capture (when monitoring starts)
+   ├── Capture selectedText
+   ├── Capture original clipboard
+   └── Begin change tracking
    ↓
-4. Context Gathering (Front App, Mode, etc.)
+4. Meta.json Processing (RecordingsFolderWatcher)
    ↓
-5. Action Priority Evaluation
+5. Context Gathering & Session Data Enhancement
+   ├── Front App context
+   ├── Add selectedText to metaJson
+   ├── Add clipboardContent to metaJson
+   └── Add windowContent (if placeholder used)
+   ↓
+6. Action Priority Evaluation
    ├── Auto-Return (Highest Priority)
    ├── Trigger Actions (Medium Priority)
-   └── Active Insert (Lowest Priority)
+   └── Active Action (Lowest Priority)
    ↓
-6. Action Execution with Clipboard Sync
+7. Action Execution with Enhanced Placeholder Processing
+   ├── Process placeholders with session data
    ├── ActionDelay Application
    ├── ESC Key Simulation
    ├── Clipboard Monitoring/Restoration
    └── Action Execution
    ↓
-7. Post-Processing (MoveTo, History Cleanup)
+8. Post-Processing (MoveTo, History Cleanup)
 ```
 
 ---
@@ -63,7 +76,9 @@ The process begins when Superwhisper creates a new recording folder in the watch
 #### Detection Flow:
 1. **Folder Change Event**: `handleFolderChangeEvent()` detects new subdirectories
 2. **Duplicate Check**: `isAlreadyProcessed(recordingPath:)` prevents reprocessing
-3. **Early Monitoring**: `clipboardMonitor.startEarlyMonitoring(for: path)` **immediately** starts clipboard monitoring
+3. **Smart Monitoring Decision**: Check if meta.json is complete before starting clipboard monitoring
+   - If complete → Process immediately without monitoring
+   - If incomplete/missing → Start clipboard monitoring
 4. **Meta.json Handling**: Either processes existing meta.json or starts watching for its creation
 
 #### Critical Variables:
@@ -86,25 +101,30 @@ Superwhisper and Macrowhisper both modify the clipboard simultaneously, causing:
 - Race conditions between clipboard modifications
 - Incorrect content being pasted
 
-#### The Solution - Early Monitoring:
+#### The Solution - Smart Early Monitoring:
 ```swift
-// Started immediately when recording folder appears
+// Started conditionally based on meta.json state
 func startEarlyMonitoring(for recordingPath: String) {
     let pasteboard = NSPasteboard.general
     let userOriginal = pasteboard.string(forType: .string)
     
+    // Capture selected text immediately when monitoring starts
+    let selectedText = getSelectedText()
+    
     let session = EarlyMonitoringSession(
         userOriginalClipboard: userOriginal,
-        startTime: Date()
+        startTime: Date(),
+        selectedText: selectedText
     )
     // ... session management
 }
 ```
 
-#### Session Structure:
+#### Enhanced Session Structure:
 ```swift
 private struct EarlyMonitoringSession {
     let userOriginalClipboard: String?     // User's clipboard when folder appeared
+    let selectedText: String?              // Selected text captured at session start
     let startTime: Date                    // Session start time
     var clipboardChanges: [ClipboardChange] = []  // All clipboard changes during session
     var isActive: Bool = true              // Session active state

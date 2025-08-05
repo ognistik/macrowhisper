@@ -18,6 +18,7 @@ class ClipboardMonitor {
         let startTime: Date
         var clipboardChanges: [ClipboardChange] = []
         var isActive: Bool = true
+        let selectedText: String?  // Capture selected text at session start
     }
     
     private struct ClipboardChange {
@@ -31,13 +32,18 @@ class ClipboardMonitor {
     
     /// Starts early clipboard monitoring when a recording folder appears
     /// This captures the user's original clipboard before anyone (Superwhisper or CLI) modifies it
+    /// Also captures selected text at the moment the recording folder appears
     func startEarlyMonitoring(for recordingPath: String) {
         let pasteboard = NSPasteboard.general
         let userOriginal = pasteboard.string(forType: .string)
         
+        // Capture selected text immediately when recording folder appears
+        let selectedText = getSelectedText()
+        
         let session = EarlyMonitoringSession(
             userOriginalClipboard: userOriginal,
-            startTime: Date()
+            startTime: Date(),
+            selectedText: selectedText
         )
         
         sessionsQueue.async(flags: .barrier) { [weak self] in
@@ -46,6 +52,9 @@ class ClipboardMonitor {
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
         logDebug("[ClipboardMonitor] Captured user original clipboard content")
+        if !selectedText.isEmpty {
+            logDebug("[ClipboardMonitor] Captured selected text at recording start")
+        }
         
         // Start monitoring clipboard changes
         monitorClipboardChangesForSession(recordingPath: recordingPath)
@@ -60,46 +69,84 @@ class ClipboardMonitor {
         logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
     }
     
+    /// Gets the selected text that was captured when the recording session started
+    /// Returns empty string if no session exists or no text was selected
+    func getSessionSelectedText(for recordingPath: String) -> String {
+        var selectedText = ""
+        sessionsQueue.sync {
+            selectedText = earlyMonitoringSessions[recordingPath]?.selectedText ?? ""
+        }
+        return selectedText
+    }
+    
+    /// Gets the last clipboard content that was captured during the monitoring session
+    /// Returns empty string if no clipboard changes occurred during monitoring
+    /// This represents the clipboard content the user had before Superwhisper changed it
+    func getSessionClipboardContent(for recordingPath: String, swResult: String) -> String {
+        var clipboardContent = ""
+        sessionsQueue.sync {
+            guard let session = earlyMonitoringSessions[recordingPath] else { return }
+            
+            // Return the last clipboard change during the session (not the initial clipboard)
+            // This represents what the user actually copied during the recording session
+            if let lastChange = session.clipboardChanges.last {
+                clipboardContent = lastChange.content ?? ""
+            }
+            // If no clipboard changes occurred during monitoring, return empty
+            // (Don't return userOriginalClipboard as that's what was there before recording started)
+        }
+        return clipboardContent
+    }
+    
     /// Monitors clipboard changes during early monitoring session
     private func monitorClipboardChangesForSession(recordingPath: String) {
-        // Check if session is still active before proceeding
-        var sessionActive = false
-        var userOriginalClipboard: String?
+        // Get session data in a single atomic operation to prevent race conditions
+        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?) = (false, nil, nil)
         
         sessionsQueue.sync { [weak self] in
             guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
-            sessionActive = session.isActive
-            userOriginalClipboard = session.userOriginalClipboard
+            sessionData.isActive = session.isActive
+            sessionData.userOriginalClipboard = session.userOriginalClipboard
+            sessionData.lastChange = session.clipboardChanges.last
         }
         
-        guard sessionActive else { return }
+        // Exit early if session is not active - prevents race condition with stopEarlyMonitoring
+        guard sessionData.isActive else { 
+            logDebug("[ClipboardMonitor] Stopping clipboard monitoring for \(recordingPath) - session inactive")
+            return 
+        }
         
         let pasteboard = NSPasteboard.general
         let currentContent = pasteboard.string(forType: .string)
         
         // Check if clipboard has changed since last check
-        sessionsQueue.sync { [weak self] in
-            guard let self = self,
-                  let session = self.earlyMonitoringSessions[recordingPath] else { return }
+        if currentContent != sessionData.lastChange?.content && currentContent != sessionData.userOriginalClipboard {
+            let change = ClipboardChange(content: currentContent, timestamp: Date())
             
-            let lastChange = session.clipboardChanges.last
-            if currentContent != lastChange?.content && currentContent != userOriginalClipboard {
-                let change = ClipboardChange(content: currentContent, timestamp: Date())
-                
-                // Update the session with new change (requires barrier write)
-                self.sessionsQueue.async(flags: .barrier) { [weak self] in
+            // Update the session with new change (requires barrier write)
+            // Only update if session still exists to prevent updating removed sessions
+            sessionsQueue.async(flags: .barrier) { [weak self] in
+                // Double-check session still exists before updating
+                if self?.earlyMonitoringSessions[recordingPath]?.isActive == true {
                     self?.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
+                    logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring")
                 }
-                
-                logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring")
             }
         }
         
-        // Continue monitoring if session is still active
-        if sessionActive {
+        // Schedule next monitoring iteration only if session is still active
+        // Final check to prevent scheduling after session is stopped
+        var shouldContinue = false
+        sessionsQueue.sync { [weak self] in
+            shouldContinue = self?.earlyMonitoringSessions[recordingPath]?.isActive ?? false
+        }
+        
+        if shouldContinue {
             DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
                 self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
             }
+        } else {
+            logDebug("[ClipboardMonitor] Stopping clipboard monitoring for \(recordingPath) - session inactive")
         }
     }
     

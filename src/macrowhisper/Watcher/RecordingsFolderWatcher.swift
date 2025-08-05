@@ -277,18 +277,51 @@ class RecordingsFolderWatcher {
             return
         }
         
-        // Start early clipboard monitoring immediately when folder appears
-        clipboardMonitor.startEarlyMonitoring(for: path)
-        
         let metaJsonPath = "\(path)/meta.json"
         
         // Check if meta.json exists immediately
         if FileManager.default.fileExists(atPath: metaJsonPath) {
-            // Process the meta.json file right away
-            processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
+            // Check if meta.json is already complete (has valid duration)
+            if isMetaJsonComplete(metaJsonPath: metaJsonPath) {
+                // Meta.json is complete, process immediately without starting clipboard monitoring
+                logDebug("Meta.json exists and is complete, processing immediately without clipboard monitoring")
+                processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
+            } else {
+                // Meta.json exists but is incomplete, start monitoring
+                logDebug("Meta.json exists but is incomplete, starting clipboard monitoring and watching for completion")
+                clipboardMonitor.startEarlyMonitoring(for: path)
+                processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
+            }
         } else {
-            // Start watching for meta.json creation
+            // Meta.json doesn't exist yet, start monitoring and wait for creation
+            logDebug("Meta.json doesn't exist, starting clipboard monitoring and watching for creation")
+            clipboardMonitor.startEarlyMonitoring(for: path)
             watchForMetaJsonCreation(recordingPath: path)
+        }
+    }
+    
+    /// Checks if meta.json file is complete and ready for processing
+    private func isMetaJsonComplete(metaJsonPath: String) -> Bool {
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: metaJsonPath))
+            guard let metaJson = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return false
+            }
+            
+            // Check for a valid duration (same logic as in processMetaJson)
+            guard let duration = metaJson["duration"], !(duration is NSNull) else {
+                return false
+            }
+            
+            if let durationDouble = duration as? Double, durationDouble > 0 {
+                return true
+            } else if let durationInt = duration as? Int, durationInt > 0 {
+                return true
+            } else {
+                return false
+            }
+        } catch {
+            return false
         }
     }
     
@@ -374,6 +407,11 @@ class RecordingsFolderWatcher {
                 
                 // Cancel auto-return if it was enabled - meta.json was deleted during processing
                 cancelAutoReturn(reason: "meta.json was deleted during processing")
+                
+                // Stop clipboard monitoring for this recording path as well
+                self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                logDebug("Stopped clipboard monitoring for \(recordingPath) - meta.json was deleted")
+                
                 return
             }
             
@@ -452,6 +490,18 @@ class RecordingsFolderWatcher {
             enhancedMetaJson["frontAppName"] = frontAppName
             enhancedMetaJson["frontApp"] = frontAppName  // Add frontApp directly to avoid semaphore delay
             enhancedMetaJson["frontAppBundleId"] = frontAppBundleId
+            
+            // Add session data from clipboard monitor for placeholder processing
+            let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: recordingPath)
+            if !sessionSelectedText.isEmpty {
+                enhancedMetaJson["selectedText"] = sessionSelectedText
+            }
+            
+            let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
+            let sessionClipboardContent = clipboardMonitor.getSessionClipboardContent(for: recordingPath, swResult: swResult)
+            if !sessionClipboardContent.isEmpty {
+                enhancedMetaJson["clipboardContent"] = sessionClipboardContent
+            }
             
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)

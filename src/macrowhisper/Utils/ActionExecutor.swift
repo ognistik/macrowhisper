@@ -51,7 +51,10 @@ class ActionExecutor {
     }
     
     private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool) {
-        let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: metaJson)
+        // Enhance metaJson with session data from clipboard monitor
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        
+        let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: enhancedMetaJson)
         let shouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
         
@@ -71,7 +74,7 @@ class ActionExecutor {
             shouldEsc: shouldEsc,
             isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult,
             recordingPath: recordingPath,
-            metaJson: metaJson,
+            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard
         )
         
@@ -85,6 +88,9 @@ class ActionExecutor {
     }
     
     private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String) {
+        // Enhance metaJson with session data from clipboard monitor
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        
         let shouldEsc = !(url.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = url.actionDelay ?? configManager.config.defaults.actionDelay
         
@@ -93,12 +99,12 @@ class ActionExecutor {
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processUrlAction(url, metaJson: metaJson)
+                self?.processUrlAction(url, metaJson: enhancedMetaJson)
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: metaJson,
+            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard
         )
         
@@ -108,6 +114,9 @@ class ActionExecutor {
     }
     
     private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String) {
+        // Enhance metaJson with session data from clipboard monitor
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        
         let shouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
         
@@ -116,12 +125,12 @@ class ActionExecutor {
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: metaJson)
+                self?.processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: enhancedMetaJson)
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: metaJson,
+            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard
         )
         
@@ -130,6 +139,9 @@ class ActionExecutor {
     }
     
     private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String) {
+        // Enhance metaJson with session data from clipboard monitor
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        
         let shouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = shell.actionDelay ?? configManager.config.defaults.actionDelay
         
@@ -138,12 +150,12 @@ class ActionExecutor {
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processShellScriptAction(shell, metaJson: metaJson)
+                self?.processShellScriptAction(shell, metaJson: enhancedMetaJson)
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: metaJson,
+            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard
         )
         
@@ -152,6 +164,9 @@ class ActionExecutor {
     }
     
     private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String) {
+        // Enhance metaJson with session data from clipboard monitor
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        
         let shouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
         let actionDelay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
         
@@ -160,17 +175,39 @@ class ActionExecutor {
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processAppleScriptAction(ascript, metaJson: metaJson)
+                self?.processAppleScriptAction(ascript, metaJson: enhancedMetaJson)
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: metaJson,
+            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard
         )
         
         // FIX: Pass the individual recording folder path, not its parent
         handleMoveToSettingForAction(folderPath: recordingPath, action: ascript)
+    }
+    
+    // MARK: - Helper Methods
+    
+    /// Enhances metaJson with session data from clipboard monitor (selectedText, clipboardContent)
+    private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String) -> [String: Any] {
+        var enhanced = metaJson
+        
+        // Get selected text that was captured when recording session started
+        let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: recordingPath)
+        if !sessionSelectedText.isEmpty {
+            enhanced["selectedText"] = sessionSelectedText
+        }
+        
+        // Get clipboard content for the clipboardContent placeholder
+        let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
+        let sessionClipboardContent = clipboardMonitor.getSessionClipboardContent(for: recordingPath, swResult: swResult)
+        if !sessionClipboardContent.isEmpty {
+            enhanced["clipboardContent"] = sessionClipboardContent
+        }
+        
+        return enhanced
     }
     
     // MARK: - Action Processing Methods

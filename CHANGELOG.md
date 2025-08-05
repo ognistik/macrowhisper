@@ -1,7 +1,12 @@
 # CHANGELOG
 
 ## UNRELEASED
-* Macrowhisper can now work with empty "result" values—since Superwhisper itself can also do this.
+* Macrowhisper can now work with empty "result" values—since Superwhisper itself can also do this. This means that when using a Superwhisper mode that has AI, the mode can process captured context alone (without dictated text). Macrowhisper will also trigger actions properly based on this. Note: This is experimental and could be removed from Superwhisper anytime.
+* New `{{selectedText}}` dynamic placeholder for Macrowhisper actions. Supports all the standard placeholder features:
+  * Basic: `{{selectedText}}` - Gets selected text with action-type escaping
+  * JSON-escaped: `{{json:selectedText}}` - Applies JSON string escaping
+  * Raw: `{{raw:selectedText}}` - No escaping (useful for AppleScript)
+  * Regex replacements: `{{selectedText||\\n||newline}}` - Apply text transformations
 
 ---
 ## [v1.2.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.2) - 2025/07/31

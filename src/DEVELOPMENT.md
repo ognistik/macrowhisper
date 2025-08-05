@@ -43,6 +43,63 @@ swift build
 3. Add trigger evaluation in `TriggerEvaluator.swift`
 4. Add CLI management commands in `SocketCommunication.swift`
 
+### Adding New Placeholders
+1. Add the placeholder logic in `processDynamicPlaceholders()` in `Placeholders.swift`
+2. If using accessibility APIs, add the function to `Accessibility.swift`
+3. For session-based placeholders, enhance `ClipboardMonitor` and `ActionExecutor`
+4. Update documentation in `CODEBASE_MAP.md`
+5. Test with various action types and escaping scenarios
+
+#### Available Placeholders (As of Latest Version)
+
+**Session-Based Placeholders** (captured during recording):
+- `{{selectedText}}` - Text selected when recording starts (early capture)
+- `{{clipboardContent}}` - Last clipboard change during recording session
+- `{{windowContent}}` - All text content from frontmost window (captured on-demand)
+
+**Usage Examples:**
+- `{{selectedText}}` - Gets selected text with action-type escaping
+- `{{json:selectedText}}` - Gets selected text with JSON escaping
+- `{{raw:selectedText}}` - Gets selected text with no escaping
+- `{{selectedText||\\n||newline}}` - Gets selected text and replaces newlines
+- `{{clipboardContent}}` - Last clipboard content during recording
+- `{{windowContent}}` - All text from current window (performance-optimized)
+
+#### Implementation Notes:
+- **selectedText**: Captured immediately when recording folder appears (if text is selected)
+- **clipboardContent**: Captured from clipboard monitoring session (works regardless of restoreClipboard setting)
+- **windowContent**: Only captured when placeholder is used in action (performance optimization)
+
+#### Example: Adding Session-Based Placeholder
+```swift
+// 1. Enhance ClipboardMonitor session structure
+private struct EarlyMonitoringSession {
+    let myNewData: String?  // Add your data field
+    // ... existing fields
+}
+
+// 2. Capture data in startEarlyMonitoring()
+let myNewData = captureMyData()
+let session = EarlyMonitoringSession(
+    // ... existing params
+    myNewData: myNewData
+)
+
+// 3. Add getter method in ClipboardMonitor
+func getMyNewData(for recordingPath: String) -> String {
+    // Return session data
+}
+
+// 4. Enhance metaJson in ActionExecutor
+enhanced["myNewData"] = clipboardMonitor.getMyNewData(for: recordingPath)
+
+// 5. Add placeholder processing in Placeholders.swift
+else if key == "myNewData" {
+    var value = metaJson["myNewData"] as? String ?? ""
+    // ... standard placeholder processing
+}
+```
+
 ### Debugging Tips
 - Use `--verbose` for debug logging
 - Check logs in `~/Library/Logs/Macrowhisper/`

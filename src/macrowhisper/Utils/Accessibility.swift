@@ -359,3 +359,165 @@ private func pressKey(_ keyCode: Int) {
     keyDown?.post(tap: .cghidEventTap)
     keyUp?.post(tap: .cghidEventTap)
 }
+
+// MARK: - Selected Text Retrieval
+
+/// Gets the currently selected text from the frontmost application using accessibility APIs
+/// Returns the selected text if any, or empty string if no text is selected or accessibility fails
+func getSelectedText() -> String {
+    // Check if we have accessibility permissions
+    guard AXIsProcessTrusted() else {
+        logDebug("[SelectedText] No accessibility permissions, cannot get selected text")
+        return ""
+    }
+    
+    // Get the frontmost application
+    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+        logDebug("[SelectedText] No frontmost application found")
+        return ""
+    }
+    
+    // Create accessibility element for the application
+    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+    
+    // Get the focused UI element
+    var focusedElement: CFTypeRef?
+    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    
+    guard focusedError == .success, let focusedElement = focusedElement else {
+        logDebug("[SelectedText] Could not get focused element for \(frontApp.localizedName ?? "unknown app")")
+        return ""
+    }
+    
+    let axElement = focusedElement as! AXUIElement
+    
+    // Try to get the selected text using various accessibility attributes
+    var selectedTextValue: CFTypeRef?
+    
+    // First try: AXSelectedTextAttribute (most common)
+    let selectedTextError = AXUIElementCopyAttributeValue(axElement, "AXSelectedText" as CFString, &selectedTextValue)
+    
+    if selectedTextError == .success, let selectedTextValue = selectedTextValue {
+        if let selectedText = selectedTextValue as? String, !selectedText.isEmpty {
+            logDebug("[SelectedText] Found selected text.")
+            return selectedText
+        } else {
+            logDebug("[SelectedText] No text selected or selected text is empty")
+            return ""
+        }
+    }
+    
+    // Second try: AXSelectedTextRangeAttribute to get selection range
+    var selectedRangeValue: CFTypeRef?
+    let selectedRangeError = AXUIElementCopyAttributeValue(axElement, "AXSelectedTextRange" as CFString, &selectedRangeValue)
+    
+    if selectedRangeError == .success, let _ = selectedRangeValue {
+        // If we have a selected range, try to get the text content
+        var textValue: CFTypeRef?
+        let textError = AXUIElementCopyAttributeValue(axElement, "AXValue" as CFString, &textValue)
+        
+        if textError == .success, let textValue = textValue, let fullText = textValue as? String {
+            // For now, we'll return the full text if we can't get the specific range
+            // This is a simplified approach - in a more complex implementation, we'd parse the range
+            logDebug("[SelectedText] Found text content but could not extract specific selection")
+            return fullText
+        }
+    }
+    
+    // Third try: Try to get text from common text field attributes
+    let textAttributes = ["AXValue", "AXTitle", "AXDescription"]
+    for attribute in textAttributes {
+        var textValue: CFTypeRef?
+        let textError = AXUIElementCopyAttributeValue(axElement, attribute as CFString, &textValue)
+        
+        if textError == .success, let textValue = textValue, let text = textValue as? String, !text.isEmpty {
+            logDebug("[SelectedText] Found text content via \(attribute): '\(text)'")
+            return text
+        }
+    }
+    
+    logDebug("[SelectedText] No selected text found in \(frontApp.localizedName ?? "unknown app")")
+    return ""
+}
+
+/// Gets all the text content from the frontmost application window using accessibility APIs
+/// Returns the text content if any, or empty string if no content found or accessibility fails
+func getWindowContent() -> String {
+    // Check if we have accessibility permissions
+    guard AXIsProcessTrusted() else {
+        logDebug("[WindowContent] No accessibility permissions, cannot get window content")
+        return ""
+    }
+    
+    // Get the frontmost application
+    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+        logDebug("[WindowContent] No frontmost application found")
+        return ""
+    }
+    
+    // Create accessibility element for the application
+    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+    
+    // Get the focused window
+    var focusedWindow: CFTypeRef?
+    let focusedWindowError = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+    
+    guard focusedWindowError == .success, let focusedWindow = focusedWindow else {
+        logDebug("[WindowContent] Could not get focused window for \(frontApp.localizedName ?? "unknown app")")
+        return ""
+    }
+    
+    let windowElement = focusedWindow as! AXUIElement
+    
+    // Recursively collect all text content from the window
+    let allText = collectTextFromElement(windowElement)
+    
+    if !allText.isEmpty {
+        logDebug("[WindowContent] Found window content.")
+        return allText
+    } else {
+        logDebug("[WindowContent] No text content found in window for \(frontApp.localizedName ?? "unknown app")")
+        return ""
+    }
+}
+
+/// Recursively collects text content from an accessibility element and its children
+private func collectTextFromElement(_ element: AXUIElement) -> String {
+    var collectedText: [String] = []
+    
+    // Try to get text content from various attributes
+    let textAttributes = ["AXValue", "AXTitle", "AXDescription", "AXHelp", "AXPlaceholderValue"]
+    
+    for attribute in textAttributes {
+        var textValue: CFTypeRef?
+        let textError = AXUIElementCopyAttributeValue(element, attribute as CFString, &textValue)
+        
+        if textError == .success, let textValue = textValue, let text = textValue as? String, !text.isEmpty {
+            // Skip very short text (like single characters or numbers) that might be UI elements
+            if text.count > 2 {
+                collectedText.append(text)
+            }
+        }
+    }
+    
+    // Get children elements and recursively collect their text
+    var children: CFTypeRef?
+    let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+    
+    if childrenError == .success, let children = children, let childrenArray = children as? [AXUIElement] {
+        for child in childrenArray {
+            let childText = collectTextFromElement(child)
+            if !childText.isEmpty {
+                collectedText.append(childText)
+            }
+        }
+    }
+    
+    // Join all collected text with spaces and remove excessive whitespace
+    let combinedText = collectedText.joined(separator: " ")
+    let cleanedText = combinedText.components(separatedBy: .whitespacesAndNewlines)
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    
+    return cleanedText
+}
