@@ -762,4 +762,9 @@ class RecordingsFolderWatcher {
         
         return (.insert, nil) // Default type for not found
     }
+    
+    /// Provides access to the ClipboardMonitor for CLI commands that need recent clipboard content
+    func getClipboardMonitor() -> ClipboardMonitor {
+        return clipboardMonitor
+    }
 } 

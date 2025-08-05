@@ -283,9 +283,17 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 continue
             }
             
-            // Handle selectedText (now from metaJson, captured during early monitoring)
+            // Handle selectedText (from metaJson if available, or capture at execution time for CLI)
             else if key == "selectedText" {
                 var value = metaJson["selectedText"] as? String ?? ""
+                
+                // If no selectedText in metaJson, capture it now (CLI execution context)
+                if value.isEmpty {
+                    value = getSelectedText()
+                    if !value.isEmpty {
+                        logDebug("[SelectedTextPlaceholder] Captured selected text at execution time for CLI context")
+                    }
+                }
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -333,9 +341,22 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any]) -> Stri
                 }
             }
             
-            // Handle clipboardContext (from clipboard monitoring session)
+            // Handle clipboardContext (from clipboard monitoring session or global history for CLI)
             else if key == "clipboardContext" {
                 var value = metaJson["clipboardContext"] as? String ?? ""
+                
+                // If no clipboardContext in metaJson, get recent clipboard content (CLI execution context)
+                if value.isEmpty {
+                    // Access the existing ClipboardMonitor from RecordingsFolderWatcher if available
+                    if let watcher = recordingsWatcher {
+                        // We need a way to access the ClipboardMonitor from the watcher
+                        // For now, let's use a simpler approach with direct global history access
+                        value = getRecentClipboardContentForCLI()
+                        if !value.isEmpty {
+                            logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history for CLI context")
+                        }
+                    }
+                }
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -575,9 +596,17 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 continue
             }
             
-            // Handle selectedText (now from metaJson, captured during early monitoring)
+            // Handle selectedText (from metaJson if available, or capture at execution time for CLI)
             else if key == "selectedText" {
                 var value = metaJson["selectedText"] as? String ?? ""
+                
+                // If no selectedText in metaJson, capture it now (CLI execution context)
+                if value.isEmpty {
+                    value = getSelectedText()
+                    if !value.isEmpty {
+                        logDebug("[SelectedTextPlaceholder] Captured selected text at execution time for CLI context")
+                    }
+                }
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -639,9 +668,22 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 }
             }
             
-            // Handle clipboardContext (from clipboard monitoring session)
+            // Handle clipboardContext (from clipboard monitoring session or global history for CLI)
             else if key == "clipboardContext" {
                 var value = metaJson["clipboardContext"] as? String ?? ""
+                
+                // If no clipboardContext in metaJson, get recent clipboard content (CLI execution context)
+                if value.isEmpty {
+                    // Access the existing ClipboardMonitor from RecordingsFolderWatcher if available
+                    if let watcher = recordingsWatcher {
+                        // We need a way to access the ClipboardMonitor from the watcher
+                        // For now, let's use a simpler approach with direct global history access
+                        value = getRecentClipboardContentForCLI()
+                        if !value.isEmpty {
+                            logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history for CLI context")
+                        }
+                    }
+                }
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -845,4 +887,20 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     
     // logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
     return result
+}
+
+// MARK: - CLI Clipboard Helper
+
+/// Gets recent clipboard content for CLI execution context using the existing ClipboardMonitor
+/// This avoids creating duplicate clipboard monitoring instances
+func getRecentClipboardContentForCLI() -> String {
+    // Use the existing ClipboardMonitor from RecordingsFolderWatcher if available
+    if let watcher = recordingsWatcher {
+        let clipboardMonitor = watcher.getClipboardMonitor()
+        return clipboardMonitor.getRecentClipboardContent()
+    }
+    
+    // Fallback: if no watcher is available, return empty string
+    logDebug("[ClipboardContextPlaceholder] No RecordingsFolderWatcher available for CLI clipboard access")
+    return ""
 } 

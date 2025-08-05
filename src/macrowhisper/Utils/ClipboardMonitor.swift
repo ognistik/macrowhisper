@@ -148,6 +148,30 @@ class ClipboardMonitor {
         return clipboardContent
     }
     
+    /// Gets the most recent clipboard content from global history for CLI execution context
+    /// This is used when --exec-action is called and there's no recording session
+    /// Returns empty string if no recent clipboard changes found
+    func getRecentClipboardContent() -> String {
+        var recentContent = ""
+        
+        globalHistoryQueue.sync {
+            // Find the most recent clipboard change within the 5-second buffer
+            if let mostRecent = globalClipboardHistory.last {
+                let timeSinceLastChange = Date().timeIntervalSince(mostRecent.timestamp)
+                if timeSinceLastChange <= preRecordingBuffer {
+                    recentContent = mostRecent.content ?? ""
+                    logDebug("[ClipboardMonitor] Using recent clipboard content from \(String(format: "%.1f", timeSinceLastChange))s ago for CLI context")
+                } else {
+                    logDebug("[ClipboardMonitor] Last clipboard change was \(String(format: "%.1f", timeSinceLastChange))s ago (older than 5s buffer)")
+                }
+            } else {
+                logDebug("[ClipboardMonitor] No clipboard changes found in global history for CLI context")
+            }
+        }
+        
+        return recentContent
+    }
+    
     /// Captures clipboard content from the global clipboard history (5 seconds before recording started)
     /// This uses the lightweight app-lifetime monitoring to get pre-recording clipboard content
     /// - Parameter beforeTime: The recording session start time to use as reference point
