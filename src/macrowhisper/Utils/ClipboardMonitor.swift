@@ -19,6 +19,7 @@ class ClipboardMonitor {
         var clipboardChanges: [ClipboardChange] = []
         var isActive: Bool = true
         let selectedText: String?  // Capture selected text at session start
+        var isExecutingAction: Bool = false  // Only log clipboard changes during action execution
     }
     
     private struct ClipboardChange {
@@ -56,15 +57,36 @@ class ClipboardMonitor {
             logDebug("[ClipboardMonitor] Captured selected text at recording start")
         }
         
-        // Start monitoring clipboard changes
+        // Start monitoring clipboard changes (continues until session cleanup)
         monitorClipboardChangesForSession(recordingPath: recordingPath)
     }
     
-    /// Stops early monitoring for a recording session
+    /// Marks that action execution is starting (enables clipboard change logging)
+    func startActionExecution(for recordingPath: String) {
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            self?.earlyMonitoringSessions[recordingPath]?.isExecutingAction = true
+        }
+    }
+    
+    /// Marks that action execution is finished (disables clipboard change logging)
+    func finishActionExecution(for recordingPath: String) {
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            self?.earlyMonitoringSessions[recordingPath]?.isExecutingAction = false
+        }
+    }
+    
+    /// Stops early monitoring for a recording session (natural cleanup)
     func stopEarlyMonitoring(for recordingPath: String) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
+            // Mark session as inactive for eventual cleanup
+            // Monitoring will stop naturally when session becomes inactive
             self?.earlyMonitoringSessions[recordingPath]?.isActive = false
-            self?.earlyMonitoringSessions.removeValue(forKey: recordingPath)
+            // Remove session after a brief delay to let any in-flight monitoring complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self?.sessionsQueue.async(flags: .barrier) {
+                    self?.earlyMonitoringSessions.removeValue(forKey: recordingPath)
+                }
+            }
         }
         logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
     }
@@ -101,18 +123,18 @@ class ClipboardMonitor {
     /// Monitors clipboard changes during early monitoring session
     private func monitorClipboardChangesForSession(recordingPath: String) {
         // Get session data in a single atomic operation to prevent race conditions
-        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?) = (false, nil, nil)
+        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?, isExecutingAction: Bool) = (false, nil, nil, false)
         
         sessionsQueue.sync { [weak self] in
             guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
             sessionData.isActive = session.isActive
             sessionData.userOriginalClipboard = session.userOriginalClipboard
             sessionData.lastChange = session.clipboardChanges.last
+            sessionData.isExecutingAction = session.isExecutingAction
         }
         
-        // Exit early if session is not active - prevents race condition with stopEarlyMonitoring
+        // Exit silently if session is not active - session will be cleaned up naturally
         guard sessionData.isActive else { 
-            logDebug("[ClipboardMonitor] Stopping clipboard monitoring for \(recordingPath) - session inactive")
             return 
         }
         
@@ -123,19 +145,26 @@ class ClipboardMonitor {
         if currentContent != sessionData.lastChange?.content && currentContent != sessionData.userOriginalClipboard {
             let change = ClipboardChange(content: currentContent, timestamp: Date())
             
-            // Update the session with new change (requires barrier write)
-            // Only update if session still exists to prevent updating removed sessions
+            // Always track the change, but only log if we're actively executing an action
             sessionsQueue.async(flags: .barrier) { [weak self] in
-                // Double-check session still exists before updating
-                if self?.earlyMonitoringSessions[recordingPath]?.isActive == true {
-                    self?.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
-                    logDebug("[ClipboardMonitor] Detected clipboard change during early monitoring")
+                guard let self = self,
+                      let session = self.earlyMonitoringSessions[recordingPath],
+                      session.isActive else {
+                    return
+                }
+                
+                // Always append the change for restoration logic
+                self.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
+                
+                // Only log if we're currently executing an action
+                if session.isExecutingAction {
+                    logDebug("[ClipboardMonitor] Detected clipboard change during action execution")
                 }
             }
         }
         
-        // Schedule next monitoring iteration only if session is still active
-        // Final check to prevent scheduling after session is stopped
+        // Continue monitoring as long as session exists
+        // Session cleanup happens naturally when recording is processed
         var shouldContinue = false
         sessionsQueue.sync { [weak self] in
             shouldContinue = self?.earlyMonitoringSessions[recordingPath]?.isActive ?? false
@@ -145,8 +174,6 @@ class ClipboardMonitor {
             DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
                 self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
             }
-        } else {
-            logDebug("[ClipboardMonitor] Stopping clipboard monitoring for \(recordingPath) - session inactive")
         }
     }
     
@@ -195,6 +222,9 @@ class ClipboardMonitor {
             if !shouldRestoreClipboard {
                 logDebug("[ClipboardMonitor] Clipboard restoration disabled - executing action directly (ESC=\(escWillBeSimulated), restore=\(restoreClipboard))")
                 
+                // Mark action execution as starting
+                self.startActionExecution(for: recordingPath)
+                
                 // Step 1: Apply actionDelay before ESC simulation and action execution
                 if actionDelay > 0 {
                     Thread.sleep(forTimeInterval: actionDelay)
@@ -222,6 +252,9 @@ class ClipboardMonitor {
                 
                 // Step 3: Execute the insert action
                 insertAction()
+                
+                // Mark action execution as finished
+                self.finishActionExecution(for: recordingPath)
                 
                 // Stop early monitoring since we're not using it for restoration
                 self.stopEarlyMonitoring(for: recordingPath)
@@ -253,7 +286,10 @@ class ClipboardMonitor {
             // Extract swResult from metaJson (llmResult takes precedence over result)
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             
-            // Step 1: First, handle clipboard synchronization with Superwhisper BEFORE applying actionDelay
+            // Step 1: Mark that action execution is starting (enables relevant clipboard logging)
+            self.startActionExecution(for: recordingPath)
+            
+            // Step 2: Handle clipboard synchronization with Superwhisper BEFORE applying actionDelay
             // This ensures proper timing coordination regardless of user's actionDelay setting
             let pasteboard = NSPasteboard.general
             let currentClipboard = pasteboard.string(forType: .string)
@@ -474,7 +510,10 @@ class ClipboardMonitor {
         // Step 3: Execute the insert action
         insertAction()
         
-        // Step 4: Restore the correct clipboard after a minimum wait time for paste to complete
+        // Step 4: Mark action execution as finished (disables clipboard change logging)
+        self.finishActionExecution(for: recordingPath)
+        
+        // Step 5: Restore the correct clipboard after a minimum wait time for paste to complete
         let restoreDelay = 0.3 // Minimum delay for paste operation to complete
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             self?.restoreCorrectClipboard(clipboardToRestore)
@@ -541,6 +580,9 @@ class ClipboardMonitor {
             if !shouldRestoreClipboard {
                 logDebug("[ClipboardMonitor] Clipboard restoration disabled - executing action directly (fallback, ESC=\(escWillBeSimulated), restore=\(restoreClipboard))")
                 
+                // Mark action execution as starting
+                self.startActionExecution(for: recordingPath)
+                
                 // Step 1: Apply actionDelay before ESC simulation and action execution
                 if actionDelay > 0 {
                     Thread.sleep(forTimeInterval: actionDelay)
@@ -569,6 +611,9 @@ class ClipboardMonitor {
                 // Step 3: Execute the insert action
                 insertAction()
                 
+                // Mark action execution as finished
+                self.finishActionExecution(for: recordingPath)
+                
                 // Stop early monitoring since we're not using it for restoration
                 self.stopEarlyMonitoring(for: recordingPath)
                 
@@ -580,18 +625,21 @@ class ClipboardMonitor {
             let pasteboard = NSPasteboard.general
             self.originalClipboard = pasteboard.string(forType: .string)
             
-            // Step 2: Monitor for Superwhisper's clipboard change BEFORE applying actionDelay
+            // Step 2: Mark action execution as starting (enables relevant clipboard logging)
+            self.startActionExecution(for: recordingPath)
+            
+            // Step 3: Monitor for Superwhisper's clipboard change BEFORE applying actionDelay
             logDebug("[ClipboardMonitor] Fallback: monitoring clipboard changes (maxWaitTime: \(maxWaitTime)s)")
             self.monitorClipboardChanges { [weak self] in
                 guard let self = self else { return }
                 
-                // Step 3: Apply actionDelay after clipboard synchronization is complete
+                // Step 4: Apply actionDelay after clipboard synchronization is complete
                 if actionDelay > 0 {
                     Thread.sleep(forTimeInterval: actionDelay)
                     logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s after clipboard sync (fallback)")
                 }
                 
-                // Step 4: Simulate ESC after actionDelay if enabled
+                // Step 5: Simulate ESC after actionDelay if enabled
                 if shouldEsc {
                     if isAutoPaste {
                         // For autoPaste, use the cached input field status
@@ -610,10 +658,13 @@ class ClipboardMonitor {
                     }
                 }
                 
-                // Step 5: Execute the insert action
+                // Step 6: Execute the insert action
                 insertAction()
                 
-                // Step 6: Restore original clipboard after a minimum wait time for paste to complete
+                // Step 7: Mark action execution as finished
+                self.finishActionExecution(for: recordingPath)
+                
+                // Step 8: Restore original clipboard after a minimum wait time for paste to complete
                 let restoreDelay = 0.3 // Minimum delay for paste operation to complete
                 DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                     self?.restoreOriginalClipboard()
@@ -711,6 +762,9 @@ class ClipboardMonitor {
             if !shouldRestoreClipboard {
                 logDebug("[ClipboardMonitor] Non-insert action: No clipboard restoration (ESC=\(shouldEsc), restore=\(restoreClipboard))")
                 
+                // Mark action execution as starting
+                self.startActionExecution(for: recordingPath)
+                
                 // Apply action delay before ESC and action execution
                 if actionDelay > 0 {
                     Thread.sleep(forTimeInterval: actionDelay)
@@ -725,6 +779,9 @@ class ClipboardMonitor {
                 
                 // Execute action directly without clipboard monitoring
                 action()
+                
+                // Mark action execution as finished
+                self.finishActionExecution(for: recordingPath)
                 
                 // Stop early monitoring since we're not using it
                 self.stopEarlyMonitoring(for: recordingPath)
@@ -757,6 +814,9 @@ class ClipboardMonitor {
             
             logDebug("[ClipboardMonitor] Non-insert action with clipboard restoration")
             
+            // Mark action execution as starting
+            self.startActionExecution(for: recordingPath)
+            
             // Apply action delay before ESC and action execution
             if actionDelay > 0 {
                 Thread.sleep(forTimeInterval: actionDelay)
@@ -772,10 +832,15 @@ class ClipboardMonitor {
             // Execute the action
             action()
             
+            // Mark action execution as finished
+            self.finishActionExecution(for: recordingPath)
+            
             // Restore clipboard after a brief delay to let any action complete
             let restoreDelay = 0.3
             DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                 self?.restoreCorrectClipboard(clipboardToRestore)
+                // Stop early monitoring after clipboard restoration is complete
+                self?.stopEarlyMonitoring(for: recordingPath)
             }
         }
     }
@@ -793,6 +858,9 @@ class ClipboardMonitor {
         
         logDebug("[ClipboardMonitor] Non-insert action with simple clipboard restore")
         
+        // Mark action execution as starting
+        self.startActionExecution(for: recordingPath)
+        
         // Apply action delay before ESC and action execution
         if actionDelay > 0 {
             Thread.sleep(forTimeInterval: actionDelay)
@@ -807,6 +875,9 @@ class ClipboardMonitor {
         
         // Execute the action
         action()
+        
+        // Mark action execution as finished
+        self.finishActionExecution(for: recordingPath)
         
         // Restore clipboard after a brief delay
         let restoreDelay = 0.3

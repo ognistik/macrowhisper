@@ -128,6 +128,7 @@ private struct EarlyMonitoringSession {
     let startTime: Date                    // Session start time
     var clipboardChanges: [ClipboardChange] = []  // All clipboard changes during session
     var isActive: Bool = true              // Session active state
+    var isExecutingAction: Bool = false    // Controls clipboard change logging visibility
 }
 
 private struct ClipboardChange {
@@ -138,11 +139,34 @@ private struct ClipboardChange {
 
 #### Key Features:
 - **Thread-Safe**: Uses `sessionsQueue` with concurrent reads and barrier writes
+- **Smart Logging**: Only logs clipboard changes during actual action execution periods
+- **Continuous Monitoring**: Always tracks changes for restoration, but controls log visibility
 - **Change Tracking**: Monitors all clipboard changes during the session
 - **Smart Restoration**: Determines correct clipboard content to restore based on session history
+- **Action Execution Boundaries**: Clear start/finish markers for relevant logging periods
 - **Timing Constants**:
   - `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
   - `pollInterval: 0.01` seconds - 10ms polling interval
+
+#### Action Execution Control Methods:
+```swift
+func startActionExecution(for recordingPath: String)   // Enables clipboard change logging
+func finishActionExecution(for recordingPath: String)  // Disables clipboard change logging
+func stopEarlyMonitoring(for recordingPath: String)    // Natural session cleanup
+```
+
+**Smart Logging Logic**:
+```swift
+// Always track clipboard changes for restoration logic
+self.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
+
+// Only log if we're currently executing an action
+if session.isExecutingAction {
+    logDebug("[ClipboardMonitor] Detected clipboard change during action execution")
+}
+```
+
+This approach eliminates the complex cancellation token system and race conditions while providing clean, relevant logging output.
 
 ---
 
@@ -578,10 +602,10 @@ All action types support:
 - **Key Methods**: `processNewRecording()`, `processMetaJson()`, `handlePostProcessing()`
 - **State Management**: Processed recordings tracking, pending watchers
 
-#### 3. `macrowhisper/Utils/ClipboardMonitor.swift` (759 lines)
-- **Purpose**: Clipboard synchronization, timing coordination
-- **Key Methods**: `startEarlyMonitoring()`, `executeInsertWithEnhancedClipboardSync()`
-- **Critical Features**: Early monitoring sessions, smart restoration logic
+#### 3. `macrowhisper/Utils/ClipboardMonitor.swift` (892 lines)
+- **Purpose**: Clipboard synchronization, timing coordination, smart logging
+- **Key Methods**: `startEarlyMonitoring()`, `executeInsertWithEnhancedClipboardSync()`, `startActionExecution()`, `finishActionExecution()`
+- **Critical Features**: Early monitoring sessions, smart restoration logic, action execution boundaries
 
 #### 4. `macrowhisper/Utils/ActionExecutor.swift` (347 lines)
 - **Purpose**: Unified action execution, moveTo handling

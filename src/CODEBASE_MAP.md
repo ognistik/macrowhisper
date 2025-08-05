@@ -43,7 +43,7 @@ macrowhisper-cli/src/
     │   └── HistoryManager.swift         # Cleanup of old recordings (115 lines)
     └── Utils/                       # Utility functions and helpers
         ├── ServiceManager.swift         # macOS launchd service management (437 lines)
-        ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (817 lines)
+        ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (892 lines)
         ├── ActionExecutor.swift         # Action execution coordination (402 lines)
         ├── TriggerEvaluator.swift       # Intelligent trigger evaluation system (385 lines)
         ├── Accessibility.swift          # macOS accessibility and input simulation (524 lines)
@@ -354,16 +354,17 @@ if meta.json exists immediately {
 
 ### 7. Enhanced Clipboard Management
 
-#### `macrowhisper/Utils/ClipboardMonitor.swift` (817 lines)
-**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts with enhanced session management
+#### `macrowhisper/Utils/ClipboardMonitor.swift` (892 lines)
+**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts with smart logging and enhanced session management
 
 **Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content.
 
 **Key Features**:
 - **Smart monitoring initiation**: Only starts monitoring when meta.json is incomplete; skips if recording is ready immediately
 - **Early session data capture**: Captures selectedText and userOriginalClipboard when recording folder appears
-- **Enhanced change tracking**: Monitors all clipboard changes during session with timestamps for placeholders
-- **Infinite loop prevention**: Intelligent session termination when monitoring is no longer active
+- **Smart logging system**: Only logs clipboard changes during actual action execution periods
+- **Continuous monitoring**: Always tracks changes for restoration logic, but controls log visibility
+- **Action execution boundaries**: Clear start/finish markers for relevant logging periods
 - **Thread-safe session management**: Concurrent monitoring with proper synchronization using barriers
 - **Configurable restoration**: Optional clipboard restoration for user preference
 - **Independent placeholder support**: clipboardContent placeholder works regardless of restoreClipboard setting
@@ -376,16 +377,30 @@ private struct EarlyMonitoringSession {
     var clipboardChanges: [ClipboardChange] = []  // All changes during session
     var isActive: Bool = true             // Session state
     let selectedText: String?             // Selected text captured at session start
+    var isExecutingAction: Bool = false   // Controls clipboard change logging visibility
 }
 ```
 
 **Session Lifecycle**:
 1. **Conditional Start**: Begin monitoring only if meta.json is incomplete or doesn't exist
 2. **Early Data Capture**: Capture selectedText and original clipboard immediately
-3. **Change Tracking**: Monitor all clipboard changes during session with timestamps
-4. **Smart Termination**: Stop monitoring when session becomes inactive with real-time checks
-5. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
-6. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
+3. **Continuous Change Tracking**: Monitor all clipboard changes during session with timestamps
+4. **Action Execution Marking**: Mark start/finish of action execution for relevant logging
+5. **Smart Logging**: Only log clipboard changes during action execution periods
+6. **Coordinated Execution**: Execute actions with proper timing and Superwhisper synchronization
+7. **Intelligent Restoration**: Restore appropriate clipboard content based on timing analysis
+8. **Natural Cleanup**: Session cleanup happens after action completion and restoration
+
+**Action Execution Control Methods**:
+- `startActionExecution(for:)`: Marks beginning of action execution, enables relevant clipboard logging
+- `finishActionExecution(for:)`: Marks end of action execution, disables clipboard logging
+- `stopEarlyMonitoring(for:)`: Natural session cleanup after action completion and restoration
+
+**Smart Logging Architecture**:
+- **Always Track**: All clipboard changes are tracked for restoration logic
+- **Selectively Log**: Only clipboard changes during action execution periods are logged
+- **Clean Output**: Eliminates phantom clipboard monitoring logs after action completion
+- **No Race Conditions**: Simple boolean flag avoids complex cancellation token systems
 
 **Placeholder Data Extraction**:
 - **selectedText**: From session start capture, independent of current selection
