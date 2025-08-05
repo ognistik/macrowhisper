@@ -59,15 +59,28 @@ if [ "$FILE_HASH" = "$EXPECTED_HASH" ]; then
     echo "Hash verified. Preparing files..."
     tar -xzf ${NAME}-${VERSION}-macos.tar.gz
     
-    # Remove existing binary if it exists
+    # Remove existing files if they exist
     if [ -f "${BIN_DIR}/${NAME}" ]; then
         echo "Removing existing macrowhisper binary..."
         rm "${BIN_DIR}/${NAME}"
     fi
     
+    if [ -f "${BIN_DIR}/macrowhisper-schema.json" ]; then
+        echo "Removing existing schema file..."
+        rm "${BIN_DIR}/macrowhisper-schema.json"
+    fi
+    
     # Install the new binary
     cp -v ./${NAME} ${BIN_DIR}/${NAME}
     chmod +x ${BIN_DIR}/${NAME}
+    
+    # Install the schema file for IDE integration (if it exists in the archive)
+    if [ -f "./macrowhisper-schema.json" ]; then
+        cp -v ./macrowhisper-schema.json ${BIN_DIR}/macrowhisper-schema.json
+        echo "Schema file installed for IDE integration"
+    else
+        echo "Note: Schema file not found in archive - IDE integration may be limited"
+    fi
     
     echo "Finished copying files."
     echo ""

@@ -4,7 +4,7 @@
 
 **Macrowhisper** is a sophisticated automation helper application designed to work seamlessly with **Superwhisper**, a dictation application. It functions as a file watcher and automation engine that monitors transcribed results from Superwhisper (stored in `meta.json` files) and executes various automated actions based on configurable rules and intelligent triggers.
 
-> **Note**: This codebase map reflects the current state as of version 1.1.3, with all line counts and feature descriptions updated to match the actual implementation including the unified action system.
+> **Note**: This codebase map reflects the current state as of version 1.2.3, with all line counts and feature descriptions updated to match the actual implementation including the unified action system.
 
 ### Core Functionality
 - **File Watching**: Monitors Superwhisper's recordings folder for new transcriptions

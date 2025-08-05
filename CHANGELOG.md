@@ -8,11 +8,11 @@
   * Raw: `{{raw:selectedText}}` - No escaping (useful for AppleScript)
   * Regex replacements: `{{selectedText||\\n||newline}}` - Apply text transformations
 * Clipboard synchronization improvements to support the optional `{{clipboardContext}}`. placeholder.
-  * Clipboard is only captured either 5 seconds before starting dictation, or during dictation.
+  * Clipboard is only captured either 5 seconds before starting dictation or during dictation.
 * New JSON schema to assist users when editing the configuration file in their IDE.
-  * `--schema-info` new CLI flag to debug schema issues.
+  * `--schema-info` - new CLI flag to debug schema issues.
 * Configuration file is now automatically updated when service starts to include new values and schema changes.
-  * `--config-update` new CLI flag to manually update configuration.
+  * `--config-update` - new CLI flag to manually update configuration.
 
 ---
 ## [v1.2.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.2) - 2025/07/31
