@@ -35,7 +35,7 @@
         },
         "icon": {
           "type": ["string", "null"],
-          "description": "Default icon for actions (emoji or empty string)",
+          "description": "Default icon for actions (emoji, character, or empty string)",
           "examples": ["🎤", "📝", "⚡", ""]
         },
         "moveTo": {
@@ -90,6 +90,8 @@
       "description": "Text insertion actions with placeholder support. Manage via CLI: --add-insert <name>, --list-inserts, --remove-action <name>",
       "patternProperties": {
         ".*": {
+          "title": "Insert Action",
+          "description": "Action name - defines a text insertion action with placeholder support",
           "$ref": "#/definitions/insertAction"
         }
       }
@@ -99,6 +101,8 @@
       "description": "URL opening actions for web links and applications. Manage via CLI: --add-url <name>, --list-urls, --remove-action <name>",
       "patternProperties": {
         ".*": {
+          "title": "URL Action",
+          "description": "Action name - defines a URL opening action for web links and applications",
           "$ref": "#/definitions/urlAction"
         }
       }
@@ -108,6 +112,8 @@
       "description": "MacOS Shortcut actions. Manage via CLI: --add-shortcut <name>, --list-shortcuts, --remove-action <name>.",
       "patternProperties": {
         ".*": {
+          "title": "macOS Shortcut Action",
+          "description": "Action name - this property name is the actual macOS Shortcut name to execute",
           "$ref": "#/definitions/shortcutAction"
         }
       }
@@ -117,15 +123,19 @@
       "description": "Shell script execution actions. Manage via CLI: --add-shell <name>, --list-shell, --remove-action <name>",
       "patternProperties": {
         ".*": {
+          "title": "Shell Script Action",
+          "description": "Action name - defines a shell command execution action",
           "$ref": "#/definitions/shellScriptAction"
         }
       }
     },
     "scriptsAS": {
       "type": "object",
-      "description": "AppleScript execution actions. Manage via CLI: --add-as <name>, --list-as, --remove-action <name>",
+      "description": "AppleScript execution action. Manage via CLI: --add-as <name>, --list-as, --remove-action <name>",
       "patternProperties": {
         ".*": {
+          "title": "AppleScript Action",
+          "description": "Action name - defines an AppleScript execution action",
           "$ref": "#/definitions/applescriptAction"
         }
       }
@@ -134,14 +144,9 @@
   "required": ["defaults"],
   "additionalProperties": false,
   "definitions": {
-    "baseAction": {
+    "baseActionProperties": {
       "type": "object",
-      "description": "Common properties shared by all action types",
       "properties": {
-        "action": {
-          "type": "string",
-          "description": "The action content (text, URL, script, etc.) with placeholder support. Can be empty for no-op actions"
-        },
         "icon": {
           "type": ["string", "null"],
           "description": "Custom icon for this action (overrides default)",
@@ -167,8 +172,8 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Regex pattern for voice trigger matching. Use '!' prefix for exceptions",
-          "examples": ["^summarize", "^(email|mail)", "^search|!private", ""],
+          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers.",
+          "examples": ["summarize", "(email|mail)", "search|!private", ""],
           "default": ""
         },
         "triggerApps": {
@@ -189,18 +194,19 @@
           "enum": ["and", "or"],
           "default": "or"
         }
-      },
-      "required": ["action"]
+      }
     },
     "insertAction": {
       "allOf": [
-        {"$ref": "#/definitions/baseAction"},
+        {"$ref": "#/definitions/baseActionProperties"},
         {
           "type": "object",
-          "description": "Text insertion action with advanced placeholder support. Add new: macrowhisper --add-insert <name>",
+          "description": "Action name. Add new: macrowhisper --add-insert <name>",
           "properties": {
             "action": {
-              "description": "Text to insert. Supports placeholders: {{result}}, {{swResult}}, {{selectedText}}, {{clipboardContext}}, {{xml:tagname}}, {{date:format}}, {{appContext}}",
+              "type": "string",
+              "title": "Insert Action Content",
+              "description": "Supports placeholders for dynamic content. Can be empty - if empty, this action will not auto-close Superwhisper's recording window",
               "examples": [
                 "Dear {{selectedText}}, here's the summary: {{result}}",
                 "{{xml:response}}",
@@ -217,19 +223,23 @@
               "type": ["boolean", "null"],
               "description": "Automatically press Return after this action (overrides default)"
             }
-          }
+          },
+          "required": ["action"]
         }
       ]
     },
     "urlAction": {
       "allOf": [
-        {"$ref": "#/definitions/baseAction"},
+        {"$ref": "#/definitions/baseActionProperties"},
         {
           "type": "object",
-          "description": "URL opening action for web links and applications. Add new: macrowhisper --add-url <name>",
+          "description": "Action name. Add new: macrowhisper --add-url <name>",
           "properties": {
             "action": {
-              "description": "URL to open. Supports placeholders for dynamic content",
+              "type": "string",
+              "title": "URL to Open",
+              "description": "Supports placeholders for dynamic content. This field is required and cannot be empty",
+              "minLength": 1,
               "examples": [
                 "https://google.com/search?q={{swResult}}",
                 "https://example.com/api?data={{xml:result}}",
@@ -247,18 +257,19 @@
               "description": "Open URL in background without focusing the application",
               "default": false
             }
-          }
+          },
+          "required": ["action"]
         }
       ]
     },
     "shortcutAction": {
       "type": "object",
-      "description": "The property name is the actual Shortcut name to execute. Add new: --add-shortcut <name>",
+      "description": "The action name is the actual Shortcut name to execute.",
       "properties": {
         "action": {
           "type": "string",
-          "description": "Input text to pass to the macOS Shortcut. The shortcut name is the action name (property key) in the config. Supports placeholders for dynamic content",
-          "examples": ["{{swResult}}", "Process this: {{result}}", "{{xml:content}}", "Hello world"]
+                        "description": "Supports placeholders for dynamic content. Can be empty if no input is needed for the shortcut",
+          "examples": ["{{swResult}}", "Process this: {{result}}", "Hello world", ""]
         },
         "icon": {
           "type": ["string", "null"],
@@ -285,8 +296,8 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Regex pattern for voice trigger matching. Use '!' prefix for exceptions",
-          "examples": ["^summarize", "^(email|mail)", "^search|!private", ""],
+          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers.",
+          "examples": ["summarize", "(email|mail)", "search|!private", ""],
           "default": ""
         },
         "triggerApps": {
@@ -313,39 +324,47 @@
     },
     "shellScriptAction": {
       "allOf": [
-        {"$ref": "#/definitions/baseAction"},
+        {"$ref": "#/definitions/baseActionProperties"},
         {
           "type": "object",
-          "description": "Shell script execution action. Add new: macrowhisper --add-shell <name>",
+          "description": "Action name. Add new: macrowhisper --add-shell <name>",
           "properties": {
             "action": {
-              "description": "Shell command to execute. Supports placeholders and proper escaping",
+              "type": "string",
+              "title": "Shell Command",
+              "description": "Supports placeholders and proper escaping. This field is required and cannot be empty",
+              "minLength": 1,
               "examples": [
                 "echo '{{swResult}}' | pbcopy",
                 "curl -X POST 'https://api.example.com' -d '{{json:result}}'",
                 "osascript -e 'display notification \"{{result}}\"'"
               ]
             }
-          }
+          },
+          "required": ["action"]
         }
       ]
     },
     "applescriptAction": {
       "allOf": [
-        {"$ref": "#/definitions/baseAction"},
+        {"$ref": "#/definitions/baseActionProperties"},
         {
           "type": "object",
-          "description": "AppleScript execution action. Add new: macrowhisper --add-as <name>",
+          "description": "Action name. Add new: macrowhisper --add-as <name>",
           "properties": {
             "action": {
-              "description": "AppleScript code to execute. Supports placeholders with proper quote escaping",
+              "type": "string",
+              "title": "AppleScript Code",
+              "description": "Supports placeholders with proper quote escaping. This field is required and cannot be empty",
+              "minLength": 1,
               "examples": [
                 "tell application \"TextEdit\" to make new document with properties {text:\"{{raw:swResult}}\"}",
                 "tell application \"Mail\" to make new outgoing message with properties {subject:\"{{result}}\"}",
                 "display notification \"{{raw:result}}\" with title \"Macrowhisper\""
               ]
             }
-          }
+          },
+          "required": ["action"]
         }
       ]
     }

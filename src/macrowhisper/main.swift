@@ -393,46 +393,7 @@ if args.contains("--update-config") {
     exit(0)
 }
 
-// Schema management commands (work without daemon)
-if args.contains("--add-schema") {
-    let configPath = ConfigurationManager.getEffectiveConfigPath()
-    
-    // First check if local schema file exists
-    if SchemaManager.findSchemaPath() == nil {
-        print("❌ Cannot add schema reference: macrowhisper-schema.json not found")
-        print("")
-        print("The schema file should be located:")
-        print("  • Alongside the macrowhisper binary, or")
-        print("  • In Homebrew share directory (/opt/homebrew/share/macrowhisper/), or") 
-        print("  • In development environment")
-        print("")
-        print("If you installed via Homebrew, try: brew reinstall macrowhisper")
-        print("If you installed manually, ensure macrowhisper-schema.json is in the same directory as the binary")
-        exit(1)
-    }
-    
-    if SchemaManager.addSchemaToConfig(configPath: configPath) {
-        print("✅ Schema reference added to configuration file")
-        print("Your IDE should now provide validation and auto-completion for this config file")
-        print("")
-        print("Supported IDEs: VS Code, IntelliJ/WebStorm, Sublime Text (with LSP), Vim/Neovim")
-    } else {
-        print("❌ Failed to add schema reference to configuration file")
-        exit(1)
-    }
-    exit(0)
-}
 
-if args.contains("--remove-schema") {
-    let configPath = ConfigurationManager.getEffectiveConfigPath()
-    if SchemaManager.removeSchemaFromConfig(configPath: configPath) {
-        print("✅ Schema reference removed from configuration file")
-    } else {
-        print("❌ Failed to remove schema reference from configuration file")
-        exit(1)
-    }
-    exit(0)
-}
 
 if args.contains("--schema-info") {
     let configPath = ConfigurationManager.getEffectiveConfigPath()
@@ -458,7 +419,7 @@ if args.contains("--schema-info") {
         
         if !hasSchema {
             print("")
-            print("To enable IDE validation, run: macrowhisper --add-schema")
+            print("IDE validation will be enabled automatically when the service runs.")
         }
     } else {
         print("  Local schema file: ❌ Not found")
@@ -957,7 +918,7 @@ if args.count > 1 {
     let validDaemonArgs = ["--config", "--verbose"]
     let validQuickCommands = [
         "-h", "--help", "-v", "--version", "--reveal-config", "--set-config", 
-        "--reset-config", "--get-config", "--update-config", "--add-schema", "--remove-schema", "--schema-info",
+        "--reset-config", "--get-config", "--update-config", "--schema-info",
         "--install-service", "--start-service", "--stop-service", "--restart-service", 
         "--uninstall-service", "--service-status", "--test-update-dialog", "--test-version", 
         "--test-description", "--version-state", "--version-clear"
@@ -1054,9 +1015,7 @@ func printHelp() {
       --reveal-config               Open the configuration file in Finder
                                     (creates default config if none exists)
       
-    IDE INTEGRATION (automatically handled, these are for debugging only):
-      --add-schema                  Manually add JSON schema reference to config file
-      --remove-schema               Remove JSON schema reference from config file  
+    IDE INTEGRATION (automatically handled):
       --schema-info                 Show JSON schema information and status
 
     SERVICE MANAGEMENT (allows users to run in bg - work without running instance):
@@ -1166,6 +1125,15 @@ if verboseLogging {
 // Initialize configuration manager with the specified path
 configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
+
+// Automatically update configuration file on startup to apply any schema changes
+// This ensures users don't need to manually run --update-config after app updates
+logDebug("Performing automatic configuration update on startup...")
+if configManager.updateConfiguration() {
+    logInfo("Configuration file automatically updated with latest schema and formatting")
+} else {
+    logDebug("Configuration file update skipped - no changes needed or file had errors")
+}
 
 historyManager = HistoryManager(configManager: configManager)
 
