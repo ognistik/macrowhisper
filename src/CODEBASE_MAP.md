@@ -70,6 +70,9 @@ macrowhisper-cli/src/
 - `historyManager`: Recording cleanup manager
 - `logger`: Global logging instance
 - `autoReturnEnabled`: Auto-return functionality state with intelligent cancellation
+- `scheduledActionName`: Scheduled action name for next recording session
+- `autoReturnTimeoutTimer`: Timer for auto-return timeout management
+- `scheduledActionTimeoutTimer`: Timer for scheduled action timeout management
 - `lastDetectedFrontApp`: Application context tracking
 
 **Key Functions**:
@@ -79,6 +82,9 @@ macrowhisper-cli/src/
 - `checkSocketHealth()` / `recoverSocket()`: Socket health monitoring and recovery
 - `registerForSleepWakeNotifications()`: System sleep/wake handling
 - `cancelAutoReturn()`: Intelligent autoReturn cancellation with logging
+- `cancelScheduledAction()`: Intelligent scheduled action cancellation with logging
+- `startAutoReturnTimeout()` / `cancelAutoReturnTimeout()`: Auto-return timeout management
+- `startScheduledActionTimeout()` / `cancelScheduledActionTimeout()`: Scheduled action timeout management
 - `printHelp()`: Comprehensive CLI help system
 
 **CLI Commands Supported**:
@@ -89,12 +95,14 @@ macrowhisper-cli/src/
 - **Type-Specific Action Creation**: `--add-insert <name>`, `--add-url <name>`, `--add-shortcut <name>`, `--add-shell <name>`, `--add-as <name>`
 - **Type-Specific Action Listing**: `--list-inserts`, `--list-urls`, `--list-shortcuts`, `--list-shell`, `--list-as`
 - **Legacy Commands (Deprecated)**: `--exec-insert <name>`, `--get-insert [<name>]`, `--insert [<name>]`
-- **Runtime Control**: `--auto-return [true/false]`, `--get-icon`
+- **Runtime Control**: `--auto-return [true/false]`, `--schedule-action [<name>]`, `--get-icon`
 - **Update Management**: `--check-updates`, `--version-state`, `--version-clear`
 
 **Enhanced Features**:
 - **Unified Action System**: All action types managed consistently with type-aware validation
 - **Intelligent AutoReturn**: Cancellation when recordings are interrupted or superseded
+- **Scheduled Action System**: Schedule any action type for next recording session with same priority as auto-return
+- **Timeout Management**: 5-second timeout for auto-return and scheduled actions when no recording session is active
 - **Active Action Indicators**: List commands show which action is currently active
 - **Duplicate Prevention**: Action names are unique across all action types
 - **Auto-Migration**: Seamless transition from `activeInsert` to `activeAction` in configurations
@@ -202,6 +210,7 @@ macrowhisper-cli/src/
 - `installService()` / `uninstallService()`: Service lifecycle management
 - `isServiceRunning()` / `isServiceInstalled()`: Status checking
 - `stopRunningDaemon()`: Graceful daemon termination
+- `hasActiveRecordingSessions()`: Check if any recording sessions are in progress
 
 ---
 
@@ -218,10 +227,12 @@ macrowhisper-cli/src/
 - **Advanced trigger evaluation**: Uses TriggerEvaluator for smart action selection across all action types
 - **Comprehensive cleanup**: Handles deleted recordings, meta.json files, and orphaned watchers
 
-**Enhanced AutoReturn Logic**:
-- **Normal Operation**: AutoReturn applies to the intended recording and gets reset after use
-- **Interruption Handling**: AutoReturn cancelled if recording folder is deleted during processing
-- **Supersession Logic**: AutoReturn cancelled if newer recordings appear before current one completes
+**Enhanced AutoReturn and Scheduled Action Logic**:
+- **Normal Operation**: AutoReturn and scheduled actions apply to the intended recording and get reset after use
+- **Mutual Exclusion**: Only one of auto-return or scheduled action can be active at a time
+- **Timeout Management**: 5-second timeout when no recording session is active (prevents indefinite waiting)
+- **Interruption Handling**: Both cancelled if recording folder is deleted during processing
+- **Supersession Logic**: Both cancelled if newer recordings appear before current one completes
 - **Smart Timing**: Only cancels when recordings are actually interrupted, not when they naturally complete
 
 **Smart Clipboard Monitoring Logic**:
@@ -248,7 +259,7 @@ if meta.json exists immediately {
 3. **Meta.json Waiting**: Handle delayed meta.json creation with timeout
 4. **Context Gathering**: Capture application context and mode information
 5. **Session Data Enhancement**: Add selectedText and clipboardContext to metaJson
-6. **AutoReturn Priority Check**: Highest priority action with intelligent cancellation
+6. **AutoReturn/Scheduled Action Priority Check**: Highest priority actions with intelligent cancellation and timeout management
 7. **Unified Trigger Evaluation**: Use TriggerEvaluator to find matching actions across all types
 8. **Unified Action Execution**: Execute matched actions via ActionExecutor with enhanced metaJson
 9. **Comprehensive Cleanup**: Mark as processed and clean up all monitoring
@@ -258,7 +269,8 @@ if meta.json exists immediately {
 - **Unified ActionExecutor**: Coordinated action execution for all action types
 - **Enhanced ClipboardMonitor**: Early clipboard state capture with smart restoration
 - **Persistent Tracking**: File-based processing history
-- **AutoReturn Cancellation**: Context-aware cancellation with detailed logging
+- **AutoReturn/Scheduled Action Management**: Context-aware cancellation and timeout management with detailed logging
+- **Timeout System**: 5-second timeout for actions when no recording session is active
 
 #### `macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` (85 lines)
 **Purpose**: Graceful startup watcher for scenarios where Superwhisper folder doesn't exist yet
@@ -459,6 +471,8 @@ private struct EarlyMonitoringSession {
 - **Recordings watcher status**: Shows if actively watching recordings folder
 - **Folder watcher status**: Shows if waiting for recordings folder to appear ("yes (waiting for recordings folder)")
 - **Active action display**: Shows current active action with type information
+- **Auto-return status**: Shows if auto-return is enabled
+- **Scheduled action status**: Shows if any action is scheduled for next recording
 - **Path validation**: Reports both Superwhisper folder and recordings folder existence
 - **Health warnings**: Alerts if watchers are in inconsistent states
 
@@ -641,7 +655,12 @@ RecordingsFolderWatcher detects new directory
 │   │   ├── Apply result directly with enhanced clipboard sync
 │   │   ├── Reset autoReturnEnabled to false after use
 │   │   └── Handle cancellation if recording gets interrupted
-│   ├── 2. Trigger Actions (medium priority - all action types)
+│   ├── 2. Scheduled Action (same priority as auto-return - overrides everything)
+│   │   ├── Check if scheduledActionName is set
+│   │   ├── Find and execute the scheduled action across all action types
+│   │   ├── Reset scheduledActionName to nil after use
+│   │   └── Handle cancellation if recording gets interrupted
+│   ├── 3. Trigger Actions (medium priority - all action types)
 │   │   ├── Evaluate triggers across ALL action types (TriggerEvaluator)
 │   │   ├── Check voice triggers (with exceptions and result stripping)
 │   │   ├── Check application triggers (bundle ID and name)
@@ -649,7 +668,7 @@ RecordingsFolderWatcher detects new directory
 │   │   ├── Apply trigger logic (AND/OR) for each action
 │   │   ├── Return first matched action (sorted alphabetically by name)
 │   │   └── Execute via unified ActionExecutor
-│   └── 3. Active Action (lowest priority - fallback only)
+│   └── 4. Active Action (lowest priority - fallback only)
 │       ├── Check config.defaults.activeAction (supports all action types)
 │       ├── Find action by name across all action types
 │       └── Execute via unified ActionExecutor if found
@@ -663,11 +682,12 @@ RecordingsFolderWatcher detects new directory
 │   │   ├── Coordinate timing with Superwhisper clipboard changes
 │   │   └── Restore intelligent clipboard content
 │   └── Handle action-type-specific execution with universal features
-├── AutoReturn Cancellation Logic:
+├── AutoReturn/Scheduled Action Cancellation Logic:
 │   ├── Cancel if recording folder is deleted during processing
 │   ├── Cancel if newer recordings appear before current completes
 │   ├── Cancel if meta.json is deleted during processing
-│   └── Preserve autoReturn for intended recording session
+│   ├── Cancel if CLI commands are executed (exec-action, exec-insert)
+│   └── Preserve autoReturn/scheduled action for intended recording session
 ├── Mark as processed (persistent tracking)
 ├── Perform post-processing tasks:
 │   ├── Handle moveTo operations with precedence (action > default)

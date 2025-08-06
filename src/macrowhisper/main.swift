@@ -23,6 +23,9 @@ var disableUpdates: Bool = false
 var disableNotifications: Bool = false
 var globalConfigManager: ConfigurationManager?
 var autoReturnEnabled = false
+var scheduledActionName: String? = nil
+var autoReturnTimeoutTimer: Timer?
+var scheduledActionTimeoutTimer: Timer?
 var actionDelayValue: Double? = nil
 var socketHealthTimer: Timer?
 var historyManager: HistoryManager?
@@ -52,7 +55,95 @@ let socketCommunication = SocketCommunication(socketPath: socketPath)
 func cancelAutoReturn(reason: String) {
     if autoReturnEnabled {
         autoReturnEnabled = false
+        // Cancel timeout timer
+        autoReturnTimeoutTimer?.invalidate()
+        autoReturnTimeoutTimer = nil
         logInfo("Auto-return cancelled due to: \(reason)")
+    }
+}
+
+// MARK: - Scheduled Action Management
+func cancelScheduledAction(reason: String) {
+    if scheduledActionName != nil {
+        let actionName = scheduledActionName!
+        scheduledActionName = nil
+        // Cancel timeout timer
+        scheduledActionTimeoutTimer?.invalidate()
+        scheduledActionTimeoutTimer = nil
+        logInfo("Scheduled action '\(actionName)' cancelled due to: \(reason)")
+    }
+}
+
+// MARK: - Timeout Management
+func startAutoReturnTimeout() {
+    // Cancel existing timer if any
+    autoReturnTimeoutTimer?.invalidate()
+    
+    // Check if there are any active recording sessions - if so, don't start timeout
+    if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
+        // Start 5-second timeout on main thread
+        DispatchQueue.main.async {
+            autoReturnTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                if autoReturnEnabled {
+                    autoReturnEnabled = false
+                    logInfo("Auto-return timed out after 5 seconds - no valid recording session detected")
+                }
+                autoReturnTimeoutTimer = nil
+            }
+            // Ensure timer is added to the main run loop
+            if let timer = autoReturnTimeoutTimer {
+                RunLoop.main.add(timer, forMode: .common)
+                logDebug("Auto-return timeout timer started (5 seconds)")
+            }
+        }
+    } else {
+        logDebug("Auto-return timeout not started - recording session already in progress")
+    }
+}
+
+func startScheduledActionTimeout() {
+    // Cancel existing timer if any
+    scheduledActionTimeoutTimer?.invalidate()
+    
+    // Check if there are any active recording sessions - if so, don't start timeout
+    if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
+        // Start 5-second timeout on main thread
+        DispatchQueue.main.async {
+            scheduledActionTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                if let actionName = scheduledActionName {
+                    scheduledActionName = nil
+                    logInfo("Scheduled action '\(actionName)' timed out after 5 seconds - no valid recording session detected")
+                }
+                scheduledActionTimeoutTimer = nil
+            }
+            // Ensure timer is added to the main run loop
+            if let timer = scheduledActionTimeoutTimer {
+                RunLoop.main.add(timer, forMode: .common)
+                logDebug("Scheduled action timeout timer started (5 seconds)")
+            }
+        }
+    } else {
+        logDebug("Scheduled action timeout not started - recording session already in progress")
+    }
+}
+
+func cancelAutoReturnTimeout() {
+    DispatchQueue.main.async {
+        if autoReturnTimeoutTimer != nil {
+            logDebug("Cancelling auto-return timeout timer")
+        }
+        autoReturnTimeoutTimer?.invalidate()
+        autoReturnTimeoutTimer = nil
+    }
+}
+
+func cancelScheduledActionTimeout() {
+    DispatchQueue.main.async {
+        if scheduledActionTimeoutTimer != nil {
+            logDebug("Cancelling scheduled action timeout timer")
+        }
+        scheduledActionTimeoutTimer?.invalidate()
+        scheduledActionTimeoutTimer = nil
     }
 }
 
@@ -535,7 +626,7 @@ if args.contains("--service-status") {
 // Commands that require a running daemon
 let requireDaemonCommands = [
     "-s", "--status", "--get-icon", "--get-insert", "--list-inserts", 
-    "--check-updates", "--exec-insert", "--auto-return", "--add-url", 
+    "--check-updates", "--exec-insert", "--auto-return", "--schedule-action", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
     "--remove-action", "--insert", 
     // New unified action commands
@@ -640,6 +731,22 @@ if hasDaemonCommand {
             print(response)
         } else {
             print("Failed to set auto-return.")
+        }
+        exit(0)
+    }
+    
+    if args.contains("--schedule-action") {
+        let scheduleActionIndex = args.firstIndex(where: { $0 == "--schedule-action" })
+        var arguments: [String: String] = [:]
+        if let index = scheduleActionIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
+            arguments["name"] = args[index + 1]
+        } else {
+            arguments["name"] = ""  // Empty name means cancel scheduled action
+        }
+        if let response = socketCommunication.sendCommand(.scheduleAction, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to schedule action.")
         }
         exit(0)
     }
@@ -939,7 +1046,7 @@ if args.count > 1 {
                      args[i-1] == "--add-shell" || args[i-1] == "--add-as" ||
                      args[i-1] == "--add-insert" || args[i-1] == "--remove-action" || 
                      args[i-1] == "--insert" || args[i-1] == "--auto-return" || 
-                     args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
+                     args[i-1] == "--schedule-action" || args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
                      args[i-1] == "--exec-action" || args[i-1] == "--get-action" || 
                      args[i-1] == "--action") {
             continue
@@ -1049,6 +1156,9 @@ func printHelp() {
       --remove-action <name>        Remove any action by name (works for all action types)
       --auto-return <true/false>    Paste result and simulate return for one interaction
                                     (takes priority over active action and triggers)
+      --schedule-action [<name>]     Schedule any action for next recording session
+                                    (takes priority over active action and triggers)
+                                    (no name = cancel scheduled action)
 
     OTHER (require running daemon):
       --check-updates               Force check for updates
@@ -1072,6 +1182,12 @@ func printHelp() {
         
       macrowhisper --exec-action myURLAction
         # Executes 'myURLAction' (works for any action type)
+        
+      macrowhisper --schedule-action myURLAction
+        # Schedules 'myURLAction' for the next recording session
+        
+      macrowhisper --schedule-action
+        # Cancels any scheduled action
         
       macrowhisper --list-actions
         # Lists all actions with their types (INSERT: name, URL: name, etc.)

@@ -207,9 +207,10 @@ class RecordingsFolderWatcher {
                         logDebug("Marked as processed (not most recent): \(dirName)")
                     }
                     
-                    // Cancel auto-return since multiple recordings appeared - autoReturn should only apply to the first recording
+                    // Cancel auto-return and scheduled action since multiple recordings appeared - they should only apply to the first recording
                     if sortedNewDirs.count > 1 {
                         cancelAutoReturn(reason: "multiple recordings appeared simultaneously - autoReturn was intended for a single recording session")
+                        cancelScheduledAction(reason: "multiple recordings appeared simultaneously - scheduled action was intended for a single recording session")
                     }
                     
                     // Process only the most recent
@@ -229,9 +230,11 @@ class RecordingsFolderWatcher {
                     // This recording is recent enough to process
                     let fullPath = "\(path)/\(dirName)"
                     
-                    // Cancel auto-return if this is a newer recording superseding a previous one being processed
-                    if let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
+                    // Cancel auto-return and scheduled action if this is a newer recording superseding a previous one being processed
+                    // Only cancel if there are actually pending recordings being processed
+                    if !pendingMetaJsonFiles.isEmpty, let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
                         cancelAutoReturn(reason: "newer recording \(dirName) appeared while processing older recording - autoReturn was intended for the original recording")
+                        cancelScheduledAction(reason: "newer recording \(dirName) appeared while processing older recording - scheduled action was intended for the original recording")
                     }
                     
                     processNewRecording(atPath: fullPath)
@@ -252,8 +255,9 @@ class RecordingsFolderWatcher {
                     pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
                     logDebug("Removed watcher for deleted directory: \(fullPath)")
                     
-                    // Cancel auto-return if it was enabled - recording was interrupted
+                    // Cancel auto-return and scheduled action if they were enabled - recording was interrupted
                     cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
+                    cancelScheduledAction(reason: "recording folder \(dirName) was deleted during processing")
                 }
                 
                 // Stop early clipboard monitoring for deleted folder
@@ -276,6 +280,10 @@ class RecordingsFolderWatcher {
             logDebug("Skipping already processed recording: \(path)")
             return
         }
+        
+        // Cancel timeouts since a recording session has started (folder appeared)
+        cancelAutoReturnTimeout()
+        cancelScheduledActionTimeout()
         
         let metaJsonPath = "\(path)/meta.json"
         
@@ -405,8 +413,9 @@ class RecordingsFolderWatcher {
                 watcher.cancel()
                 self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
                 
-                // Cancel auto-return if it was enabled - meta.json was deleted during processing
+                // Cancel auto-return and scheduled action if they were enabled - meta.json was deleted during processing
                 cancelAutoReturn(reason: "meta.json was deleted during processing")
+                cancelScheduledAction(reason: "meta.json was deleted during processing")
                 
                 // Stop clipboard monitoring for this recording path as well
                 self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
@@ -527,6 +536,8 @@ class RecordingsFolderWatcher {
                         self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
                         // Reset the flag after using it once
                         autoReturnEnabled = false
+                        // Cancel timeout since auto-return was used
+                        cancelAutoReturnTimeout()
                     },
                     actionDelay: actionDelay,
                     shouldEsc: shouldEsc,
@@ -543,7 +554,44 @@ class RecordingsFolderWatcher {
                 return
             }
             
-            // SECOND: Evaluate triggers for all actions - this has precedence over active inserts
+            // SECOND: Check for scheduled action (same priority as auto-return - overrides everything)
+            if let actionName = scheduledActionName {
+                // Find the scheduled action across all action types
+                let (actionType, action) = findActionByName(actionName, configManager: configManager)
+                
+                if let action = action {
+                    logDebug("Executing scheduled action: \(actionName) (type: \(actionType))")
+                    
+                    // Execute the action on the main thread
+                    DispatchQueue.main.async { [weak self] in
+                        self?.actionExecutor.executeAction(
+                            action: action,
+                            name: actionName,
+                            type: actionType,
+                            metaJson: enhancedMetaJson,
+                            recordingPath: recordingPath,
+                            isTriggeredAction: false  // This is a scheduled action, not triggered
+                        )
+                    }
+                    
+                    // Reset the scheduled action after using it once
+                    scheduledActionName = nil
+                    // Cancel timeout since scheduled action was used
+                    cancelScheduledActionTimeout()
+                    
+                    handlePostProcessing(recordingPath: recordingPath)
+                    
+                    // Early monitoring will be stopped by ClipboardMonitor when done
+                    return
+                } else {
+                    logWarning("Scheduled action '\(actionName)' not found - cancelling scheduled action")
+                    scheduledActionName = nil
+                    // Cancel timeout since scheduled action was cancelled
+                    cancelScheduledActionTimeout()
+                }
+            }
+            
+            // THIRD: Evaluate triggers for all actions - this has precedence over active inserts
             
             // Extract result text for trigger evaluation (can be empty, that's fine for triggers)
             let resultText = enhancedMetaJson["result"] as? String ?? ""
@@ -585,7 +633,7 @@ class RecordingsFolderWatcher {
                 return
             }
             
-            // THIRD: Process active action if there is one (supports all action types)
+            // FOURTH: Process active action if there is one (supports all action types)
             if let activeActionName = configManager.config.defaults.activeAction,
                !activeActionName.isEmpty {
                 
@@ -766,5 +814,10 @@ class RecordingsFolderWatcher {
     /// Provides access to the ClipboardMonitor for CLI commands that need recent clipboard content
     func getClipboardMonitor() -> ClipboardMonitor {
         return clipboardMonitor
+    }
+    
+    /// Checks if there are any active recording sessions (pending meta.json files)
+    func hasActiveRecordingSessions() -> Bool {
+        return !pendingMetaJsonFiles.isEmpty
     }
 } 

@@ -24,6 +24,7 @@ class SocketCommunication {
         case getIcon
         case getInsert    // Deprecated, but maintained for backward compatibility
         case autoReturn
+        case scheduleAction
         case execInsert   // Deprecated, but maintained for backward compatibility
         case addUrl
         case addShortcut
@@ -588,6 +589,9 @@ class SocketCommunication {
                 lines.append("Active action: \(activeActionName.isEmpty ? "(none)" : activeActionName)")
                 lines.append("Icon: \(icon.isEmpty ? "(none)" : icon)")
                 lines.append("moveTo: \(moveTo.isEmpty ? "(none)" : moveTo)")
+                // Auto-return and scheduled action
+                lines.append("Auto-return: \(autoReturnEnabled ? "enabled" : "disabled")")
+                lines.append("Scheduled action: \(scheduledActionName ?? "(none)")")
                 // Settings
                 lines.append("noUpdates: \(defaults.noUpdates ? "yes" : "no")")
                 lines.append("noNoti: \(defaults.noNoti ? "yes" : "no")")
@@ -709,6 +713,18 @@ class SocketCommunication {
             case .autoReturn:
                 if let enableStr = commandMessage.arguments?["enable"], let enable = Bool(enableStr) {
                     autoReturnEnabled = enable
+                    // Cancel scheduled action if auto-return is enabled
+                    if enable {
+                        scheduledActionName = nil
+                        // Cancel scheduled action timeout
+                        scheduledActionTimeoutTimer?.invalidate()
+                        scheduledActionTimeoutTimer = nil
+                        // Start auto-return timeout
+                        startAutoReturnTimeout()
+                    } else {
+                        // Cancel auto-return timeout if disabling
+                        cancelAutoReturnTimeout()
+                    }
                     response = autoReturnEnabled ? "Auto-return enabled for next result" : "Auto-return disabled"
                     logInfo(response)
                 } else {
@@ -717,11 +733,41 @@ class SocketCommunication {
                 }
                 write(clientSocket, response, response.utf8.count)
                 
+            case .scheduleAction:
+                if let actionName = commandMessage.arguments?["name"] {
+                    if actionName.isEmpty {
+                        // Cancel scheduled action
+                        scheduledActionName = nil
+                        // Cancel scheduled action timeout
+                        cancelScheduledActionTimeout()
+                        response = "Scheduled action cancelled"
+                        logInfo("Scheduled action cancelled")
+                    } else {
+                        // Cancel auto-return if scheduling an action
+                        autoReturnEnabled = false
+                        // Cancel auto-return timeout
+                        cancelAutoReturnTimeout()
+                        scheduledActionName = actionName
+                        // Start scheduled action timeout
+                        startScheduledActionTimeout()
+                        response = "Action '\(actionName)' scheduled for next recording"
+                        logInfo("Action '\(actionName)' scheduled for next recording")
+                    }
+                } else {
+                    response = "Missing action name parameter"
+                    logError(response)
+                }
+                write(clientSocket, response, response.utf8.count)
+                
             case .execInsert:
                 if let insertName = commandMessage.arguments?["name"], let insert = configMgr.config.inserts[insertName] {
                     if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
-                        // Ensure autoReturn is always false for exec-insert
+                        // Ensure autoReturn and scheduled action are always false for exec-insert
                         autoReturnEnabled = false
+                        scheduledActionName = nil
+                        // Cancel timeouts
+                        cancelAutoReturnTimeout()
+                        cancelScheduledActionTimeout()
                         let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
                         applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
                         response = "Executed insert '\(insertName)'"
@@ -959,6 +1005,10 @@ class SocketCommunication {
                     if let action = action {
                         if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
                             autoReturnEnabled = false
+                            scheduledActionName = nil
+                            // Cancel timeouts
+                            cancelAutoReturnTimeout()
+                            cancelScheduledActionTimeout()
                             
                             // Execute based on action type using CLI-specific methods
                             switch actionType {
