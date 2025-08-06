@@ -102,7 +102,7 @@ macrowhisper-cli/src/
 - **Unified Action System**: All action types managed consistently with type-aware validation
 - **Intelligent AutoReturn**: Cancellation when recordings are interrupted or superseded
 - **Scheduled Action System**: Schedule any action type for next recording session with same priority as auto-return
-- **Timeout Management**: 5-second timeout for auto-return and scheduled actions when no recording session is active
+- **Timeout Management**: Configurable timeout for auto-return and scheduled actions when no recording session is active (default: 5 seconds, 0 = no timeout)
 - **Active Action Indicators**: List commands show which action is currently active
 - **Duplicate Prevention**: Action names are unique across all action types
 - **Auto-Migration**: Seamless transition from `activeInsert` to `activeAction` in configurations
@@ -130,6 +130,7 @@ macrowhisper-cli/src/
 - `pressReturn`: Auto-press return after actions
 - `returnDelay`: Delay before pressing return (default: 0.1s)
 - `restoreClipboard`: Restore original clipboard content (default: true)
+- `scheduledActionTimeout`: Timeout for auto-return and scheduled actions (default: 5s, 0 = no timeout)
 
 **Unified Action System** (All action types support the same features):
 - **`AppConfiguration.Insert`**: Text insertion with advanced placeholder support
@@ -230,7 +231,7 @@ macrowhisper-cli/src/
 **Enhanced AutoReturn and Scheduled Action Logic**:
 - **Normal Operation**: AutoReturn and scheduled actions apply to the intended recording and get reset after use
 - **Mutual Exclusion**: Only one of auto-return or scheduled action can be active at a time
-- **Timeout Management**: 5-second timeout when no recording session is active (prevents indefinite waiting)
+- **Timeout Management**: Configurable timeout when no recording session is active (prevents indefinite waiting, 0 = no timeout)
 - **Interruption Handling**: Both cancelled if recording folder is deleted during processing
 - **Supersession Logic**: Both cancelled if newer recordings appear before current one completes
 - **Smart Timing**: Only cancels when recordings are actually interrupted, not when they naturally complete
@@ -783,7 +784,8 @@ The application uses a comprehensive JSON configuration file with unified action
     "history": null,
     "pressReturn": false,
     "returnDelay": 0.1,
-    "restoreClipboard": true
+    "restoreClipboard": true,
+    "scheduledActionTimeout": 5
   },
   "inserts": {
     "insertName": {

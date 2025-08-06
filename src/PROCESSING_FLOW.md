@@ -535,6 +535,7 @@ Determines where to move or how to handle the processed recording folder:
 - `moveTo: String?` - Default folder movement behavior
 - `pressReturn: Bool` - Auto-press return after actions (default: false)
 - `returnDelay: Double` - Delay before pressing return (default: 0.1)
+- `scheduledActionTimeout: Double` - Timeout for auto-return and scheduled actions (default: 5, 0 = no timeout)
 
 #### Action-Specific Settings:
 All action types support:

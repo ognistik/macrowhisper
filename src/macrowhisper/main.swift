@@ -79,21 +79,30 @@ func startAutoReturnTimeout() {
     // Cancel existing timer if any
     autoReturnTimeoutTimer?.invalidate()
     
+    // Get timeout value from configuration
+    let timeoutValue = globalConfigManager?.config.defaults.scheduledActionTimeout ?? 5.0
+    
+    // If timeout is 0, don't start timeout (no timeout)
+    if timeoutValue == 0 {
+        logDebug("Auto-return timeout disabled (scheduledActionTimeout = 0)")
+        return
+    }
+    
     // Check if there are any active recording sessions - if so, don't start timeout
     if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
-        // Start 5-second timeout on main thread
+        // Start configurable timeout on main thread
         DispatchQueue.main.async {
-            autoReturnTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+            autoReturnTimeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { _ in
                 if autoReturnEnabled {
                     autoReturnEnabled = false
-                    logInfo("Auto-return timed out after 5 seconds - no valid recording session detected")
+                    logInfo("Auto-return timed out after \(timeoutValue) seconds - no valid recording session detected")
                 }
                 autoReturnTimeoutTimer = nil
             }
             // Ensure timer is added to the main run loop
             if let timer = autoReturnTimeoutTimer {
                 RunLoop.main.add(timer, forMode: .common)
-                logDebug("Auto-return timeout timer started (5 seconds)")
+                logDebug("Auto-return timeout timer started (\(timeoutValue) seconds)")
             }
         }
     } else {
@@ -105,21 +114,30 @@ func startScheduledActionTimeout() {
     // Cancel existing timer if any
     scheduledActionTimeoutTimer?.invalidate()
     
+    // Get timeout value from configuration
+    let timeoutValue = globalConfigManager?.config.defaults.scheduledActionTimeout ?? 5.0
+    
+    // If timeout is 0, don't start timeout (no timeout)
+    if timeoutValue == 0 {
+        logDebug("Scheduled action timeout disabled (scheduledActionTimeout = 0)")
+        return
+    }
+    
     // Check if there are any active recording sessions - if so, don't start timeout
     if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
-        // Start 5-second timeout on main thread
+        // Start configurable timeout on main thread
         DispatchQueue.main.async {
-            scheduledActionTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+            scheduledActionTimeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { _ in
                 if let actionName = scheduledActionName {
                     scheduledActionName = nil
-                    logInfo("Scheduled action '\(actionName)' timed out after 5 seconds - no valid recording session detected")
+                    logInfo("Scheduled action '\(actionName)' timed out after \(timeoutValue) seconds - no valid recording session detected")
                 }
                 scheduledActionTimeoutTimer = nil
             }
             // Ensure timer is added to the main run loop
             if let timer = scheduledActionTimeoutTimer {
                 RunLoop.main.add(timer, forMode: .common)
-                logDebug("Scheduled action timeout timer started (5 seconds)")
+                logDebug("Scheduled action timeout timer started (\(timeoutValue) seconds)")
             }
         }
     } else {

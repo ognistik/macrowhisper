@@ -80,9 +80,15 @@
           "type": "boolean",
           "description": "Restore original clipboard content after action execution",
           "default": true
+        },
+        "scheduledActionTimeout": {
+          "type": "number",
+          "description": "Timeout in seconds for auto-return and scheduled actions when no recording session is active (0 = no timeout, 5 = default 5 seconds)",
+          "minimum": 0,
+          "default": 5
         }
       },
-      "required": ["watch", "noUpdates", "noNoti", "noEsc", "simKeypress", "actionDelay", "pressReturn", "returnDelay", "restoreClipboard"],
+      "required": ["watch", "noUpdates", "noNoti", "noEsc", "simKeypress", "actionDelay", "pressReturn", "returnDelay", "restoreClipboard", "scheduledActionTimeout"],
       "additionalProperties": false
     },
     "inserts": {
