@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
-  "description": "Configuration schema for Macrowhisper, an automation helper for Superwhisper dictation app. Note: CLI commands (--add-insert, --add-url, etc.) create actions with empty strings as defaults for most optional fields.",
+  "description": "Configuration schema for Macrowhisper, an automation helper for Superwhisper dictation app. CLI commands create actions with empty values for string fields and null for boolean/numeric fields — both fall back to global defaults. Explicit values override global defaults.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -30,18 +30,21 @@
         },
         "activeAction": {
           "type": ["string", "null"],
-          "description": "Name of the currently active action (fallback when no triggers match)",
-          "examples": ["autoPaste", "myCustomAction", null]
+          "description": "Name of the currently active action (fallback when no triggers match). Empty string or null means no active action.",
+          "examples": ["autoPaste", "myCustomAction", "", null],
+          "default": ""
         },
         "icon": {
           "type": ["string", "null"],
-          "description": "Default icon for actions (emoji, character, or empty string)",
-          "examples": ["🎤", "📝", "⚡", ""]
+          "description": "Default icon for actions (emoji, character, empty string, null, or '.none' for no icon)",
+          "examples": ["🎤", "📝", "⚡", "", null, ".none"],
+          "default": ""
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Default location to move recording folders after processing. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location)",
-          "examples": ["~/Documents/processed-recordings", ".delete", ".none", ""]
+          "description": "Default location to move recording folders after processing. Path to destination directory, '.delete' (delete folder), '.none' (keep in original location), empty string, or null for no default move behavior",
+          "examples": ["~/Documents/processed-recordings", ".delete", ".none", "", null],
+          "default": ""
         },
         "noEsc": {
           "type": "boolean",
@@ -97,7 +100,7 @@
       "patternProperties": {
         ".*": {
           "title": "Insert Action",
-          "description": "Action name - defines a text insertion action with placeholder support",
+          "description": "Action name - defines a text insertion action",
           "$ref": "#/definitions/insertAction"
         }
       }
@@ -155,48 +158,50 @@
       "properties": {
         "icon": {
           "type": ["string", "null"],
-          "description": "Custom icon for this action (overrides default)",
-          "examples": ["🎤", "📝", "⚡", "🔗", ""]
+          "description": "Custom icon for this action. Empty string, null, or omit to use global default. Use '.none' to explicitly show no icon (override global default).",
+          "examples": ["🎤", "📝", "⚡", "🔗", "", null, ".none"],
+          "default": ""
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Where to move the recording folder after processing. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location). Empty value follows the default.",
-          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", ""]
+          "description": "Where to move the recording folder after processing. Path to destination directory, '.delete' (delete folder), '.none' (keep in original location), empty string, null, or omit to use global default.",
+          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", "", null],
+          "default": ""
         },
         "noEsc": {
           "type": ["boolean", "null"],
-          "description": "Disable ESC key simulation for this action (overrides default)"
+          "description": "Disable ESC key simulation for this action. null = use global default, true/false = explicit override.",
+          "default": null
         },
         "actionDelay": {
           "type": ["number", "null"],
-          "description": "Custom delay in seconds before executing this action (overrides default)",
-          "minimum": 0
+          "description": "Custom delay in seconds before executing this action. null = use global default, number = explicit override.",
+          "minimum": 0,
+          "default": null
         },
         "restoreClipboard": {
           "type": ["boolean", "null"],
-          "description": "Override clipboard restoration setting for this action"
+          "description": "Override clipboard restoration setting for this action. null = use global default, true/false = explicit override.",
+          "default": null
         },
         "triggerVoice": {
-          "type": "string",
-          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string means no trigger (same as not setting this field).",
-          "examples": ["summarize", "(email|mail)", "search|!private", ""],
+          "type": ["string", "null"],
+          "description": "Keywords or phrases for voice trigger matching. null or empty string means no trigger.",
           "default": ""
         },
         "triggerApps": {
-          "type": "string",
-          "description": "Regex pattern for application trigger matching (app name or bundle ID). Empty string means no trigger (same as not setting this field).",
-          "examples": ["com.apple.mail", "Mail|Notes", "net.shinyfrog.bear", "Photo.(*)", ""],
+          "type": ["string", "null"], 
+          "description": "Regex pattern for application trigger matching. null or empty string means no trigger.",
           "default": ""
         },
         "triggerModes": {
-          "type": "string",
-          "description": "Regex pattern for Superwhisper mode trigger matching. Empty string means no trigger (same as not setting this field).",
-          "examples": ["email", "writing|notes", "^(email|writing)$", ""],
+          "type": ["string", "null"],
+          "description": "Regex pattern for Superwhisper mode trigger matching. null or empty string means no trigger.",
           "default": ""
         },
         "triggerLogic": {
-          "type": "string",
-          "description": "Logic for combining multiple triggers",
+          "type": ["string", "null"],
+          "description": "Logic for combining multiple triggers. null defaults to 'or'.",
           "enum": ["and", "or"],
           "default": "or"
         }
@@ -207,12 +212,11 @@
         {"$ref": "#/definitions/baseActionProperties"},
         {
           "type": "object",
-          "description": "Action name. Add new: macrowhisper --add-insert <name>",
           "properties": {
             "action": {
               "type": "string",
               "title": "Insert Action Content",
-              "description": "Supports placeholders for dynamic content. Can be empty - if empty, this action will not auto-close Superwhisper's recording window",
+              "description": "Text to insert with placeholder support. Use '.autoPaste' for smart paste behavior, '.none' or empty string to skip insertion and not auto-close Superwhisper's window.",
               "examples": [
                 "{{swResult}}",
                 "{{result}}",
@@ -224,11 +228,13 @@
             },
             "simKeypress": {
               "type": ["boolean", "null"],
-              "description": "Use keystroke simulation instead of clipboard for this action (overrides default)"
+              "description": "Use keystroke simulation instead of clipboard for this action. null = use global default, true/false = explicit override.",
+              "default": null
             },
             "pressReturn": {
               "type": ["boolean", "null"],
-              "description": "Automatically press Return after this action (overrides default)"
+              "description": "Automatically press Return after this action. null = use global default, true/false = explicit override.",
+              "default": null
             }
           },
           "required": ["action"]
@@ -240,12 +246,11 @@
         {"$ref": "#/definitions/baseActionProperties"},
         {
           "type": "object",
-          "description": "Action name. Add new: macrowhisper --add-url <name>",
           "properties": {
             "action": {
               "type": "string",
               "title": "URL to Open",
-              "description": "Supports placeholders for dynamic content. This field is required and cannot be empty",
+              "description": "URL with placeholder support. This field is required and cannot be empty.",
               "minLength": 1,
               "examples": [
                 "https://google.com/search?q={{result}}",
@@ -254,14 +259,14 @@
             },
             "openWith": {
               "type": ["string", "null"],
-              "description": "Specific application or bundle id to open the URL with",
-              "examples": ["Safari", "/Applications/Google Chrome.app", "com.google.Chrome", ""],
+              "description": "Specific application or bundle id to open the URL with. Empty string, null, or omit uses system default.",
+              "examples": ["Safari", "/Applications/Google Chrome.app", "com.google.Chrome", "", null],
               "default": ""
             },
             "openBackground": {
               "type": ["boolean", "null"],
-              "description": "Open URL in background without focusing the application",
-              "default": false
+              "description": "Open URL in background without focusing the application. null = use global default, true/false = explicit override.",
+              "default": null
             }
           },
           "required": ["action"]
@@ -272,55 +277,60 @@
       "type": "object",
       "description": "The action name is the actual Shortcut name to execute.",
       "properties": {
-        "action": {
+          "action": {
           "type": "string",
-          "description": "Supports placeholders for dynamic content. Can be empty if no input is needed for the shortcut",
-          "examples": ["{{swResult}}", "Process this: {{result}}", ""]
+          "description": "Input to pass to the shortcut with placeholder support. Use '.none' or empty string to run the shortcut without any input.",
+          "examples": ["{{swResult}}", "Process this: {{result}}", ".none", ""]
         },
         "icon": {
           "type": ["string", "null"],
-          "description": "Custom icon for this shortcut action (overrides default)",
-          "examples": ["🎤", "📝", "⚡", "🔗", ""]
+          "description": "Custom icon for this shortcut action. Empty string, null, or omit to use global default. Use '.none' to explicitly show no icon (override global default).",
+          "examples": ["🎤", "📝", "⚡", "🔗", "", null, ".none"],
+          "default": ""
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Where to move the recording folder after processing this shortcut. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location)",
-          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", ""]
+          "description": "Where to move the recording folder after processing this shortcut. Path to destination directory, '.delete' (delete folder), '.none' (keep in original location), empty string, null, or omit to use global default.",
+          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", "", null],
+          "default": ""
         },
         "noEsc": {
           "type": ["boolean", "null"],
-          "description": "Disable ESC key simulation for this shortcut (overrides default)"
+          "description": "Disable ESC key simulation for this shortcut. null = use global default, true/false = explicit override.",
+          "default": null
         },
         "actionDelay": {
           "type": ["number", "null"],
-          "description": "Custom delay in seconds before executing this shortcut (overrides default)",
-          "minimum": 0
+          "description": "Custom delay in seconds before executing this shortcut. null = use global default, number = explicit override.",
+          "minimum": 0,
+          "default": null
         },
         "restoreClipboard": {
           "type": ["boolean", "null"],
-          "description": "Override clipboard restoration setting for this shortcut"
+          "description": "Override clipboard restoration setting for this shortcut. null = use global default, true/false = explicit override.",
+          "default": null
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string means no trigger (same as not setting this field).",
-          "examples": ["summarize", "(email|mail)", "search|!private", ""],
+          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string, null, or omit means no trigger.",
+          "examples": ["summarize", "(email|mail)", "!my phrase", "", null],
           "default": ""
         },
         "triggerApps": {
           "type": ["string", "null"],
-          "description": "Regex pattern for application trigger matching (app name or bundle ID). Empty string means no trigger (same as not setting this field).",
-          "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", ""],
+          "description": "Regex pattern for application trigger matching (app name or bundle ID). Empty string, null, or omit means no trigger.",
+          "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", "", null],
           "default": ""
         },
         "triggerModes": {
           "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching. Empty string means no trigger (same as not setting this field).",
-          "examples": ["email", "writing|notes", "^(email|writing)$", ""],
+          "description": "Regex pattern for Superwhisper mode trigger matching. Empty string, null, or omit means no trigger.",
+          "examples": ["email", "writing|notes", "^(email|writing)$", "", null],
           "default": ""
         },
         "triggerLogic": {
           "type": ["string", "null"],
-          "description": "Logic for combining multiple triggers",
+          "description": "Logic for combining multiple triggers. null or omit uses default 'or' logic.",
           "enum": ["and", "or"],
           "default": "or"
         }
@@ -338,7 +348,7 @@
             "action": {
               "type": "string",
               "title": "Shell Command",
-              "description": "Supports placeholders and proper escaping. This field is required and cannot be empty",
+              "description": "Shell command with placeholder support and proper escaping. This field is required and cannot be empty.",
               "minLength": 1,
               "examples": [
                 "echo '{{swResult}}' | pbcopy",
@@ -361,7 +371,7 @@
             "action": {
               "type": "string",
               "title": "AppleScript Code",
-              "description": "Supports placeholders with proper quote escaping. This field is required and cannot be empty",
+              "description": "AppleScript code with placeholder support and proper quote escaping. This field is required and cannot be empty.",
               "minLength": 1,
               "examples": [
                 "tell application \"TextEdit\" to make new document with properties {text:\"{{json:swResult}}\"}",

@@ -275,38 +275,56 @@ class ActionExecutor {
         
         logDebug("[ShortcutAction] Processed action before sending to shortcuts: '\(processedAction)'")
         
-        // Use temporary file approach to ensure proper UTF-8 encoding
-        let tempDir = NSTemporaryDirectory()
-        let tempFile = tempDir + "macrowhisper_shortcut_input_\(UUID().uuidString).txt"
-        
-        do {
-            // Write the processed action to a temporary file with explicit UTF-8 encoding
-            try processedAction.write(toFile: tempFile, atomically: true, encoding: .utf8)
-            logDebug("[ShortcutAction] Wrote UTF-8 content to temporary file: \(tempFile)")
+        // Check if action is .none or empty - if so, run shortcut without input
+        if processedAction == ".none" || processedAction.isEmpty {
+            logDebug("[ShortcutAction] Action is '.none' or empty - running shortcut without input")
             
             let task = Process()
             task.launchPath = "/usr/bin/shortcuts"
-            task.arguments = ["run", shortcutName, "-i", tempFile]
+            task.arguments = ["run", shortcutName]
             task.standardOutput = FileHandle.nullDevice
             task.standardError = FileHandle.nullDevice
             
-            try task.run()
-            logDebug("[ShortcutAction] Shortcut launched with temporary file input")
-            
-            // Clean up the temporary file after a short delay to ensure shortcuts has read it
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
-                do {
-                    try FileManager.default.removeItem(atPath: tempFile)
-                    logDebug("[ShortcutAction] Cleaned up temporary file: \(tempFile)")
-                } catch {
-                    logWarning("[ShortcutAction] Failed to clean up temporary file \(tempFile): \(error)")
-                }
+            do {
+                try task.run()
+                logDebug("[ShortcutAction] Shortcut launched without input")
+            } catch {
+                logError("Failed to execute shortcut action without input: \(error)")
             }
+        } else {
+            // Use temporary file approach to ensure proper UTF-8 encoding
+            let tempDir = NSTemporaryDirectory()
+            let tempFile = tempDir + "macrowhisper_shortcut_input_\(UUID().uuidString).txt"
             
-        } catch {
-            logError("Failed to execute shortcut action: \(error)")
-            // Clean up temp file on error
-            try? FileManager.default.removeItem(atPath: tempFile)
+            do {
+                // Write the processed action to a temporary file with explicit UTF-8 encoding
+                try processedAction.write(toFile: tempFile, atomically: true, encoding: .utf8)
+                logDebug("[ShortcutAction] Wrote UTF-8 content to temporary file: \(tempFile)")
+                
+                let task = Process()
+                task.launchPath = "/usr/bin/shortcuts"
+                task.arguments = ["run", shortcutName, "-i", tempFile]
+                task.standardOutput = FileHandle.nullDevice
+                task.standardError = FileHandle.nullDevice
+                
+                try task.run()
+                logDebug("[ShortcutAction] Shortcut launched with temporary file input")
+                
+                // Clean up the temporary file after a short delay to ensure shortcuts has read it
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+                    do {
+                        try FileManager.default.removeItem(atPath: tempFile)
+                        logDebug("[ShortcutAction] Cleaned up temporary file: \(tempFile)")
+                    } catch {
+                        logWarning("[ShortcutAction] Failed to clean up temporary file \(tempFile): \(error)")
+                    }
+                }
+                
+            } catch {
+                logError("Failed to execute shortcut action: \(error)")
+                // Clean up temp file on error
+                try? FileManager.default.removeItem(atPath: tempFile)
+            }
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
     }
