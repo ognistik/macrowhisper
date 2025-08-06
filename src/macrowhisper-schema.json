@@ -2,12 +2,12 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
-  "description": "Configuration schema for Macrowhisper, an automation helper for Superwhisper dictation app",
+  "description": "Configuration schema for Macrowhisper, an automation helper for Superwhisper dictation app. Note: CLI commands (--add-insert, --add-url, etc.) create actions with empty strings as defaults for most optional fields.",
   "type": "object",
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "JSON Schema reference for IDE validation support"
+      "description": "JSON Schema reference for IDE validation support. Auto detected by Macrowhisper next to binary or in Homebrew's share/macrowhisper folder"
     },
     "defaults": {
       "type": "object",
@@ -41,7 +41,7 @@
         "moveTo": {
           "type": ["string", "null"],
           "description": "Default location to move recording folders after processing. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location)",
-          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", ""]
+          "examples": ["~/Documents/processed-recordings", ".delete", ".none", ""]
         },
         "noEsc": {
           "type": "boolean",
@@ -63,11 +63,11 @@
           "type": ["integer", "null"],
           "description": "Number of days to retain recording history (null = keep forever, 0 = keep only latest)",
           "minimum": 0,
-          "examples": [7, 30, null]
+          "examples": [7, 30, 0, null]
         },
         "pressReturn": {
           "type": "boolean",
-          "description": "Automatically press Return/Enter after action execution",
+          "description": "Automatically press Return/Enter after action execution. This action can be scheduled with --auto-return <true/false> CLI flag.",
           "default": false
         },
         "returnDelay": {
@@ -83,7 +83,7 @@
         },
         "scheduledActionTimeout": {
           "type": "number",
-          "description": "Timeout in seconds for auto-return and scheduled actions when no recording session is active (0 = no timeout, 5 = default 5 seconds)",
+          "description": "Timeout in seconds for auto-return and scheduled actions when no recording session is active (0 = no timeout, 5 = default)",
           "minimum": 0,
           "default": 5
         }
@@ -160,7 +160,7 @@
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Where to move the recording folder after processing. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location)",
+          "description": "Where to move the recording folder after processing. Path to destination directory, or special values: '.delete' (delete folder), '.none' (keep in original location). Empty value follows the default.",
           "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", ""]
         },
         "noEsc": {
@@ -177,25 +177,25 @@
           "description": "Override clipboard restoration setting for this action"
         },
         "triggerVoice": {
-          "type": ["string", "null"],
-          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers.",
+          "type": "string",
+          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string means no trigger (same as not setting this field).",
           "examples": ["summarize", "(email|mail)", "search|!private", ""],
           "default": ""
         },
         "triggerApps": {
-          "type": ["string", "null"],
-          "description": "Regex pattern for application trigger matching (app name or bundle ID)",
-          "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", ""],
+          "type": "string",
+          "description": "Regex pattern for application trigger matching (app name or bundle ID). Empty string means no trigger (same as not setting this field).",
+          "examples": ["com.apple.mail", "Mail|Notes", "net.shinyfrog.bear", "Photo.(*)", ""],
           "default": ""
         },
         "triggerModes": {
-          "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching",
+          "type": "string",
+          "description": "Regex pattern for Superwhisper mode trigger matching. Empty string means no trigger (same as not setting this field).",
           "examples": ["email", "writing|notes", "^(email|writing)$", ""],
           "default": ""
         },
         "triggerLogic": {
-          "type": ["string", "null"],
+          "type": "string",
           "description": "Logic for combining multiple triggers",
           "enum": ["and", "or"],
           "default": "or"
@@ -214,8 +214,9 @@
               "title": "Insert Action Content",
               "description": "Supports placeholders for dynamic content. Can be empty - if empty, this action will not auto-close Superwhisper's recording window",
               "examples": [
-                "Dear {{selectedText}}, here's the summary: {{result}}",
-                "{{xml:response}}",
+                "{{swResult}}",
+                "{{result}}",
+                "{{date:short}}\nDictation: {{result}}",
                 ".autoPaste",
                 ".none",
                 ""
@@ -247,15 +248,14 @@
               "description": "Supports placeholders for dynamic content. This field is required and cannot be empty",
               "minLength": 1,
               "examples": [
-                "https://google.com/search?q={{swResult}}",
-                "https://example.com/api?data={{xml:result}}",
-                "mailto:someone@example.com?subject={{result}}"
+                "https://google.com/search?q={{result}}",
+                "https://www.perplexity.ai/?q={{result||\\.$||}}"
               ]
             },
             "openWith": {
               "type": ["string", "null"],
-              "description": "Specific application to open the URL with",
-              "examples": ["/Applications/Safari.app", "/Applications/Google Chrome.app", ""],
+              "description": "Specific application or bundle id to open the URL with",
+              "examples": ["Safari", "/Applications/Google Chrome.app", "com.google.Chrome", ""],
               "default": ""
             },
             "openBackground": {
@@ -274,8 +274,8 @@
       "properties": {
         "action": {
           "type": "string",
-                        "description": "Supports placeholders for dynamic content. Can be empty if no input is needed for the shortcut",
-          "examples": ["{{swResult}}", "Process this: {{result}}", "Hello world", ""]
+          "description": "Supports placeholders for dynamic content. Can be empty if no input is needed for the shortcut",
+          "examples": ["{{swResult}}", "Process this: {{result}}", ""]
         },
         "icon": {
           "type": ["string", "null"],
@@ -302,19 +302,19 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers.",
+          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string means no trigger (same as not setting this field).",
           "examples": ["summarize", "(email|mail)", "search|!private", ""],
           "default": ""
         },
         "triggerApps": {
           "type": ["string", "null"],
-          "description": "Regex pattern for application trigger matching (app name or bundle ID)",
+          "description": "Regex pattern for application trigger matching (app name or bundle ID). Empty string means no trigger (same as not setting this field).",
           "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", ""],
           "default": ""
         },
         "triggerModes": {
           "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching",
+          "description": "Regex pattern for Superwhisper mode trigger matching. Empty string means no trigger (same as not setting this field).",
           "examples": ["email", "writing|notes", "^(email|writing)$", ""],
           "default": ""
         },
@@ -342,7 +342,7 @@
               "minLength": 1,
               "examples": [
                 "echo '{{swResult}}' | pbcopy",
-                "curl -X POST 'https://api.example.com' -d '{{json:result}}'",
+                "curl -X POST 'https://api.example.com' -d '{{json:swResult}}'",
                 "osascript -e 'display notification \"{{result}}\"'"
               ]
             }
@@ -364,9 +364,9 @@
               "description": "Supports placeholders with proper quote escaping. This field is required and cannot be empty",
               "minLength": 1,
               "examples": [
-                "tell application \"TextEdit\" to make new document with properties {text:\"{{raw:swResult}}\"}",
-                "tell application \"Mail\" to make new outgoing message with properties {subject:\"{{result}}\"}",
-                "display notification \"{{raw:result}}\" with title \"Macrowhisper\""
+                "tell application \"TextEdit\" to make new document with properties {text:\"{{json:swResult}}\"}",
+                "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\"",
+                "{{raw:swResult}}"
               ]
             }
           },
