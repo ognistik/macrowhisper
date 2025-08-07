@@ -43,7 +43,7 @@ macrowhisper-cli/src/
     │   └── HistoryManager.swift         # Cleanup of old recordings (115 lines)
     └── Utils/                       # Utility functions and helpers
         ├── ServiceManager.swift         # macOS launchd service management (437 lines)
-        ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (892 lines)
+         ├── ClipboardMonitor.swift       # Advanced clipboard monitoring and restoration (updated: configurable buffer)
         ├── ActionExecutor.swift         # Action execution coordination (402 lines)
         ├── TriggerEvaluator.swift       # Intelligent trigger evaluation system (385 lines)
         ├── Accessibility.swift          # macOS accessibility and input simulation (524 lines)
@@ -131,6 +131,11 @@ macrowhisper-cli/src/
 - `returnDelay`: Delay before pressing return (default: 0.1s)
 - `restoreClipboard`: Restore original clipboard content (default: true)
 - `scheduledActionTimeout`: Timeout for auto-return and scheduled actions (default: 5s, 0 = no timeout)
+- `clipboardStacking`: Enable multiple clipboard captures during a session (default: false)
+- `clipboardBuffer`: Pre-recording clipboard buffer window in seconds (default: 5s)
+- `autoUpdateConfig`: Automatically update the configuration file on startup (default: true)
+
+  Required defaults: `watch` and `actionDelay`. All other fields are optional and fall back to the same values used when auto-creating configs. The `autoUpdateConfig` flag controls only the startup-time automatic configuration update.
 
 **Unified Action System** (All action types support the same features):
 - **`AppConfiguration.Insert`**: Text insertion with advanced placeholder support
@@ -374,7 +379,7 @@ if meta.json exists immediately {
 **Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content. Additionally, users often copy content shortly before starting a recording and want to access it in actions.
 
 **Key Features**:
-- **Lightweight app-lifetime monitoring**: Continuous 5-second rolling buffer of clipboard changes from app startup
+- **Lightweight app-lifetime monitoring**: Continuous configurable rolling buffer of clipboard changes from app startup (default 5s, 0 disables)
 - **Smart session monitoring**: Only starts intensive session monitoring when meta.json is incomplete; skips if recording is ready immediately
 - **Early session data capture**: Captures selectedText, userOriginalClipboard, and pre-recording clipboard when recording folder appears
 - **Enhanced clipboardContext logic**: Prioritizes session changes, falls back to pre-recording clipboard content from global history
@@ -428,7 +433,7 @@ private struct EarlyMonitoringSession {
 - **selectedText**: From session start capture, independent of current selection
 - **clipboardContext**: Enhanced with pre-recording support and optional stacking:
   - **Priority 1**: Last clipboard change during recording session (maintains current behavior)
-  - **Priority 2**: Most recent clipboard change within 5 seconds before recording started (new feature)
+  - **Priority 2**: Most recent clipboard change within the configurable buffer window before recording started (default 5s)
   - **Fallback**: Empty string if no relevant changes found
   - **Stacking Behavior**: When `clipboardStacking` is enabled in configuration:
     - **Single change**: Returns content without XML tags (maintains current behavior)
@@ -436,11 +441,11 @@ private struct EarlyMonitoringSession {
     - **Disabled (default)**: Returns only the last clipboard change (original behavior)
 - **Restoration Independence**: Placeholder data available regardless of restoreClipboard setting
 
-**Critical Timing Constants**:
+**Critical Timing Values**:
 - `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
 - `pollInterval: 0.01` seconds - 10ms polling interval for intensive session monitoring
 - `globalMonitoringInterval: 0.5` seconds - Lightweight global monitoring frequency (500ms)
-- `preRecordingBuffer: 5.0` seconds - Rolling buffer size for pre-recording clipboard capture
+- `clipboardBuffer (configurable)`: Rolling buffer size for pre-recording clipboard capture. Default 5.0s. Set to 0 to disable.
 
 ---
 

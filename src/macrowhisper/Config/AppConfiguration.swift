@@ -19,10 +19,12 @@ struct AppConfiguration: Codable {
         var restoreClipboard: Bool
         var scheduledActionTimeout: Double
         var clipboardStacking: Bool
+        var clipboardBuffer: Double
+        var autoUpdateConfig: Bool
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking, clipboardBuffer, autoUpdateConfig
         }
         
         // Custom encoding to preserve null values
@@ -43,14 +45,20 @@ struct AppConfiguration: Codable {
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
             try container.encode(scheduledActionTimeout, forKey: .scheduledActionTimeout)
             try container.encode(clipboardStacking, forKey: .clipboardStacking)
+            try container.encode(clipboardBuffer, forKey: .clipboardBuffer)
+            try container.encode(autoUpdateConfig, forKey: .autoUpdateConfig)
         }
         
         // Custom decoding with migration logic from activeInsert to activeAction
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            // Required fields
             watch = try container.decode(String.self, forKey: .watch)
-            noUpdates = try container.decode(Bool.self, forKey: .noUpdates)
-            noNoti = try container.decode(Bool.self, forKey: .noNoti)
+            actionDelay = try container.decode(Double.self, forKey: .actionDelay)
+
+            // Optional fields with sensible fallbacks (aligned with defaultValues())
+            noUpdates = try container.decodeIfPresent(Bool.self, forKey: .noUpdates) ?? false
+            noNoti = try container.decodeIfPresent(Bool.self, forKey: .noNoti) ?? false
             
             // Migration logic: try new activeAction first, fall back to old activeInsert
             if let newActiveAction = try container.decodeIfPresent(String.self, forKey: .activeAction) {
@@ -64,19 +72,20 @@ struct AppConfiguration: Codable {
             
             icon = try container.decodeIfPresent(String.self, forKey: .icon)
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
-            noEsc = try container.decode(Bool.self, forKey: .noEsc)
-            simKeypress = try container.decode(Bool.self, forKey: .simKeypress)
-            actionDelay = try container.decode(Double.self, forKey: .actionDelay)
+            noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc) ?? false
+            simKeypress = try container.decodeIfPresent(Bool.self, forKey: .simKeypress) ?? false
             history = try container.decodeIfPresent(Int.self, forKey: .history)
-            pressReturn = try container.decode(Bool.self, forKey: .pressReturn)
+            pressReturn = try container.decodeIfPresent(Bool.self, forKey: .pressReturn) ?? false
             returnDelay = try container.decodeIfPresent(Double.self, forKey: .returnDelay) ?? 0.1
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard) ?? true
             scheduledActionTimeout = try container.decodeIfPresent(Double.self, forKey: .scheduledActionTimeout) ?? 5
             clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking) ?? false
+            clipboardBuffer = try container.decodeIfPresent(Double.self, forKey: .clipboardBuffer) ?? 5.0
+            autoUpdateConfig = try container.decodeIfPresent(Bool.self, forKey: .autoUpdateConfig) ?? true
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool, clipboardBuffer: Double, autoUpdateConfig: Bool) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -92,6 +101,8 @@ struct AppConfiguration: Codable {
             self.restoreClipboard = restoreClipboard
             self.scheduledActionTimeout = scheduledActionTimeout
             self.clipboardStacking = clipboardStacking
+            self.clipboardBuffer = clipboardBuffer
+            self.autoUpdateConfig = autoUpdateConfig
         }
         
         static func defaultValues() -> Defaults {
@@ -110,7 +121,9 @@ struct AppConfiguration: Codable {
                 returnDelay: 0.1,
                 restoreClipboard: true,
                 scheduledActionTimeout: 5,
-                clipboardStacking: false
+                clipboardStacking: false,
+                clipboardBuffer: 5.0,
+                autoUpdateConfig: true
             )
         }
     }

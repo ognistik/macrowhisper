@@ -290,11 +290,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             
             // Handle selectedText (from metaJson if available, or capture at execution time for CLI)
             else if key == "selectedText" {
-                var value = metaJson["selectedText"] as? String ?? ""
+                var value = (metaJson["selectedText"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 // If no selectedText in metaJson, capture it now (CLI execution context)
                 if value.isEmpty {
-                    value = getSelectedText()
+                    value = getSelectedText().trimmingCharacters(in: .whitespacesAndNewlines)
                     if !value.isEmpty {
                         logDebug("[SelectedTextPlaceholder] Captured selected text at execution time for CLI context")
                     }
@@ -330,7 +330,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             
             // Handle appContext (captured during placeholder processing if placeholder is present)
             else if key == "appContext" {
-                var value = getAppContext()
+                var value = getAppContext().trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -362,7 +362,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             
             // Handle clipboardContext (from clipboard monitoring session or global history for CLI)
             else if key == "clipboardContext" {
-                var value = metaJson["clipboardContext"] as? String ?? ""
+                var value = (metaJson["clipboardContext"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 // If no clipboardContext in metaJson, get recent clipboard content (CLI execution context)
                 if value.isEmpty {
@@ -374,13 +374,13 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                         
                         if isCLIExecution && enableStacking {
                             // Use stacking method for CLI execution
-                            value = getRecentClipboardContentForCLIWithStacking(enableStacking: enableStacking)
+                            value = getRecentClipboardContentForCLIWithStacking(enableStacking: enableStacking).trimmingCharacters(in: .whitespacesAndNewlines)
                             if !value.isEmpty {
                                 logDebug("[ClipboardContextPlaceholder] Using recent clipboard content with stacking from global history for CLI context")
                             }
                         } else {
                             // Use original method for non-stacking or non-CLI execution
-                            value = getRecentClipboardContentForCLI()
+                            value = getRecentClipboardContentForCLI().trimmingCharacters(in: .whitespacesAndNewlines)
                             if !value.isEmpty {
                                 logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history for CLI context")
                             }

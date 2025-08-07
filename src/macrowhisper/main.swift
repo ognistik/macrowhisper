@@ -1261,12 +1261,17 @@ configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
 
 // Automatically update configuration file on startup to apply any schema changes
-// This ensures users don't need to manually run --update-config after app updates
-logDebug("Performing automatic configuration update on startup...")
-if configManager.updateConfiguration() {
-    logInfo("Configuration file automatically updated with latest schema and formatting")
+// Respect user preference defaults.autoUpdateConfig (defaults to true)
+let shouldAutoUpdateConfig = configManager.config.defaults.autoUpdateConfig
+if shouldAutoUpdateConfig {
+    logDebug("Performing automatic configuration update on startup...")
+    if configManager.updateConfiguration() {
+        logInfo("Configuration file automatically updated with latest schema and formatting")
+    } else {
+        logDebug("Configuration file update skipped - no changes needed or file had errors")
+    }
 } else {
-    logDebug("Configuration file update skipped - no changes needed or file had errors")
+    logDebug("Startup auto configuration update disabled by defaults.autoUpdateConfig = false")
 }
 
 historyManager = HistoryManager(configManager: configManager)
@@ -1367,6 +1372,11 @@ configManager.onConfigChanged = { reason in
     // Update global variables
     disableUpdates = configManager.config.defaults.noUpdates
     disableNotifications = configManager.config.defaults.noNoti
+        // Apply clipboard buffer changes live to the global ClipboardMonitor
+        if let watcher = recordingsWatcher {
+            let bufferSeconds = configManager.config.defaults.clipboardBuffer
+            watcher.getClipboardMonitor().updateClipboardBuffer(seconds: bufferSeconds)
+        }
     // If updates were disabled but are now enabled, reset the version checker state and perform immediate check
     if previousDisableUpdates == true && disableUpdates == false {
         versionChecker.resetLastCheckDate()

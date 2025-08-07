@@ -26,12 +26,12 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
 
 ```
 0. App Startup
-   └── Initialize Global Clipboard Monitoring (5-second rolling buffer)
+   └── Initialize Global Clipboard Monitoring (configurable rolling buffer; default 5s; 0 disables)
    ↓
 1. Recording Folder Detection (RecordingsFolderWatcher)
    ↓
 2. Pre-Recording Data Capture
-   ├── Capture clipboard from global history (5s before recording)
+   ├── Capture clipboard from global history (within configurable buffer window before recording)
    ├── Capture selectedText
    └── Capture original clipboard
    ↓
@@ -110,7 +110,7 @@ Superwhisper and Macrowhisper both modify the clipboard simultaneously, causing:
 #### The Solution - Dual Monitoring Architecture:
 
 ##### 1. Lightweight Global Monitoring (App Lifetime):
-- **Purpose**: Maintains 5-second rolling buffer for pre-recording capture
+- **Purpose**: Maintains configurable rolling buffer for pre-recording capture (defaults to 5s; set to 0 to disable)
 - **Frequency**: 0.5-second intervals (lightweight)
 - **Scope**: Single shared instance across all components
 - **Privacy**: Content not logged, only change events
@@ -143,7 +143,7 @@ private struct EarlyMonitoringSession {
     var clipboardChanges: [ClipboardChange] = []  // All clipboard changes during session
     var isActive: Bool = true              // Session active state
     var isExecutingAction: Bool = false    // Controls clipboard change logging visibility
-    let preRecordingClipboard: String?     // Clipboard content from global history (5s before recording)
+    let preRecordingClipboard: String?     // Clipboard content from global history (within buffer window before recording)
 }
 
 private struct ClipboardChange {
@@ -157,7 +157,7 @@ private struct ClipboardChange {
 - **Smart Logging**: Only logs clipboard changes during actual action execution periods (content not logged for privacy)
 - **Single Instance**: Shared ClipboardMonitor prevents duplicate monitoring
 - **Continuous Monitoring**: Always tracks changes for restoration, but controls log visibility
-- **Pre-Recording Capture**: 5-second rolling buffer for {{clipboardContext}} placeholder
+- **Pre-Recording Capture**: Configurable rolling buffer for {{clipboardContext}} placeholder (defaults to 5s; 0 disables)
 - **Change Tracking**: Monitors all clipboard changes during the session
 - **Smart Restoration**: Determines correct clipboard content to restore based on session history
 - **Action Execution Boundaries**: Clear start/finish markers for relevant logging periods
@@ -165,7 +165,7 @@ private struct ClipboardChange {
   - `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
   - `pollInterval: 0.01` seconds - 10ms polling interval for session monitoring
   - `globalMonitoringInterval: 0.5` seconds - Global monitoring frequency
-  - `preRecordingBuffer: 5.0` seconds - Pre-recording clipboard capture window
+- `clipboardBuffer (configurable)`: Pre-recording clipboard capture window (Double seconds). Default 5.0; 0 disables global monitoring/capture.
 
 #### Action Execution Control Methods:
 ```swift

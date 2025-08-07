@@ -5,6 +5,10 @@
 * Voice triggers now support raw regex. For this, the phrases have to be exactly between `=`. For example `=^google this\\.?$=` will exactly match this phrase. Or if you want to match a string that ends with a specific phrase: `"=.*ends with this$="` . This can be mixed with strings that are processed as usual, without `=`. For example: `=^exact match$=|normal keyword`. Mode triggers and app triggers already have this behavior by default (without `=`).
 * New `clipboardStacking` option for configuration defaults. When enabled, it allows users to capture multiple content for the `clipboardContext` placeholder.
 * Fixed `clipboardContext` placeholder bug where it wouldn't detect the clipboard captured if it was the same that already was in the clipboard before the buffer or starting a session.
+* Added `autoUpdateConfig` option to choose to autoupdate config or not during service restart.
+* Added `clipboardBuffer` option to set custom buffer or clipboardContext to be captured.
+* Adjusted JSON schema to only require the very essential defaults.
+* Added trimming to selectedText, clipboardContext, appContext.
 
 ## [v1.2.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.3) - 2025/08/06
 ### Added

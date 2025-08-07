@@ -94,9 +94,20 @@
           "type": "boolean",
           "description": "Enable clipboard stacking for clipboardContext placeholder. When enabled, multiple clipboard changes during recording are captured and formatted with XML tags (<clipboard_context_1>, <clipboard_context_2>, etc.). When disabled, only the last clipboard change is captured (default behavior).",
           "default": false
+        },
+        "clipboardBuffer": {
+          "type": "number",
+          "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls lightweight app-wide monitoring that captures clipboard content before a recording starts. 0 disables the buffer entirely.",
+          "minimum": 0,
+          "default": 5
+        },
+        "autoUpdateConfig": {
+          "type": "boolean",
+          "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config.",
+          "default": true
         }
       },
-      "required": ["watch", "noUpdates", "noNoti", "noEsc", "simKeypress", "actionDelay", "pressReturn", "returnDelay", "restoreClipboard", "scheduledActionTimeout", "clipboardStacking"],
+      "required": ["watch", "actionDelay"],
       "additionalProperties": false
     },
     "inserts": {
