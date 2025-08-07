@@ -16,6 +16,7 @@ class ClipboardMonitor {
     private var globalMonitoringTimer: Timer?
     private var isFirstGlobalCheck = true // Track if this is the first clipboard check
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
+    private var lastSeenChangeCount: Int = 0 // Track NSPasteboard changeCount for more reliable detection
     
     // Early monitoring state for recording sessions - made thread-safe
     private var earlyMonitoringSessions: [String: EarlyMonitoringSession] = [:]
@@ -29,15 +30,21 @@ class ClipboardMonitor {
         let selectedText: String?  // Capture selected text at session start
         var isExecutingAction: Bool = false  // Only log clipboard changes during action execution
         let preRecordingClipboard: String?  // Clipboard content captured from global history before recording
+        let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
+        var lastSeenChangeCount: Int  // Track last seen changeCount for this session
     }
     
     private struct ClipboardChange {
         let content: String?
         let timestamp: Date
+        let changeCount: Int  // NSPasteboard changeCount when this change was detected
     }
     
     init(logger: Logger) {
         self.logger = logger
+        // Initialize with current pasteboard state
+        let pasteboard = NSPasteboard.general
+        lastSeenChangeCount = pasteboard.changeCount
         startGlobalClipboardMonitoring()
     }
     
@@ -60,11 +67,14 @@ class ClipboardMonitor {
         let sessionStartTime = Date()
         let preRecordingClipboard = capturePreRecordingClipboard(beforeTime: sessionStartTime)
         
+        let currentChangeCount = pasteboard.changeCount
         let session = EarlyMonitoringSession(
             userOriginalClipboard: userOriginal,
             startTime: sessionStartTime,
             selectedText: selectedText,
-            preRecordingClipboard: preRecordingClipboard
+            preRecordingClipboard: preRecordingClipboard,
+            startingChangeCount: currentChangeCount,
+            lastSeenChangeCount: currentChangeCount
         )
         
         sessionsQueue.async(flags: .barrier) { [weak self] in
@@ -148,6 +158,56 @@ class ClipboardMonitor {
         return clipboardContent
     }
     
+    /// Gets clipboard content with stacking support - returns all clipboard changes when stacking is enabled
+    /// - Parameters:
+    ///   - recordingPath: The recording path to get session data from
+    ///   - swResult: The Superwhisper result to filter out
+    ///   - enableStacking: Whether to enable clipboard stacking (from configuration)
+    /// - Returns: Formatted clipboard content (single content or XML-tagged stack)
+    func getSessionClipboardContentWithStacking(for recordingPath: String, swResult: String, enableStacking: Bool) -> String {
+        // If stacking is disabled, use the original behavior
+        if !enableStacking {
+            return getSessionClipboardContent(for: recordingPath, swResult: swResult)
+        }
+        
+        var allClipboardChanges: [String] = []
+        sessionsQueue.sync {
+            guard let session = earlyMonitoringSessions[recordingPath] else { return }
+            
+            // First, add pre-recording clipboard content if available (this should be the first entry)
+            if let preRecording = session.preRecordingClipboard, !preRecording.isEmpty, preRecording != swResult {
+                allClipboardChanges.append(preRecording)
+                logDebug("[ClipboardMonitor] Added pre-recording clipboard content for stacking (copied within 5s before recording)")
+            }
+            
+            // Then collect all clipboard changes during the session (excluding swResult)
+            for change in session.clipboardChanges {
+                if let content = change.content, content != swResult, !content.isEmpty {
+                    allClipboardChanges.append(content)
+                }
+            }
+        }
+        
+        // Format the result based on number of clipboard changes
+        if allClipboardChanges.isEmpty {
+            logDebug("[ClipboardMonitor] No clipboard content found for stacking")
+            return ""
+        } else if allClipboardChanges.count == 1 {
+            // Single clipboard change - return without XML tags (maintains current behavior)
+            logDebug("[ClipboardMonitor] Single clipboard change for stacking - returning without XML tags")
+            return allClipboardChanges[0]
+        } else {
+            // Multiple clipboard changes - format with XML tags
+            var result = ""
+            for (index, content) in allClipboardChanges.enumerated() {
+                let tagNumber = index + 1
+                result += "<clipboard_context_\(tagNumber)>\n\(content)\n</clipboard_context_\(tagNumber)>\n\n"
+            }
+            logDebug("[ClipboardMonitor] Multiple clipboard changes for stacking - formatted with \(allClipboardChanges.count) XML tags")
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+    
     /// Gets the most recent clipboard content from global history for CLI execution context
     /// This is used when --exec-action is called and there's no recording session
     /// Returns empty string if no recent clipboard changes found
@@ -170,6 +230,55 @@ class ClipboardMonitor {
         }
         
         return recentContent
+    }
+    
+    /// Gets clipboard content from global history for CLI execution context with stacking support
+    /// This is used when --exec-action is called and there's no recording session
+    /// - Parameter enableStacking: Whether to enable clipboard stacking (from configuration)
+    /// - Returns: Formatted clipboard content (single content or XML-tagged stack)
+    func getRecentClipboardContentWithStacking(enableStacking: Bool) -> String {
+        // If stacking is disabled, use the original behavior
+        if !enableStacking {
+            return getRecentClipboardContent()
+        }
+        
+        var allClipboardChanges: [String] = []
+        
+        globalHistoryQueue.sync {
+            // Find all clipboard changes within the 5-second buffer
+            let now = Date()
+            let cutoffTime = now.addingTimeInterval(-preRecordingBuffer)
+            
+            let recentChanges = globalClipboardHistory.filter { change in
+                change.timestamp >= cutoffTime
+            }
+            
+            // Add all recent changes (excluding empty content)
+            for change in recentChanges {
+                if let content = change.content, !content.isEmpty {
+                    allClipboardChanges.append(content)
+                }
+            }
+        }
+        
+        // Format the result based on number of clipboard changes
+        if allClipboardChanges.isEmpty {
+            logDebug("[ClipboardMonitor] No clipboard content found in global history for CLI stacking")
+            return ""
+        } else if allClipboardChanges.count == 1 {
+            // Single clipboard change - return without XML tags (maintains current behavior)
+            logDebug("[ClipboardMonitor] Single clipboard change for CLI stacking - returning without XML tags")
+            return allClipboardChanges[0]
+        } else {
+            // Multiple clipboard changes - format with XML tags
+            var result = ""
+            for (index, content) in allClipboardChanges.enumerated() {
+                let tagNumber = index + 1
+                result += "<clipboard_context_\(tagNumber)>\n\(content)\n</clipboard_context_\(tagNumber)>\n\n"
+            }
+            logDebug("[ClipboardMonitor] Multiple clipboard changes for CLI stacking - formatted with \(allClipboardChanges.count) XML tags")
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
     
     /// Captures clipboard content from the global clipboard history (5 seconds before recording started)
@@ -201,7 +310,7 @@ class ClipboardMonitor {
     /// Monitors clipboard changes during early monitoring session
     private func monitorClipboardChangesForSession(recordingPath: String) {
         // Get session data in a single atomic operation to prevent race conditions
-        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?, isExecutingAction: Bool) = (false, nil, nil, false)
+        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?, isExecutingAction: Bool, lastSeenChangeCount: Int) = (false, nil, nil, false, 0)
         
         sessionsQueue.sync { [weak self] in
             guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
@@ -209,6 +318,7 @@ class ClipboardMonitor {
             sessionData.userOriginalClipboard = session.userOriginalClipboard
             sessionData.lastChange = session.clipboardChanges.last
             sessionData.isExecutingAction = session.isExecutingAction
+            sessionData.lastSeenChangeCount = session.lastSeenChangeCount
         }
         
         // Exit silently if session is not active - session will be cleaned up naturally
@@ -217,11 +327,15 @@ class ClipboardMonitor {
         }
         
         let pasteboard = NSPasteboard.general
-        let currentContent = pasteboard.string(forType: .string)
+        let currentChangeCount = pasteboard.changeCount
         
-        // Check if clipboard has changed since last check
-        if currentContent != sessionData.lastChange?.content && currentContent != sessionData.userOriginalClipboard {
-            let change = ClipboardChange(content: currentContent, timestamp: Date())
+        // Use changeCount for more reliable change detection
+        if currentChangeCount != sessionData.lastSeenChangeCount {
+            let currentContent = pasteboard.string(forType: .string)
+            
+            // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
+            // This fixes the bug where copying the same content multiple times wasn't being detected
+            let change = ClipboardChange(content: currentContent, timestamp: Date(), changeCount: currentChangeCount)
             
             // Always track the change, but only log if we're actively executing an action
             sessionsQueue.async(flags: .barrier) { [weak self] in
@@ -233,10 +347,11 @@ class ClipboardMonitor {
                 
                 // Always append the change for restoration logic
                 self.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
+                self.earlyMonitoringSessions[recordingPath]?.lastSeenChangeCount = currentChangeCount
                 
                 // Only log if we're currently executing an action
                 if session.isExecutingAction {
-                    logDebug("[ClipboardMonitor] Detected clipboard change during action execution")
+                    logDebug("[ClipboardMonitor] Detected clipboard change during action execution (changeCount: \(currentChangeCount))")
                 }
             }
         }
@@ -991,10 +1106,11 @@ class ClipboardMonitor {
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
             self?.globalClipboardHistory = []
             self?.lastSeenClipboardContent = nil
+            self?.lastSeenChangeCount = 0
             self?.isFirstGlobalCheck = true
         }
         
-        // Start periodic monitoring with longer interval (0.5s) to be lightweight
+        // Start periodic monitoring with 0.5s interval (lightweight)
         DispatchQueue.main.async { [weak self] in
             self?.globalMonitoringTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 self?.checkGlobalClipboardChange()
@@ -1010,6 +1126,7 @@ class ClipboardMonitor {
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
             self?.globalClipboardHistory.removeAll()
             self?.lastSeenClipboardContent = nil
+            self?.lastSeenChangeCount = 0
             self?.isFirstGlobalCheck = true
         }
         
@@ -1019,6 +1136,7 @@ class ClipboardMonitor {
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
     private func checkGlobalClipboardChange() {
         let pasteboard = NSPasteboard.general
+        let currentChangeCount = pasteboard.changeCount
         let currentClipboard = pasteboard.string(forType: .string)
         let now = Date()
         
@@ -1029,17 +1147,20 @@ class ClipboardMonitor {
             if self.isFirstGlobalCheck {
                 self.isFirstGlobalCheck = false
                 self.lastSeenClipboardContent = currentClipboard
-                logDebug("[ClipboardMonitor] Global monitoring initialized - recording baseline clipboard content")
+                self.lastSeenChangeCount = currentChangeCount
+                logDebug("[ClipboardMonitor] Global monitoring initialized - recording baseline clipboard content (changeCount: \(currentChangeCount))")
                 return
             }
             
-            // Check if clipboard has actually changed since our last seen content
-            if currentClipboard != self.lastSeenClipboardContent {
-                // Add new change to history
-                let change = ClipboardChange(content: currentClipboard, timestamp: now)
+            // Use changeCount for more reliable change detection - track ANY clipboard operation
+            if currentChangeCount != self.lastSeenChangeCount {
+                // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
+                // This fixes the bug where copying the same content multiple times wasn't being detected
+                let change = ClipboardChange(content: currentClipboard, timestamp: now, changeCount: currentChangeCount)
                 self.globalClipboardHistory.append(change)
                 self.lastSeenClipboardContent = currentClipboard
-                logDebug("[ClipboardMonitor] Global monitoring detected new clipboard change")
+                self.lastSeenChangeCount = currentChangeCount
+                logDebug("[ClipboardMonitor] Global monitoring detected clipboard operation (changeCount: \(currentChangeCount))")
             }
             
             // Clean up old entries beyond the buffer time (keep only last 5 seconds)

@@ -89,9 +89,14 @@
           "description": "Timeout in seconds for auto-return and scheduled actions when no recording session is active (0 = no timeout, 5 = default)",
           "minimum": 0,
           "default": 5
+        },
+        "clipboardStacking": {
+          "type": "boolean",
+          "description": "Enable clipboard stacking for clipboardContext placeholder. When enabled, multiple clipboard changes during recording are captured and formatted with XML tags (<clipboard_context_1>, <clipboard_context_2>, etc.). When disabled, only the last clipboard change is captured (default behavior).",
+          "default": false
         }
       },
-      "required": ["watch", "noUpdates", "noNoti", "noEsc", "simKeypress", "actionDelay", "pressReturn", "returnDelay", "restoreClipboard", "scheduledActionTimeout"],
+      "required": ["watch", "noUpdates", "noNoti", "noEsc", "simKeypress", "actionDelay", "pressReturn", "returnDelay", "restoreClipboard", "scheduledActionTimeout", "clipboardStacking"],
       "additionalProperties": false
     },
     "inserts": {

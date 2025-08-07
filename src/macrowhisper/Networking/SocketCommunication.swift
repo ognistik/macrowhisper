@@ -145,6 +145,20 @@ class SocketCommunication {
         }
         return nil
     }
+    
+    /// Enhances metaJson with CLI-specific data for placeholder processing
+    /// This adds clipboard stacking setting and other CLI context data
+    private func enhanceMetaJsonForCLI(metaJson: [String: Any], configManager: ConfigurationManager) -> [String: Any] {
+        var enhanced = metaJson
+        
+        // Add clipboard stacking setting for CLI context
+        enhanced["clipboardStacking"] = configManager.config.defaults.clipboardStacking
+        
+        // Add CLI execution context flag
+        enhanced["isCLIExecution"] = true
+        
+        return enhanced
+    }
 
     private func validateInsertExists(_ insertName: String, configManager: ConfigurationManager) -> Bool {
         if insertName.isEmpty { return true }
@@ -1010,28 +1024,31 @@ class SocketCommunication {
                             cancelAutoReturnTimeout()
                             cancelScheduledActionTimeout()
                             
+                            // Enhance metaJson with CLI-specific data
+                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
+                            
                             // Execute based on action type using CLI-specific methods
                             switch actionType {
                             case .insert:
                                 if let insert = action as? AppConfiguration.Insert {
-                                    let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
+                                    let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: enhancedMetaJson)
                                     applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
                                 }
                             case .url:
                                 if let url = action as? AppConfiguration.Url {
-                                    executeUrlForCLI(url, metaJson: lastValidJson)
+                                    executeUrlForCLI(url, metaJson: enhancedMetaJson)
                                 }
                             case .shortcut:
                                 if let shortcut = action as? AppConfiguration.Shortcut {
-                                    executeShortcutForCLI(shortcut, shortcutName: actionName, metaJson: lastValidJson)
+                                    executeShortcutForCLI(shortcut, shortcutName: actionName, metaJson: enhancedMetaJson)
                                 }
                             case .shell:
                                 if let shell = action as? AppConfiguration.ScriptShell {
-                                    executeShellForCLI(shell, metaJson: lastValidJson)
+                                    executeShellForCLI(shell, metaJson: enhancedMetaJson)
                                 }
                             case .appleScript:
                                 if let script = action as? AppConfiguration.ScriptAppleScript {
-                                    executeAppleScriptForCLI(script, metaJson: lastValidJson)
+                                    executeAppleScriptForCLI(script, metaJson: enhancedMetaJson)
                                 }
                             }
                             
@@ -1059,35 +1076,38 @@ class SocketCommunication {
                     
                     if let action = action {
                         if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                            // Enhance metaJson with CLI-specific data
+                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
+                            
                             // Return processed action content based on type
                             switch actionType {
                             case .insert:
                                 if let insert = action as? AppConfiguration.Insert {
-                                    let (processedAction, _) = processInsertAction(insert.action, metaJson: lastValidJson)
+                                    let (processedAction, _) = processInsertAction(insert.action, metaJson: enhancedMetaJson)
                                     response = processedAction
                                     logInfo("Returning processed action for \(actionType) '\(actionName)'.")
                                 }
                             case .url:
                                 if let url = action as? AppConfiguration.Url {
-                                    let processedAction = processAllPlaceholders(action: url.action, metaJson: lastValidJson, actionType: .url)
+                                    let processedAction = processAllPlaceholders(action: url.action, metaJson: enhancedMetaJson, actionType: .url)
                                     response = processedAction
                                     logInfo("Returning processed action for URL '\(actionName)'.")
                                 }
                             case .shortcut:
                                 if let shortcut = action as? AppConfiguration.Shortcut {
-                                    let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: lastValidJson, actionType: .shortcut)
+                                    let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: enhancedMetaJson, actionType: .shortcut)
                                     response = processedAction
                                     logInfo("Returning processed action for shortcut '\(actionName)'.")
                                 }
                             case .shell:
                                 if let shell = action as? AppConfiguration.ScriptShell {
-                                    let processedAction = processAllPlaceholders(action: shell.action, metaJson: lastValidJson, actionType: .shell)
+                                    let processedAction = processAllPlaceholders(action: shell.action, metaJson: enhancedMetaJson, actionType: .shell)
                                     response = processedAction
                                     logInfo("Returning processed action for shell script '\(actionName)'.")
                                 }
                             case .appleScript:
                                 if let script = action as? AppConfiguration.ScriptAppleScript {
-                                    let processedAction = processAllPlaceholders(action: script.action, metaJson: lastValidJson, actionType: .appleScript)
+                                    let processedAction = processAllPlaceholders(action: script.action, metaJson: enhancedMetaJson, actionType: .appleScript)
                                     response = processedAction
                                     logInfo("Returning processed action for AppleScript '\(actionName)'.")
                                 }

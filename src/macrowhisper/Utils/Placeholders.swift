@@ -368,11 +368,22 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     // Access the existing ClipboardMonitor from RecordingsFolderWatcher if available
                     if recordingsWatcher != nil {
-                        // We need a way to access the ClipboardMonitor from the watcher
-                        // For now, let's use a simpler approach with direct global history access
-                        value = getRecentClipboardContentForCLI()
-                        if !value.isEmpty {
-                            logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history for CLI context")
+                        // Check if this is CLI execution and get stacking setting
+                        let isCLIExecution = metaJson["isCLIExecution"] as? Bool ?? false
+                        let enableStacking = metaJson["clipboardStacking"] as? Bool ?? false
+                        
+                        if isCLIExecution && enableStacking {
+                            // Use stacking method for CLI execution
+                            value = getRecentClipboardContentForCLIWithStacking(enableStacking: enableStacking)
+                            if !value.isEmpty {
+                                logDebug("[ClipboardContextPlaceholder] Using recent clipboard content with stacking from global history for CLI context")
+                            }
+                        } else {
+                            // Use original method for non-stacking or non-CLI execution
+                            value = getRecentClipboardContentForCLI()
+                            if !value.isEmpty {
+                                logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history for CLI context")
+                            }
                         }
                     }
                 }
@@ -590,6 +601,22 @@ func getRecentClipboardContentForCLI() -> String {
     if let watcher = recordingsWatcher {
         let clipboardMonitor = watcher.getClipboardMonitor()
         return clipboardMonitor.getRecentClipboardContent()
+    }
+    
+    // Fallback: if no watcher is available, return empty string
+    logDebug("[ClipboardContextPlaceholder] No RecordingsFolderWatcher available for CLI clipboard access")
+    return ""
+}
+
+/// Gets recent clipboard content for CLI execution context with stacking support
+/// This avoids creating duplicate clipboard monitoring instances
+/// - Parameter enableStacking: Whether to enable clipboard stacking (from configuration)
+/// - Returns: Formatted clipboard content (single content or XML-tagged stack)
+func getRecentClipboardContentForCLIWithStacking(enableStacking: Bool) -> String {
+    // Use the existing ClipboardMonitor from RecordingsFolderWatcher if available
+    if let watcher = recordingsWatcher {
+        let clipboardMonitor = watcher.getClipboardMonitor()
+        return clipboardMonitor.getRecentClipboardContentWithStacking(enableStacking: enableStacking)
     }
     
     // Fallback: if no watcher is available, return empty string

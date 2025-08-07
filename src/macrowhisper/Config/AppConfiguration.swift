@@ -18,10 +18,11 @@ struct AppConfiguration: Codable {
         var returnDelay: Double
         var restoreClipboard: Bool
         var scheduledActionTimeout: Double
+        var clipboardStacking: Bool
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking
         }
         
         // Custom encoding to preserve null values
@@ -41,6 +42,7 @@ struct AppConfiguration: Codable {
             try container.encode(returnDelay, forKey: .returnDelay)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
             try container.encode(scheduledActionTimeout, forKey: .scheduledActionTimeout)
+            try container.encode(clipboardStacking, forKey: .clipboardStacking)
         }
         
         // Custom decoding with migration logic from activeInsert to activeAction
@@ -70,10 +72,11 @@ struct AppConfiguration: Codable {
             returnDelay = try container.decodeIfPresent(Double.self, forKey: .returnDelay) ?? 0.1
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard) ?? true
             scheduledActionTimeout = try container.decodeIfPresent(Double.self, forKey: .scheduledActionTimeout) ?? 5
+            clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking) ?? false
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -88,6 +91,7 @@ struct AppConfiguration: Codable {
             self.returnDelay = returnDelay
             self.restoreClipboard = restoreClipboard
             self.scheduledActionTimeout = scheduledActionTimeout
+            self.clipboardStacking = clipboardStacking
         }
         
         static func defaultValues() -> Defaults {
@@ -105,7 +109,8 @@ struct AppConfiguration: Codable {
                 pressReturn: false,
                 returnDelay: 0.1,
                 restoreClipboard: true,
-                scheduledActionTimeout: 5
+                scheduledActionTimeout: 5,
+                clipboardStacking: false
             )
         }
     }

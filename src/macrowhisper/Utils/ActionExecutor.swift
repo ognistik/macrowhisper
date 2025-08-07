@@ -200,9 +200,10 @@ class ActionExecutor {
             enhanced["selectedText"] = sessionSelectedText
         }
         
-        // Get clipboard content for the clipboardContext placeholder
+        // Get clipboard content for the clipboardContext placeholder with stacking support
         let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-        let sessionClipboardContent = clipboardMonitor.getSessionClipboardContent(for: recordingPath, swResult: swResult)
+        let enableStacking = configManager.config.defaults.clipboardStacking
+        let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(for: recordingPath, swResult: swResult, enableStacking: enableStacking)
         if !sessionClipboardContent.isEmpty {
             enhanced["clipboardContext"] = sessionClipboardContent
         }

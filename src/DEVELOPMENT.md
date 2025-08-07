@@ -54,7 +54,7 @@ swift build
 
 **Session-Based Placeholders** (captured during recording):
 - `{{selectedText}}` - Text selected when recording starts (early capture)
-- `{{clipboardContext}}` - Last clipboard change during recording session
+- `{{clipboardContext}}` - Last clipboard change during recording session (supports stacking)
 - `{{appContext}}` - Structured app context (captured on-demand)
 
 **Usage Examples:**
@@ -68,6 +68,9 @@ swift build
 #### Implementation Notes:
 - **selectedText**: Captured immediately when recording folder appears (if text is selected)
 - **clipboardContext**: Captured from clipboard monitoring session (works regardless of restoreClipboard setting)
+  - **Stacking**: When `clipboardStacking` is enabled in configuration, captures all clipboard changes with XML formatting
+  - **Single change**: Returns content without XML tags (maintains current behavior)
+  - **Multiple changes**: Returns all changes with XML tags (`<clipboard_context_1>`, `<clipboard_context_2>`, etc.)
 - **appContext**: Only captured when placeholder is used in action (performance optimization)
 
 #### Example: Adding Session-Based Placeholder

@@ -378,6 +378,7 @@ if meta.json exists immediately {
 - **Smart session monitoring**: Only starts intensive session monitoring when meta.json is incomplete; skips if recording is ready immediately
 - **Early session data capture**: Captures selectedText, userOriginalClipboard, and pre-recording clipboard when recording folder appears
 - **Enhanced clipboardContext logic**: Prioritizes session changes, falls back to pre-recording clipboard content from global history
+- **Clipboard stacking support**: Optional feature to capture multiple clipboard changes during recording with XML formatting
 - **Smart logging system**: Only logs clipboard changes during actual action execution periods (content not logged for privacy)
 - **Dual monitoring architecture**: Lightweight global monitoring (0.5s intervals) + intensive session monitoring (0.01s intervals)
 - **Single instance architecture**: Shared ClipboardMonitor instance prevents duplicate monitoring and logging
@@ -425,10 +426,14 @@ private struct EarlyMonitoringSession {
 
 **Placeholder Data Extraction**:
 - **selectedText**: From session start capture, independent of current selection
-- **clipboardContext**: Enhanced with pre-recording support:
+- **clipboardContext**: Enhanced with pre-recording support and optional stacking:
   - **Priority 1**: Last clipboard change during recording session (maintains current behavior)
   - **Priority 2**: Most recent clipboard change within 5 seconds before recording started (new feature)
   - **Fallback**: Empty string if no relevant changes found
+  - **Stacking Behavior**: When `clipboardStacking` is enabled in configuration:
+    - **Single change**: Returns content without XML tags (maintains current behavior)
+    - **Multiple changes**: Returns all changes formatted with XML tags (`<clipboard_context_1>`, `<clipboard_context_2>`, etc.)
+    - **Disabled (default)**: Returns only the last clipboard change (original behavior)
 - **Restoration Independence**: Placeholder data available regardless of restoreClipboard setting
 
 **Critical Timing Constants**:

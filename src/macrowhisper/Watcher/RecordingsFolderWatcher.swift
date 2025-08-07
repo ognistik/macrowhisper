@@ -507,7 +507,8 @@ class RecordingsFolderWatcher {
             }
             
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            let sessionClipboardContent = clipboardMonitor.getSessionClipboardContent(for: recordingPath, swResult: swResult)
+            let enableStacking = configManager.config.defaults.clipboardStacking
+            let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(for: recordingPath, swResult: swResult, enableStacking: enableStacking)
             if !sessionClipboardContent.isEmpty {
                 enhancedMetaJson["clipboardContext"] = sessionClipboardContent
             }
