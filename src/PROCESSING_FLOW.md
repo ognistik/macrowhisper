@@ -405,13 +405,20 @@ The trigger system evaluates all configured actions to find matches based on voi
 - **Multiple Patterns**: Separated by `|` (pipe character)
 - **Result Stripping**: Matched trigger phrase is removed from the result
 - **Case Insensitive**: All voice triggers are case-insensitive
+- **Raw Regex**: Wrap patterns in `=` for full regex control (e.g., `=^exact match$=`)
 
 Example:
 ```json
 {
-  "triggerVoice": "send email|compose message|!delete email"
+  "triggerVoice": "send email|compose message|!delete email|=^google this\\.?$="
 }
 ```
+
+**Raw Regex Examples:**
+- `=^exact match$=` - Exact string match
+- `=.*ends with this$=` - Match strings ending with phrase
+- `=^(?!.*exclude).*$=` - Match anything not containing "exclude"
+- `=(?-i)Case Sensitive=` - Case-sensitive matching
 
 ##### 2. Application Triggers (`triggerApps`):
 - **Bundle ID**: Matches application bundle identifier (e.g., `com.apple.mail`)

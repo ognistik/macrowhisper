@@ -316,6 +316,7 @@ if meta.json exists immediately {
 1. **Voice Triggers**: Regex patterns matching transcribed text
    - Positive patterns: Match required phrases
    - Exception patterns: Exclude specific phrases (prefix with `!`)
+   - Raw regex patterns: Full regex control wrapped in `=` delimiters (e.g., `=^exact match$=`)
    - Result stripping: Remove trigger phrase from action input
 2. **Application Triggers**: Match current foreground application
    - Bundle ID matching: `com.apple.mail`

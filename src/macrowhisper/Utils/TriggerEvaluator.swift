@@ -149,12 +149,36 @@ class TriggerEvaluator {
             for trigger in triggers {
                 let isException = trigger.hasPrefix("!")
                 let actualPattern = isException ? String(trigger.dropFirst()) : trigger
-                let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: actualPattern)
+                
+                // Check if this is a raw regex pattern (wrapped in =)
+                let isRawRegex = actualPattern.hasPrefix("=") && actualPattern.hasSuffix("=")
+                let patternToUse: String
+                let regexPattern: String
+                
+                if isRawRegex {
+                    // Extract the pattern between = delimiters - this is raw regex
+                    let startIndex = actualPattern.index(after: actualPattern.startIndex)
+                    let endIndex = actualPattern.index(before: actualPattern.endIndex)
+                    patternToUse = String(actualPattern[startIndex..<endIndex])
+                    
+                    // Check if user has specified case sensitivity
+                    if patternToUse.hasPrefix("(?i)") || patternToUse.hasPrefix("(?-i)") {
+                        // User has specified case sensitivity, use pattern as-is
+                        regexPattern = patternToUse
+                    } else {
+                        // Default to case-insensitive
+                        regexPattern = "(?i)" + patternToUse
+                    }
+                } else {
+                    // For prefix matching (current behavior)
+                    patternToUse = actualPattern
+                    regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: patternToUse)
+                }
                 
                 if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
                     let range = NSRange(location: 0, length: result.utf16.count)
                     let found = regex.firstMatch(in: result, options: [], range: range) != nil
-                    logDebug("[TriggerEval] Pattern '\(trigger)' found=\(found) in result.")
+                    logDebug("[TriggerEval] Pattern '\(trigger)' (raw regex: \(isRawRegex)) found=\(found) in result.")
                     
                     if isException && found {
                         exceptionMatched = true

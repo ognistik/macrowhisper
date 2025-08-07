@@ -312,8 +312,8 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string, null, or omit means no trigger.",
-          "examples": ["summarize", "(email|mail)", "!my phrase", "", null],
+          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Wrap patterns in '=' for raw regex (e.g., '=^exact match$='). Empty string, null, or omit means no trigger.",
+          "examples": ["summarize", "(email|mail)", "!my phrase", "=^google this\\.?$=", "=.*ends with this$=", "", null],
           "default": ""
         },
         "triggerApps": {
