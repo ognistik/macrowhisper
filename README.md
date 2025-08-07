@@ -118,7 +118,10 @@ Macrowhisper uses JSON configuration with dynamic placeholders:
 - `{{swResult}}` - Your transcription result
 - `{{metaKeyName}}` - Any key from Superwhisper's meta.json file
 - `{{frontApp}}` - Expands to your application
-- `{{date:yyyy-MM-dd}}` - Formatted dates
+- `{{selectedText}}` - Your selected text at the time you started dictating
+- `{{clipboardContext}}` - Clipboard content captured during dictation or 5 seconds before dictating
+- `{{appContext}}` - Name of your current app and content of active input field
+- `{{date:yyyy-MM-dd}}`, `{{date:long}}`, `{{date:short}}` - Formatted dates
 - `{{xml:tagname}}` - Extract XML content from LLM results
 - Plus regex replacements and contextual escaping
 

@@ -1,4 +1,5 @@
 {
+  "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
     "activeAction" : "autoPaste",
@@ -11,6 +12,7 @@
     "pressReturn" : false,
     "restoreClipboard" : true,
     "returnDelay" : 0.14,
+    "scheduledActionTimeout" : 5,
     "simKeypress" : false,
     "watch" : "~/Documents/superwhisper"
   },
@@ -111,7 +113,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : "Make note"
+      "triggerVoice" : ""
     },
     "Dictionary Shortcut Sample" : {
       "action" : "{\"SimpleResult\": \"{{json:swResult}}\",\"RequestXMLTag\": \"{{json:xml:user_request||replaceThis||withThis}}\",\"Date\": \"{{json:date:d MMM yyyy}}\"}",
@@ -123,7 +125,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : "testing"
+      "triggerVoice" : ""
     }
   },
   "urls" : {

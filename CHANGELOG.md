@@ -2,6 +2,7 @@
 
 ## UNRELEASED
 
+## [v1.2.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.3) - 2025/08/06
 ### Added
 * New JSON schema to assist users when editing the configuration file in their IDE.
   * `--schema-info` - new CLI flag to debug schema issues.
@@ -19,12 +20,12 @@
   * It schedules an action which is prioritized above any trigger.
   * This scheduled action has a customizable timeout with a new `scheduledActionTimeout` option in the configuration. If no dictation begins before X amount of seconds, the scheduled action will be cancelled. 
   * A scheduled action can also be cancelled by sending the `--schedule-action` flag without any arguments.
-  
-* Configuration file is now automatically updated when service starts to include new values and schema changes.
-  * `--config-update` - new CLI flag to manually update configuration.
 
 ### Changed
 * Macrowhisper can now work with empty "result" values—since Superwhisper itself can also do this. This means that when using a Superwhisper mode that has AI, the mode can process captured context alone (without dictated text). Macrowhisper will also trigger actions properly based on this. Note: This is experimental and could be removed from Superwhisper anytime.
+
+* Configuration file is now automatically updated when service starts to include new values and schema changes.
+  * `--config-update` - new CLI flag to manually update configuration.
 
 ---
 ## [v1.2.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.2) - 2025/07/31

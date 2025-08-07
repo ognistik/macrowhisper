@@ -1174,7 +1174,7 @@ func printHelp() {
       --remove-action <name>        Remove any action by name (works for all action types)
       --auto-return <true/false>    Paste result and simulate return for one interaction
                                     (takes priority over active action and triggers)
-      --schedule-action [<name>]     Schedule any action for next recording session
+      --schedule-action [<name>]    Schedule any action for next (or active) recording session
                                     (takes priority over active action and triggers)
                                     (no name = cancel scheduled action)
 

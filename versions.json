@@ -1,4 +1,4 @@
 {
-  "version" : "1.2.2",
-  "description" : "* The implementation for Keypress Simulation has been rewritten. Should be much more reliable now.\n\nYou'll likely need to re-grant accessibility permissions after updating. All changes are backward compatible, so your existing configuration will continue working."
+  "version" : "1.2.3",
+  "description" : "* New dynamic placeholders: {{selectedText}}, {{clipboardContext}}, and {{appContext}}. Now you can optionally send context to apps that may not natively support it\n* New JSON schema assistance for configuration editing\n* Introduced --schedule-action CLI flag for scheduling actions that auto-timeout after x seconds (great for automation)\n* Automatic config updates\n* Support for empty dictation results for AI-only processing"
 }
