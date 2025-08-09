@@ -1,7 +1,7 @@
 <h1 align="center">Macrowhisper for Alfred</h1>
 <p align="center"><strong>Automation Helper for Superwhisper</strong></p>
 <p align="center">
-    <img width="300" src="Workflow/assets/images/macrowhisper.png">
+    <img width="300" src="workflow/assets/images/macrowhisper.png">
 </p>
 
 ## Macrowhisper for Alfred

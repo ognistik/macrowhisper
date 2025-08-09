@@ -289,7 +289,7 @@
 				<key>script</key>
 				<string># THESE VARIABLES MUST BE SET. SEE THE ONEUPDATER README FOR AN EXPLANATION OF EACH.
 readonly remote_info_plist='https://raw.githubusercontent.com/ognistik/macrowhisper/main/alfred/workflow/prefs.plist'
-readonly workflow_url='https://raw.githubusercontent.com/ognistik/alfred-pasteflow/main/PasteFlow.alfredworkflow'
+readonly workflow_url='https://raw.githubusercontent.com/ognistik/macrowhisper/main/alfred/Macrowhisper.alfredworkflow'
 readonly download_type='direct'
 readonly frequency_check='4'
 
@@ -1039,6 +1039,8 @@ Set these in the workflow’s configuration:
 			<string>dictateMode</string>
 		</dict>
 	</array>
+	<key>variablesdontexport</key>
+	<array/>
 	<key>version</key>
 	<string>1.0.0</string>
 	<key>webaddress</key>
