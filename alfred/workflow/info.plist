@@ -1044,6 +1044,6 @@ Set these in the workflow’s configuration:
 	<key>version</key>
 	<string>1.0.0</string>
 	<key>webaddress</key>
-	<string></string>
+	<string>https://github.com/ognistik/macrowhisper/tree/main/alfred</string>
 </dict>
 </plist>
