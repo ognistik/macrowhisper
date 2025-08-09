@@ -253,7 +253,17 @@ class RecordingsFolderWatcher {
                 if let watcher = pendingMetaJsonFiles[metaJsonPath] {
                     watcher.cancel()
                     pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
-                    logDebug("Removed watcher for deleted directory: \(fullPath)")
+                    logDebug("Removed watcher for deleted directory (meta.json watcher): \(fullPath)")
+                    
+                    // Cancel auto-return and scheduled action if they were enabled - recording was interrupted
+                    cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
+                    cancelScheduledAction(reason: "recording folder \(dirName) was deleted during processing")
+                }
+                // Also remove a potential creation watcher keyed by the recording directory path
+                if let creationWatcher = pendingMetaJsonFiles[fullPath] {
+                    creationWatcher.cancel()
+                    pendingMetaJsonFiles.removeValue(forKey: fullPath)
+                    logDebug("Removed watcher for deleted directory (creation watcher): \(fullPath)")
                     
                     // Cancel auto-return and scheduled action if they were enabled - recording was interrupted
                     cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
@@ -819,6 +829,11 @@ class RecordingsFolderWatcher {
     
     /// Checks if there are any active recording sessions (pending meta.json files)
     func hasActiveRecordingSessions() -> Bool {
-        return !pendingMetaJsonFiles.isEmpty
+        // Ensure thread-safe access to pendingMetaJsonFiles, which is mutated on the watcher's queue
+        var hasActive = false
+        queue.sync {
+            hasActive = !pendingMetaJsonFiles.isEmpty
+        }
+        return hasActive
     }
 } 
