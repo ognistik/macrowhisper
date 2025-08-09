@@ -58,20 +58,6 @@
       "triggerLogic" : "or",
       "triggerModes" : "",
       "triggerVoice" : ""
-    },
-    "textChat" : {
-      "action" : "## AI\n{{swResult}}\n\n---\n## USER\n",
-      "actionDelay" : null,
-      "icon" : "⚛",
-      "moveTo" : "",
-      "noEsc" : null,
-      "pressReturn" : null,
-      "restoreClipboard" : null,
-      "simKeypress" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : ""
     }
   },
   "scriptsAS" : {
@@ -143,20 +129,6 @@
       "triggerModes" : "",
       "triggerVoice" : "ask google"
     },
-    "Letterboxd" : {
-      "action" : "https://letterboxd.com/search/{{result||\\.$||}}",
-      "actionDelay" : null,
-      "icon" : "",
-      "moveTo" : "",
-      "noEsc" : null,
-      "openBackground" : false,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : "ask letterboxd|ask letterboxed"
-    },
     "OpenAI" : {
       "action" : "https://chat.openai.com/?q={{result}}",
       "actionDelay" : null,
@@ -184,20 +156,6 @@
       "triggerLogic" : "or",
       "triggerModes" : "",
       "triggerVoice" : "ask perplexity"
-    },
-    "Rotten Tomatoes" : {
-      "action" : "https://www.rottentomatoes.com/search?search={{result||\\.$||}}",
-      "actionDelay" : null,
-      "icon" : "",
-      "moveTo" : "",
-      "noEsc" : null,
-      "openBackground" : false,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : "ask rotten|ask roten"
     },
     "YouTube" : {
       "action" : "https://www.youtube.com/results?search_query={{result||\\.$||}}",
