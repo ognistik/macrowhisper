@@ -165,6 +165,7 @@ This README covers the basics. For comprehensive documentation including:
 - Integration with Keyboard Maestro and automation apps
 
 **📖 Visit the full documentation: [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)**
+
 **💫 [Check out the Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)**
 
 ---
