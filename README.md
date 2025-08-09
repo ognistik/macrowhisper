@@ -21,7 +21,7 @@ Macrowhisper monitors your Superwhisper recordings and executes intelligent auto
 
 ---
 ## Learn More
-**💫 [Check the full docs and sample use cases](https://by.afadingthought.com/macrowhisper)**
+**📖 [Check the full docs and sample use cases](https://by.afadingthought.com/macrowhisper)**
 
 ---
 ## Quick Start
