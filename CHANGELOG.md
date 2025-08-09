@@ -9,6 +9,7 @@
 * Added `clipboardBuffer` option to set custom buffer or clipboardContext to be captured.
 * Adjusted JSON schema to only require the very essential defaults.
 * Added trimming to selectedText, clipboardContext, appContext.
+* New repo for [Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)!
 
 ## [v1.2.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.3) - 2025/08/06
 ### Added
