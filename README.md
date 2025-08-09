@@ -23,6 +23,8 @@ Macrowhisper monitors your Superwhisper recordings and executes intelligent auto
 ## Learn More
 **📖 [Check the full docs and sample use cases](https://by.afadingthought.com/macrowhisper)**
 
+**💫 [Check out the Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)**
+
 ---
 ## Quick Start
 
