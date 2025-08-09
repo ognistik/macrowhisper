@@ -1,6 +1,12 @@
+<h1 align="center">Macrowhisper for Alfred</h1>
+<p align="center"><strong>Automation Helper for Superwhisper</strong></p>
+<p align="center">
+    <img width="300" src="Workflow/assets/images/macrowhisper.png">
+</p>
+
 ## Macrowhisper for Alfred
 
-This Alfred workflow lets you run your Macrowhisper actions directly, using your voice input from Superwhisper. It’s built to complement the Macrowhisper's CLI and Superwhisper, so you can schedule actions, execute with the last result, or set an action as active so that future dictations continue to run through it.
+This Alfred workflow lets you run your [Macrowhisper](https://by.afadingthought.com/macrowhisper) actions directly, using your voice input from Superwhisper. It’s built to complement Macrowhisper's CLI and [Superwhisper](https://superwhisper.com/?via=robert), so you can schedule actions, execute with the last result, or set an action as active so that future dictations continue to run through it.
 
 ### What you can do
 - **Schedule & Dictate**: Schedule an action in Macrowhisper and immediately start dictation with Superwhisper, sending the new transcription to that action.

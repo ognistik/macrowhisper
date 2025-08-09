@@ -202,7 +202,7 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Keywords or phrases for voice trigger matching. null or empty string means no trigger.",
+          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Wrap patterns in '=' for raw regex (e.g., '=^exact match$='). Empty string, null, or omit means no trigger.",
           "default": ""
         },
         "triggerApps": {
