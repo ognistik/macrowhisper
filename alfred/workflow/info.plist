@@ -288,7 +288,7 @@
 				<integer>0</integer>
 				<key>script</key>
 				<string># THESE VARIABLES MUST BE SET. SEE THE ONEUPDATER README FOR AN EXPLANATION OF EACH.
-readonly remote_info_plist='https://raw.githubusercontent.com/ognistik/macrowhisper/main/alfred/workflow/prefs.plist'
+readonly remote_info_plist='https://raw.githubusercontent.com/ognistik/macrowhisper/main/alfred/workflow/info.plist'
 readonly workflow_url='https://raw.githubusercontent.com/ognistik/macrowhisper/main/alfred/Macrowhisper.alfredworkflow'
 readonly download_type='direct'
 readonly frequency_check='4'
