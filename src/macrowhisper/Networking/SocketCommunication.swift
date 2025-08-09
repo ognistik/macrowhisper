@@ -317,11 +317,17 @@ class SocketCommunication {
         
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
         
-        guard let encodedUrl = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-              let url = URL(string: encodedUrl) else {
+        // Prefer already valid URLs; otherwise percent-encode using urlQueryAllowed (matches previous behavior)
+        if let directUrl = URL(string: processedAction) {
+            openResolvedUrlCLI(directUrl, with: urlAction)
+            return
+        }
+        guard let encoded = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+              let url = URL(string: encoded) else {
             logError("Invalid URL after processing: \(processedAction)")
             return
         }
+        openResolvedUrlCLI(url, with: urlAction)
         
         // Check if URL should open in background
         let shouldOpenInBackground = urlAction.openBackground ?? false
@@ -345,6 +351,28 @@ class SocketCommunication {
             }
         } else {
             // Open with default handler
+            openUrlCLI(url, inBackground: shouldOpenInBackground)
+        }
+    }
+
+    private func openResolvedUrlCLI(_ url: URL, with urlAction: AppConfiguration.Url) {
+        let shouldOpenInBackground = urlAction.openBackground ?? false
+        if let openWith = urlAction.openWith, !openWith.isEmpty {
+            let expandedOpenWith = (openWith as NSString).expandingTildeInPath
+            let task = Process()
+            task.launchPath = "/usr/bin/open"
+            if shouldOpenInBackground {
+                task.arguments = ["-g", "-a", expandedOpenWith, url.absoluteString]
+            } else {
+                task.arguments = ["-a", expandedOpenWith, url.absoluteString]
+            }
+            do {
+                try task.run()
+            } catch {
+                logError("Failed to open URL with specified app: \(error)")
+                openUrlCLI(url, inBackground: shouldOpenInBackground)
+            }
+        } else {
             openUrlCLI(url, inBackground: shouldOpenInBackground)
         }
     }

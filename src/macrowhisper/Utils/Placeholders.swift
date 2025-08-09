@@ -280,8 +280,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                         escapedReplacement = replacement // No escaping for shortcuts and insert actions
                     case .appleScript:
                         escapedReplacement = escapeAppleScriptString(replacement)
-                    case .shell, .url:
+                    case .shell:
                         escapedReplacement = escapeShellCharacters(replacement)
+                    case .url:
+                        // No shell escaping for URL actions; percent-encoding happens after placeholder processing
+                        escapedReplacement = replacement
                     }
                 }
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
@@ -320,8 +323,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                             escapedValue = value // No escaping for shortcuts and insert actions
                         case .appleScript:
                             escapedValue = escapeAppleScriptString(value)
-                        case .shell, .url:
+                        case .shell:
                             escapedValue = escapeShellCharacters(value)
+                        case .url:
+                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
+                            escapedValue = value
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -352,8 +358,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                             escapedValue = value // No escaping for shortcuts and insert actions
                         case .appleScript:
                             escapedValue = escapeAppleScriptString(value)
-                        case .shell, .url:
+                        case .shell:
                             escapedValue = escapeShellCharacters(value)
+                        case .url:
+                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
+                            escapedValue = value
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -408,8 +417,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                             escapedValue = value // No escaping for shortcuts and insert actions
                         case .appleScript:
                             escapedValue = escapeAppleScriptString(value)
-                        case .shell, .url:
+                        case .shell:
                             escapedValue = escapeShellCharacters(value)
+                        case .url:
+                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
+                            escapedValue = value
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -447,8 +459,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                             escapedValue = value // No escaping for shortcuts and insert actions
                         case .appleScript:
                             escapedValue = escapeAppleScriptString(value)
-                        case .shell, .url:
+                        case .shell:
                             escapedValue = escapeShellCharacters(value)
+                        case .url:
+                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
+                            escapedValue = value
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)

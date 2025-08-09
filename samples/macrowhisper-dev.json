@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "swWebView",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,
@@ -229,7 +229,7 @@
       "triggerVoice" : ""
     },
     "Alter TM" : {
-      "action" : "https://typingmind.com?message={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}-arcMain",
+      "action" : "https://typingmind.com?message=yes{{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}-arcMain",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",

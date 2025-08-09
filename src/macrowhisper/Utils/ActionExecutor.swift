@@ -217,16 +217,26 @@ class ActionExecutor {
         // Process the URL action with both XML and dynamic placeholders
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
         
-        // URL encode the processed action
-        guard let encodedUrl = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-              let url = URL(string: encodedUrl) else {
+        // Prefer already valid URLs; otherwise percent-encode using urlQueryAllowed (matches previous behavior)
+        if let directUrl = URL(string: processedAction) {
+            // Already valid, use as-is to avoid unnecessary encoding
+            openResolvedUrl(directUrl, with: urlAction)
+            return
+        }
+        guard let encoded = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+              let url = URL(string: encoded) else {
             logError("Invalid URL after processing: \(processedAction)")
             return
         }
+        openResolvedUrl(url, with: urlAction)
         
+        // This code path is now moved to helper openResolvedUrl(_:with:)
+    }
+
+    private func openResolvedUrl(_ url: URL, with urlAction: AppConfiguration.Url) {
         // Check if URL should open in background
         let shouldOpenInBackground = urlAction.openBackground ?? false
-        
+
         // If openWith is specified, use that app to open the URL
         if let openWith = urlAction.openWith, !openWith.isEmpty {
             let expandedOpenWith = (openWith as NSString).expandingTildeInPath
