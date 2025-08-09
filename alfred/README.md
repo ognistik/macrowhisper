@@ -4,8 +4,6 @@
     <img width="300" src="workflow/assets/images/macrowhisper.png">
 </p>
 
-## Macrowhisper for Alfred
-
 This Alfred workflow lets you run your [Macrowhisper](https://by.afadingthought.com/macrowhisper) actions directly, using your voice input from Superwhisper. It’s built to complement Macrowhisper's CLI and [Superwhisper](https://superwhisper.com/?via=robert), so you can schedule actions, execute with the last result, or set an action as active so that future dictations continue to run through it.
 
 ### What you can do
