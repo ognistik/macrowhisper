@@ -140,8 +140,11 @@ class TriggerEvaluator {
         let actionName = action.name
         
         // Voice trigger
-        if let triggerVoice = triggerVoice, !triggerVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let triggers = triggerVoice.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if let triggerVoice = triggerVoice, !triggerVoice
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty {
+            // Split triggers by '|' but ignore '|' inside raw regex blocks delimited by '=='
+            let triggers = splitVoiceTriggers(triggerVoice)
             var matched = false
             var exceptionMatched = false
             logDebug("[TriggerEval] Voice trigger check for action '\(actionName)': patterns=\(triggers)")
@@ -150,15 +153,15 @@ class TriggerEvaluator {
                 let isException = trigger.hasPrefix("!")
                 let actualPattern = isException ? String(trigger.dropFirst()) : trigger
                 
-                // Check if this is a raw regex pattern (wrapped in =)
-                let isRawRegex = actualPattern.hasPrefix("=") && actualPattern.hasSuffix("=")
+                // Check if this is a raw regex pattern (wrapped in ==)
+                let isRawRegex = actualPattern.hasPrefix("==") && actualPattern.hasSuffix("==")
                 let patternToUse: String
                 let regexPattern: String
                 
                 if isRawRegex {
-                    // Extract the pattern between = delimiters - this is raw regex
-                    let startIndex = actualPattern.index(after: actualPattern.startIndex)
-                    let endIndex = actualPattern.index(before: actualPattern.endIndex)
+                    // Extract the pattern between '==' delimiters - this is raw regex
+                    let startIndex = actualPattern.index(actualPattern.startIndex, offsetBy: 2)
+                    let endIndex = actualPattern.index(actualPattern.endIndex, offsetBy: -2)
                     patternToUse = String(actualPattern[startIndex..<endIndex])
                     
                     // Check if user has specified case sensitivity
@@ -184,19 +187,21 @@ class TriggerEvaluator {
                         exceptionMatched = true
                     }
                     if !isException && found {
-                        // Strip the trigger from the start, plus any leading punctuation/whitespace after
-                        let match = regex.firstMatch(in: result, options: [], range: range)!
-                        let afterTriggerIdx = result.index(result.startIndex, offsetBy: match.range.length)
-                        var stripped = String(result[afterTriggerIdx...])
-                        let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-                        while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
-                            stripped.removeFirst()
-                        }
-                        if let first = stripped.first {
-                            stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
-                        }
                         matched = true
-                        strippedResult = stripped
+                        if !isRawRegex {
+                            // Strip the trigger from the start, plus any leading punctuation/whitespace after
+                            let match = regex.firstMatch(in: result, options: [], range: range)!
+                            let afterTriggerIdx = result.index(result.startIndex, offsetBy: match.range.length)
+                            var stripped = String(result[afterTriggerIdx...])
+                            let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+                            while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
+                                stripped.removeFirst()
+                            }
+                            if let first = stripped.first {
+                                stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
+                            }
+                            strippedResult = stripped
+                        }
                     }
                 }
             }
@@ -352,6 +357,64 @@ class TriggerEvaluator {
 }
 
 // MARK: - Supporting Types and Protocols
+
+extension TriggerEvaluator {
+    /// Splits a triggerVoice string into individual patterns, using '|' as separator,
+    /// but ignoring '|' inside raw regex blocks delimited by '==' ... '=='.
+    /// Trims whitespace around each part and removes empty parts.
+    fileprivate func splitVoiceTriggers(_ input: String) -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var i = input.startIndex
+        var inRaw = false
+
+        func pushCurrent() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { parts.append(trimmed) }
+            current.removeAll(keepingCapacity: true)
+        }
+
+        while i < input.endIndex {
+            if inRaw {
+                // Look for closing '=='
+                if input[i] == "=" {
+                    let next = input.index(after: i)
+                    if next < input.endIndex && input[next] == "=" {
+                        // Append the closing '==' and exit raw mode
+                        current.append("==")
+                        i = input.index(after: next)
+                        inRaw = false
+                        continue
+                    }
+                }
+                // Regular char inside raw
+                current.append(input[i])
+                i = input.index(after: i)
+            } else {
+                // Not in raw mode
+                if input[i] == "|" {
+                    pushCurrent()
+                    i = input.index(after: i)
+                    continue
+                }
+                // Enter raw mode on '=='
+                if input[i] == "=" {
+                    let next = input.index(after: i)
+                    if next < input.endIndex && input[next] == "=" {
+                        inRaw = true
+                        current.append("==")
+                        i = input.index(after: next)
+                        continue
+                    }
+                }
+                current.append(input[i])
+                i = input.index(after: i)
+            }
+        }
+        pushCurrent()
+        return parts
+    }
+}
 
 enum ActionType {
     case insert

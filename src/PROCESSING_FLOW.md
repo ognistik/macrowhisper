@@ -403,22 +403,22 @@ The trigger system evaluates all configured actions to find matches based on voi
 - **Pattern**: Regex patterns that match the beginning of transcribed text
 - **Exceptions**: Patterns prefixed with `!` exclude matches
 - **Multiple Patterns**: Separated by `|` (pipe character)
-- **Result Stripping**: Matched trigger phrase is removed from the result
-- **Case Insensitive**: All voice triggers are case-insensitive
-- **Raw Regex**: Wrap patterns in `=` for full regex control (e.g., `=^exact match$=`)
+- **Result Stripping (normal patterns)**: Normal voice patterns are treated as prefix matches; the matched prefix is removed from result/swResult
+- **Case Insensitive**: All voice triggers are case-insensitive by default
+- **Raw Regex**: Wrap patterns in `==` for full regex control (e.g., `==^exact match$==`); raw regex does not strip any text from result/swResult
 
 Example:
 ```json
 {
-  "triggerVoice": "send email|compose message|!delete email|=^google this\\.?$="
+  "triggerVoice": "^send email|compose message|!delete email|==^google this\\.?$=="
 }
 ```
 
 **Raw Regex Examples:**
-- `=^exact match$=` - Exact string match
-- `=.*ends with this$=` - Match strings ending with phrase
-- `=^(?!.*exclude).*$=` - Match anything not containing "exclude"
-- `=(?-i)Case Sensitive=` - Case-sensitive matching
+- `==^exact match$==` - Exact string match
+- `==.*ends with this$==` - Match strings ending with phrase
+- `==^(?!.*exclude).*$==` - Match anything not containing "exclude"
+- `==(?-i)Case Sensitive==` - Case-sensitive matching
 
 ##### 2. Application Triggers (`triggerApps`):
 - **Bundle ID**: Matches application bundle identifier (e.g., `com.apple.mail`)

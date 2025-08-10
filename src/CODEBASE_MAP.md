@@ -321,8 +321,8 @@ if meta.json exists immediately {
 1. **Voice Triggers**: Regex patterns matching transcribed text
    - Positive patterns: Match required phrases
    - Exception patterns: Exclude specific phrases (prefix with `!`)
-   - Raw regex patterns: Full regex control wrapped in `=` delimiters (e.g., `=^exact match$=`)
-   - Result stripping: Remove trigger phrase from action input
+   - Raw regex patterns: Full regex control wrapped in `==` delimiters (e.g., `==^exact match$==`); raw matches do not strip any text from the result
+   - Normal patterns: Treated as prefix matches and stripped from the start of result/swResult on match
 2. **Application Triggers**: Match current foreground application
    - Bundle ID matching: `com.apple.mail`
    - Application name matching: Case-insensitive

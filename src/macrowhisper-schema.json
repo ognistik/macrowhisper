@@ -202,7 +202,14 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Wrap patterns in '=' for raw regex (e.g., '=^exact match$='). Empty string, null, or omit means no trigger.",
+          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap raw regex in '==' (e.g., '==^search\\s+(.+)$==') to enable full regex matching without stripping and with case-insensitive default unless specified via (?i)/(?-i). Empty string, null, or omit means no trigger.",
+          "examples": [
+            "^summarize|!ignore this",
+            "email|mail",
+            "==^search\\s+(.+)$==",
+            "==(?-i)^Exact Case$==",
+            ""
+          ],
           "default": ""
         },
         "triggerApps": {
@@ -328,8 +335,8 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Keywords or phrases for voice trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Wrap patterns in '=' for raw regex (e.g., '=^exact match$='). Empty string, null, or omit means no trigger.",
-          "examples": ["summarize", "(email|mail)", "!my phrase", "=^google this\\.?$=", "=.*ends with this$=", "", null],
+          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap raw regex in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping and with case-insensitive default unless specified via (?i)/(?-i). Empty string, null, or omit means no trigger.",
+          "examples": ["summarize", "(email|mail)", "!my phrase", "==^google this\\.?$==", "==.*ends with this$==", "", null],
           "default": ""
         },
         "triggerApps": {

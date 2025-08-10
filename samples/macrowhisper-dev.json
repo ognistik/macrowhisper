@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "swWebView",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,
@@ -282,7 +282,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : "=^google this\\.?$="
+      "triggerVoice" : "==^google this\\.?$=="
     },
     "Letterboxd" : {
       "action" : "https://letterboxd.com/search/{{result||\\.$||}}",
