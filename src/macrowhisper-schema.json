@@ -97,7 +97,7 @@
         },
         "clipboardBuffer": {
           "type": "number",
-          "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls lightweight app-wide monitoring that captures clipboard content before a recording starts. 0 disables the buffer entirely.",
+          "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls the capture of clipboard content before a recording starts. 0 disables the buffer entirely.",
           "minimum": 0,
           "default": 5
         },
@@ -202,9 +202,9 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap raw regex in '==' (e.g., '==^search\\s+(.+)$==') to enable full regex matching without stripping and with case-insensitive default unless specified via (?i)/(?-i). Empty string, null, or omit means no trigger.",
+          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Empty string, null, or omit means no trigger.",
           "examples": [
-            "^summarize|!ignore this",
+            "!all but this",
             "email|mail",
             "==^search\\s+(.+)$==",
             "==(?-i)^Exact Case$==",
@@ -214,17 +214,19 @@
         },
         "triggerApps": {
           "type": ["string", "null"], 
-          "description": "Regex pattern for application trigger matching. null or empty string means no trigger.",
+          "description": "Regex pattern for application trigger matching (app name or bundle ID). Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
+          "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", "", null],
           "default": ""
         },
         "triggerModes": {
           "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching. null or empty string means no trigger.",
+          "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
+          "examples": ["email", "writing|notes", "^(Email|Messages)$", "", null],
           "default": ""
         },
         "triggerLogic": {
           "type": ["string", "null"],
-          "description": "Logic for combining multiple triggers. null defaults to 'or'.",
+          "description": "Logic for combining multiple triggers. Can be 'and' or 'or'. null defaults to 'or'.",
           "enum": ["and", "or"],
           "default": "or"
         }
@@ -335,25 +337,25 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap raw regex in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping and with case-insensitive default unless specified via (?i)/(?-i). Empty string, null, or omit means no trigger.",
-          "examples": ["summarize", "(email|mail)", "!my phrase", "==^google this\\.?$==", "==.*ends with this$==", "", null],
+          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Empty string, null, or omit means no trigger.",
+          "examples": ["summarize", "email|mail", "!ignore phrase", "==^google this\\.?$==", "==.*ends with this$==", "", null],
           "default": ""
         },
         "triggerApps": {
           "type": ["string", "null"],
-          "description": "Regex pattern for application trigger matching (app name or bundle ID). Empty string, null, or omit means no trigger.",
+          "description": "Regex pattern for application trigger matching (app name or bundle ID). Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
           "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", "", null],
           "default": ""
         },
         "triggerModes": {
           "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching. Empty string, null, or omit means no trigger.",
-          "examples": ["email", "writing|notes", "^(email|writing)$", "", null],
+          "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string, null, or omit means no trigger.",
+          "examples": ["email", "writing|notes", "^(Email|Messages)$", "", null],
           "default": ""
         },
         "triggerLogic": {
           "type": ["string", "null"],
-          "description": "Logic for combining multiple triggers. null or omit uses default 'or' logic.",
+          "description": "Logic for combining multiple triggers. Can be 'and' or 'or'. null or omit uses default 'or' logic.",
           "enum": ["and", "or"],
           "default": "or"
         }
