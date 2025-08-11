@@ -32,6 +32,7 @@ func escapeJsonString(_ input: String) -> String {
 
 /// Helper function to URL-encode placeholder values for URL actions
 /// This ensures only the placeholder content gets URL-encoded while preserving the user's URL structure
+/// IMPORTANT: This is called only ONCE per placeholder after all regex replacements are complete to prevent double encoding
 func escapeUrlPlaceholder(_ input: String) -> String {
     // URL-encode the placeholder value using a restrictive character set
     // This ensures all special characters that could break URL parsing are properly encoded

@@ -129,10 +129,10 @@ func replaceXmlPlaceholders(action: String, extractedTags: [String: String], act
                         finalContent = content  // No escaping for raw prefix
                     default:
                         // Apply action-specific escaping if no prefix is specified
-                        if let actionType = actionType, actionType == .url {
-                            finalContent = escapeUrlPlaceholder(content)  // URL-encode for URL actions
+                        if let actionType = actionType {
+                            finalContent = applyFinalEscaping(value: content, prefixType: nil, actionType: actionType)
                         } else {
-                            finalContent = content  // Default: no escaping
+                            finalContent = content  // Default: no escaping when actionType is nil
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: finalContent)
@@ -180,6 +180,7 @@ func formatTimeValue(_ milliseconds: Double) -> String {
 /// Supports {{key}}, {{json:key}}, {{raw:key}}, {{date:format}}, and regex replacements {{key||regex||replacement}}
 /// The json: prefix applies JSON string escaping regardless of action type, useful for embedding content in JSON strings.
 /// The raw: prefix applies no escaping regardless of action type, useful for AppleScript and other contexts where escaping breaks functionality.
+/// For URL actions, URL encoding is deferred until after all regex replacements to prevent double encoding.
 func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
     var result = action
     var metaJson = metaJson // Make mutable copy
@@ -273,26 +274,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 // Apply regex replacements if any
                 replacement = applyRegexReplacements(to: replacement, replacements: regexReplacements)
                 
-                // Use appropriate escaping based on prefix type and action type
-                let escapedReplacement: String
-                switch prefixType {
-                case "json":
-                    escapedReplacement = escapeJsonString(replacement)
-                case "raw":
-                    escapedReplacement = replacement  // No escaping for raw prefix
-                default:
-                    switch actionType {
-                    case .shortcut, .insert:
-                        escapedReplacement = replacement // No escaping for shortcuts and insert actions
-                    case .appleScript:
-                        escapedReplacement = escapeAppleScriptString(replacement)
-                    case .shell:
-                        escapedReplacement = escapeShellCharacters(replacement)
-                                            case .url:
-                            // URL-encode only the placeholder value, not the entire URL
-                            escapedReplacement = escapeUrlPlaceholder(replacement)
-                    }
-                }
+                // Apply final escaping after all regex replacements are complete
+                let escapedReplacement = applyFinalEscaping(value: replacement, prefixType: prefixType, actionType: actionType)
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
             }
@@ -316,26 +299,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on prefix type and action type
-                    let escapedValue: String
-                    switch prefixType {
-                    case "json":
-                        escapedValue = escapeJsonString(value)
-                    case "raw":
-                        escapedValue = value  // No escaping for raw prefix
-                    default:
-                        switch actionType {
-                        case .shortcut, .insert:
-                            escapedValue = value // No escaping for shortcuts and insert actions
-                        case .appleScript:
-                            escapedValue = escapeAppleScriptString(value)
-                        case .shell:
-                            escapedValue = escapeShellCharacters(value)
-                        case .url:
-                            // URL-encode only the placeholder value, not the entire URL
-                            escapedValue = escapeUrlPlaceholder(value)
-                        }
-                    }
+                    // Apply final escaping after all regex replacements are complete
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -351,26 +316,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on prefix type and action type
-                    let escapedValue: String
-                    switch prefixType {
-                    case "json":
-                        escapedValue = escapeJsonString(value)
-                    case "raw":
-                        escapedValue = value  // No escaping for raw prefix
-                    default:
-                        switch actionType {
-                        case .shortcut, .insert:
-                            escapedValue = value // No escaping for shortcuts and insert actions
-                        case .appleScript:
-                            escapedValue = escapeAppleScriptString(value)
-                        case .shell:
-                            escapedValue = escapeShellCharacters(value)
-                        case .url:
-                            // URL-encode only the placeholder value, not the entire URL
-                            escapedValue = escapeUrlPlaceholder(value)
-                        }
-                    }
+                    // Apply final escaping after all regex replacements are complete
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -410,26 +357,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on prefix type and action type
-                    let escapedValue: String
-                    switch prefixType {
-                    case "json":
-                        escapedValue = escapeJsonString(value)
-                    case "raw":
-                        escapedValue = value  // No escaping for raw prefix
-                    default:
-                        switch actionType {
-                        case .shortcut, .insert:
-                            escapedValue = value // No escaping for shortcuts and insert actions
-                        case .appleScript:
-                            escapedValue = escapeAppleScriptString(value)
-                        case .shell:
-                            escapedValue = escapeShellCharacters(value)
-                        case .url:
-                            // URL-encode only the placeholder value, not the entire URL
-                            escapedValue = escapeUrlPlaceholder(value)
-                        }
-                    }
+                    // Apply final escaping after all regex replacements are complete
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -452,26 +381,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on prefix type and action type
-                    let escapedValue: String
-                    switch prefixType {
-                    case "json":
-                        escapedValue = escapeJsonString(value)
-                    case "raw":
-                        escapedValue = value  // No escaping for raw prefix
-                    default:
-                        switch actionType {
-                        case .shortcut, .insert:
-                            escapedValue = value // No escaping for shortcuts and insert actions
-                        case .appleScript:
-                            escapedValue = escapeAppleScriptString(value)
-                        case .shell:
-                            escapedValue = escapeShellCharacters(value)
-                        case .url:
-                            // URL-encode only the placeholder value, not the entire URL
-                            escapedValue = escapeUrlPlaceholder(value)
-                        }
-                    }
+                    // Apply final escaping after all regex replacements are complete
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             } else if let jsonValue = metaJson[key] {
@@ -522,26 +433,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     // Apply regex replacements only if value is not empty
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                     
-                    // Use appropriate escaping based on prefix type and action type
-                    let escapedValue: String
-                    switch prefixType {
-                    case "json":
-                        escapedValue = escapeJsonString(value)
-                    case "raw":
-                        escapedValue = value  // No escaping for raw prefix
-                    default:
-                        switch actionType {
-                        case .shortcut, .insert:
-                            escapedValue = value // No escaping for shortcuts and insert actions
-                        case .appleScript:
-                            escapedValue = escapeAppleScriptString(value)
-                        case .shell:
-                            escapedValue = escapeShellCharacters(value)
-                        case .url:
-                            // URL-encode only the placeholder value, not the entire URL
-                            escapedValue = escapeUrlPlaceholder(value)
-                        }
-                    }
+                    // Apply final escaping after all regex replacements are complete
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             } else {
@@ -551,6 +444,35 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
         }
     }
     return result
+}
+
+// MARK: - URL-Specific Escaping Helper
+
+/// Applies appropriate escaping for URL actions, ensuring encoding happens only once after all regex replacements
+/// - Parameters:
+///   - value: The final value after all regex replacements
+///   - prefixType: The prefix type (json, raw, or nil)
+///   - actionType: The action type for context-aware escaping
+/// - Returns: The properly escaped value
+func applyFinalEscaping(value: String, prefixType: String?, actionType: ActionType) -> String {
+    switch prefixType {
+    case "json":
+        return escapeJsonString(value)
+    case "raw":
+        return value  // No escaping for raw prefix
+    default:
+        switch actionType {
+        case .shortcut, .insert:
+            return value // No escaping for shortcuts and insert actions
+        case .appleScript:
+            return escapeAppleScriptString(value)
+        case .shell:
+            return escapeShellCharacters(value)
+        case .url:
+            // URL-encode only the final value after all regex replacements
+            return escapeUrlPlaceholder(value)
+        }
+    }
 }
 
 // MARK: - Regex Replacement Helper
