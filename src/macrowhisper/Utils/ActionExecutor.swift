@@ -215,22 +215,16 @@ class ActionExecutor {
     
     private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) {
         // Process the URL action with both XML and dynamic placeholders
+        // Placeholders are now URL-encoded individually during processing
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
         
-        // Prefer already valid URLs; otherwise percent-encode using urlQueryAllowed (matches previous behavior)
-        if let directUrl = URL(string: processedAction) {
-            // Already valid, use as-is to avoid unnecessary encoding
-            openResolvedUrl(directUrl, with: urlAction)
-            return
-        }
-        guard let encoded = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-              let url = URL(string: encoded) else {
+        // Try to create URL directly from processed action
+        guard let url = URL(string: processedAction) else {
             logError("Invalid URL after processing: \(processedAction)")
             return
         }
-        openResolvedUrl(url, with: urlAction)
         
-        // This code path is now moved to helper openResolvedUrl(_:with:)
+        openResolvedUrl(url, with: urlAction)
     }
 
     private func openResolvedUrl(_ url: URL, with urlAction: AppConfiguration.Url) {

@@ -28,4 +28,12 @@ func escapeJsonString(_ input: String) -> String {
                .replacingOccurrences(of: "\t", with: "\\t")
                .replacingOccurrences(of: "\u{08}", with: "\\b") // backspace
                .replacingOccurrences(of: "\u{0C}", with: "\\f") // form feed
+}
+
+/// Helper function to URL-encode placeholder values for URL actions
+/// This ensures only the placeholder content gets URL-encoded while preserving the user's URL structure
+func escapeUrlPlaceholder(_ input: String) -> String {
+    // URL-encode the placeholder value using urlQueryAllowed character set
+    // This handles special characters like #, &, =, ?, etc. that could break URL parsing
+    return input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? input
 } 

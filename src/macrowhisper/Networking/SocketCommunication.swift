@@ -317,42 +317,14 @@ class SocketCommunication {
         
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
         
-        // Prefer already valid URLs; otherwise percent-encode using urlQueryAllowed (matches previous behavior)
-        if let directUrl = URL(string: processedAction) {
-            openResolvedUrlCLI(directUrl, with: urlAction)
-            return
-        }
-        guard let encoded = processedAction.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-              let url = URL(string: encoded) else {
+        // Try to create URL directly from processed action
+        // Placeholders are now URL-encoded individually during processing
+        guard let url = URL(string: processedAction) else {
             logError("Invalid URL after processing: \(processedAction)")
             return
         }
+        
         openResolvedUrlCLI(url, with: urlAction)
-        
-        // Check if URL should open in background
-        let shouldOpenInBackground = urlAction.openBackground ?? false
-        
-        if let openWith = urlAction.openWith, !openWith.isEmpty {
-            let expandedOpenWith = (openWith as NSString).expandingTildeInPath
-            let task = Process()
-            task.launchPath = "/usr/bin/open"
-            // Add -g flag only if openBackground is true
-            if shouldOpenInBackground {
-                task.arguments = ["-g", "-a", expandedOpenWith, url.absoluteString]
-            } else {
-                task.arguments = ["-a", expandedOpenWith, url.absoluteString]
-            }
-            do {
-                try task.run()
-            } catch {
-                logError("Failed to open URL with specified app: \(error)")
-                // Fallback to opening with default handler
-                openUrlCLI(url, inBackground: shouldOpenInBackground)
-            }
-        } else {
-            // Open with default handler
-            openUrlCLI(url, inBackground: shouldOpenInBackground)
-        }
     }
 
     private func openResolvedUrlCLI(_ url: URL, with urlAction: AppConfiguration.Url) {

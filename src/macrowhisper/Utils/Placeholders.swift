@@ -96,7 +96,8 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
 // Supports {{xml:tagName}}, {{json:xml:tagName}}, and {{raw:xml:tagName}} formats
 // The json: prefix applies JSON string escaping to the extracted XML content
 // The raw: prefix applies no escaping to the extracted XML content
-func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> String {
+// The actionType parameter determines additional escaping for specific action types (e.g., URL encoding for URL actions)
+func replaceXmlPlaceholders(action: String, extractedTags: [String: String], actionType: ActionType? = nil) -> String {
     var result = action
     
     // Find all XML placeholders using regex - supports {{xml:tag}}, {{json:xml:tag}}, and {{raw:xml:tag}}
@@ -127,7 +128,12 @@ func replaceXmlPlaceholders(action: String, extractedTags: [String: String]) -> 
                     case "raw":
                         finalContent = content  // No escaping for raw prefix
                     default:
-                        finalContent = content  // Default: no escaping
+                        // Apply action-specific escaping if no prefix is specified
+                        if let actionType = actionType, actionType == .url {
+                            finalContent = escapeUrlPlaceholder(content)  // URL-encode for URL actions
+                        } else {
+                            finalContent = content  // Default: no escaping
+                        }
                     }
                     result.replaceSubrange(fullMatchRange, with: finalContent)
                 } else {
@@ -282,9 +288,9 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                         escapedReplacement = escapeAppleScriptString(replacement)
                     case .shell:
                         escapedReplacement = escapeShellCharacters(replacement)
-                    case .url:
-                        // No shell escaping for URL actions; percent-encoding happens after placeholder processing
-                        escapedReplacement = replacement
+                                            case .url:
+                            // URL-encode only the placeholder value, not the entire URL
+                            escapedReplacement = escapeUrlPlaceholder(replacement)
                     }
                 }
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
@@ -326,8 +332,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                         case .shell:
                             escapedValue = escapeShellCharacters(value)
                         case .url:
-                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
-                            escapedValue = value
+                            // URL-encode only the placeholder value, not the entire URL
+                            escapedValue = escapeUrlPlaceholder(value)
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -361,8 +367,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                         case .shell:
                             escapedValue = escapeShellCharacters(value)
                         case .url:
-                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
-                            escapedValue = value
+                            // URL-encode only the placeholder value, not the entire URL
+                            escapedValue = escapeUrlPlaceholder(value)
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -420,8 +426,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                         case .shell:
                             escapedValue = escapeShellCharacters(value)
                         case .url:
-                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
-                            escapedValue = value
+                            // URL-encode only the placeholder value, not the entire URL
+                            escapedValue = escapeUrlPlaceholder(value)
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -462,8 +468,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                         case .shell:
                             escapedValue = escapeShellCharacters(value)
                         case .url:
-                            // No shell escaping for URL actions; percent-encoding happens after placeholder processing
-                            escapedValue = value
+                            // URL-encode only the placeholder value, not the entire URL
+                            escapedValue = escapeUrlPlaceholder(value)
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -529,8 +535,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                             escapedValue = value // No escaping for shortcuts and insert actions
                         case .appleScript:
                             escapedValue = escapeAppleScriptString(value)
-                        case .shell, .url:
+                        case .shell:
                             escapedValue = escapeShellCharacters(value)
+                        case .url:
+                            // URL-encode only the placeholder value, not the entire URL
+                            escapedValue = escapeUrlPlaceholder(value)
                         }
                     }
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
@@ -592,12 +601,12 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
         // logDebug("[UnifiedPlaceholders] Cleaned llmResult: '\(cleaned)'")
         logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
         updatedMetaJson["llmResult"] = cleaned
-        result = replaceXmlPlaceholders(action: result, extractedTags: tags)
+        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: actionType)
     } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
         // logDebug("[UnifiedPlaceholders] Original result: '\(regularResult)'")
         let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
         logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
-        result = replaceXmlPlaceholders(action: result, extractedTags: tags)
+        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: actionType)
     }
     
     // Then process dynamic placeholders with appropriate escaping based on action type

@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,
@@ -255,6 +255,20 @@
       "triggerLogic" : "or",
       "triggerModes" : "",
       "triggerVoice" : ""
+    },
+    "Gogo" : {
+      "action" : "https://www.google.com/search?q={{result}}",
+      "actionDelay" : null,
+      "icon" : "",
+      "moveTo" : "",
+      "noEsc" : null,
+      "openBackground" : false,
+      "openWith" : "",
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "Testing"
     },
     "Google" : {
       "action" : "https://www.google.com/search?q={{result||\\.$||}}",
