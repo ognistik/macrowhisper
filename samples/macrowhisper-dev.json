@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "pasteResult",
+    "activeAction" : "Alter Coder (★)",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,
@@ -257,7 +257,7 @@
       "triggerVoice" : ""
     },
     "Gogo" : {
-      "action" : "https://www.google.com/search?q={{result}}",
+      "action" : "https://www.google.com/search?q={{appContext}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",

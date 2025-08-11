@@ -33,7 +33,9 @@ func escapeJsonString(_ input: String) -> String {
 /// Helper function to URL-encode placeholder values for URL actions
 /// This ensures only the placeholder content gets URL-encoded while preserving the user's URL structure
 func escapeUrlPlaceholder(_ input: String) -> String {
-    // URL-encode the placeholder value using urlQueryAllowed character set
-    // This handles special characters like #, &, =, ?, etc. that could break URL parsing
-    return input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? input
+    // URL-encode the placeholder value using a restrictive character set
+    // This ensures all special characters that could break URL parsing are properly encoded
+    // Only allow alphanumeric characters, hyphens, underscores, and periods
+    let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+    return input.addingPercentEncoding(withAllowedCharacters: allowedCharacters) ?? input
 } 
