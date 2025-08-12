@@ -22,35 +22,36 @@ class ActionExecutor {
         type: ActionType,
         metaJson: [String: Any],
         recordingPath: String,
-        isTriggeredAction: Bool = true  // Default to true since this is typically called for trigger actions
+        isTriggeredAction: Bool = true,  // Default to true since this is typically called for trigger actions
+        onCompletion: (() -> Void)? = nil
     ) {
         logInfo("[TriggerEval] Executing action '\(name)' (type: \(type)) due to trigger match.")
         
         switch type {
         case .insert:
             if let insert = action as? AppConfiguration.Insert {
-                executeInsertAction(insert, metaJson: metaJson, recordingPath: recordingPath, isTriggeredAction: isTriggeredAction)
+                executeInsertAction(insert, metaJson: metaJson, recordingPath: recordingPath, isTriggeredAction: isTriggeredAction, onCompletion: onCompletion)
             }
         case .url:
             if let url = action as? AppConfiguration.Url {
-                executeUrlAction(url, metaJson: metaJson, recordingPath: recordingPath)
+                executeUrlAction(url, metaJson: metaJson, recordingPath: recordingPath, onCompletion: onCompletion)
             }
         case .shortcut:
             if let shortcut = action as? AppConfiguration.Shortcut {
-                executeShortcutAction(shortcut, metaJson: metaJson, recordingPath: recordingPath, shortcutName: name)
+                executeShortcutAction(shortcut, metaJson: metaJson, recordingPath: recordingPath, shortcutName: name, onCompletion: onCompletion)
             }
         case .shell:
             if let shell = action as? AppConfiguration.ScriptShell {
-                executeShellScriptAction(shell, metaJson: metaJson, recordingPath: recordingPath)
+                executeShellScriptAction(shell, metaJson: metaJson, recordingPath: recordingPath, onCompletion: onCompletion)
             }
         case .appleScript:
             if let ascript = action as? AppConfiguration.ScriptAppleScript {
-                executeAppleScriptAction(ascript, metaJson: metaJson, recordingPath: recordingPath)
+                executeAppleScriptAction(ascript, metaJson: metaJson, recordingPath: recordingPath, onCompletion: onCompletion)
             }
         }
     }
     
-    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool) {
+    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool, onCompletion: (() -> Void)? = nil) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
@@ -75,7 +76,8 @@ class ActionExecutor {
             isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult,
             recordingPath: recordingPath,
             metaJson: enhancedMetaJson,
-            restoreClipboard: restoreClipboard
+            restoreClipboard: restoreClipboard,
+            onCompletion: onCompletion
         )
         
         // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
@@ -87,7 +89,7 @@ class ActionExecutor {
         }
     }
     
-    private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String) {
+    private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String, onCompletion: (() -> Void)? = nil) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
@@ -105,7 +107,8 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: enhancedMetaJson,
-            restoreClipboard: restoreClipboard
+            restoreClipboard: restoreClipboard,
+            onCompletion: onCompletion
         )
         
         // FIX: Pass the individual recording folder path, not its parent
@@ -113,7 +116,7 @@ class ActionExecutor {
         handleMoveToSettingForAction(folderPath: recordingPath, action: url)
     }
     
-    private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String) {
+    private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String, onCompletion: (() -> Void)? = nil) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
@@ -131,14 +134,15 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: enhancedMetaJson,
-            restoreClipboard: restoreClipboard
+            restoreClipboard: restoreClipboard,
+            onCompletion: onCompletion
         )
         
         // FIX: Pass the individual recording folder path, not its parent
         handleMoveToSettingForAction(folderPath: recordingPath, action: shortcut)
     }
     
-    private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String) {
+    private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String, onCompletion: (() -> Void)? = nil) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
@@ -156,14 +160,15 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: enhancedMetaJson,
-            restoreClipboard: restoreClipboard
+            restoreClipboard: restoreClipboard,
+            onCompletion: onCompletion
         )
         
         // FIX: Pass the individual recording folder path, not its parent
         handleMoveToSettingForAction(folderPath: recordingPath, action: shell)
     }
     
-    private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String) {
+    private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String, onCompletion: (() -> Void)? = nil) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
@@ -181,7 +186,8 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             metaJson: enhancedMetaJson,
-            restoreClipboard: restoreClipboard
+            restoreClipboard: restoreClipboard,
+            onCompletion: onCompletion
         )
         
         // FIX: Pass the individual recording folder path, not its parent

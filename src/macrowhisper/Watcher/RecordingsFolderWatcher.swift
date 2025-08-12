@@ -526,11 +526,8 @@ class RecordingsFolderWatcher {
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)
             
-            // Remove any pending watcher for this meta.json
-            if let watcher = pendingMetaJsonFiles[metaJsonPath] {
-                watcher.cancel()
-                pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
-            }
+            // Store the metaJsonPath for cleanup after action completion
+            let metaJsonPathForCleanup = metaJsonPath
             
             // FIRST: Check for auto-return (highest priority - overrides everything)
             if autoReturnEnabled {
@@ -555,7 +552,11 @@ class RecordingsFolderWatcher {
                     isAutoPaste: false,  // Auto-return is not autoPaste
                     recordingPath: recordingPath,
                     metaJson: enhancedMetaJson,
-                    restoreClipboard: configManager.config.defaults.restoreClipboard
+                    restoreClipboard: configManager.config.defaults.restoreClipboard,
+                    onCompletion: { [weak self] in
+                        // Clean up pending meta.json watcher when action truly completes
+                        self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                    }
                 )
                 
                 logDebug("Applied auto-return with enhanced clipboard monitoring")
@@ -573,7 +574,7 @@ class RecordingsFolderWatcher {
                 if let action = action {
                     logDebug("Executing scheduled action: \(actionName) (type: \(actionType))")
                     
-                    // Execute the action on the main thread
+                    // Execute the action on the main thread with cleanup callback
                     DispatchQueue.main.async { [weak self] in
                         self?.actionExecutor.executeAction(
                             action: action,
@@ -581,7 +582,11 @@ class RecordingsFolderWatcher {
                             type: actionType,
                             metaJson: enhancedMetaJson,
                             recordingPath: recordingPath,
-                            isTriggeredAction: false  // This is a scheduled action, not triggered
+                            isTriggeredAction: false,  // This is a scheduled action, not triggered
+                            onCompletion: { [weak self] in
+                                // Clean up pending meta.json watcher when action truly completes
+                                self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                            }
                         )
                     }
                     
@@ -599,6 +604,8 @@ class RecordingsFolderWatcher {
                     scheduledActionName = nil
                     // Cancel timeout since scheduled action was cancelled
                     cancelScheduledActionTimeout()
+                    // Clean up pending watcher since no action was executed
+                    cleanupPendingWatcher(for: metaJsonPathForCleanup)
                 }
             }
             
@@ -626,7 +633,7 @@ class RecordingsFolderWatcher {
                     updatedJson["swResult"] = stripped
                 }
                 
-                // Execute the action on the main thread
+                // Execute the action on the main thread with cleanup callback
                 DispatchQueue.main.async { [weak self] in
                     self?.actionExecutor.executeAction(
                         action: action,
@@ -634,7 +641,11 @@ class RecordingsFolderWatcher {
                         type: type,
                         metaJson: updatedJson,
                         recordingPath: recordingPath,
-                        isTriggeredAction: true  // This is a trigger action
+                        isTriggeredAction: true,  // This is a trigger action
+                        onCompletion: { [weak self] in
+                            // Clean up pending meta.json watcher when action truly completes
+                            self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                        }
                     )
                 }
                 
@@ -686,12 +697,16 @@ class RecordingsFolderWatcher {
                                     isAutoPaste: isAutoPaste,
                                     recordingPath: recordingPath,
                                     metaJson: enhancedMetaJson,
-                                    restoreClipboard: restoreClipboard
+                                    restoreClipboard: restoreClipboard,
+                                    onCompletion: { [weak self] in
+                                        // Clean up pending meta.json watcher when action truly completes
+                                        self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                                    }
                                 )
                             }
                         }
                     case .url, .shortcut, .shell, .appleScript:
-                        // For non-insert active actions, execute directly
+                        // For non-insert active actions, execute directly with cleanup callback
                         DispatchQueue.main.async { [weak self] in
                             self?.actionExecutor.executeAction(
                                 action: action,
@@ -699,15 +714,23 @@ class RecordingsFolderWatcher {
                                 type: actionType,
                                 metaJson: enhancedMetaJson,
                                 recordingPath: recordingPath,
-                                isTriggeredAction: false  // This is an active action, not triggered
+                                isTriggeredAction: false,  // This is an active action, not triggered
+                                onCompletion: { [weak self] in
+                                    // Clean up pending meta.json watcher when action truly completes
+                                    self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                                }
                             )
                         }
                     }
                 } else {
                     logDebug("Active action '\(activeActionName)' not found, skipping action.")
+                    // Clean up pending watcher since no action was executed
+                    cleanupPendingWatcher(for: metaJsonPathForCleanup)
                 }
             } else {
                 logDebug("No active action, skipping action.")
+                // Clean up pending watcher since no action was executed
+                cleanupPendingWatcher(for: metaJsonPathForCleanup)
             }
             
             handlePostProcessing(recordingPath: recordingPath)
@@ -835,5 +858,16 @@ class RecordingsFolderWatcher {
             hasActive = !pendingMetaJsonFiles.isEmpty
         }
         return hasActive
+    }
+    
+    /// Helper to clean up pendingMetaJsonFiles entry when action completes
+    private func cleanupPendingWatcher(for metaJsonPath: String) {
+        queue.async { [weak self] in
+            if let watcher = self?.pendingMetaJsonFiles[metaJsonPath] {
+                watcher.cancel()
+                self?.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
+                logDebug("Cleaned up pending meta.json watcher after action completion: \(metaJsonPath)")
+            }
+        }
     }
 } 

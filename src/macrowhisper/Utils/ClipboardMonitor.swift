@@ -111,7 +111,7 @@ class ClipboardMonitor {
     }
     
     /// Stops early monitoring for a recording session (natural cleanup)
-    func stopEarlyMonitoring(for recordingPath: String) {
+    func stopEarlyMonitoring(for recordingPath: String, onCompletion: (() -> Void)? = nil) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             // Mark session as inactive for eventual cleanup
             // Monitoring will stop naturally when session becomes inactive
@@ -120,6 +120,10 @@ class ClipboardMonitor {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self?.sessionsQueue.async(flags: .barrier) {
                     self?.earlyMonitoringSessions.removeValue(forKey: recordingPath)
+                    // Call completion callback after cleanup is done
+                    DispatchQueue.main.async {
+                        onCompletion?()
+                    }
                 }
             }
         }
@@ -410,7 +414,8 @@ class ClipboardMonitor {
         isAutoPaste: Bool = false,
         recordingPath: String,
         metaJson: [String: Any],
-        restoreClipboard: Bool = true
+        restoreClipboard: Bool = true,
+        onCompletion: (() -> Void)? = nil
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -474,7 +479,7 @@ class ClipboardMonitor {
                 self.finishActionExecution(for: recordingPath)
                 
                 // Stop early monitoring since we're not using it for restoration
-                self.stopEarlyMonitoring(for: recordingPath)
+                self.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
                 
                 logDebug("[ClipboardMonitor] Action completed without clipboard restoration")
                 return
@@ -495,7 +500,8 @@ class ClipboardMonitor {
                     shouldEsc: shouldEsc,
                     isAutoPaste: isAutoPaste,
                     restoreClipboard: shouldRestoreClipboard,
-                    recordingPath: recordingPath
+                    recordingPath: recordingPath,
+                    onCompletion: onCompletion
                 )
                 return
             }
@@ -523,7 +529,8 @@ class ClipboardMonitor {
                     shouldEsc: shouldEsc,
                     isAutoPaste: isAutoPaste,
                     userIsInInputField: userIsInInputField,
-                    recordingPath: recordingPath
+                    recordingPath: recordingPath,
+                    onCompletion: onCompletion
                 )
             } else {
                 // Need to wait for Superwhisper up to maxWaitTime, then proceed regardless
@@ -536,7 +543,8 @@ class ClipboardMonitor {
                     shouldEsc: shouldEsc,
                     isAutoPaste: isAutoPaste,
                     userIsInInputField: userIsInInputField,
-                    recordingPath: recordingPath
+                    recordingPath: recordingPath,
+                    onCompletion: onCompletion
                 )
             }
         }
@@ -594,7 +602,8 @@ class ClipboardMonitor {
         shouldEsc: Bool,
         isAutoPaste: Bool,
         userIsInInputField: Bool,
-        recordingPath: String
+        recordingPath: String,
+        onCompletion: (() -> Void)? = nil
     ) {
         let startTime = Date()
         let pasteboard = NSPasteboard.general
@@ -611,7 +620,8 @@ class ClipboardMonitor {
             shouldEsc: shouldEsc,
             isAutoPaste: isAutoPaste,
             userIsInInputField: userIsInInputField,
-            recordingPath: recordingPath
+            recordingPath: recordingPath,
+            onCompletion: onCompletion
         )
     }
     
@@ -626,7 +636,8 @@ class ClipboardMonitor {
         shouldEsc: Bool,
         isAutoPaste: Bool,
         userIsInInputField: Bool,
-        recordingPath: String
+        recordingPath: String,
+        onCompletion: (() -> Void)? = nil
     ) {
         let pasteboard = NSPasteboard.general
         let currentClipboard = pasteboard.string(forType: .string)
@@ -646,7 +657,8 @@ class ClipboardMonitor {
                 shouldEsc: shouldEsc,
                 isAutoPaste: isAutoPaste,
                 userIsInInputField: userIsInInputField,
-                recordingPath: recordingPath
+                recordingPath: recordingPath,
+                onCompletion: onCompletion
             )
             return
         }
@@ -666,7 +678,8 @@ class ClipboardMonitor {
                 shouldEsc: shouldEsc,
                 isAutoPaste: isAutoPaste,
                 userIsInInputField: userIsInInputField,
-                recordingPath: recordingPath
+                recordingPath: recordingPath,
+                onCompletion: onCompletion
             )
             return
         }
@@ -683,7 +696,8 @@ class ClipboardMonitor {
                 shouldEsc: shouldEsc,
                 isAutoPaste: isAutoPaste,
                 userIsInInputField: userIsInInputField,
-                recordingPath: recordingPath
+                recordingPath: recordingPath,
+                onCompletion: onCompletion
             )
         }
     }
@@ -697,7 +711,8 @@ class ClipboardMonitor {
         shouldEsc: Bool,
         isAutoPaste: Bool,
         userIsInInputField: Bool,
-        recordingPath: String
+        recordingPath: String,
+        onCompletion: (() -> Void)? = nil
     ) {
         // Step 1: Apply actionDelay now that clipboard synchronization is complete
         if actionDelay > 0 {
@@ -732,10 +747,11 @@ class ClipboardMonitor {
         
         // Step 5: Restore the correct clipboard after a minimum wait time for paste to complete
         let restoreDelay = 0.3 // Minimum delay for paste operation to complete
+        let completion = onCompletion
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             self?.restoreCorrectClipboard(clipboardToRestore)
             // Stop early monitoring after clipboard restoration is complete
-            self?.stopEarlyMonitoring(for: recordingPath)
+            self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
         }
         
         logDebug("[ClipboardMonitor] Action completed. Superwhisper was faster: \(superwhisperWasFaster)")
@@ -768,7 +784,8 @@ class ClipboardMonitor {
         shouldEsc: Bool,
         isAutoPaste: Bool = false,
         restoreClipboard: Bool = true,
-        recordingPath: String
+        recordingPath: String,
+        onCompletion: (() -> Void)? = nil
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -832,7 +849,7 @@ class ClipboardMonitor {
                 self.finishActionExecution(for: recordingPath)
                 
                 // Stop early monitoring since we're not using it for restoration
-                self.stopEarlyMonitoring(for: recordingPath)
+                self.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
                 
                 logDebug("[ClipboardMonitor] Action completed without clipboard restoration (fallback)")
                 return
@@ -883,10 +900,11 @@ class ClipboardMonitor {
                 
                 // Step 8: Restore original clipboard after a minimum wait time for paste to complete
                 let restoreDelay = 0.3 // Minimum delay for paste operation to complete
+                let completion = onCompletion
                 DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                     self?.restoreOriginalClipboard()
                     // Stop early monitoring after clipboard restoration is complete
-                    self?.stopEarlyMonitoring(for: recordingPath)
+                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
                 }
             }
         }
@@ -968,7 +986,8 @@ class ClipboardMonitor {
         actionDelay: TimeInterval,
         recordingPath: String,
         metaJson: [String: Any],
-        restoreClipboard: Bool = true
+        restoreClipboard: Bool = true,
+        onCompletion: (() -> Void)? = nil
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -1001,7 +1020,7 @@ class ClipboardMonitor {
                 self.finishActionExecution(for: recordingPath)
                 
                 // Stop early monitoring since we're not using it
-                self.stopEarlyMonitoring(for: recordingPath)
+                self.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
                 return
             }
             
@@ -1018,7 +1037,8 @@ class ClipboardMonitor {
                     action: action,
                     shouldEsc: shouldEsc,
                     actionDelay: actionDelay,
-                    recordingPath: recordingPath
+                    recordingPath: recordingPath,
+                    onCompletion: onCompletion
                 )
                 return
             }
@@ -1054,10 +1074,11 @@ class ClipboardMonitor {
             
             // Restore clipboard after a brief delay to let any action complete
             let restoreDelay = 0.3
+            let completion = onCompletion
             DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                 self?.restoreCorrectClipboard(clipboardToRestore)
                 // Stop early monitoring after clipboard restoration is complete
-                self?.stopEarlyMonitoring(for: recordingPath)
+                self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
             }
         }
     }
@@ -1067,7 +1088,8 @@ class ClipboardMonitor {
         action: @escaping () -> Void,
         shouldEsc: Bool,
         actionDelay: TimeInterval,
-        recordingPath: String
+        recordingPath: String,
+        onCompletion: (() -> Void)? = nil
     ) {
         // Save current clipboard
         let pasteboard = NSPasteboard.general
@@ -1098,6 +1120,7 @@ class ClipboardMonitor {
         
         // Restore clipboard after a brief delay
         let restoreDelay = 0.3
+        let completion = onCompletion
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             if let original = originalClipboard {
                 pasteboard.clearContents()
@@ -1108,7 +1131,7 @@ class ClipboardMonitor {
                 logDebug("[ClipboardMonitor] Cleared clipboard for non-insert action (no original content)")
             }
             // Stop early monitoring after clipboard restoration is complete
-            self?.stopEarlyMonitoring(for: recordingPath)
+            self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
         }
     }
     
