@@ -131,7 +131,7 @@
   },
   "urls" : {
     "Alter Answerer ★" : {
-      "action" : "alter://action/answerer?input=<user_message>{{result}}</user_message>{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "action" : "alter://action/answerer?input={{result||(?s)^(.*)$||<user_message>$1</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
       "actionDelay" : null,
       "icon" : "༜",
       "moveTo" : "",
@@ -229,7 +229,7 @@
       "triggerVoice" : ""
     },
     "Alter TM" : {
-      "action" : "https://typingmind.com?message=yes{{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}-arcMain",
+      "action" : "https://typingmind.com?message={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}-arcMain",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -255,20 +255,6 @@
       "triggerLogic" : "or",
       "triggerModes" : "",
       "triggerVoice" : ""
-    },
-    "Gogo" : {
-      "action" : "https://www.google.com/search?q={{result}}",
-      "actionDelay" : null,
-      "icon" : "",
-      "moveTo" : "",
-      "noEsc" : null,
-      "openBackground" : false,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : "Testing"
     },
     "Google" : {
       "action" : "https://www.google.com/search?q={{result||\\.$||}}",

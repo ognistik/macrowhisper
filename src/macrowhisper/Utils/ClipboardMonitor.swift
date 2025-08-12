@@ -160,7 +160,7 @@ class ClipboardMonitor {
             // If we reach here, no clipboard content found (will return empty string)
             logDebug("[ClipboardMonitor] No clipboard content found (no session changes, no pre-recording content within buffer window)")
         }
-        return clipboardContent
+        return clipboardContent.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     /// Gets clipboard content with stacking support - returns all clipboard changes when stacking is enabled
@@ -200,13 +200,14 @@ class ClipboardMonitor {
         } else if allClipboardChanges.count == 1 {
             // Single clipboard change - return without XML tags (maintains current behavior)
             logDebug("[ClipboardMonitor] Single clipboard change for stacking - returning without XML tags")
-            return allClipboardChanges[0]
+            return allClipboardChanges[0].trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
             // Multiple clipboard changes - format with XML tags
             var result = ""
             for (index, content) in allClipboardChanges.enumerated() {
                 let tagNumber = index + 1
-                result += "<clipboard_context_\(tagNumber)>\n\(content)\n</clipboard_context_\(tagNumber)>\n\n"
+                let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                result += "<clipboard_context_\(tagNumber)>\n\(trimmedContent)\n</clipboard_context_\(tagNumber)>\n\n"
             }
             logDebug("[ClipboardMonitor] Multiple clipboard changes for stacking - formatted with \(allClipboardChanges.count) XML tags")
             return result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -240,7 +241,7 @@ class ClipboardMonitor {
             }
         }
         
-        return recentContent
+        return recentContent.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     /// Gets clipboard content from global history for CLI execution context with stacking support
@@ -285,13 +286,14 @@ class ClipboardMonitor {
         } else if allClipboardChanges.count == 1 {
             // Single clipboard change - return without XML tags (maintains current behavior)
             logDebug("[ClipboardMonitor] Single clipboard change for CLI stacking - returning without XML tags")
-            return allClipboardChanges[0]
+            return allClipboardChanges[0].trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
             // Multiple clipboard changes - format with XML tags
             var result = ""
             for (index, content) in allClipboardChanges.enumerated() {
                 let tagNumber = index + 1
-                result += "<clipboard_context_\(tagNumber)>\n\(content)\n</clipboard_context_\(tagNumber)>\n\n"
+                let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                result += "<clipboard_context_\(tagNumber)>\n\(trimmedContent)\n</clipboard_context_\(tagNumber)>\n\n"
             }
             logDebug("[ClipboardMonitor] Multiple clipboard changes for CLI stacking - formatted with \(allClipboardChanges.count) XML tags")
             return result.trimmingCharacters(in: .whitespacesAndNewlines)
