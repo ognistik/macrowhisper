@@ -2,9 +2,9 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "swWebView",
     "autoUpdateConfig" : true,
-    "clipboardBuffer" : 20,
+    "clipboardBuffer" : 5,
     "clipboardStacking" : true,
     "history" : 5,
     "icon" : "",
@@ -271,7 +271,7 @@
       "triggerVoice" : "ask google"
     },
     "Google This" : {
-      "action" : "https://www.google.com/search?q={{selectedText}}",
+      "action" : "https://www.google.com/search?q={{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
