@@ -291,6 +291,10 @@ class RecordingsFolderWatcher {
             return
         }
         
+        // Start early monitoring immediately when the recording folder appears
+        // This captures selected text and clipboard context at session start
+        clipboardMonitor.startEarlyMonitoring(for: path)
+
         // Cancel timeouts since a recording session has started (folder appeared)
         cancelAutoReturnTimeout()
         cancelScheduledActionTimeout()
@@ -306,14 +310,12 @@ class RecordingsFolderWatcher {
                 processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
             } else {
                 // Meta.json exists but is incomplete, start monitoring
-                logDebug("Meta.json exists but is incomplete, starting clipboard monitoring and watching for completion")
-                clipboardMonitor.startEarlyMonitoring(for: path)
+                logDebug("Meta.json exists but is incomplete, watching for completion (early monitoring already started)")
                 processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
             }
         } else {
             // Meta.json doesn't exist yet, start monitoring and wait for creation
-            logDebug("Meta.json doesn't exist, starting clipboard monitoring and watching for creation")
-            clipboardMonitor.startEarlyMonitoring(for: path)
+            logDebug("Meta.json doesn't exist, watching for creation (early monitoring already started)")
             watchForMetaJsonCreation(recordingPath: path)
         }
     }

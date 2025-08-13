@@ -407,35 +407,56 @@ func getSelectedText() -> String {
         }
     }
     
-    // Second try: AXSelectedTextRangeAttribute to get selection range
+    // Second try: AXSelectedTextRangeAttribute to get selection range and slice content
     var selectedRangeValue: CFTypeRef?
     let selectedRangeError = AXUIElementCopyAttributeValue(axElement, "AXSelectedTextRange" as CFString, &selectedRangeValue)
     
-    if selectedRangeError == .success, let _ = selectedRangeValue {
-        // If we have a selected range, try to get the text content
-        var textValue: CFTypeRef?
-        let textError = AXUIElementCopyAttributeValue(axElement, "AXValue" as CFString, &textValue)
-        
-        if textError == .success, let textValue = textValue, let fullText = textValue as? String {
-            // For now, we'll return the full text if we can't get the specific range
-            // This is a simplified approach - in a more complex implementation, we'd parse the range
-            logDebug("[SelectedText] Found text content but could not extract specific selection")
-            return fullText
+    if selectedRangeError == .success, let rangeValue = selectedRangeValue {
+        // Extract CFRange from AXValue
+        if CFGetTypeID(rangeValue) == AXValueGetTypeID(),
+           AXValueGetType(rangeValue as! AXValue) == .cfRange {
+            var cfRange = CFRange(location: 0, length: 0)
+            if AXValueGetValue(rangeValue as! AXValue, .cfRange, &cfRange) {
+                // Only proceed if there is an actual non-empty selection
+                if cfRange.length > 0 {
+                    // Get the full text to slice the selection from
+                    var textValue: CFTypeRef?
+                    let textError = AXUIElementCopyAttributeValue(axElement, "AXValue" as CFString, &textValue)
+                    if textError == .success, let textValue = textValue, let fullText = textValue as? String {
+                        // Slice using UTF-16 indices to map CFRange properly
+                        let utf16 = fullText.utf16
+                        guard 
+                            cfRange.location >= 0,
+                            cfRange.length >= 0,
+                            Int(cfRange.location) <= utf16.count,
+                            Int(cfRange.location + cfRange.length) <= utf16.count
+                        else {
+                            logDebug("[SelectedText] Selection range out of bounds for text content")
+                            return ""
+                        }
+                        let start = utf16.index(utf16.startIndex, offsetBy: Int(cfRange.location))
+                        let end = utf16.index(start, offsetBy: Int(cfRange.length))
+                        if let s = String.Index(start, within: fullText), let e = String.Index(end, within: fullText) {
+                            let selected = String(fullText[s..<e]).trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !selected.isEmpty {
+                                logDebug("[SelectedText] Extracted selected text via range.")
+                                return selected
+                            }
+                        }
+                    }
+                    // Could not extract text for a non-empty range
+                    logDebug("[SelectedText] Non-empty selection range present but failed to extract text")
+                    return ""
+                } else {
+                    // Empty range indicates no selection
+                    logDebug("[SelectedText] Selection range present but empty (no selection)")
+                    return ""
+                }
+            }
         }
     }
     
-    // Third try: Try to get text from common text field attributes
-    let textAttributes = ["AXValue", "AXTitle", "AXDescription"]
-    for attribute in textAttributes {
-        var textValue: CFTypeRef?
-        let textError = AXUIElementCopyAttributeValue(axElement, attribute as CFString, &textValue)
-        
-        if textError == .success, let textValue = textValue, let text = textValue as? String, !text.isEmpty {
-            logDebug("[SelectedText] Found text content via \(attribute): '\(text)'")
-            return text
-        }
-    }
-    
+    // No reliable selection found
     logDebug("[SelectedText] No selected text found in \(frontApp.localizedName ?? "unknown app")")
     return ""
 }

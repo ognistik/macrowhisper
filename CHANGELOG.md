@@ -11,6 +11,7 @@
 * Added trimming to selectedText, clipboardContext, appContext.
 * New repo for [Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)!
 * Improvements for URL encoding in actions
+* Added validation and notification when user attempts to schedule a non-existing action.
 
 ## [v1.2.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.3) - 2025/08/06
 ### Added

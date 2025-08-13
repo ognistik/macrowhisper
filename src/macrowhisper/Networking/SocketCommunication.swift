@@ -757,6 +757,14 @@ class SocketCommunication {
                         response = "Scheduled action cancelled"
                         logInfo("Scheduled action cancelled")
                     } else {
+                        // Validate the action exists before scheduling
+                        if !validateActionExists(actionName, configManager: configMgr) {
+                            response = "Action not found: \(actionName)"
+                            logError(response)
+                            notify(title: "Macrowhisper", message: "Action not found: \(actionName)")
+                            write(clientSocket, response, response.utf8.count)
+                            return
+                        }
                         // Cancel auto-return if scheduling an action
                         autoReturnEnabled = false
                         // Cancel auto-return timeout
