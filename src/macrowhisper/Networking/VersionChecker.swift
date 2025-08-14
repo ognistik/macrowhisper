@@ -67,7 +67,7 @@ class VersionChecker {
     
     func checkForUpdates() {
         // Don't run if updates are disabled
-        guard !disableUpdates else { return }
+        guard !globalState.disableUpdates else { return }
         
         // Don't run if we've checked recently (within 24 hours)
         guard shouldCheckForUpdates() else { return }
@@ -333,7 +333,7 @@ class VersionChecker {
             logDebug("Last reminder: Never - will show immediately if update available")
         }
         
-        logDebug("Updates disabled: \(disableUpdates)")
+        logDebug("Updates disabled: \(globalState.disableUpdates)")
         logDebug("Check in progress: \(updateCheckInProgress)")
         logDebug("Current version: \(currentCLIVersion)")
         logDebug("==============================")
@@ -388,7 +388,7 @@ class VersionChecker {
             lines.append("Last reminder: Never - will show immediately if update available")
         }
         
-        lines.append("Updates disabled: \(disableUpdates)")
+        lines.append("Updates disabled: \(globalState.disableUpdates)")
         lines.append("Check in progress: \(updateCheckInProgress)")
         lines.append("Current version: \(currentCLIVersion)")
         

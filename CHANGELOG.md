@@ -1,18 +1,23 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+## [v1.3.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.0) - 2025/08/14
+### Added
+* New `clipboardStacking` option in config defaults. When enabled, it allows users to capture multiple content for the `clipboardContext` placeholder.
+* New `autoUpdateConfig` option to choose to autoupdate config or not during service restart.
+* Added `clipboardBuffer` option in the defaults of the config to set custom the buffer time for clipboardContext to be captured.
+* New [Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)!
+* Added validation and error notification when user attempts to schedule a non-existing action.
+
 ### Changed
-* Voice triggers now support raw regex. For this, the phrases have to be exactly between `==`. For example `==^google this\\.?$==` will exactly match this phrase. Or if you want to match a string that ends with a specific phrase: `"==.*ends with this$=="` . This can be mixed with strings that are processed as usual, without `==`. For example: `==^exact match$==|normal keyword`. Mode triggers and app triggers already have this behavior by default (without `=`).
-* New `clipboardStacking` option for configuration defaults. When enabled, it allows users to capture multiple content for the `clipboardContext` placeholder.
 * Fixed `clipboardContext` placeholder bug where it wouldn't detect the clipboard captured if it was the same that already was in the clipboard before the buffer or starting a session.
-* Added `autoUpdateConfig` option to choose to autoupdate config or not during service restart.
-* Added `clipboardBuffer` option to set custom buffer or clipboardContext to be captured.
 * Adjusted JSON schema to only require the very essential defaults.
+* Voice triggers now support raw regex. For this, the phrases have to be exactly between `==`. For example `==^google this\\.?$==` will exactly match this phrase. Or if you want to match a string that ends with a specific phrase: `"==.*ends with this$=="` . This can be mixed with strings that are processed as usual, without `==`. For example: `==^exact match$==|normal keyword`. Mode triggers and app triggers already have this behavior by default (without `==`).
 * Added trimming to selectedText, clipboardContext, appContext.
-* New repo for [Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)!
 * Improvements for URL encoding in actions
 * Improvement and fix for `{{selectedText}}` placeholder. Previously it was being captured on action execution, now it only gets captured on when session starts.
-* Added validation and notification when user attempts to schedule a non-existing action.
+* Socket communication has been completely rewritten to include safety timeouts, better error handling, and avoid memory hangs. There's also an automatic backup system to prevent config files corruption.
 
 ## [v1.2.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.3) - 2025/08/06
 ### Added

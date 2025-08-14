@@ -62,6 +62,12 @@ class RecordingsFolderWatcher {
         // the most recent recording that appears AFTER the app starts
         markAllExistingRecordingsAsProcessed()
     }
+    
+    /// Ensures proper cleanup of resources to prevent memory leaks
+    deinit {
+        logDebug("RecordingsFolderWatcher deinitializing - cleaning up resources")
+        stop()
+    }
 
     func start() {
         // Ensure we don't start multiple watchers
@@ -500,7 +506,7 @@ class RecordingsFolderWatcher {
                     frontApp = NSWorkspace.shared.frontmostApplication
                 }
             }
-            lastDetectedFrontApp = frontApp
+            globalState.lastDetectedFrontApp = frontApp
             
             // Get front app info for app triggers and add to metaJson to optimize placeholder processing
             let frontAppName = frontApp?.localizedName
@@ -532,7 +538,7 @@ class RecordingsFolderWatcher {
             let metaJsonPathForCleanup = metaJsonPath
             
             // FIRST: Check for auto-return (highest priority - overrides everything)
-            if autoReturnEnabled {
+            if globalState.autoReturnEnabled {
                 // Apply the result directly using {{swResult}}
                 let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
                 
@@ -545,7 +551,7 @@ class RecordingsFolderWatcher {
                         // Apply the result without ESC (handled by clipboard monitor)
                         self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
                         // Reset the flag after using it once
-                        autoReturnEnabled = false
+                        globalState.autoReturnEnabled = false
                         // Cancel timeout since auto-return was used
                         cancelAutoReturnTimeout()
                     },
@@ -569,7 +575,7 @@ class RecordingsFolderWatcher {
             }
             
             // SECOND: Check for scheduled action (same priority as auto-return - overrides everything)
-            if let actionName = scheduledActionName {
+            if let actionName = globalState.scheduledActionName {
                 // Find the scheduled action across all action types
                 let (actionType, action) = findActionByName(actionName, configManager: configManager)
                 
@@ -593,7 +599,7 @@ class RecordingsFolderWatcher {
                     }
                     
                     // Reset the scheduled action after using it once
-                    scheduledActionName = nil
+                    globalState.scheduledActionName = nil
                     // Cancel timeout since scheduled action was used
                     cancelScheduledActionTimeout()
                     
@@ -603,7 +609,7 @@ class RecordingsFolderWatcher {
                     return
                 } else {
                     logWarning("Scheduled action '\(actionName)' not found - cancelling scheduled action")
-                    scheduledActionName = nil
+                    globalState.scheduledActionName = nil
                     // Cancel timeout since scheduled action was cancelled
                     cancelScheduledActionTimeout()
                     // Clean up pending watcher since no action was executed

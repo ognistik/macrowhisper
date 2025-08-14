@@ -196,20 +196,20 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
         var appName: String? = nil
         if let fromTrigger = metaJson["frontAppName"] as? String, !fromTrigger.isEmpty {
             appName = fromTrigger
-        } else if let app = lastDetectedFrontApp {
+        } else if let app = globalState.lastDetectedFrontApp {
             appName = app.localizedName
         } else {
             // Fetch the frontmost application (synchronously, main thread safe)
             if Thread.isMainThread {
                 let frontApp = NSWorkspace.shared.frontmostApplication
-                lastDetectedFrontApp = frontApp
+                globalState.lastDetectedFrontApp = frontApp
                 appName = frontApp?.localizedName
             } else {
                 var fetchedApp: NSRunningApplication?
                 let semaphore = DispatchSemaphore(value: 0)
                 DispatchQueue.main.async {
                     fetchedApp = NSWorkspace.shared.frontmostApplication
-                    lastDetectedFrontApp = fetchedApp
+                    globalState.lastDetectedFrontApp = fetchedApp
                     semaphore.signal()
                 }
                 _ = semaphore.wait(timeout: .now() + 0.1)

@@ -8,7 +8,7 @@ This Alfred workflow lets you run your [Macrowhisper](https://by.afadingthought.
 
 ### What you can do
 - **Schedule & Dictate**: Schedule an action in Macrowhisper and immediately start dictation with Superwhisper, sending the new transcription to that action.
-- **Schedule Only**: Schedule an action now; start dictation yourself when you’re ready (scheduled actions have a default timeout setting of 5 seconds in Macrowhisper). This and the above may be the most useful.
+- **Schedule Only**: Schedule an action now; start dictation yourself when you’re ready (**scheduled actions have a default timeout setting of 5 seconds in Macrowhisper which can be customized in the config)**. This and the above may be the most useful.
 - **Set as Active**: Make an action the current active action. Keep dictating over time and each new transcription will be sent to that action. You don’t have to start dictation immediately (but you can).
 - **Set as Active & Dictate**: Make an action active and kick off dictation right away. An active action will not deactivate itself until you do it through the CLI, this workflow, or directly in Macrowhisper's configuration file.
 - **Execute Action**: Run the selected action using the last valid transcription result.

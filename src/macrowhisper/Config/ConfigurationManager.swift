@@ -79,7 +79,11 @@ class ConfigurationManager {
             logInfo("No configuration file found at \(self.configPath). Creating a new one with default settings.")
             syncQueue.async {
                 logDebug("About to create configuration file at \(self.configPath)")
-                self.saveConfig()
+                do {
+                    try self.saveConfig()
+                } catch {
+                    logError("Failed to create initial configuration file: \(error)")
+                }
                 if self.fileManager.fileExists(atPath: self.configPath) {
                     logDebug("Configuration file successfully created")
                 } else {
@@ -89,7 +93,7 @@ class ConfigurationManager {
         }
         
         // Always set up file watcher - it's now smart enough to handle both existing and non-existing files
-        setupFileWatcher()
+        self.setupFileWatcher()
     }
     
     // Static method to normalize config path (handle folders vs files)
@@ -165,8 +169,10 @@ class ConfigurationManager {
         return try? decoder.decode(AppConfiguration.self, from: data)
     }
 
+    /// Loads configuration with enhanced error handling and recovery mechanisms
     func loadConfig() -> AppConfiguration? {
         guard fileManager.fileExists(atPath: configPath) else {
+            logDebug("Configuration file does not exist at \(configPath)")
             return nil
         }
         
@@ -174,37 +180,102 @@ class ConfigurationManager {
             // Create a fresh URL with no caching
             let url = URL(fileURLWithPath: configPath)
             let data = try Data(contentsOf: url, options: .uncached)
+            
+            // Check if file is empty (common edge case)
+            if data.isEmpty {
+                logWarning("Configuration file is empty. Creating new configuration with defaults.")
+                _ = createBackupAndReset(reason: "empty file")
+                return AppConfiguration.defaultConfig()
+            }
+            
             let decoder = JSONDecoder()
             let config = try decoder.decode(AppConfiguration.self, from: data)
             
             // JSON loaded successfully, reset notification flag
             hasNotifiedAboutJsonError = false
             
-
-            
             return config
-        } catch {
-            // Log the error
-            logError("Error loading configuration: \(error.localizedDescription)")
+        } catch let error as DecodingError {
+            // Provide specific JSON decoding error details
+            let errorDetails = formatDecodingError(error)
+            logError("Configuration JSON parsing failed: \(errorDetails)")
             
-            // Show notification if we haven't already notified
             showJsonErrorNotification()
+            return nil
+        } catch {
+            // Other file system errors (permissions, etc.)
+            logError("Failed to read configuration file: \(error.localizedDescription)")
+            
+            // Try to create backup and recover
+            if createBackupAndReset(reason: "read error: \(error.localizedDescription)") {
+                return AppConfiguration.defaultConfig()
+            }
             
             return nil
         }
     }
     
+    /// Formats decoding errors to be more user-friendly
+    private func formatDecodingError(_ error: DecodingError) -> String {
+        switch error {
+        case .typeMismatch(let type, let context):
+            return "Type mismatch for \(type) at \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+        case .valueNotFound(let type, let context):
+            return "Missing required value of type \(type) at \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+        case .keyNotFound(let key, let context):
+            return "Missing required key '\(key.stringValue)' at \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+        case .dataCorrupted(let context):
+            return "Data corrupted at \(context.codingPath.map { $0.stringValue }.joined(separator: ".")): \(context.debugDescription)"
+        @unknown default:
+            return "Unknown decoding error: \(error.localizedDescription)"
+        }
+    }
+    
+    /// Creates a backup of corrupted config and resets to defaults
+    /// Returns true if backup was created successfully
+    private func createBackupAndReset(reason: String) -> Bool {
+        let backupPath = configPath + ".backup." + ISO8601DateFormatter().string(from: Date())
+        
+        do {
+            // Create backup of corrupted file
+            if fileManager.fileExists(atPath: configPath) {
+                try fileManager.copyItem(atPath: configPath, toPath: backupPath)
+                logInfo("Created backup of corrupted configuration at: \(backupPath)")
+            }
+            
+            // Reset to defaults
+            let defaultConfig = AppConfiguration.defaultConfig()
+            self._config = defaultConfig
+            try self.saveConfig()
+            
+            logInfo("Reset configuration to defaults due to: \(reason)")
+            
+            // Show user-friendly notification
+            notify(title: "MacroWhisper - Configuration Reset",
+                   message: "Configuration was corrupted and has been reset to defaults. Backup saved.")
+            
+            return true
+        } catch {
+            logError("Failed to create backup and reset configuration: \(error)")
+            return false
+        }
+    }
+    
+    /// Shows user-friendly notification for JSON configuration errors with recovery options
     private func showJsonErrorNotification() {
         // Only show notification if we haven't already notified
         if !hasNotifiedAboutJsonError {
             hasNotifiedAboutJsonError = true
             
-            // Show a comprehensive notification
-            notify(title: "Macrowhisper - Configuration Error",
-                   message: "Your configuration file contains invalid JSON. Please fix.")
+            // Show a more helpful notification with recovery options
+            notify(title: "MacroWhisper - Configuration Error",
+                   message: "Configuration file has invalid JSON. Using default settings until fixed. Use --reveal-config to locate and repair the file.")
+            
+            logWarning("Configuration file at \(configPath) contains invalid JSON. Application will continue with default settings.")
+            logWarning("To fix: Use 'macrowhisper --reveal-config' to open the file and correct the JSON syntax.")
             
             // Reset the file watcher to recover from JSON error
-            resetFileWatcher()
+            self.resetFileWatcher()
         }
     }
     
@@ -241,10 +312,10 @@ class ConfigurationManager {
         return result
     }
 
-    func saveConfig() {
+    func saveConfig() throws {
         // Don't overwrite an existing file that failed to load (has invalid JSON)
         if fileManager.fileExists(atPath: configPath) &&
-            loadConfig() == nil {
+            self.loadConfig() == nil {
             logWarning("Not saving configuration because the existing file has invalid JSON that needs to be fixed manually")
             // Don't show another notification here - we've already notified in loadConfig()
             return
@@ -315,19 +386,79 @@ class ConfigurationManager {
                     }
                 }
                 
-                // Write the formatted JSON back to data
+                // Write the formatted JSON back to data with atomic write and error recovery
                 if let formattedData = finalJson.data(using: .utf8) {
                     let configDir = (configPath as NSString).deletingLastPathComponent
-                    if !fileManager.fileExists(atPath: configDir) {
-                        try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+                    
+                    // Ensure parent directory exists with proper error handling
+                    do {
+                        if !fileManager.fileExists(atPath: configDir) {
+                            try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+                            logDebug("Created configuration directory: \(configDir)")
+                        }
+                        
+                        // Perform atomic write to prevent corruption
+                        let tempPath = configPath + ".tmp"
+                        try formattedData.write(to: URL(fileURLWithPath: tempPath))
+                        
+                        // Verify the written file can be parsed before replacing original
+                        if let _ = Self.loadConfig(from: tempPath) {
+                            // Atomic move (replace original with verified temp file)
+                            _ = try fileManager.replaceItem(at: URL(fileURLWithPath: configPath), 
+                                                       withItemAt: URL(fileURLWithPath: tempPath), 
+                                                       backupItemName: nil, 
+                                                       options: [], 
+                                                       resultingItemURL: nil)
+                            logDebug("Configuration saved atomically to \(configPath)")
+                        } else {
+                            // Generated JSON is invalid (should not happen), clean up temp file
+                            try? fileManager.removeItem(atPath: tempPath)
+                            throw ConfigurationError.corruptedWrite("Generated configuration JSON failed validation")
+                        }
+                    } catch {
+                        // Handle directory creation or file write errors
+                        logError("Failed to write configuration file: \(error.localizedDescription)")
+                        
+                        // Check for common issues and provide specific guidance
+                        if (error as NSError).code == NSFileWriteFileExistsError {
+                            logError("Configuration directory cannot be created - file exists with same name")
+                        } else if (error as NSError).code == NSFileWriteNoPermissionError {
+                            logError("Permission denied writing to configuration directory. Check file permissions.")
+                        }
+                        
+                        throw error
                     }
-                    try formattedData.write(to: URL(fileURLWithPath: configPath))
-                    logDebug("Configuration saved to \(configPath)")
                 }
             }
         } catch {
             logError("Failed to save configuration: \(error.localizedDescription)")
-            notify(title: "Macrowhisper", message: "Failed to save configuration: \(error.localizedDescription)")
+            
+            // Provide more specific error notifications
+            if error is EncodingError {
+                notify(title: "MacroWhisper - Configuration Error", 
+                       message: "Failed to encode configuration to JSON. Please check configuration values.")
+            } else {
+                notify(title: "MacroWhisper - Configuration Error", 
+                       message: "Failed to save configuration: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// Configuration-specific errors for better error handling
+    enum ConfigurationError: Error {
+        case corruptedWrite(String)
+        case invalidJSON(String)
+        case permissionDenied(String)
+        
+        var localizedDescription: String {
+            switch self {
+            case .corruptedWrite(let details):
+                return "Configuration write corruption: \(details)"
+            case .invalidJSON(let details):
+                return "Invalid JSON configuration: \(details)"
+            case .permissionDenied(let details):
+                return "Permission denied: \(details)"
+            }
         }
     }
     
@@ -341,7 +472,11 @@ class ConfigurationManager {
         validateActiveActionAndNotifyIfNeeded()
 
         if shouldSave {
-            saveConfig()
+            do {
+                try self.saveConfig()
+            } catch {
+                logError("Failed to save configuration from command line update: \(error)")
+            }
         }
     }
 
@@ -448,7 +583,7 @@ class ConfigurationManager {
         logInfo("Updating configuration file...")
         
         // First, try to load the current configuration from disk
-        guard let currentConfig = loadConfig() else {
+        guard let currentConfig = self.loadConfig() else {
             logError("Failed to load current configuration for update")
             return false
         }
@@ -459,7 +594,12 @@ class ConfigurationManager {
         }
         
         // Save the configuration, which will apply any new schema changes and formatting
-        saveConfig()
+        do {
+            try self.saveConfig()
+        } catch {
+            logError("Failed to save updated configuration: \(error)")
+            return false
+        }
         
         logInfo("Configuration file updated successfully")
         return true

@@ -9,7 +9,7 @@ import ApplicationServices
 import Cocoa
 import Carbon.HIToolbox
 
-let APP_VERSION = "1.2.3"
+let APP_VERSION = "1.3.0"
 private let UNIX_PATH_MAX = 104
 
 // Dependency version check - Swifter 1.5.0+ required
@@ -17,22 +17,138 @@ private let UNIX_PATH_MAX = 104
 
 // Global variable suppressConsoleLogging is imported from Logger.swift
 
-// MARK: - Global instances
-// Global variables
-var disableUpdates: Bool = false
-var disableNotifications: Bool = false
+// MARK: - Global instances and Thread-Safe State Management
+
+/// Thread-safe state manager for global application state
+/// Prevents race conditions on shared state accessed from multiple threads
+class GlobalStateManager {
+    private let queue = DispatchQueue(label: "com.macrowhisper.globalstate", attributes: .concurrent)
+    
+    // Private backing storage for thread-safe properties
+    private var _disableUpdates: Bool = false
+    private var _disableNotifications: Bool = false
+    private var _autoReturnEnabled: Bool = false
+    private var _scheduledActionName: String? = nil
+    private var _autoReturnTimeoutTimer: Timer? = nil
+    private var _scheduledActionTimeoutTimer: Timer? = nil
+    private var _actionDelayValue: Double? = nil
+    private var _socketHealthTimer: Timer? = nil
+    private var _lastDetectedFrontApp: NSRunningApplication? = nil
+    
+    // Thread-safe property accessors using concurrent queue with barriers for writes
+    var disableUpdates: Bool {
+        get { queue.sync { _disableUpdates } }
+        set { queue.async(flags: .barrier) { self._disableUpdates = newValue } }
+    }
+    
+    var disableNotifications: Bool {
+        get { queue.sync { _disableNotifications } }
+        set { queue.async(flags: .barrier) { self._disableNotifications = newValue } }
+    }
+    
+    var autoReturnEnabled: Bool {
+        get { queue.sync { _autoReturnEnabled } }
+        set { queue.async(flags: .barrier) { self._autoReturnEnabled = newValue } }
+    }
+    
+    var scheduledActionName: String? {
+        get { queue.sync { _scheduledActionName } }
+        set { queue.async(flags: .barrier) { self._scheduledActionName = newValue } }
+    }
+    
+    var autoReturnTimeoutTimer: Timer? {
+        get { queue.sync { _autoReturnTimeoutTimer } }
+        set { 
+            queue.async(flags: .barrier) { 
+                // Invalidate previous timer before setting new one
+                self._autoReturnTimeoutTimer?.invalidate()
+                self._autoReturnTimeoutTimer = newValue 
+            } 
+        }
+    }
+    
+    var scheduledActionTimeoutTimer: Timer? {
+        get { queue.sync { _scheduledActionTimeoutTimer } }
+        set { 
+            queue.async(flags: .barrier) { 
+                // Invalidate previous timer before setting new one
+                self._scheduledActionTimeoutTimer?.invalidate()
+                self._scheduledActionTimeoutTimer = newValue 
+            } 
+        }
+    }
+    
+    var actionDelayValue: Double? {
+        get { queue.sync { _actionDelayValue } }
+        set { queue.async(flags: .barrier) { self._actionDelayValue = newValue } }
+    }
+    
+    var socketHealthTimer: Timer? {
+        get { queue.sync { _socketHealthTimer } }
+        set { 
+            queue.async(flags: .barrier) { 
+                // Invalidate previous timer before setting new one
+                self._socketHealthTimer?.invalidate()
+                self._socketHealthTimer = newValue 
+            } 
+        }
+    }
+    
+    var lastDetectedFrontApp: NSRunningApplication? {
+        get { queue.sync { _lastDetectedFrontApp } }
+        set { queue.async(flags: .barrier) { self._lastDetectedFrontApp = newValue } }
+    }
+    
+    /// Thread-safe method to atomically check and update autoReturn state
+    func cancelAutoReturnIfEnabled(reason: String) -> Bool {
+        return queue.sync(flags: .barrier) {
+            if _autoReturnEnabled {
+                _autoReturnEnabled = false
+                _autoReturnTimeoutTimer?.invalidate()
+                _autoReturnTimeoutTimer = nil
+                logInfo("Auto-return cancelled due to: \(reason)")
+                return true
+            }
+            return false
+        }
+    }
+    
+    /// Thread-safe method to atomically check and update scheduled action state
+    func cancelScheduledActionIfSet(reason: String) -> String? {
+        return queue.sync(flags: .barrier) {
+            if let actionName = _scheduledActionName {
+                _scheduledActionName = nil
+                _scheduledActionTimeoutTimer?.invalidate()
+                _scheduledActionTimeoutTimer = nil
+                logInfo("Scheduled action '\(actionName)' cancelled due to: \(reason)")
+                return actionName
+            }
+            return nil
+        }
+    }
+    
+    /// Thread-safe method to invalidate all timers during cleanup
+    func invalidateAllTimers() {
+        queue.async(flags: .barrier) {
+            self._autoReturnTimeoutTimer?.invalidate()
+            self._autoReturnTimeoutTimer = nil
+            self._scheduledActionTimeoutTimer?.invalidate()
+            self._scheduledActionTimeoutTimer = nil
+            self._socketHealthTimer?.invalidate()
+            self._socketHealthTimer = nil
+        }
+    }
+}
+
+// Global thread-safe state manager instance
+let globalState = GlobalStateManager()
+
+// Legacy global variables (non-thread-critical, kept for compatibility)
 var globalConfigManager: ConfigurationManager?
-var autoReturnEnabled = false
-var scheduledActionName: String? = nil
-var autoReturnTimeoutTimer: Timer?
-var scheduledActionTimeoutTimer: Timer?
-var actionDelayValue: Double? = nil
-var socketHealthTimer: Timer?
 var historyManager: HistoryManager?
 var configManager: ConfigurationManager!
 var recordingsWatcher: RecordingsFolderWatcher?
 var superwhisperFolderWatcher: SuperwhisperFolderWatcher?
-var lastDetectedFrontApp: NSRunningApplication?
 
 // Create default paths for logs
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
@@ -51,34 +167,21 @@ let socketPath = "/tmp/macrowhisper-\(uid).sock"
 
 let socketCommunication = SocketCommunication(socketPath: socketPath)
 
-// MARK: - AutoReturn Management
+// MARK: - AutoReturn Management (Thread-Safe)
+/// Cancels auto-return if currently enabled using thread-safe atomic operations
 func cancelAutoReturn(reason: String) {
-    if autoReturnEnabled {
-        autoReturnEnabled = false
-        // Cancel timeout timer
-        autoReturnTimeoutTimer?.invalidate()
-        autoReturnTimeoutTimer = nil
-        logInfo("Auto-return cancelled due to: \(reason)")
-    }
+    _ = globalState.cancelAutoReturnIfEnabled(reason: reason)
 }
 
-// MARK: - Scheduled Action Management
+// MARK: - Scheduled Action Management (Thread-Safe)
+/// Cancels scheduled action if currently set using thread-safe atomic operations
 func cancelScheduledAction(reason: String) {
-    if scheduledActionName != nil {
-        let actionName = scheduledActionName!
-        scheduledActionName = nil
-        // Cancel timeout timer
-        scheduledActionTimeoutTimer?.invalidate()
-        scheduledActionTimeoutTimer = nil
-        logInfo("Scheduled action '\(actionName)' cancelled due to: \(reason)")
-    }
+    _ = globalState.cancelScheduledActionIfSet(reason: reason)
 }
 
-// MARK: - Timeout Management
+// MARK: - Timeout Management (Thread-Safe)
+/// Starts auto-return timeout with thread-safe timer management
 func startAutoReturnTimeout() {
-    // Cancel existing timer if any
-    autoReturnTimeoutTimer?.invalidate()
-    
     // Get timeout value from configuration
     let timeoutValue = globalConfigManager?.config.defaults.scheduledActionTimeout ?? 5.0
     
@@ -90,30 +193,27 @@ func startAutoReturnTimeout() {
     
     // Check if there are any active recording sessions - if so, don't start timeout
     if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
-        // Start configurable timeout on main thread
+        // Start configurable timeout on main thread with thread-safe timer management
         DispatchQueue.main.async {
-            autoReturnTimeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { _ in
-                if autoReturnEnabled {
-                    autoReturnEnabled = false
-                    logInfo("Auto-return timed out after \(timeoutValue) seconds - no valid recording session detected")
-                }
-                autoReturnTimeoutTimer = nil
+            let timer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { [weak globalState] _ in
+                // Use thread-safe atomic operation to check and cancel auto-return
+                _ = globalState?.cancelAutoReturnIfEnabled(reason: "timed out after \(timeoutValue) seconds - no valid recording session detected")
             }
+            
+            // Thread-safe assignment of timer (automatically invalidates any previous timer)
+            globalState.autoReturnTimeoutTimer = timer
+            
             // Ensure timer is added to the main run loop
-            if let timer = autoReturnTimeoutTimer {
-                RunLoop.main.add(timer, forMode: .common)
-                logDebug("Auto-return timeout timer started (\(timeoutValue) seconds)")
-            }
+            RunLoop.main.add(timer, forMode: .common)
+            logDebug("Auto-return timeout timer started (\(timeoutValue) seconds)")
         }
     } else {
         logDebug("Auto-return timeout not started - recording session already in progress")
     }
 }
 
+/// Starts scheduled action timeout with thread-safe timer management
 func startScheduledActionTimeout() {
-    // Cancel existing timer if any
-    scheduledActionTimeoutTimer?.invalidate()
-    
     // Get timeout value from configuration
     let timeoutValue = globalConfigManager?.config.defaults.scheduledActionTimeout ?? 5.0
     
@@ -125,44 +225,41 @@ func startScheduledActionTimeout() {
     
     // Check if there are any active recording sessions - if so, don't start timeout
     if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
-        // Start configurable timeout on main thread
+        // Start configurable timeout on main thread with thread-safe timer management
         DispatchQueue.main.async {
-            scheduledActionTimeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { _ in
-                if let actionName = scheduledActionName {
-                    scheduledActionName = nil
-                    logInfo("Scheduled action '\(actionName)' timed out after \(timeoutValue) seconds - no valid recording session detected")
-                }
-                scheduledActionTimeoutTimer = nil
+            let timer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { [weak globalState] _ in
+                // Use thread-safe atomic operation to check and cancel scheduled action
+                _ = globalState?.cancelScheduledActionIfSet(reason: "timed out after \(timeoutValue) seconds - no valid recording session detected")
             }
+            
+            // Thread-safe assignment of timer (automatically invalidates any previous timer)
+            globalState.scheduledActionTimeoutTimer = timer
+            
             // Ensure timer is added to the main run loop
-            if let timer = scheduledActionTimeoutTimer {
-                RunLoop.main.add(timer, forMode: .common)
-                logDebug("Scheduled action timeout timer started (\(timeoutValue) seconds)")
-            }
+            RunLoop.main.add(timer, forMode: .common)
+            logDebug("Scheduled action timeout timer started (\(timeoutValue) seconds)")
         }
     } else {
         logDebug("Scheduled action timeout not started - recording session already in progress")
     }
 }
 
+/// Cancels auto-return timeout timer using thread-safe operations
 func cancelAutoReturnTimeout() {
-    DispatchQueue.main.async {
-        if autoReturnTimeoutTimer != nil {
-            logDebug("Cancelling auto-return timeout timer")
-        }
-        autoReturnTimeoutTimer?.invalidate()
-        autoReturnTimeoutTimer = nil
+    if globalState.autoReturnTimeoutTimer != nil {
+        logDebug("Cancelling auto-return timeout timer")
     }
+    // Thread-safe timer cancellation (setting to nil automatically invalidates)
+    globalState.autoReturnTimeoutTimer = nil
 }
 
+/// Cancels scheduled action timeout timer using thread-safe operations
 func cancelScheduledActionTimeout() {
-    DispatchQueue.main.async {
-        if scheduledActionTimeoutTimer != nil {
-            logDebug("Cancelling scheduled action timeout timer")
-        }
-        scheduledActionTimeoutTimer?.invalidate()
-        scheduledActionTimeoutTimer = nil
+    if globalState.scheduledActionTimeoutTimer != nil {
+        logDebug("Cancelling scheduled action timeout timer")
     }
+    // Thread-safe timer cancellation (setting to nil automatically invalidates)
+    globalState.scheduledActionTimeoutTimer = nil
 }
 
 // MARK: - Helper functions for logging and notifications
@@ -333,24 +430,27 @@ func registerForSleepWakeNotifications() {
     }
 }
 
+/// Starts socket health monitoring with thread-safe timer management
 func startSocketHealthMonitor() {
-    // Invalidate previous timer if any
-    socketHealthTimer?.invalidate()
-    socketHealthTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { _ in
+    let timer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { _ in
         logDebug("Performing periodic socket health check")
         if !checkSocketHealth() {
             logWarning("Socket appears to be unhealthy, attempting recovery")
             recoverSocket()
         }
     }
-    socketHealthTimer?.tolerance = 10.0
-    RunLoop.main.add(socketHealthTimer!, forMode: .common)
+    timer.tolerance = 10.0
+    
+    // Thread-safe assignment of timer (automatically invalidates any previous timer)
+    globalState.socketHealthTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
     logDebug("Socket health monitor started")
 }
 
+/// Stops socket health monitoring using thread-safe operations
 func stopSocketHealthMonitor() {
-    socketHealthTimer?.invalidate()
-    socketHealthTimer = nil
+    // Thread-safe timer cancellation (setting to nil automatically invalidates)
+    globalState.socketHealthTimer = nil
     logDebug("Socket health monitor stopped")
 }
 
@@ -1276,10 +1376,10 @@ if shouldAutoUpdateConfig {
 
 historyManager = HistoryManager(configManager: configManager)
 
-// Read values from config first
+// Read values from config first and update thread-safe state
 let config = configManager.config
-disableUpdates = config.defaults.noUpdates
-disableNotifications = config.defaults.noNoti
+globalState.disableUpdates = config.defaults.noUpdates
+globalState.disableNotifications = config.defaults.noNoti
 
 // Request accessibility permissions upfront for better user experience
 // This ensures users grant permissions at startup rather than being surprised later
@@ -1367,18 +1467,21 @@ if runWatcher {
 
 // Set up configuration change handler for live updates
 configManager.onConfigChanged = { reason in
-    // Store previous values to detect changes
-    let previousDisableUpdates = disableUpdates
-    // Update global variables
-    disableUpdates = configManager.config.defaults.noUpdates
-    disableNotifications = configManager.config.defaults.noNoti
-        // Apply clipboard buffer changes live to the global ClipboardMonitor
-        if let watcher = recordingsWatcher {
-            let bufferSeconds = configManager.config.defaults.clipboardBuffer
-            watcher.getClipboardMonitor().updateClipboardBuffer(seconds: bufferSeconds)
-        }
+    // Store previous values to detect changes using thread-safe access
+    let previousDisableUpdates = globalState.disableUpdates
+    
+    // Update global state variables using thread-safe operations
+    globalState.disableUpdates = configManager.config.defaults.noUpdates
+    globalState.disableNotifications = configManager.config.defaults.noNoti
+    
+    // Apply clipboard buffer changes live to the global ClipboardMonitor
+    if let watcher = recordingsWatcher {
+        let bufferSeconds = configManager.config.defaults.clipboardBuffer
+        watcher.getClipboardMonitor().updateClipboardBuffer(seconds: bufferSeconds)
+    }
+    
     // If updates were disabled but are now enabled, reset the version checker state and perform immediate check
-    if previousDisableUpdates == true && disableUpdates == false {
+    if previousDisableUpdates == true && globalState.disableUpdates == false {
         versionChecker.resetLastCheckDate()
         // Perform an immediate version check when user enables updates
         // This ensures they get update notifications right away rather than waiting for the next recording

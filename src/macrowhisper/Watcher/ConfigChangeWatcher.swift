@@ -12,6 +12,12 @@ class ConfigChangeWatcher {
         self.filePath = filePath
         self.onChanged = onChanged
     }
+    
+    /// Ensures proper cleanup of resources to prevent memory leaks
+    deinit {
+        logDebug("ConfigChangeWatcher deinitializing - cleaning up resources")
+        stop()
+    }
 
     func start() {
         // Ensure we don't start multiple watchers

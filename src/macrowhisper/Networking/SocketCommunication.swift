@@ -5,6 +5,30 @@ import Cocoa
 import Carbon.HIToolbox
 
 private let UNIX_PATH_MAX = 104
+private let SOCKET_TIMEOUT_SECONDS = 10 // 10 second timeout for socket operations
+
+// Helper functions for fd_set operations (Darwin-specific)
+private func fdZero(_ set: inout fd_set) {
+    set.fds_bits = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+}
+
+private func fdSet(_ fd: Int32, _ set: inout fd_set) {
+    let index = Int(fd) / 32
+    let bit = Int(fd) % 32
+    withUnsafeMutablePointer(to: &set.fds_bits) { ptr in
+        let intPtr = ptr.withMemoryRebound(to: Int32.self, capacity: 32) { $0 }
+        intPtr[index] |= (1 << bit)
+    }
+}
+
+private func fdIsSet(_ fd: Int32, _ set: inout fd_set) -> Bool {
+    let index = Int(fd) / 32
+    let bit = Int(fd) % 32
+    return withUnsafeMutablePointer(to: &set.fds_bits) { ptr in
+        let intPtr = ptr.withMemoryRebound(to: Int32.self, capacity: 32) { $0 }
+        return (intPtr[index] & (1 << bit)) != 0
+    }
+}
 
 class SocketCommunication {
     private let socketPath: String
@@ -60,6 +84,85 @@ class SocketCommunication {
     
     init(socketPath: String) {
         self.socketPath = socketPath
+    }
+    
+    /// Reads from socket with timeout to prevent blocking indefinitely
+    /// Returns the number of bytes read, or -1 on error/timeout
+    private func readWithTimeout(_ socket: Int32, _ buffer: UnsafeMutablePointer<UInt8>, _ bufferSize: Int) -> Int {
+        // Set socket to non-blocking mode
+        let flags = fcntl(socket, F_GETFL)
+        _ = fcntl(socket, F_SETFL, flags | O_NONBLOCK)
+        
+        // Setup select for timeout
+        var readSet = fd_set()
+        fdZero(&readSet)
+        fdSet(socket, &readSet)
+        
+        var timeout = timeval(tv_sec: Int(SOCKET_TIMEOUT_SECONDS), tv_usec: 0)
+        let selectResult = select(socket + 1, &readSet, nil, nil, &timeout)
+        
+        // Restore blocking mode
+        _ = fcntl(socket, F_SETFL, flags)
+        
+        if selectResult > 0 && fdIsSet(socket, &readSet) {
+            // Socket is ready for reading
+            return read(socket, buffer, bufferSize)
+        } else if selectResult == 0 {
+            logWarning("Socket read timeout after \(SOCKET_TIMEOUT_SECONDS) seconds")
+            return -1
+        } else {
+            logError("Socket select error: \(errno)")
+            return -1
+        }
+    }
+    
+    /// Writes to socket with timeout to prevent blocking indefinitely
+    /// Returns the number of bytes written, or -1 on error/timeout
+    private func writeWithTimeout(_ socket: Int32, _ data: UnsafeRawPointer, _ dataSize: Int) -> Int {
+        // Set socket to non-blocking mode
+        let flags = fcntl(socket, F_GETFL)
+        _ = fcntl(socket, F_SETFL, flags | O_NONBLOCK)
+        
+        // Setup select for timeout
+        var writeSet = fd_set()
+        fdZero(&writeSet)
+        fdSet(socket, &writeSet)
+        
+        var timeout = timeval(tv_sec: Int(SOCKET_TIMEOUT_SECONDS), tv_usec: 0)
+        let selectResult = select(socket + 1, nil, &writeSet, nil, &timeout)
+        
+        // Restore blocking mode
+        _ = fcntl(socket, F_SETFL, flags)
+        
+        if selectResult > 0 && fdIsSet(socket, &writeSet) {
+            // Socket is ready for writing
+            return write(socket, data, dataSize)
+        } else if selectResult == 0 {
+            logWarning("Socket write timeout after \(SOCKET_TIMEOUT_SECONDS) seconds")
+            return -1
+        } else {
+            logError("Socket select error: \(errno)")
+            return -1
+        }
+    }
+    
+    /// Safely sends response to client socket with timeout protection
+    /// Returns true if successful, false if failed or timed out
+    private func sendResponse(_ response: String, to clientSocket: Int32) -> Bool {
+        let bytesToWrite = response.utf8.count
+        let bytesWritten = response.withCString { cString in
+            writeWithTimeout(clientSocket, cString, bytesToWrite)
+        }
+        
+        if bytesWritten != bytesToWrite {
+            if bytesWritten == -1 {
+                logError("Failed to send response: write timeout or error")
+            } else {
+                logError("Incomplete response sent: \(bytesWritten)/\(bytesToWrite) bytes")
+            }
+            return false
+        }
+        return true
     }
     
     func startServer(configManager: ConfigurationManager) {
@@ -460,16 +563,16 @@ class SocketCommunication {
     
     private func checkAndSimulatePressReturn(activeInsert: AppConfiguration.Insert?) {
         let shouldPressReturn = activeInsert?.pressReturn ?? globalConfigManager?.config.defaults.pressReturn ?? false
-        if autoReturnEnabled {
+        if globalState.autoReturnEnabled {
             if shouldPressReturn {
-                // If both autoReturn and pressReturn are set, treat as pressReturn (simulate once, clear autoReturnEnabled)
+                // If both autoReturn and pressReturn are set, treat as pressReturn (simulate once, clear globalState.autoReturnEnabled)
                 logInfo("Simulating return key press due to pressReturn setting (auto-return was also set)")
                 simulateReturnKeyPress()
             } else {
                 logInfo("Simulating return key press due to auto-return")
                 simulateReturnKeyPress()
             }
-            autoReturnEnabled = false
+            globalState.autoReturnEnabled = false
         } else if shouldPressReturn {
             logInfo("Simulating return key press due to pressReturn setting")
             simulateReturnKeyPress()
@@ -503,14 +606,24 @@ class SocketCommunication {
         simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
     }
 
+    /// Handles client connections with timeout protection to prevent blocking
     private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
         guard let configMgr = self.configManagerRef ?? configManager ?? globalConfigManager else {
             logError("No valid config manager"); close(clientSocket); return
         }
         defer { close(clientSocket) }
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096); defer { buffer.deallocate() }
-        let bytesRead = read(clientSocket, buffer, 4096)
-        guard bytesRead > 0 else { logError("Failed to read from socket"); return }
+        
+        // Use timeout-enabled read to prevent indefinite blocking
+        let bytesRead = readWithTimeout(clientSocket, buffer, 4096)
+        guard bytesRead > 0 else { 
+            if bytesRead == -1 {
+                logError("Socket read failed or timed out")
+            } else {
+                logError("Failed to read from socket: no data received")
+            }
+            return 
+        }
         let data = Data(bytes: buffer, count: bytesRead)
         
         do {
@@ -531,7 +644,7 @@ class SocketCommunication {
                     response = "Failed to reload configuration"
                     logError(response)
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .updateConfig:
                 // Handle configuration updates
@@ -543,7 +656,7 @@ class SocketCommunication {
                         // Validate action exists if it's not empty
                         if !activeAction.isEmpty && !validateActionExists(activeAction, configManager: configMgr) {
                             response = "Error: Action '\(activeAction)' does not exist."
-                            write(clientSocket, response, response.utf8.count)
+                            _ = sendResponse(response, to: clientSocket)
                             logError("Attempted to set non-existent action: \(activeAction)")
                             notify(title: "Macrowhisper", message: "Non-existent action: \(activeAction)")
                             return
@@ -553,16 +666,20 @@ class SocketCommunication {
                     }
                     
                     if updated {
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "Configuration has been updated"
+                        do {
+                            try configMgr.saveConfig()
+                            configMgr.onConfigChanged?(nil)
+                            response = "Configuration has been updated"
+                        } catch {
+                            response = "Failed to save configuration: \(error.localizedDescription)"
+                        }
                     } else {
                         response = "No configuration changes were made"
                     }
                 } else {
                     response = "Configuration has been updated"
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .status:
                 // Gather status information
@@ -604,8 +721,8 @@ class SocketCommunication {
                 lines.append("Icon: \(icon.isEmpty ? "(none)" : icon)")
                 lines.append("moveTo: \(moveTo.isEmpty ? "(none)" : moveTo)")
                 // Auto-return and scheduled action
-                lines.append("Auto-return: \(autoReturnEnabled ? "enabled" : "disabled")")
-                lines.append("Scheduled action: \(scheduledActionName ?? "(none)")")
+                lines.append("Auto-return: \(globalState.autoReturnEnabled ? "enabled" : "disabled")")
+                lines.append("Scheduled action: \(globalState.scheduledActionName ?? "(none)")")
                 // Settings
                 lines.append("noUpdates: \(defaults.noUpdates ? "yes" : "no")")
                 lines.append("noNoti: \(defaults.noNoti ? "yes" : "no")")
@@ -631,11 +748,11 @@ class SocketCommunication {
                 }
                 // Print all lines
                 response = lines.joined(separator: "\n")
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .debug:
                 response = "Server status:\n- Socket path: \(socketPath)\n- Server socket descriptor: \(serverSocket)"
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .listInserts:
                 let inserts = configMgr.config.inserts
@@ -645,7 +762,7 @@ class SocketCommunication {
                 } else {
                     response = inserts.keys.sorted().map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .getIcon:
                 let (activeType, activeAction, _) = getActiveAction(configManager: configMgr)
@@ -695,7 +812,7 @@ class SocketCommunication {
                 }
                 
                 logInfo("Returning icon: '\(response)'")
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .getInsert:
                 if let insertName = commandMessage.arguments?["name"], !insertName.isEmpty {
@@ -722,36 +839,36 @@ class SocketCommunication {
                         logInfo("Returning active action: '\(response)'")
                     }
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .autoReturn:
                 if let enableStr = commandMessage.arguments?["enable"], let enable = Bool(enableStr) {
-                    autoReturnEnabled = enable
+                    globalState.autoReturnEnabled = enable
                     // Cancel scheduled action if auto-return is enabled
                     if enable {
-                        scheduledActionName = nil
+                        globalState.scheduledActionName = nil
                         // Cancel scheduled action timeout
-                        scheduledActionTimeoutTimer?.invalidate()
-                        scheduledActionTimeoutTimer = nil
+                        globalState.scheduledActionTimeoutTimer?.invalidate()
+                        globalState.scheduledActionTimeoutTimer = nil
                         // Start auto-return timeout
                         startAutoReturnTimeout()
                     } else {
                         // Cancel auto-return timeout if disabling
                         cancelAutoReturnTimeout()
                     }
-                    response = autoReturnEnabled ? "Auto-return enabled for next result" : "Auto-return disabled"
+                    response = globalState.autoReturnEnabled ? "Auto-return enabled for next result" : "Auto-return disabled"
                     logInfo(response)
                 } else {
                     response = "Missing or invalid enable parameter"
                     logError(response)
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .scheduleAction:
                 if let actionName = commandMessage.arguments?["name"] {
                     if actionName.isEmpty {
                         // Cancel scheduled action
-                        scheduledActionName = nil
+                        globalState.scheduledActionName = nil
                         // Cancel scheduled action timeout
                         cancelScheduledActionTimeout()
                         response = "Scheduled action cancelled"
@@ -762,14 +879,14 @@ class SocketCommunication {
                             response = "Action not found: \(actionName)"
                             logError(response)
                             notify(title: "Macrowhisper", message: "Action not found: \(actionName)")
-                            write(clientSocket, response, response.utf8.count)
+                            _ = sendResponse(response, to: clientSocket)
                             return
                         }
                         // Cancel auto-return if scheduling an action
-                        autoReturnEnabled = false
+                        globalState.autoReturnEnabled = false
                         // Cancel auto-return timeout
                         cancelAutoReturnTimeout()
-                        scheduledActionName = actionName
+                        globalState.scheduledActionName = actionName
                         // Start scheduled action timeout
                         startScheduledActionTimeout()
                         response = "Action '\(actionName)' scheduled for next recording"
@@ -779,14 +896,14 @@ class SocketCommunication {
                     response = "Missing action name parameter"
                     logError(response)
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .execInsert:
                 if let insertName = commandMessage.arguments?["name"], let insert = configMgr.config.inserts[insertName] {
                     if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
                         // Ensure autoReturn and scheduled action are always false for exec-insert
-                        autoReturnEnabled = false
-                        scheduledActionName = nil
+                        globalState.autoReturnEnabled = false
+                        globalState.scheduledActionName = nil
                         // Cancel timeouts
                         cancelAutoReturnTimeout()
                         cancelScheduledActionTimeout()
@@ -804,7 +921,7 @@ class SocketCommunication {
                     logError(response)
                     notify(title: "Macrowhisper", message: "Insert not found or name missing for exec-insert.")
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .addUrl:
                 if let name = commandMessage.arguments?["name"] {
@@ -813,12 +930,16 @@ class SocketCommunication {
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
                         configMgr.config.urls[name] = AppConfiguration.Url(action: "", icon: "", openBackground: false)
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "URL action '\(name)' added"
+                        do {
+                            try configMgr.saveConfig()
+                            configMgr.onConfigChanged?(nil)
+                            response = "URL action '\(name)' added"
+                        } catch {
+                            response = "Failed to save URL action '\(name)': \(error.localizedDescription)"
+                        }
                     }
                 } else { response = "Missing name for URL action" }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .addShortcut:
                  if let name = commandMessage.arguments?["name"] {
@@ -827,12 +948,16 @@ class SocketCommunication {
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
                         configMgr.config.shortcuts[name] = AppConfiguration.Shortcut(action: "", icon: "")
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "Shortcut action '\(name)' added"
+                        do {
+                            try configMgr.saveConfig()
+                            configMgr.onConfigChanged?(nil)
+                            response = "Shortcut action '\(name)' added"
+                        } catch {
+                            response = "Failed to save shortcut action '\(name)': \(error.localizedDescription)"
+                        }
                     }
                 } else { response = "Missing name for Shortcut action" }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .addShell:
                  if let name = commandMessage.arguments?["name"] {
@@ -841,12 +966,16 @@ class SocketCommunication {
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
                         configMgr.config.scriptsShell[name] = AppConfiguration.ScriptShell(action: "", icon: "")
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "Shell script action '\(name)' added"
+                        do {
+                            try configMgr.saveConfig()
+                            configMgr.onConfigChanged?(nil)
+                            response = "Shell script action '\(name)' added"
+                        } catch {
+                            response = "Failed to save shell script action '\(name)': \(error.localizedDescription)"
+                        }
                     }
                 } else { response = "Missing name for Shell script action" }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .addAppleScript:
                  if let name = commandMessage.arguments?["name"] {
@@ -855,12 +984,16 @@ class SocketCommunication {
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
                         configMgr.config.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "", icon: "")
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "AppleScript action '\(name)' added"
+                        do {
+                            try configMgr.saveConfig()
+                            configMgr.onConfigChanged?(nil)
+                            response = "AppleScript action '\(name)' added"
+                        } catch {
+                            response = "Failed to save AppleScript action '\(name)': \(error.localizedDescription)"
+                        }
                     }
                 } else { response = "Missing name for AppleScript action" }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .addInsert:
                 if let name = commandMessage.arguments?["name"] {
@@ -870,19 +1003,23 @@ class SocketCommunication {
                     } else {
                         let newInsert = AppConfiguration.Insert(action: "", icon: "")
                         configMgr.config.inserts[name] = newInsert
-                        configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "Insert '\(name)' added"
+                        do {
+                            try configMgr.saveConfig()
+                            configMgr.onConfigChanged?(nil)
+                            response = "Insert '\(name)' added"
+                        } catch {
+                            response = "Failed to save insert '\(name)': \(error.localizedDescription)"
+                        }
                     }
                 } else {
                     response = "Missing name for insert"
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .removeAction:
                 guard let name = commandMessage.arguments?["name"] else {
                     response = "Missing name for action"
-                    write(clientSocket, response, response.utf8.count)
+                    _ = sendResponse(response, to: clientSocket)
                     return
                 }
                 
@@ -912,70 +1049,74 @@ class SocketCommunication {
                     if configMgr.config.defaults.activeAction == name {
                         configMgr.config.defaults.activeAction = ""
                     }
-                    configMgr.saveConfig()
-                    configMgr.onConfigChanged?(nil)
-                    response = "\(actionType.capitalized) action '\(name)' removed"
+                    do {
+                        try configMgr.saveConfig()
+                        configMgr.onConfigChanged?(nil)
+                        response = "\(actionType.capitalized) action '\(name)' removed"
+                    } catch {
+                        response = "Failed to save after removing '\(name)': \(error.localizedDescription)"
+                    }
                 } else {
                     response = "Action '\(name)' not found"
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .version:
                 response = "macrowhisper version \(APP_VERSION)"
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .versionState:
                 let versionChecker = VersionChecker()
                 response = versionChecker.getStateString()
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .forceUpdateCheck:
                 let versionChecker = VersionChecker()
                 versionChecker.forceUpdateCheck()
                 response = "Forced update check initiated (all timing constraints reset). Check logs for results."
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .versionClear:
                 let versionChecker = VersionChecker()
                 versionChecker.clearAllUserDefaults()
                 response = "All version checker UserDefaults cleared. Next check will start fresh."
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             // Service management commands
             case .serviceStatus:
                 let serviceManager = ServiceManager()
                 response = serviceManager.getServiceStatus()
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .serviceInstall:
                 let serviceManager = ServiceManager()
                 let result = serviceManager.installService()
                 response = result.message
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .serviceStart:
                 let serviceManager = ServiceManager()
                 let result = serviceManager.startService()
                 response = result.message
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .serviceStop:
                 let serviceManager = ServiceManager()
                 let result = serviceManager.stopService()
                 response = result.message
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .serviceRestart:
                 let serviceManager = ServiceManager()
                 let result = serviceManager.restartService()
                 response = result.message
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .serviceUninstall:
                 let serviceManager = ServiceManager()
                 let result = serviceManager.uninstallService()
                 response = result.message
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             // New unified action commands
             case .listActions:
@@ -994,31 +1135,31 @@ class SocketCommunication {
                 actionsList.append(contentsOf: scripts.keys.map { "APPLESCRIPT: \($0)\($0 == activeActionName ? " (active)" : "")" })
                 
                 response = actionsList.sorted().joined(separator: "\n")
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .listUrls:
                 let urls = configMgr.config.urls.keys.sorted()
                 let activeActionName = configMgr.config.defaults.activeAction ?? ""
                 response = urls.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .listShortcuts:
                 let shortcuts = configMgr.config.shortcuts.keys.sorted()
                 let activeActionName = configMgr.config.defaults.activeAction ?? ""
                 response = shortcuts.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .listShell:
                 let shells = configMgr.config.scriptsShell.keys.sorted()
                 let activeActionName = configMgr.config.defaults.activeAction ?? ""
                 response = shells.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .listAppleScript:
                 let scripts = configMgr.config.scriptsAS.keys.sorted()
                 let activeActionName = configMgr.config.defaults.activeAction ?? ""
                 response = scripts.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .execAction:
                 if let actionName = commandMessage.arguments?["name"] {
@@ -1026,8 +1167,8 @@ class SocketCommunication {
                     
                     if let action = action {
                         if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
-                            autoReturnEnabled = false
-                            scheduledActionName = nil
+                            globalState.autoReturnEnabled = false
+                            globalState.scheduledActionName = nil
                             // Cancel timeouts
                             cancelAutoReturnTimeout()
                             cancelScheduledActionTimeout()
@@ -1076,7 +1217,7 @@ class SocketCommunication {
                     response = "Action name missing"
                     logError(response)
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .getAction:
                 if let actionName = commandMessage.arguments?["name"], !actionName.isEmpty {
@@ -1139,12 +1280,12 @@ class SocketCommunication {
                         logInfo("Returning active action: '\(response)'")
                     }
                 }
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 
             case .quit:
                 logInfo("Received quit command, shutting down.")
                 let response = "Quitting macrowhisper..."
-                write(clientSocket, response, response.utf8.count)
+                _ = sendResponse(response, to: clientSocket)
                 // Give the response a moment to flush
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     exit(0)
@@ -1196,18 +1337,32 @@ class SocketCommunication {
             logDebug("Sending command: \(command.rawValue) to \(socketPath)")
         }
         
-        let bytesSent = write(clientSocket, data.withUnsafeBytes { $0.baseAddress }, data.count)
+        // Send command with timeout protection
+        let bytesSent = data.withUnsafeBytes { bytes in
+            writeWithTimeout(clientSocket, bytes.baseAddress!, data.count)
+        }
         guard bytesSent == data.count else {
-            let err = "Failed to send complete message. Sent \(bytesSent) of \(data.count) bytes."
-            logError(err); return err
+            if bytesSent == -1 {
+                logError("Failed to send command: write timeout or error")
+                return "Command send timeout"
+            } else {
+                let err = "Failed to send complete message. Sent \(bytesSent) of \(data.count) bytes."
+                logError(err); return err
+            }
         }
         
+        // Read response with timeout protection
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536); defer { buffer.deallocate() }
-        let bytesRead = read(clientSocket, buffer, 65536)
+        let bytesRead = readWithTimeout(clientSocket, buffer, 65536)
         
         guard bytesRead > 0 else {
-            let err = "Failed to read from socket: \(errno) (\(String(cString: strerror(errno))))"
-            logError(err); return err
+            if bytesRead == -1 {
+                logError("Failed to read response: read timeout or error")
+                return "Response read timeout"
+            } else {
+                let err = "Failed to read from socket: no response data"
+                logError(err); return err
+            }
         }
         
         return String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .utf8)

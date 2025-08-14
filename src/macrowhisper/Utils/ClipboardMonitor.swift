@@ -1,6 +1,10 @@
 import Foundation
 import Cocoa
 
+/// Configuration constants for clipboard monitoring bounds to prevent memory issues
+private let MAX_SESSION_CLIPBOARD_CHANGES = 50  // Maximum clipboard changes per session
+private let MAX_GLOBAL_CLIPBOARD_HISTORY = 100  // Maximum global history entries
+
 /// Handles clipboard monitoring and synchronization for insert actions triggered by valid results
 /// This solves the timing issue where Superwhisper puts content on clipboard at the same time as insert execution
 class ClipboardMonitor {
@@ -11,6 +15,12 @@ class ClipboardMonitor {
     
     // Global clipboard history for pre-recording capture (lightweight, app-lifetime monitoring)
     private var preRecordingBuffer: TimeInterval // Keep N seconds of history (0 disables)
+    
+    /// Dynamic cleanup interval that scales with user's clipboard buffer setting
+    private var cleanupInterval: TimeInterval {
+        return max(30.0, preRecordingBuffer + 10.0)
+    }
+    
     private var globalClipboardHistory: [ClipboardChange] = []
     private let globalHistoryQueue = DispatchQueue(label: "ClipboardMonitor.globalHistory", attributes: .concurrent)
     private var globalMonitoringTimer: Timer?
@@ -18,9 +28,10 @@ class ClipboardMonitor {
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
     private var lastSeenChangeCount: Int = 0 // Track NSPasteboard changeCount for more reliable detection
     
-    // Early monitoring state for recording sessions - made thread-safe
+    // Early monitoring state for recording sessions - made thread-safe with bounds management
     private var earlyMonitoringSessions: [String: EarlyMonitoringSession] = [:]
     private let sessionsQueue = DispatchQueue(label: "ClipboardMonitor.sessions", attributes: .concurrent)
+    private var cleanupTimer: Timer? // Periodic cleanup timer to prevent memory growth
     
     private struct EarlyMonitoringSession {
         let userOriginalClipboard: String?
@@ -51,10 +62,14 @@ class ClipboardMonitor {
         } else {
             logDebug("[ClipboardMonitor] Global clipboard buffer disabled (clipboardBuffer = 0)")
         }
+        
+        // Start periodic cleanup to prevent memory growth
+        startPeriodicCleanup()
     }
     
     deinit {
         stopGlobalClipboardMonitoring()
+        stopPeriodicCleanup()
     }
     
     /// Starts early clipboard monitoring when a recording folder appears
@@ -373,9 +388,20 @@ class ClipboardMonitor {
                     return
                 }
                 
-                // Always append the change for restoration logic
-                self.earlyMonitoringSessions[recordingPath]?.clipboardChanges.append(change)
-                self.earlyMonitoringSessions[recordingPath]?.lastSeenChangeCount = currentChangeCount
+                // Always append the change for restoration logic, with bounds checking
+                if var session = self.earlyMonitoringSessions[recordingPath] {
+                    session.clipboardChanges.append(change)
+                    
+                    // Prevent unbounded growth by removing oldest entries if we exceed the limit
+                    if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
+                        let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
+                        session.clipboardChanges.removeFirst(excessCount)
+                        logDebug("[ClipboardMonitor] Trimmed \(excessCount) old clipboard changes to stay within bounds")
+                    }
+                    
+                    session.lastSeenChangeCount = currentChangeCount
+                    self.earlyMonitoringSessions[recordingPath] = session
+                }
                 
                 // Only log if we're currently executing an action
                 if session.isExecutingAction {
@@ -1199,6 +1225,10 @@ class ClipboardMonitor {
             startGlobalClipboardMonitoring()
             logInfo(String(format: "[ClipboardMonitor] Updated global clipboard buffer to %.2fs", newValue))
         }
+        
+        // Restart cleanup timer with new interval based on updated buffer setting
+        stopPeriodicCleanup()
+        startPeriodicCleanup()
     }
     
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
@@ -1226,9 +1256,18 @@ class ClipboardMonitor {
                 // This fixes the bug where copying the same content multiple times wasn't being detected
                 let change = ClipboardChange(content: currentClipboard, timestamp: now, changeCount: currentChangeCount)
                 self.globalClipboardHistory.append(change)
+                
+                // Prevent unbounded growth by removing oldest entries if we exceed the limit
+                if self.globalClipboardHistory.count > MAX_GLOBAL_CLIPBOARD_HISTORY {
+                    let excessCount = self.globalClipboardHistory.count - MAX_GLOBAL_CLIPBOARD_HISTORY
+                    self.globalClipboardHistory.removeFirst(excessCount)
+                    logDebug("[ClipboardMonitor] Trimmed \(excessCount) old global history entries to stay within bounds")
+                }
+                
                 self.lastSeenClipboardContent = currentClipboard
                 self.lastSeenChangeCount = currentChangeCount
                 logDebug("[ClipboardMonitor] Global monitoring detected clipboard operation (changeCount: \(currentChangeCount))")
+                logDebug("[ClipboardMonitor] Global history size: \(self.globalClipboardHistory.count)/\(MAX_GLOBAL_CLIPBOARD_HISTORY)")
             }
             
             // Clean up old entries beyond the buffer time (keep only last 5 seconds)
@@ -1242,6 +1281,98 @@ class ClipboardMonitor {
             // Only log cleanup if entries were actually removed (reduce log noise)
             if beforeCount != afterCount {
                 logDebug("[ClipboardMonitor] Global cleanup: removed \(beforeCount - afterCount) old entries, \(afterCount) remaining")
+            }
+        }
+    }
+    
+    // MARK: - Memory Management and Bounds Control
+    
+    /// Starts periodic cleanup to prevent memory growth from unbounded arrays
+    private func startPeriodicCleanup() {
+        let interval = cleanupInterval
+        cleanupTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.performPeriodicCleanup()
+        }
+        RunLoop.main.add(cleanupTimer!, forMode: .common)
+        logDebug("[ClipboardMonitor] Started periodic cleanup (every \(String(format: "%.1f", interval))s, based on clipboardBuffer: \(String(format: "%.1f", preRecordingBuffer))s)")
+    }
+    
+    /// Stops periodic cleanup timer
+    private func stopPeriodicCleanup() {
+        cleanupTimer?.invalidate()
+        cleanupTimer = nil
+        logDebug("[ClipboardMonitor] Stopped periodic cleanup")
+    }
+    
+    /// Performs cleanup of old data to prevent memory growth
+    private func performPeriodicCleanup() {
+        let startTime = Date()
+        var cleanupActions: [String] = []
+        
+        // Clean up global clipboard history (already has time-based cleanup, but add count bounds)
+        globalHistoryQueue.async(flags: .barrier) {
+            let beforeGlobalCount = self.globalClipboardHistory.count
+            
+            // Keep only the most recent entries within bounds
+            if self.globalClipboardHistory.count > MAX_GLOBAL_CLIPBOARD_HISTORY {
+                let excessCount = self.globalClipboardHistory.count - MAX_GLOBAL_CLIPBOARD_HISTORY
+                self.globalClipboardHistory.removeFirst(excessCount)
+                cleanupActions.append("trimmed \(excessCount) excess global history entries")
+            }
+            
+            let afterGlobalCount = self.globalClipboardHistory.count
+            if beforeGlobalCount != afterGlobalCount {
+                cleanupActions.append("global history: \(beforeGlobalCount) → \(afterGlobalCount)")
+            }
+        }
+        
+        // Clean up session clipboard changes and remove old inactive sessions
+        sessionsQueue.async(flags: .barrier) {
+            let beforeSessionCount = self.earlyMonitoringSessions.count
+            var totalClipboardChangesBefore = 0
+            var totalClipboardChangesAfter = 0
+            
+            // Count total clipboard changes before cleanup
+            for session in self.earlyMonitoringSessions.values {
+                totalClipboardChangesBefore += session.clipboardChanges.count
+            }
+            
+            // Remove inactive sessions older than 5 minutes
+            let cutoffTime = Date().addingTimeInterval(-300) // 5 minutes
+            let inactiveSessionKeys = self.earlyMonitoringSessions.compactMap { (key, session) in
+                (!session.isActive && session.startTime < cutoffTime) ? key : nil
+            }
+            
+            for key in inactiveSessionKeys {
+                self.earlyMonitoringSessions.removeValue(forKey: key)
+            }
+            
+            // Trim clipboard changes in remaining sessions
+            for (key, var session) in self.earlyMonitoringSessions {
+                if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
+                    let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
+                    session.clipboardChanges.removeFirst(excessCount)
+                    self.earlyMonitoringSessions[key] = session
+                }
+                totalClipboardChangesAfter += session.clipboardChanges.count
+            }
+            
+            let afterSessionCount = self.earlyMonitoringSessions.count
+            
+            if beforeSessionCount != afterSessionCount || totalClipboardChangesBefore != totalClipboardChangesAfter {
+                cleanupActions.append("sessions: \(beforeSessionCount) → \(afterSessionCount), changes: \(totalClipboardChangesBefore) → \(totalClipboardChangesAfter)")
+            }
+            
+            if inactiveSessionKeys.count > 0 {
+                cleanupActions.append("removed \(inactiveSessionKeys.count) inactive sessions")
+            }
+        }
+        
+        // Log cleanup results if any actions were taken
+        DispatchQueue.main.async {
+            let duration = Date().timeIntervalSince(startTime)
+            if !cleanupActions.isEmpty {
+                logDebug("[ClipboardMonitor] Periodic cleanup (\(String(format: "%.2f", duration * 1000))ms): \(cleanupActions.joined(separator: ", "))")
             }
         }
     }

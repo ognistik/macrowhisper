@@ -74,7 +74,14 @@ struct AppConfiguration: Codable {
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
             noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc) ?? false
             simKeypress = try container.decodeIfPresent(Bool.self, forKey: .simKeypress) ?? false
-            history = try container.decodeIfPresent(Int.self, forKey: .history)
+            // Handle both Int and Float values for history (some configs may have Float)
+            if let intHistory = try? container.decodeIfPresent(Int.self, forKey: .history) {
+                history = intHistory
+            } else if let floatHistory = try? container.decodeIfPresent(Double.self, forKey: .history) {
+                history = Int(floatHistory)
+            } else {
+                history = nil
+            }
             pressReturn = try container.decodeIfPresent(Bool.self, forKey: .pressReturn) ?? false
             returnDelay = try container.decodeIfPresent(Double.self, forKey: .returnDelay) ?? 0.1
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard) ?? true

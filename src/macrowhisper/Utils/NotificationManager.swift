@@ -18,7 +18,7 @@ class NotificationManager {
 }
 
 func notify(title: String, message: String) {
-    if !disableNotifications {
+    if !globalState.disableNotifications {
             notificationManager.sendNotification(title: title, body: message)
         }
 } 

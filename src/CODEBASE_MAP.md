@@ -4,7 +4,7 @@
 
 **Macrowhisper** is a sophisticated automation helper application designed to work seamlessly with **Superwhisper**, a dictation application. It functions as a file watcher and automation engine that monitors transcribed results from Superwhisper (stored in `meta.json` files) and executes various automated actions based on configurable rules and intelligent triggers.
 
-> **Note**: This codebase map reflects the current state as of version 1.2.3, with all line counts and feature descriptions updated to match the actual implementation including the unified action system.
+> **Note**: This codebase map reflects the current state as of version 1.3.0, with all line counts and feature descriptions updated to match the actual implementation including the unified action system.
 
 ### Core Functionality
 - **File Watching**: Monitors Superwhisper's recordings folder for new transcriptions
@@ -60,32 +60,49 @@ macrowhisper-cli/src/
 ### 1. Application Entry Point
 
 #### `macrowhisper/main.swift` (1101 lines)
-**Purpose**: Application bootstrap, CLI argument parsing, service management, and main event loop
+**Purpose**: Application bootstrap, CLI argument parsing, service management, and main event loop with enhanced thread safety
 
-**Key Global Variables**:
+**Thread-Safe State Management** (NEW):
+- `GlobalStateManager`: Thread-safe manager for all shared application state
+- Uses concurrent dispatch queues with barriers for atomic read/write operations
+- Prevents race conditions on timer management and global variables
+- Automatic cleanup and invalidation of timers during state transitions
+
+**Key Global Variables** (Now Thread-Safe):
+- `globalState`: Thread-safe state manager instance containing all shared state
 - `globalConfigManager`: Shared configuration manager instance
 - `recordingsWatcher`: File system watcher for recordings
 - `superwhisperFolderWatcher`: Parent directory watcher for graceful startup
-- `socketCommunication`: IPC server for CLI commands
+- `socketCommunication`: IPC server for CLI commands with timeout protection
 - `historyManager`: Recording cleanup manager
 - `logger`: Global logging instance
-- `autoReturnEnabled`: Auto-return functionality state with intelligent cancellation
-- `scheduledActionName`: Scheduled action name for next recording session
-- `autoReturnTimeoutTimer`: Timer for auto-return timeout management
-- `scheduledActionTimeoutTimer`: Timer for scheduled action timeout management
-- `lastDetectedFrontApp`: Application context tracking
 
-**Key Functions**:
+**State Variables** (Managed by GlobalStateManager):
+- `autoReturnEnabled`: Auto-return functionality state with atomic access
+- `scheduledActionName`: Scheduled action name with atomic access
+- `autoReturnTimeoutTimer`: Timer with automatic invalidation on updates
+- `scheduledActionTimeoutTimer`: Timer with automatic invalidation on updates
+- `socketHealthTimer`: Socket health monitoring timer with atomic management
+- `lastDetectedFrontApp`: Application context tracking with thread safety
+
+**Key Functions** (Enhanced with Thread Safety):
 - `acquireSingleInstanceLock()`: Ensures only one instance runs using file locking
 - `initializeWatcher()`: Sets up file system monitoring with error handling
 - `checkWatcherAvailability()`: Validates Superwhisper folder existence
-- `checkSocketHealth()` / `recoverSocket()`: Socket health monitoring and recovery
+- `checkSocketHealth()` / `recoverSocket()`: Socket health monitoring and recovery with timeouts
 - `registerForSleepWakeNotifications()`: System sleep/wake handling
-- `cancelAutoReturn()`: Intelligent autoReturn cancellation with logging
-- `cancelScheduledAction()`: Intelligent scheduled action cancellation with logging
-- `startAutoReturnTimeout()` / `cancelAutoReturnTimeout()`: Auto-return timeout management
-- `startScheduledActionTimeout()` / `cancelScheduledActionTimeout()`: Scheduled action timeout management
+- `cancelAutoReturn()`: Thread-safe autoReturn cancellation using atomic operations
+- `cancelScheduledAction()`: Thread-safe scheduled action cancellation using atomic operations
+- `startAutoReturnTimeout()` / `cancelAutoReturnTimeout()`: Thread-safe timeout management with automatic timer invalidation
+- `startScheduledActionTimeout()` / `cancelScheduledActionTimeout()`: Thread-safe timeout management with automatic timer invalidation
+- `startSocketHealthMonitor()` / `stopSocketHealthMonitor()`: Thread-safe socket health monitoring with timeout protection
 - `printHelp()`: Comprehensive CLI help system
+
+**Concurrency Improvements** (NEW):
+- All timer operations are now thread-safe with automatic cleanup
+- Global state variables use atomic read/write operations
+- Prevents race conditions in multi-threaded scenarios
+- Enhanced error handling with timeout recovery mechanisms
 
 **CLI Commands Supported**:
 - **Service Management**: `--install-service`, `--start-service`, `--stop-service`, `--restart-service`, `--uninstall-service`, `--service-status`
@@ -168,15 +185,24 @@ macrowhisper-cli/src/
 - **Version-safe decoding** with fallback logic
 
 #### `macrowhisper/Config/ConfigurationManager.swift` (348 lines)
-**Purpose**: Advanced configuration management with persistence and live reloading
+**Purpose**: Advanced configuration management with persistence, live reloading, and robust error recovery
+
+**Enhanced Error Handling** (NEW):
+- **Detailed JSON Error Reporting**: Specific decoding error messages with exact location information
+- **Automatic Backup and Recovery**: Creates timestamped backups of corrupted configurations
+- **Empty File Detection**: Handles empty configuration files gracefully
+- **Atomic Write Operations**: Prevents configuration corruption during saves
+- **Validation Before Commit**: Verifies generated JSON can be parsed before replacing original
+- **Permission Error Handling**: Specific guidance for file system permission issues
 
 **Key Features**:
 - **Thread-safe configuration access** using dedicated `DispatchQueue`
 - **Persistent configuration paths** using `UserDefaults`
 - **Smart path resolution**: Handles both file and directory paths
-- **Live file watching** with JSON error recovery
+- **Live file watching** with JSON error recovery and automatic retry
 - **Command queue system** for configuration updates
-- **Graceful error handling** with user notifications
+- **Enhanced error notifications**: User-friendly messages with recovery instructions
+- **Corruption recovery**: Automatic backup creation and reset to defaults when needed
 
 **Configuration Path Priority**:
 1. Explicit `--config` flag parameter
@@ -223,7 +249,13 @@ macrowhisper-cli/src/
 ### 4. File System Monitoring
 
 #### `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (766 lines)
-**Purpose**: Advanced file system watcher with intelligent processing and enhanced autoReturn management
+**Purpose**: Advanced file system watcher with intelligent processing, enhanced autoReturn management, and memory leak prevention
+
+**Memory Management Improvements** (NEW):
+- **Automatic Resource Cleanup**: Added deinit method for proper cleanup
+- **Weak Reference Patterns**: All dispatch sources use weak self references to prevent retain cycles
+- **Proper Timer Invalidation**: Enhanced cleanup of all watchers and timers on stop
+- **Thread-safe Cleanup**: Coordinated cleanup across multiple monitoring sessions
 
 **Key Features**:
 - **Persistent processing tracking**: Prevents duplicate processing using file-based storage
@@ -231,7 +263,8 @@ macrowhisper-cli/src/
 - **Smart clipboard monitoring initiation**: Only starts clipboard monitoring when needed (incomplete meta.json)
 - **Enhanced AutoReturn Management**: Intelligent cancellation when recordings are interrupted or superseded
 - **Advanced trigger evaluation**: Uses TriggerEvaluator for smart action selection across all action types
-- **Comprehensive cleanup**: Handles deleted recordings, meta.json files, and orphaned watchers
+- **Comprehensive cleanup**: Handles deleted recordings, meta.json files, and orphaned watchers with proper memory management
+- **Memory leak prevention**: Proper resource cleanup and weak reference usage throughout
 
 **Enhanced AutoReturn and Scheduled Action Logic**:
 - **Normal Operation**: AutoReturn and scheduled actions apply to the intended recording and get reset after use
@@ -374,9 +407,16 @@ if meta.json exists immediately {
 ### 7. Enhanced Clipboard Management
 
 #### `macrowhisper/Utils/ClipboardMonitor.swift` (1024 lines)
-**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts with smart logging, enhanced session management, and lightweight pre-recording capture
+**Purpose**: Advanced clipboard monitoring and restoration to handle timing conflicts with smart logging, enhanced session management, and memory-bounded storage
 
 **Problem Solved**: Superwhisper and Macrowhisper both modify the clipboard simultaneously, leading to conflicts and lost user content. Additionally, users often copy content shortly before starting a recording and want to access it in actions.
+
+**Memory Management Improvements** (NEW):
+- **Bounded Arrays**: Maximum 50 clipboard changes per session, 100 global history entries
+- **Periodic Cleanup**: Automatic cleanup every 30 seconds to prevent memory growth
+- **Real-time Bounds Checking**: Prevents unbounded growth during active monitoring
+- **Intelligent Session Cleanup**: Removes inactive sessions older than 5 minutes
+- **Performance Monitoring**: Tracks cleanup performance and memory usage
 
 **Key Features**:
 - **Lightweight app-lifetime monitoring**: Continuous configurable rolling buffer of clipboard changes from app startup (default 5s, 0 disables)
@@ -391,6 +431,7 @@ if meta.json exists immediately {
 - **Thread-safe management**: Concurrent monitoring with proper synchronization using barriers
 - **Configurable restoration**: Optional clipboard restoration for user preference
 - **Independent placeholder support**: clipboardContext placeholder works regardless of restoreClipboard setting
+- **Memory bounds enforcement**: Automatic trimming of old data to prevent memory leaks
 
 **Enhanced Session Structure**:
 ```swift
@@ -452,15 +493,27 @@ private struct EarlyMonitoringSession {
 ### 8. Inter-Process Communication
 
 #### `macrowhisper/Networking/SocketCommunication.swift` (794 lines)
-**Purpose**: Comprehensive Unix socket server for unified CLI commands and action execution
+**Purpose**: Comprehensive Unix socket server for unified CLI commands and action execution with timeout protection
+
+**Enhanced Reliability Features** (NEW):
+- **Timeout Protection**: 10-second timeouts on all socket read/write operations
+- **Non-blocking I/O**: Uses select() system calls to prevent indefinite blocking
+- **Graceful Degradation**: Proper error handling and recovery from network timeouts
+- **Atomic Operations**: Thread-safe socket operations with proper cleanup
 
 **Key Features**:
 - **Unified command system**: Streamlined command set with consistent action management
 - **Service integration**: Service management commands
 - **Configuration commands**: Live configuration updates with auto-migration
 - **Universal action execution**: Unified execution system for all action types
-- **Health monitoring**: Socket health checking and recovery
-- **Thread-safe operation**: Proper queue management
+- **Health monitoring**: Socket health checking and recovery with timeout detection
+- **Thread-safe operation**: Proper queue management and concurrent client handling
+
+**Socket Operations** (Enhanced):
+- `readWithTimeout()`: Timeout-protected socket reading with select()
+- `writeWithTimeout()`: Timeout-protected socket writing with select()
+- `sendResponse()`: Safe response delivery with timeout and error handling
+- `handleConnection()`: Enhanced connection handling with timeout protection
 
 **Unified Command Categories**:
 1. **Configuration**: `reloadConfig`, `updateConfig`
@@ -902,15 +955,47 @@ The application uses a comprehensive JSON configuration file with unified action
 
 ---
 
+## Recent Reliability and Performance Improvements
+
+### Thread Safety and Concurrency (NEW)
+- **GlobalStateManager**: Thread-safe state management for all shared variables
+- **Atomic Operations**: Race condition prevention in timer and state management
+- **Concurrent Queue Design**: Proper synchronization using dispatch barriers
+- **Memory Leak Prevention**: Weak references and automatic resource cleanup
+- **Enhanced Timer Management**: Automatic invalidation and thread-safe updates
+
+### Network Reliability (NEW)
+- **Socket Timeout Protection**: 10-second timeouts on all socket operations
+- **Non-blocking I/O**: Uses select() to prevent indefinite blocking
+- **Graceful Timeout Handling**: Proper error recovery from network timeouts
+- **Client-Server Reliability**: Enhanced error handling in both directions
+
+### Memory Management (NEW)
+- **Bounded Data Structures**: Prevents unbounded growth in clipboard monitoring
+- **Periodic Cleanup**: Automatic cleanup of old data every 30 seconds
+- **Session Lifecycle Management**: Proper cleanup of inactive monitoring sessions
+- **Resource Tracking**: Performance monitoring of memory usage
+
+### Configuration Robustness (NEW)
+- **Enhanced JSON Error Handling**: Detailed error messages with exact locations
+- **Automatic Backup and Recovery**: Timestamped backups of corrupted configurations
+- **Atomic Write Operations**: Prevents configuration corruption during saves
+- **Validation Before Commit**: Verifies JSON validity before file replacement
+- **Empty File Handling**: Graceful recovery from empty configuration files
+
+---
+
 ## Error Handling and Recovery
 
-### Comprehensive Error Recovery
-- **Configuration errors**: JSON validation with user notification
-- **Socket failures**: Automatic socket recovery with health monitoring
-- **File system errors**: Graceful degradation and retry logic
+### Comprehensive Error Recovery (Enhanced)
+- **Configuration errors**: Advanced JSON validation with detailed error reporting and automatic recovery
+- **Socket failures**: Timeout-protected socket recovery with health monitoring
+- **File system errors**: Enhanced error handling with specific guidance for permission issues
 - **Missing folders**: SuperwhisperFolderWatcher provides graceful waiting instead of app failure
-- **Service failures**: Automatic restart and recovery procedures
+- **Service failures**: Automatic restart and recovery procedures with better error detection
 - **Accessibility errors**: Clear user guidance and fallback behavior
+- **Memory exhaustion**: Bounded data structures prevent memory leaks and excessive growth
+- **Network timeouts**: Graceful handling of socket timeouts with proper cleanup
 
 ### Logging Strategy
 - **Structured logging** with contextual information

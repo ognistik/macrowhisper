@@ -33,7 +33,7 @@ func requestAccessibilityPermissionOnStartup() {
             // No notification needed when permissions are granted successfully
         } else {
             logWarning("Accessibility permissions were not granted - some features may be limited")
-            if !disableNotifications {
+            if !globalState.disableNotifications {
                 notify(title: "Macrowhisper", message: "Accessibility permissions are needed for key simulation and input field detection.")
             }
         }
@@ -87,7 +87,7 @@ func requestSystemEventsPermissionOnStartup() {
             logInfo("System Events control permission granted")
         } else {
             logWarning("System Events control permission was not granted - simKeypress functionality may not work")
-            if !disableNotifications {
+            if !globalState.disableNotifications {
                 notify(title: "Macrowhisper", message: "System Events control permission is needed for simKeypress functionality. You may be prompted again when using this feature.")
             }
         }
@@ -148,7 +148,7 @@ func isInInputField() -> Bool {
     
     guard let app = frontApp else {
         logDebug("[InputField] No frontmost app detected")
-        lastDetectedFrontApp = nil
+        globalState.lastDetectedFrontApp = nil
         let result = false
         cacheResult(threadId: threadId, result: result)
         return result
@@ -158,7 +158,7 @@ func isInInputField() -> Bool {
     logDebug("[InputField] Detected app: \(app.localizedName ?? "Unknown") (PID: \(app.processIdentifier))")
     
     // Store reference to current app
-    lastDetectedFrontApp = app
+    globalState.lastDetectedFrontApp = app
     
     // Get the application's process ID and create accessibility element
     let appElement = AXUIElementCreateApplication(app.processIdentifier)

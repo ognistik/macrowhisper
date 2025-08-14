@@ -17,6 +17,12 @@ class SuperwhisperFolderWatcher {
         self.recordingsPath = "\(self.parentPath)/recordings"
         self.onRecordingsFolderAppeared = onRecordingsFolderAppeared
     }
+    
+    /// Ensures proper cleanup of resources to prevent memory leaks
+    deinit {
+        logDebug("SuperwhisperFolderWatcher deinitializing - cleaning up resources")
+        stop()
+    }
 
     func start() {
         // Ensure we don't start multiple watchers
