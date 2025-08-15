@@ -1,11 +1,11 @@
 {
-  "$schema" : "file:///usr/local/bin/macrowhisper-schema.json",
+  "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
-    "clipboardBuffer" : 15,
-    "clipboardStacking" : true,
+    "clipboardBuffer" : 5,
+    "clipboardStacking" : false,
     "history" : 5,
     "icon" : "",
     "moveTo" : "",

@@ -41,6 +41,7 @@ class ClipboardMonitor {
         let selectedText: String?  // Capture selected text at session start
         var isExecutingAction: Bool = false  // Only log clipboard changes during action execution
         let preRecordingClipboard: String?  // Clipboard content captured from global history before recording
+        let preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (for stacking)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
     }
@@ -86,6 +87,7 @@ class ClipboardMonitor {
         // Capture pre-recording clipboard from global history (5 seconds before this recording started)
         let sessionStartTime = Date()
         let preRecordingClipboard = capturePreRecordingClipboard(beforeTime: sessionStartTime)
+        let preRecordingClipboardStack = capturePreRecordingClipboardStack(beforeTime: sessionStartTime)
         
         let currentChangeCount = pasteboard.changeCount
         let session = EarlyMonitoringSession(
@@ -93,6 +95,7 @@ class ClipboardMonitor {
             startTime: sessionStartTime,
             selectedText: selectedText,
             preRecordingClipboard: preRecordingClipboard,
+            preRecordingClipboardStack: preRecordingClipboardStack,
             startingChangeCount: currentChangeCount,
             lastSeenChangeCount: currentChangeCount
         )
@@ -198,10 +201,14 @@ class ClipboardMonitor {
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
             
-            // First, add pre-recording clipboard content if available (this should be the first entry)
-            if let preRecording = session.preRecordingClipboard, !preRecording.isEmpty, preRecording != swResult {
-                allClipboardChanges.append(preRecording)
-                logDebug("[ClipboardMonitor] Added pre-recording clipboard content for stacking (within buffer window before recording)")
+            // First, add all pre-recording clipboard content if available (these should be the first entries)
+            for preRecording in session.preRecordingClipboardStack {
+                if !preRecording.isEmpty && preRecording != swResult {
+                    allClipboardChanges.append(preRecording)
+                }
+            }
+            if !session.preRecordingClipboardStack.isEmpty {
+                logDebug("[ClipboardMonitor] Added \(session.preRecordingClipboardStack.count) pre-recording clipboard items for stacking (within buffer window before recording)")
             }
             
             // Then collect all clipboard changes during the session (excluding swResult)
@@ -348,6 +355,42 @@ class ClipboardMonitor {
         }
         
         return recentClipboard
+    }
+    
+    /// Captures all clipboard content from the global clipboard history (N seconds before recording started) for stacking
+    /// This uses the lightweight app-lifetime monitoring to get all pre-recording clipboard content within the buffer window
+    /// - Parameter beforeTime: The recording session start time to use as reference point
+    private func capturePreRecordingClipboardStack(beforeTime sessionStartTime: Date) -> [String] {
+        // If buffer disabled, skip pre-recording capture
+        guard preRecordingBuffer > 0 else {
+            logDebug("[ClipboardMonitor] Pre-recording clipboard buffer disabled - skipping pre-recording stack capture")
+            return []
+        }
+        let bufferStartTime = sessionStartTime.addingTimeInterval(-preRecordingBuffer)
+        var clipboardStack: [String] = []
+        
+        globalHistoryQueue.sync {
+            // Find all clipboard changes that occurred within buffer window BEFORE the recording session started
+            let preRecordingChanges = globalClipboardHistory.filter { change in
+                change.timestamp >= bufferStartTime && change.timestamp < sessionStartTime
+            }
+            
+            // Add all changes from the buffer window (excluding empty content)
+            for change in preRecordingChanges {
+                if let content = change.content, !content.isEmpty {
+                    clipboardStack.append(content)
+                }
+            }
+            
+            if !clipboardStack.isEmpty {
+                let timeBeforeRecording = sessionStartTime.timeIntervalSince(preRecordingChanges.first?.timestamp ?? sessionStartTime)
+                logDebug("[ClipboardMonitor] Using \(clipboardStack.count) pre-recording clipboard changes from up to \(String(format: "%.1f", timeBeforeRecording))s before recording")
+            } else {
+                logDebug("[ClipboardMonitor] No clipboard changes found within buffer window before recording started for stacking")
+            }
+        }
+        
+        return clipboardStack
     }
     
     /// Monitors clipboard changes during early monitoring session
