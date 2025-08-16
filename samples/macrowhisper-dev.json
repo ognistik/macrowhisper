@@ -2,10 +2,10 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "swWebView",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
-    "clipboardStacking" : false,
+    "clipboardStacking" : true,
     "history" : 5,
     "icon" : "",
     "moveTo" : "",
@@ -145,7 +145,7 @@
       "triggerVoice" : ""
     },
     "Alter Ask" : {
-      "action" : "alter://action/ask-anything?input={{result||(?s)^(.*)$||<user_message>$1</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "action" : "alter://action/ask-anything?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
       "actionDelay" : null,
       "icon" : "☣",
       "moveTo" : "",
