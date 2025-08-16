@@ -721,7 +721,7 @@ class ClipboardMonitor {
             proceedWithActionAndDelay(
                 insertAction: insertAction,
                 clipboardToRestore: clipboardToRestore,
-                superwhisperWasFaster: true,
+                superwhisperWasFaster: false, // Superwhisper was NOT faster initially - we had to wait for it
                 actionDelay: actionDelay,
                 shouldEsc: shouldEsc,
                 isAutoPaste: isAutoPaste,
@@ -732,26 +732,27 @@ class ClipboardMonitor {
             return
         }
         
-        // Check if we've exceeded maximum wait time
-        if Date().timeIntervalSince(startTime) >= maxWaitTime {
-            logDebug("[ClipboardMonitor] Max wait time (\(maxWaitTime)s) reached - proceeding without Superwhisper sync")
-            
-            // Determine clipboard to restore - use what's currently there (before we modify it)
-            let clipboardToRestore = currentClipboard
-            
-            proceedWithActionAndDelay(
-                insertAction: insertAction,
-                clipboardToRestore: clipboardToRestore,
-                superwhisperWasFaster: false,
-                actionDelay: actionDelay,
-                shouldEsc: shouldEsc,
-                isAutoPaste: isAutoPaste,
-                userIsInInputField: userIsInInputField,
-                recordingPath: recordingPath,
-                onCompletion: onCompletion
-            )
-            return
-        }
+            // Check if we've exceeded maximum wait time
+    if Date().timeIntervalSince(startTime) >= maxWaitTime {
+        logDebug("[ClipboardMonitor] Max wait time (\(maxWaitTime)s) reached - proceeding without Superwhisper sync")
+        
+        // FIXED: Use session history to determine what was on clipboard before Superwhisper modified it
+        // Don't just use current clipboard, as it might be Superwhisper's result
+        let clipboardToRestore = self.determineClipboardToRestore(session: session, swResult: swResult)
+        
+        proceedWithActionAndDelay(
+            insertAction: insertAction,
+            clipboardToRestore: clipboardToRestore,
+            superwhisperWasFaster: false,
+            actionDelay: actionDelay,
+            shouldEsc: shouldEsc,
+            isAutoPaste: isAutoPaste,
+            userIsInInputField: userIsInInputField,
+            recordingPath: recordingPath,
+            onCompletion: onCompletion
+        )
+        return
+    }
         
         // Continue polling
         DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
