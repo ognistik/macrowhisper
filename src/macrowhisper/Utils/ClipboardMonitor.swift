@@ -40,8 +40,8 @@ class ClipboardMonitor {
         var isActive: Bool = true
         let selectedText: String?  // Capture selected text at session start
         var isExecutingAction: Bool = false  // Only log clipboard changes during action execution
-        let preRecordingClipboard: String?  // Clipboard content captured from global history before recording
-        let preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (for stacking)
+        var preRecordingClipboard: String?  // Clipboard content captured from global history before recording (mutable for cleanup)
+        var preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (mutable for cleanup)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
     }
@@ -125,6 +125,72 @@ class ClipboardMonitor {
     func finishActionExecution(for recordingPath: String) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             self?.earlyMonitoringSessions[recordingPath]?.isExecutingAction = false
+        }
+        
+        // Trigger cleanup of clipboard changes after 0.8s to prevent contamination
+        cleanupClipboardChangesAfterAction(for: recordingPath)
+    }
+    
+    /// Clears clipboard changes after action execution to prevent contamination of clipboardContext
+    /// This addresses the issue where fast usage causes previous action results to contaminate the next clipboardContext
+    /// Called 0.8s after action execution completes to account for 0.3s clipboard restoration + global history detection + buffer
+    private func cleanupClipboardChangesAfterAction(for recordingPath: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.sessionsQueue.async(flags: .barrier) { [weak self] in
+                guard let self = self,
+                      var session = self.earlyMonitoringSessions[recordingPath],
+                      session.isActive else { return }
+                
+                // Clear clipboard changes that might contain contaminated content from action execution
+                let clearedSessionChanges = session.clipboardChanges.count
+                session.clipboardChanges.removeAll()
+                
+                // Also clear pre-recording clipboard content that might be contaminated from previous actions
+                // This prevents previous action results from being used as "pre-recording" content in fast usage scenarios
+                let hadPreRecordingClipboard = session.preRecordingClipboard != nil
+                let preRecordingStackCount = session.preRecordingClipboardStack.count
+                
+                session.preRecordingClipboard = nil
+                session.preRecordingClipboardStack = []
+                
+                // Update the session
+                self.earlyMonitoringSessions[recordingPath] = session
+                
+                // Also clean up recent global clipboard history that might be contaminated
+                // Remove entries from the last 2 seconds to cover action execution + restoration period
+                var cleanedGlobalEntries = 0
+                self.globalHistoryQueue.async(flags: .barrier) { [weak self] in
+                    guard let self = self else { return }
+                    let cutoffTime = Date().addingTimeInterval(-2.0) // Last 2 seconds
+                    let beforeCount = self.globalClipboardHistory.count
+                    self.globalClipboardHistory.removeAll { entry in
+                        entry.timestamp >= cutoffTime
+                    }
+                    let afterCount = self.globalClipboardHistory.count
+                    cleanedGlobalEntries = beforeCount - afterCount
+                    
+                    // Log cleanup details on main queue
+                    DispatchQueue.main.async {
+                        var cleanupMessages: [String] = []
+                        if clearedSessionChanges > 0 {
+                            cleanupMessages.append("\(clearedSessionChanges) session clipboard changes")
+                        }
+                        if hadPreRecordingClipboard {
+                            cleanupMessages.append("pre-recording clipboard content")
+                        }
+                        if preRecordingStackCount > 0 {
+                            cleanupMessages.append("\(preRecordingStackCount) pre-recording stack items")
+                        }
+                        if cleanedGlobalEntries > 0 {
+                            cleanupMessages.append("\(cleanedGlobalEntries) global history entries")
+                        }
+                        
+                        if !cleanupMessages.isEmpty {
+                            logDebug("[ClipboardMonitor] Cleaned up \(cleanupMessages.joined(separator: ", ")) after action execution to prevent clipboardContext contamination")
+                        }
+                    }
+                }
+            }
         }
     }
     
@@ -547,8 +613,10 @@ class ClipboardMonitor {
                 // Mark action execution as finished
                 self.finishActionExecution(for: recordingPath)
                 
-                // Stop early monitoring since we're not using it for restoration
-                self.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
+                // Stop early monitoring after cleanup has had time to complete (0.8s + small buffer)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
+                }
                 
                 logDebug("[ClipboardMonitor] Action completed without clipboard restoration")
                 return
@@ -820,8 +888,10 @@ class ClipboardMonitor {
         let completion = onCompletion
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             self?.restoreCorrectClipboard(clipboardToRestore)
-            // Stop early monitoring after clipboard restoration is complete
-            self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+            // Stop early monitoring after cleanup has had time to complete (0.8s + small buffer)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+            }
         }
         
         logDebug("[ClipboardMonitor] Action completed. Superwhisper was faster: \(superwhisperWasFaster)")
@@ -918,8 +988,10 @@ class ClipboardMonitor {
                 // Mark action execution as finished
                 self.finishActionExecution(for: recordingPath)
                 
-                // Stop early monitoring since we're not using it for restoration
-                self.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
+                // Stop early monitoring after cleanup has had time to complete (0.8s + small buffer)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
+                }
                 
                 logDebug("[ClipboardMonitor] Action completed without clipboard restoration (fallback)")
                 return
@@ -973,8 +1045,10 @@ class ClipboardMonitor {
                 let completion = onCompletion
                 DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                     self?.restoreOriginalClipboard()
-                    // Stop early monitoring after clipboard restoration is complete
-                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+                    // Stop early monitoring after cleanup has had time to complete (0.5s + small buffer)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                        self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+                    }
                 }
             }
         }
@@ -1089,8 +1163,10 @@ class ClipboardMonitor {
                 // Mark action execution as finished
                 self.finishActionExecution(for: recordingPath)
                 
-                // Stop early monitoring since we're not using it
-                self.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
+                // Stop early monitoring after cleanup has had time to complete (0.8s + small buffer)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
+                }
                 return
             }
             
@@ -1147,8 +1223,10 @@ class ClipboardMonitor {
             let completion = onCompletion
             DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
                 self?.restoreCorrectClipboard(clipboardToRestore)
-                // Stop early monitoring after clipboard restoration is complete
-                self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+                // Stop early monitoring after cleanup has had time to complete (0.5s + small buffer)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+                }
             }
         }
     }
@@ -1200,8 +1278,10 @@ class ClipboardMonitor {
                 pasteboard.clearContents()
                 logDebug("[ClipboardMonitor] Cleared clipboard for non-insert action (no original content)")
             }
-            // Stop early monitoring after clipboard restoration is complete
-            self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+            // Stop early monitoring after cleanup has had time to complete (0.8s + small buffer)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+            }
         }
     }
     
