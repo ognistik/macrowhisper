@@ -534,6 +534,11 @@ class RecordingsFolderWatcher {
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)
             
+            // IMMEDIATE CLEANUP: Clean up pending watchers as soon as recording is processed
+            // This ensures hasActiveRecordingSessions() returns false immediately, allowing scheduled actions to work properly
+            cleanupPendingWatcher(for: recordingPath)
+            cleanupPendingWatcher(for: metaJsonPath)
+            
             // Store the metaJsonPath for cleanup after action completion
             let metaJsonPathForCleanup = metaJsonPath
             
@@ -562,8 +567,9 @@ class RecordingsFolderWatcher {
                     metaJson: enhancedMetaJson,
                     restoreClipboard: configManager.config.defaults.restoreClipboard,
                     onCompletion: { [weak self] in
-                        // Clean up pending meta.json watcher when action truly completes
+                        // Clean up pending watchers when action truly completes (both keys for consistency)
                         self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                        self?.cleanupPendingWatcher(for: recordingPath)
                     }
                 )
                 
@@ -592,8 +598,9 @@ class RecordingsFolderWatcher {
                             recordingPath: recordingPath,
                             isTriggeredAction: false,  // This is a scheduled action, not triggered
                             onCompletion: { [weak self] in
-                                // Clean up pending meta.json watcher when action truly completes
+                                // Clean up pending watchers when action truly completes (both keys for consistency)
                                 self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                                self?.cleanupPendingWatcher(for: recordingPath)
                             }
                         )
                     }
@@ -612,8 +619,9 @@ class RecordingsFolderWatcher {
                     globalState.scheduledActionName = nil
                     // Cancel timeout since scheduled action was cancelled
                     cancelScheduledActionTimeout()
-                    // Clean up pending watcher since no action was executed
+                    // Clean up pending watchers since no action was executed (both keys for consistency)
                     cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                    cleanupPendingWatcher(for: recordingPath)
                 }
             }
             
@@ -651,8 +659,9 @@ class RecordingsFolderWatcher {
                         recordingPath: recordingPath,
                         isTriggeredAction: true,  // This is a trigger action
                         onCompletion: { [weak self] in
-                            // Clean up pending meta.json watcher when action truly completes
+                            // Clean up pending watchers when action truly completes (both keys for consistency)
                             self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                            self?.cleanupPendingWatcher(for: recordingPath)
                         }
                     )
                 }
@@ -707,8 +716,9 @@ class RecordingsFolderWatcher {
                                     metaJson: enhancedMetaJson,
                                     restoreClipboard: restoreClipboard,
                                     onCompletion: { [weak self] in
-                                        // Clean up pending meta.json watcher when action truly completes
+                                        // Clean up pending watchers when action truly completes (both keys for consistency)
                                         self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                                        self?.cleanupPendingWatcher(for: recordingPath)
                                     }
                                 )
                             }
@@ -724,21 +734,24 @@ class RecordingsFolderWatcher {
                                 recordingPath: recordingPath,
                                 isTriggeredAction: false,  // This is an active action, not triggered
                                 onCompletion: { [weak self] in
-                                    // Clean up pending meta.json watcher when action truly completes
+                                    // Clean up pending watchers when action truly completes (both keys for consistency)
                                     self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                                    self?.cleanupPendingWatcher(for: recordingPath)
                                 }
                             )
                         }
                     }
                 } else {
                     logDebug("Active action '\(activeActionName)' not found, skipping action.")
-                    // Clean up pending watcher since no action was executed
+                    // Clean up pending watchers since no action was executed (both keys for consistency)
                     cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                    cleanupPendingWatcher(for: recordingPath)
                 }
             } else {
                 logDebug("No active action, skipping action.")
-                // Clean up pending watcher since no action was executed
+                // Clean up pending watchers since no action was executed (both keys for consistency)
                 cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                cleanupPendingWatcher(for: recordingPath)
             }
             
             handlePostProcessing(recordingPath: recordingPath)
@@ -869,12 +882,26 @@ class RecordingsFolderWatcher {
     }
     
     /// Helper to clean up pendingMetaJsonFiles entry when action completes
-    private func cleanupPendingWatcher(for metaJsonPath: String) {
+    /// Handles both recordingPath and metaJsonPath keys for consistent cleanup
+    private func cleanupPendingWatcher(for path: String) {
         queue.async { [weak self] in
-            if let watcher = self?.pendingMetaJsonFiles[metaJsonPath] {
+            guard let self = self else { return }
+            
+            // Clean up watcher if it exists for this path
+            if let watcher = self.pendingMetaJsonFiles[path] {
                 watcher.cancel()
-                self?.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
-                logDebug("Cleaned up pending meta.json watcher after action completion: \(metaJsonPath)")
+                self.pendingMetaJsonFiles.removeValue(forKey: path)
+                logDebug("Cleaned up pending watcher for path: \(path)")
+            } else {
+                logDebug("No pending watcher found for path: \(path)")
+            }
+            
+            // Log current state for debugging
+            let remainingCount = self.pendingMetaJsonFiles.count
+            if remainingCount > 0 {
+                logDebug("Remaining pending watchers: \(remainingCount)")
+            } else {
+                logDebug("All pending watchers cleaned up - no active recording sessions")
             }
         }
     }
