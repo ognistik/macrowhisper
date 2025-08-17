@@ -5,6 +5,8 @@
   * When Superwhisper was faster: Looks for the most recent clipboard change that is NOT the Superwhisper result
   * When maxWaitTime is reached: Uses the same logic to find what was on clipboard before Superwhisper modified it
   * Fallback: If no changes found, uses the original user clipboard from when the recording folder appeared
+* Added schema to App Configuration for better detection.
+* Fix for scheduled actions detecting as if a session was ongoing when it wasn´t.
   
 ## [v1.3.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.0) - 2025/08/14
 ### Added
