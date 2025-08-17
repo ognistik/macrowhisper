@@ -136,7 +136,7 @@
       "icon" : "༜",
       "moveTo" : "",
       "noEsc" : null,
-      "openBackground" : true,
+      "openBackground" : false,
       "openWith" : "",
       "restoreClipboard" : null,
       "triggerApps" : "",

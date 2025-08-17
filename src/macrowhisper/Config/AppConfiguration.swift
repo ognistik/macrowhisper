@@ -3,6 +3,9 @@ import Foundation
 // MARK: - Configuration Manager
 
 struct AppConfiguration: Codable {
+    // Schema reference for IDE validation - maps to $schema in JSON
+    var schema: String?
+    
     struct Defaults: Codable {
         var watch: String
         var noUpdates: Bool
@@ -488,12 +491,14 @@ struct AppConfiguration: Codable {
     var scriptsAS: [String: ScriptAppleScript]
     
     enum CodingKeys: String, CodingKey {
+        case schema = "$schema"
         case defaults, inserts, urls, shortcuts, scriptsShell, scriptsAS
     }
     
     // Custom encoding
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schema, forKey: .schema)
         try container.encode(defaults, forKey: .defaults)
         try container.encode(inserts, forKey: .inserts)
         try container.encode(urls, forKey: .urls)
@@ -505,6 +510,7 @@ struct AppConfiguration: Codable {
     // Custom decoding
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try container.decodeIfPresent(String.self, forKey: .schema)
         defaults = try container.decodeIfPresent(Defaults.self, forKey: .defaults) ?? .defaultValues()
         inserts = try container.decodeIfPresent([String: Insert].self, forKey: .inserts) ?? [:]
         urls = try container.decodeIfPresent([String: Url].self, forKey: .urls) ?? [:]
@@ -515,6 +521,7 @@ struct AppConfiguration: Codable {
     
     // Default initializer for creating a new configuration from scratch
     init(
+        schema: String? = nil,
         defaults: Defaults = .defaultValues(),
         inserts: [String: Insert] = [:],
         urls: [String: Url] = [:],
@@ -522,6 +529,7 @@ struct AppConfiguration: Codable {
         scriptsShell: [String: ScriptShell] = [:],
         scriptsAS: [String: ScriptAppleScript] = [:]
     ) {
+        self.schema = schema
         self.defaults = defaults
         self.inserts = inserts
         self.urls = urls
@@ -548,6 +556,7 @@ struct AppConfiguration: Codable {
         )
         
         return AppConfiguration(
+            schema: nil,
             inserts: ["autoPaste": autoPasteInsert]
         )
     }

@@ -335,59 +335,37 @@ class ConfigurationManager {
                 
                 // Auto-manage schema reference for seamless IDE integration
                 // This provides automatic schema management without user intervention
-                var finalJson = formattedJson
                 let currentSchemaRef = SchemaManager.getSchemaReference()
                 
-                // Check if schema exists in the JSON we're about to write (more reliable than reading from disk)
-                var hasExistingSchema = false
-                var existingSchemaRef: String? = nil
-                
-                if let jsonData = formattedJson.data(using: .utf8),
-                   let jsonObject = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                    existingSchemaRef = jsonObject["$schema"] as? String
-                    hasExistingSchema = existingSchemaRef != nil
-                }
-                
-                logDebug("Schema management check:")
-                logDebug("  - hasExistingSchema: \(hasExistingSchema)")
-                logDebug("  - existingSchemaRef: \(existingSchemaRef ?? "nil")")
-                logDebug("  - currentSchemaRef: \(currentSchemaRef ?? "nil")")
-                
+                // Check if schema needs to be updated in the configuration object
                 var shouldUpdateSchema = false
                 var schemaAction = ""
                 
-                if hasExistingSchema && currentSchemaRef != nil {
-                    // Validate existing schema reference is still correct
-                    if existingSchemaRef != currentSchemaRef {
+                if let currentSchemaRef = currentSchemaRef {
+                    if _config.schema != currentSchemaRef {
                         shouldUpdateSchema = true
-                        schemaAction = "Updated"
-                        logDebug("Schema reference needs updating: \(existingSchemaRef!) -> \(currentSchemaRef!)")
+                        schemaAction = _config.schema == nil ? "Added" : "Updated"
+                        logDebug("Schema reference needs updating: \(_config.schema ?? "nil") -> \(currentSchemaRef)")
                     } else {
                         logDebug("Schema reference is already correct, no update needed")
                     }
-                } else if !hasExistingSchema && currentSchemaRef != nil {
-                    // Add schema reference if not present and schema file is available
-                    shouldUpdateSchema = true
-                    schemaAction = "Added"
-                    logDebug("Auto-adding schema reference to configuration")
                 }
                 
                 if shouldUpdateSchema, let schemaRef = currentSchemaRef {
-                    // Parse the JSON, add/update schema, and re-serialize
-                    if let jsonData = formattedJson.data(using: .utf8),
-                       var jsonObject = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                        jsonObject["$schema"] = schemaRef
-                        if let updatedData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys]),
-                           let updatedString = String(data: updatedData, encoding: .utf8) {
-                            finalJson = updatedString.replacingOccurrences(of: "\\/", with: "/")
-                            finalJson = roundDoublesInJson(finalJson)  // Apply rounding again after re-serialization
-                            logInfo("\(schemaAction) schema reference for IDE validation: \(schemaRef)")
-                        }
+                    // Update the schema property in the configuration object
+                    _config.schema = schemaRef
+                    
+                    // Re-encode with the updated schema
+                    let updatedData = try encoder.encode(_config)
+                    if let updatedJsonString = String(data: updatedData, encoding: .utf8) {
+                        formattedJson = updatedJsonString.replacingOccurrences(of: "\\/", with: "/")
+                        formattedJson = roundDoublesInJson(formattedJson)
+                        logInfo("\(schemaAction) schema reference for IDE validation: \(schemaRef)")
                     }
                 }
                 
                 // Write the formatted JSON back to data with atomic write and error recovery
-                if let formattedData = finalJson.data(using: .utf8) {
+                if let formattedData = formattedJson.data(using: .utf8) {
                     let configDir = (configPath as NSString).deletingLastPathComponent
                     
                     // Ensure parent directory exists with proper error handling
