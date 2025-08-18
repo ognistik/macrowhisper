@@ -243,7 +243,7 @@
       "triggerVoice" : ""
     },
     "Alter Translate" : {
-      "action" : "alter://action/ask-anything?input=Please translate into english my selected text or clipboard content.{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "action" : "alter://action/ask-anything?input={{selectedText||(?s)^(.*)$||Please translate into english my selected text: \n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||Please translate into english my clipboard content: \n\n<clipboard_context>\n$1\n</clipboard_context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",

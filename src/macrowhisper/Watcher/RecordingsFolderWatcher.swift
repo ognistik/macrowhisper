@@ -32,6 +32,10 @@ class RecordingsFolderWatcher {
         self.triggerEvaluator = TriggerEvaluator(logger: logger)
         self.clipboardMonitor = ClipboardMonitor(logger: logger, preRecordingBufferSeconds: configManager.config.defaults.clipboardBuffer)
         self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager, clipboardMonitor: clipboardMonitor)
+        
+        // Set clipboard monitor reference in socket communication for CLI action cleanup
+        socketCommunication.setClipboardMonitor(clipboardMonitor)
+        
         self.versionChecker = versionChecker
         
         // Create a file to track processed recordings

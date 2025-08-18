@@ -36,6 +36,7 @@ class SocketCommunication {
     private var serverSocket: Int32 = -1
     private let queue = DispatchQueue(label: "com.macrowhisper.socket", qos: .utility)
     private var configManagerRef: ConfigurationManager?
+    private var clipboardMonitorRef: ClipboardMonitor?
     
     enum Command: String, Codable {
         case reloadConfig
@@ -84,6 +85,11 @@ class SocketCommunication {
     
     init(socketPath: String) {
         self.socketPath = socketPath
+    }
+    
+    /// Sets the clipboard monitor reference for CLI action cleanup
+    func setClipboardMonitor(_ clipboardMonitor: ClipboardMonitor) {
+        self.clipboardMonitorRef = clipboardMonitor
     }
     
     /// Reads from socket with timeout to prevent blocking indefinitely
@@ -909,6 +915,10 @@ class SocketCommunication {
                         cancelScheduledActionTimeout()
                         let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
                         applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
+                        
+                        // Trigger clipboard cleanup for CLI actions to prevent contamination
+                        clipboardMonitorRef?.triggerClipboardCleanupForCLI()
+                        
                         response = "Executed insert '\(insertName)'"
                         logInfo("Successfully executed insert: \(insertName)")
                     } else {
@@ -1200,6 +1210,9 @@ class SocketCommunication {
                                     executeAppleScriptForCLI(script, metaJson: enhancedMetaJson)
                                 }
                             }
+                            
+                            // Trigger clipboard cleanup for CLI actions to prevent contamination
+                            clipboardMonitorRef?.triggerClipboardCleanupForCLI()
                             
                             response = "Executed \(actionType) action '\(actionName)'"
                             logInfo("Successfully executed \(actionType) action: \(actionName)")

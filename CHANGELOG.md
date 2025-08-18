@@ -11,6 +11,7 @@
   * When Superwhisper was faster: Looks for the most recent clipboard change that is NOT the Superwhisper result
   * When maxWaitTime is reached: Uses the same logic to find what was on clipboard before Superwhisper modified it
   * Fallback: If no changes found, uses the original user clipboard from when the recording folder appeared
+* Fix for issue where the previous clipboard would become part of the clipboard context placeholder if action was triggered too soon after previous one.
 * Added schema to App Configuration for better detection of whether user's config already has the correct schema reference or not.
   
 ---
