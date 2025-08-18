@@ -9,7 +9,7 @@ import ApplicationServices
 import Cocoa
 import Carbon.HIToolbox
 
-let APP_VERSION = "1.3.0"
+let APP_VERSION = "1.3.1"
 private let UNIX_PATH_MAX = 104
 
 // Dependency version check - Swifter 1.5.0+ required

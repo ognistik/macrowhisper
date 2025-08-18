@@ -1,14 +1,19 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v1.3.1](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.1) - 2025/08/18
+### Changed
+* Fix for writing configuration file ([#11](https://github.com/ognistik/macrowhisper/issues/11))
+* Fix for scheduled actions being detected as if a session was ongoing when it wasn´t.
 * Improvements to the clipboard restoration logic when Superwhisper was faster to place content on user's clipboard.
   * When Superwhisper was faster: Looks for the most recent clipboard change that is NOT the Superwhisper result
   * When maxWaitTime is reached: Uses the same logic to find what was on clipboard before Superwhisper modified it
   * Fallback: If no changes found, uses the original user clipboard from when the recording folder appeared
 * Added schema to App Configuration for better detection of whether user's config already has the correct schema reference or not.
-* Fix for writing configuration file ([#11](https://github.com/ognistik/macrowhisper/issues/11))
-* Fix for scheduled actions being detected as if a session was ongoing when it wasn´t.
   
+---
 ## [v1.3.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.0) - 2025/08/14
 ### Added
 * New `clipboardStacking` option in config defaults. When enabled, it allows users to capture multiple content for the `{{clipboardContext}}` placeholder.
@@ -26,6 +31,7 @@
 * Improvement and fix for `{{selectedText}}` placeholder. Previously it was being captured on action execution, now it only gets captured when session starts.
 * Socket communication has been completely rewritten to include safety timeouts, better error handling, and avoid memory hangs. There's also an automatic backup system to prevent config files corruption.
 
+---
 ## [v1.2.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.2.3) - 2025/08/06
 ### Added
 * New JSON schema to assist users when editing the configuration file in their IDE.

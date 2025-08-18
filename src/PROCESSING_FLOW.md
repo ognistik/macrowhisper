@@ -254,14 +254,14 @@ Actions are evaluated in strict priority order. **Higher priority actions comple
 - **Evaluation**: `TriggerEvaluator.evaluateTriggersForAllActions()`
 - **Types**: Insert, URL, Shortcut, Shell Script, AppleScript actions with triggers
 - **Selection**: First matched action (sorted alphabetically by name)
-- **Override**: Completely overrides active insert if any triggers match
+- **Override**: Completely overrides active action if any triggers match
 
-#### 3. Active Insert (Lowest Priority)
-- **Condition**: `config.defaults.activeInsert` is set and not empty
+#### 3. Active Action (Lowest Priority)
+- **Condition**: `config.defaults.activeAction` is set and not empty
 - **Fallback**: Only executed if no auto-return and no trigger actions match
 - **Special Cases**: 
   - `.none` or empty action: Apply delay but skip execution
-  - `.autoPaste`: Smart paste based on input field detection
+  - `.autoPaste`: Smart paste based on input field detection (insert actions)
 
 ---
 
@@ -535,10 +535,11 @@ Determines where to move or how to handle the processed recording folder:
 ### Configuration Variables (`macrowhisper/Config/AppConfiguration.swift`):
 
 #### Global Defaults:
+- `schema: String?` - JSON schema reference for IDE validation (maps to `$schema`)
 - `actionDelay: Double` - Default delay before action execution (default: 0.0)
 - `noEsc: Bool` - Disable ESC key simulation (default: false)
 - `restoreClipboard: Bool` - Enable clipboard restoration (default: true)
-- `activeInsert: String?` - Currently active insert name
+- `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
 - `pressReturn: Bool` - Auto-press return after actions (default: false)
 - `returnDelay: Double` - Delay before pressing return (default: 0.1)
@@ -648,39 +649,47 @@ All action types support:
 ### Configuration Files:
 
 #### 6. `macrowhisper/Config/AppConfiguration.swift` (474 lines)
-- **Purpose**: Configuration data structures, defaults
+- **Purpose**: Configuration data structures, defaults, JSON schema integration
 - **Action Types**: Insert, Url, Shortcut, ScriptShell, ScriptAppleScript
 - **Settings**: actionDelay, noEsc, restoreClipboard, trigger configurations
+- **Schema Field**: `schema` property for IDE validation support
 
 #### 7. `macrowhisper/Config/ConfigurationManager.swift` (348 lines)
-- **Purpose**: Configuration loading, saving, live reloading
+- **Purpose**: Configuration loading, saving, live reloading, schema management
 - **Thread Safety**: Dedicated configuration queue
 - **Persistence**: UserDefaults integration for path management
+- **Schema Integration**: Automatic schema reference management
+
+#### 8. `macrowhisper/Utils/SchemaManager.swift` (NEW)
+- **Purpose**: JSON schema discovery and configuration file schema reference management
+- **Schema Discovery**: Finds schema file alongside binary using multiple strategies
+- **Auto-Management**: Adds/updates `$schema` reference in configuration files
+- **IDE Integration**: Enables IntelliSense and validation in code editors
 
 ### Utility Files:
 
-#### 8. `macrowhisper/Networking/SocketCommunication.swift` (794 lines)
+#### 9. `macrowhisper/Networking/SocketCommunication.swift` (794 lines)
 - **Purpose**: CLI command handling, action execution for CLI
 - **Key Methods**: `applyInsert()`, `applyInsertWithoutEsc()`, `processInsertAction()`
 - **Integration**: Configuration updates, placeholder processing
 
-#### 9. `macrowhisper/Utils/Placeholders.swift` (427 lines)
+#### 10. `macrowhisper/Utils/Placeholders.swift` (427 lines)
 - **Purpose**: Dynamic content replacement
 - **Placeholder Types**: XML, meta.json fields, date formatting
 - **Action-Aware**: Different escaping for different action types
 
-#### 10. `macrowhisper/Utils/Accessibility.swift` (254 lines)
+#### 11. `macrowhisper/Utils/Accessibility.swift` (254 lines)
 - **Purpose**: macOS accessibility integration
 - **Key Features**: Input field detection, keyboard simulation
 - **ESC Logic**: Smart ESC handling based on application state
 
 ### Supporting Files:
 
-#### 11. `macrowhisper/History/HistoryManager.swift` (115 lines)
+#### 12. `macrowhisper/History/HistoryManager.swift` (115 lines)
 - **Purpose**: Recording cleanup based on retention policies
 - **Cleanup Logic**: Age-based deletion with safety checks
 
-#### 12. `macrowhisper/Utils/Logger.swift` (110 lines)
+#### 13. `macrowhisper/Utils/Logger.swift` (110 lines)
 - **Purpose**: Comprehensive logging with file rotation
 - **Global Functions**: `logDebug()`, `logInfo()`, `logWarning()`, `logError()`
 

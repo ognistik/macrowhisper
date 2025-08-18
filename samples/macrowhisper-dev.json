@@ -4,7 +4,7 @@
     "actionDelay" : 0,
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
-    "clipboardBuffer" : 5,
+    "clipboardBuffer" : 15,
     "clipboardStacking" : true,
     "history" : 5,
     "icon" : "",
@@ -341,7 +341,7 @@
       "triggerVoice" : "ask rotten|ask roten"
     },
     "YouTube" : {
-      "action" : "https://www.youtube.com/results?search_query={{result||\\.$||}}",
+      "action" : "https://www.youtube.com/results?search_query={{result||\\.$||}}{{clipboardContext}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
