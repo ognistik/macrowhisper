@@ -1,4 +1,4 @@
 {
-  "version" : "1.3.1",
-  "description" : "This version has several bug fixes.\n\n* Fix for writing configuration file\n* Fix for scheduled actions being detected as if a session was ongoing when it wasn't.\n* Improvements to the clipboard restoration logic\n* Fix for issue where the previous clipboard would become part of the clipboard context placeholder if action was triggered too soon after previous one."
+  "version" : "1.3.2",
+  "description" : "* New validation check for the meta JSON file that stores the user's dictation results.\n* This is an IMPORTANT update that ensures Macrowhisper continues working smoothly with an upcoming version of Superwhisper."
   }
