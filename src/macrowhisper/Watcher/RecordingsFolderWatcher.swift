@@ -313,7 +313,7 @@ class RecordingsFolderWatcher {
         
         // Check if meta.json exists immediately
         if FileManager.default.fileExists(atPath: metaJsonPath) {
-            // Check if meta.json is already complete (has valid duration)
+            // Check if meta.json is already complete (has valid llmResult/result based on languageModelName)
             if isMetaJsonComplete(metaJsonPath: metaJsonPath) {
                 // Meta.json is complete, process immediately without starting clipboard monitoring
                 logDebug("Meta.json exists and is complete, processing immediately without clipboard monitoring")
@@ -331,24 +331,43 @@ class RecordingsFolderWatcher {
     }
     
     /// Checks if meta.json file is complete and ready for processing
+    /// NEW VALIDATION: Now checks based on languageModelName and llmResult/result instead of duration
     private func isMetaJsonComplete(metaJsonPath: String) -> Bool {
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: metaJsonPath))
             guard let metaJson = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 return false
             }
-            
-            // Check for a valid duration (same logic as in processMetaJson)
-            guard let duration = metaJson["duration"], !(duration is NSNull) else {
-                return false
-            }
-            
-            if let durationDouble = duration as? Double, durationDouble > 0 {
-                return true
-            } else if let durationInt = duration as? Int, durationInt > 0 {
-                return true
+
+            // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
+            // If languageModelName is not empty, wait for llmResult
+            // If languageModelName is empty, wait for result
+
+            // First, check if languageModelName exists and is not empty
+            if let languageModelName = metaJson["languageModelName"] as? String, !languageModelName.isEmpty {
+                // languageModelName is not empty, check for llmResult
+                guard let llmResult = metaJson["llmResult"], !(llmResult is NSNull) else {
+                    return false
+                }
+
+                // llmResult must be a non-empty string
+                if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
+                    return true
+                } else {
+                    return false
+                }
             } else {
-                return false
+                // languageModelName is empty or missing, check for result
+                guard let result = metaJson["result"], !(result is NSNull) else {
+                    return false
+                }
+
+                // result must be a non-empty string
+                if let resultString = result as? String, !resultString.isEmpty {
+                    return true
+                } else {
+                    return false
+                }
             }
         } catch {
             return false
@@ -480,25 +499,51 @@ class RecordingsFolderWatcher {
                 return
             }
             
-            // Check for a valid duration
-            guard let duration = metaJson["duration"], !(duration is NSNull) else {
-                logDebug("No valid duration found in meta.json for \(recordingPath), watching for updates.")
-                // Watch for changes to the meta.json file
-                watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
-                // Don't stop early monitoring here as we're still watching for changes
-                return
-            }
+            // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
+            // If languageModelName is not empty, wait for llmResult
+            // If languageModelName is empty, wait for result
 
-            if let durationDouble = duration as? Double, durationDouble > 0 {
-                // Duration is a Double and is greater than 0
-            } else if let durationInt = duration as? Int, durationInt > 0 {
-                // Duration is an Int and is greater than 0
+            // First, check if languageModelName exists and is not empty
+            if let languageModelName = metaJson["languageModelName"] as? String, !languageModelName.isEmpty {
+                // languageModelName is not empty, check for llmResult
+                guard let llmResult = metaJson["llmResult"], !(llmResult is NSNull) else {
+                    logDebug("No valid llmResult found in meta.json for \(recordingPath) (languageModelName present), watching for updates.")
+                    // Watch for changes to the meta.json file
+                    watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                    // Don't stop early monitoring here as we're still watching for changes
+                    return
+                }
+
+                // llmResult must be a non-empty string
+                if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
+                    // llmResult is valid, continue processing
+                } else {
+                    logDebug("llmResult is empty in meta.json for \(recordingPath), watching for updates.")
+                    // Watch for changes to the meta.json file
+                    watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                    // Don't stop early monitoring here as we're still watching for changes
+                    return
+                }
             } else {
-                logDebug("No valid duration found in meta.json for \(recordingPath), watching for updates.")
-                // Watch for changes to the meta.json file
-                watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
-                // Don't stop early monitoring here as we're still watching for changes
-                return
+                // languageModelName is empty or missing, check for result
+                guard let result = metaJson["result"], !(result is NSNull) else {
+                    logDebug("No valid result found in meta.json for \(recordingPath) (no languageModelName), watching for updates.")
+                    // Watch for changes to the meta.json file
+                    watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                    // Don't stop early monitoring here as we're still watching for changes
+                    return
+                }
+
+                // result must be a non-empty string
+                if let resultString = result as? String, !resultString.isEmpty {
+                    // result is valid, continue processing
+                } else {
+                    logDebug("result is empty in meta.json for \(recordingPath), watching for updates.")
+                    // Watch for changes to the meta.json file
+                    watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                    // Don't stop early monitoring here as we're still watching for changes
+                    return
+                }
             }
             
             // Always update lastDetectedFrontApp to the current frontmost app for app triggers and input field detection

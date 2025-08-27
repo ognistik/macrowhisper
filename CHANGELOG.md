@@ -2,6 +2,12 @@
 
 ## UNRELEASED
 
+## [v1.3.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27
+### Changed
+* New validation check for the meta JSON file that stores the user's dictation results.
+  * Superwhisper will change how it saves data to meta.json in an upcoming release.
+  * This update (v1.3.2) makes sure Macrowhisper keeps working smoothly when that change rolls out in Superwhisper.
+  
 ---
 ## [v1.3.1](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.1) - 2025/08/18
 ### Changed

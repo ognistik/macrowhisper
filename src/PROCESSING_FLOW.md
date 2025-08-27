@@ -370,11 +370,6 @@ The clipboard synchronization system now follows the proper sequence:
 8. Restore clipboard content
 ```
 
-**Key Fix**: Clipboard synchronization now happens **before** actionDelay is applied, ensuring:
-- `maxWaitTime` is always respected (0.1 seconds)
-- ActionDelay doesn't interfere with Superwhisper synchronization
-- Proper clipboard restoration regardless of actionDelay value
-
 #### Restoration Logic:
 The system intelligently determines what clipboard content to restore:
 

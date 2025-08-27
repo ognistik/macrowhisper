@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "swWebView",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,

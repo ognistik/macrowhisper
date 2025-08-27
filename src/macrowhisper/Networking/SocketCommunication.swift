@@ -241,13 +241,31 @@ class SocketCommunication {
             let metaJsonPath = directory.appendingPathComponent("meta.json").path
             if FileManager.default.fileExists(atPath: metaJsonPath),
                let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let duration = json["duration"], !(duration is NSNull) {
-                
-                // Check if duration is valid (greater than 0)
-                if let durationDouble = duration as? Double, durationDouble > 0 {
-                    return json
-                } else if let durationInt = duration as? Int, durationInt > 0 {
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+
+                // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
+                var isValid = false
+
+                // First, check if languageModelName exists and is not empty
+                if let languageModelName = json["languageModelName"] as? String, !languageModelName.isEmpty {
+                    // languageModelName is not empty, check for llmResult
+                    if let llmResult = json["llmResult"], !(llmResult is NSNull) {
+                        // llmResult must be a non-empty string
+                        if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
+                            isValid = true
+                        }
+                    }
+                } else {
+                    // languageModelName is empty or missing, check for result
+                    if let result = json["result"], !(result is NSNull) {
+                        // result must be a non-empty string
+                        if let resultString = result as? String, !resultString.isEmpty {
+                            isValid = true
+                        }
+                    }
+                }
+
+                if isValid {
                     return json
                 }
             }
