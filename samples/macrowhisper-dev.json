@@ -2,9 +2,9 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "swWebView",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
-    "clipboardBuffer" : 5,
+    "clipboardBuffer" : 25,
     "clipboardStacking" : true,
     "history" : 5,
     "icon" : "",
@@ -15,7 +15,7 @@
     "pressReturn" : false,
     "restoreClipboard" : true,
     "returnDelay" : 0.15,
-    "scheduledActionTimeout" : 5,
+    "scheduledActionTimeout" : 15,
     "simKeypress" : false,
     "watch" : "~/Documents/superwhisper"
   },

@@ -221,6 +221,12 @@ class RecordingsFolderWatcher {
                     if sortedNewDirs.count > 1 {
                         cancelAutoReturn(reason: "multiple recordings appeared simultaneously - autoReturn was intended for a single recording session")
                         cancelScheduledAction(reason: "multiple recordings appeared simultaneously - scheduled action was intended for a single recording session")
+                        
+                        // CRASH RECOVERY: Clean up all pending watchers since multiple recordings appeared
+                        // This could indicate a Superwhisper crash or restart scenario
+                        if !pendingMetaJsonFiles.isEmpty {
+                            cleanupAllPendingWatchers(reason: "Superwhisper crash detected - multiple recordings appeared simultaneously while previous recording was being processed")
+                        }
                     }
                     
                     // Process only the most recent
@@ -245,6 +251,11 @@ class RecordingsFolderWatcher {
                     if !pendingMetaJsonFiles.isEmpty, let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
                         cancelAutoReturn(reason: "newer recording \(dirName) appeared while processing older recording - autoReturn was intended for the original recording")
                         cancelScheduledAction(reason: "newer recording \(dirName) appeared while processing older recording - scheduled action was intended for the original recording")
+                        
+                        // CRASH RECOVERY: Clean up all pending watchers since Superwhisper likely crashed
+                        // and started a new recording session. This prevents orphaned watchers from
+                        // interfering with the new recording session.
+                        cleanupAllPendingWatchers(reason: "Superwhisper crash detected - new recording \(dirName) appeared while previous recording was being processed")
                     }
                     
                     processNewRecording(atPath: fullPath)
@@ -951,6 +962,54 @@ class RecordingsFolderWatcher {
                 logDebug("Remaining pending watchers: \(remainingCount)")
             } else {
                 logDebug("All pending watchers cleaned up - no active recording sessions")
+            }
+        }
+    }
+    
+    /// CRASH RECOVERY: Cleans up all pending watchers when Superwhisper crashes and starts a new recording
+    /// This prevents orphaned watchers from interfering with the new recording session
+    private func cleanupAllPendingWatchers(reason: String) {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let watcherCount = self.pendingMetaJsonFiles.count
+            if watcherCount > 0 {
+                logInfo("CRASH RECOVERY: Cleaning up \(watcherCount) pending watchers - \(reason)")
+                
+                // Track which recording paths had early monitoring stopped to avoid duplicate logs
+                var stoppedMonitoringPaths: Set<String> = []
+                
+                // Cancel all pending watchers and collect recording paths that need early monitoring cleanup
+                for (path, watcher) in self.pendingMetaJsonFiles {
+                    watcher.cancel()
+                    logDebug("Cancelled pending watcher for: \(path)")
+                    
+                    // Extract recording path from watcher path
+                    // Watcher paths can be either:
+                    // - Recording directory path (e.g., "/path/to/recordings/1234567890")
+                    // - Meta.json path (e.g., "/path/to/recordings/1234567890/meta.json")
+                    let recordingPath: String
+                    if path.hasSuffix("/meta.json") {
+                        // Remove "/meta.json" suffix to get the recording directory
+                        recordingPath = String(path.dropLast(10))
+                    } else {
+                        // Already a recording directory path
+                        recordingPath = path
+                    }
+                    
+                    // Only stop early monitoring if we haven't already stopped it for this recording
+                    if !stoppedMonitoringPaths.contains(recordingPath) {
+                        self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                        stoppedMonitoringPaths.insert(recordingPath)
+                    }
+                }
+                
+                // Clear all pending watchers
+                self.pendingMetaJsonFiles.removeAll()
+                
+                logInfo("CRASH RECOVERY: All pending watchers cleaned up successfully")
+            } else {
+                logDebug("CRASH RECOVERY: No pending watchers to clean up")
             }
         }
     }

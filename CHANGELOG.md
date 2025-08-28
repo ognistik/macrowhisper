@@ -1,6 +1,10 @@
 # CHANGELOG
 
 ## UNRELEASED
+* Cleanup of recording folder watchers for cases where Superwhisper crashes. 
+  * This change allows scheduled actions to continue working properly after an initial recording (which indicates a Superwhisper crash).
+
+---
 
 ## [v1.3.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27
 ### Changed
