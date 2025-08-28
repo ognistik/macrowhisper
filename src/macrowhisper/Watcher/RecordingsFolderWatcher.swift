@@ -252,10 +252,10 @@ class RecordingsFolderWatcher {
                         cancelAutoReturn(reason: "newer recording \(dirName) appeared while processing older recording - autoReturn was intended for the original recording")
                         cancelScheduledAction(reason: "newer recording \(dirName) appeared while processing older recording - scheduled action was intended for the original recording")
                         
-                        // CRASH RECOVERY: Clean up all pending watchers since Superwhisper likely crashed
+                        // CRASH RECOVERY: Clean up only OLD pending watchers since Superwhisper likely crashed
                         // and started a new recording session. This prevents orphaned watchers from
-                        // interfering with the new recording session.
-                        cleanupAllPendingWatchers(reason: "Superwhisper crash detected - new recording \(dirName) appeared while previous recording was being processed")
+                        // interfering with the new recording session, but preserves the new recording's watcher.
+                        cleanupOldPendingWatchers(preservingNewRecording: fullPath, reason: "Superwhisper crash detected - new recording \(dirName) appeared while previous recording was being processed")
                     }
                     
                     processNewRecording(atPath: fullPath)
@@ -1008,6 +1008,75 @@ class RecordingsFolderWatcher {
                 self.pendingMetaJsonFiles.removeAll()
                 
                 logInfo("CRASH RECOVERY: All pending watchers cleaned up successfully")
+            } else {
+                logDebug("CRASH RECOVERY: No pending watchers to clean up")
+            }
+        }
+    }
+    
+    /// CRASH RECOVERY: Cleans up only OLD pending watchers when Superwhisper crashes and starts a new recording
+    /// This prevents orphaned watchers from interfering with the new recording session, but preserves the new recording's watcher
+    private func cleanupOldPendingWatchers(preservingNewRecording: String, reason: String) {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let watcherCount = self.pendingMetaJsonFiles.count
+            if watcherCount > 0 {
+                logInfo("CRASH RECOVERY: Cleaning up old pending watchers while preserving new recording - \(reason)")
+                
+                // Track which recording paths had early monitoring stopped to avoid duplicate logs
+                var stoppedMonitoringPaths: Set<String> = []
+                var cleanedUpCount = 0
+                
+                // Cancel only OLD pending watchers (not the new recording's watcher)
+                for (path, watcher) in self.pendingMetaJsonFiles {
+                    // Extract recording path from watcher path
+                    // Watcher paths can be either:
+                    // - Recording directory path (e.g., "/path/to/recordings/1234567890")
+                    // - Meta.json path (e.g., "/path/to/recordings/1234567890/meta.json")
+                    let recordingPath: String
+                    if path.hasSuffix("/meta.json") {
+                        // Remove "/meta.json" suffix to get the recording directory
+                        recordingPath = String(path.dropLast(10))
+                    } else {
+                        // Already a recording directory path
+                        recordingPath = path
+                    }
+                    
+                    // Skip if this watcher belongs to the new recording we want to preserve
+                    if recordingPath == preservingNewRecording {
+                        logDebug("Preserving watcher for new recording: \(path)")
+                        continue
+                    }
+                    
+                    // Cancel this old watcher
+                    watcher.cancel()
+                    logDebug("Cancelled old pending watcher for: \(path)")
+                    cleanedUpCount += 1
+                    
+                    // Only stop early monitoring if we haven't already stopped it for this recording
+                    if !stoppedMonitoringPaths.contains(recordingPath) {
+                        self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                        stoppedMonitoringPaths.insert(recordingPath)
+                    }
+                }
+                
+                // Remove only the old watchers from the dictionary
+                let oldWatchers = self.pendingMetaJsonFiles.filter { (path, _) in
+                    let recordingPath: String
+                    if path.hasSuffix("/meta.json") {
+                        recordingPath = String(path.dropLast(10))
+                    } else {
+                        recordingPath = path
+                    }
+                    return recordingPath != preservingNewRecording
+                }
+                
+                for (path, _) in oldWatchers {
+                    self.pendingMetaJsonFiles.removeValue(forKey: path)
+                }
+                
+                logInfo("CRASH RECOVERY: Cleaned up \(cleanedUpCount) old pending watchers, preserved new recording watcher")
             } else {
                 logDebug("CRASH RECOVERY: No pending watchers to clean up")
             }

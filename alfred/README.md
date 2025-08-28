@@ -56,10 +56,10 @@ Below are the exact sequences the workflow runs for each option:
 1) Schedule & Dictate
 
 ```bash
-macrowhisper --schedule-action "<Action Name>"
 open -g "superwhisper://record"
 # optional: switch Superwhisper mode (leave out if you don’t want to change modes)
 open -g "superwhisper://mode?key=<your_mode_key>"
+macrowhisper --schedule-action "<Action Name>"
 ```
 
 2) Schedule Only

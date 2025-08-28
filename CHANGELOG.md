@@ -1,8 +1,9 @@
 # CHANGELOG
 
 ## UNRELEASED
-* Cleanup of recording folder watchers for cases where Superwhisper crashes. 
+* Cleanup of recording folder watchers for cases where Superwhisper crashes.
   * This change allows scheduled actions to continue working properly after an initial recording (which indicates a Superwhisper crash).
+  * For scheduled actions, the recommended flow is to start recording first then schedule.
 
 ---
 

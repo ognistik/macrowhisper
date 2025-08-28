@@ -321,10 +321,10 @@ private func executeSelectionIfApplicable() -> Bool {
     // Execute sequences based on label
     switch SelectionLabel(rawValue: label) {
     case .scheduleAndDictate:
-        let status = ProcessRunner.run(executable: macrowhisperPath, arguments: ["--schedule-action", actionName])
-        if debugKM { Workflow.log("macrowhisper --schedule-action status: \(status) @ \(macrowhisperPath)") }
         openURL("superwhisper://record")
         if !modeKey.isEmpty { openURL("superwhisper://mode?key=\(modeKey)") }
+        let status = ProcessRunner.run(executable: macrowhisperPath, arguments: ["--schedule-action", actionName])
+        if debugKM { Workflow.log("macrowhisper --schedule-action status: \(status) @ \(macrowhisperPath)") }
     case .scheduleOnly:
         let status = ProcessRunner.run(executable: macrowhisperPath, arguments: ["--schedule-action", actionName])
         if debugKM { Workflow.log("macrowhisper --schedule-action status: \(status) @ \(macrowhisperPath)") }
