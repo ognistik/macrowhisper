@@ -1,12 +1,16 @@
 # CHANGELOG
 
 ## UNRELEASED
-* Cleanup of recording folder watchers for cases where Superwhisper crashes.
-  * This change allows scheduled actions to continue working properly after an initial recording (which indicates a Superwhisper crash).
-  * For scheduled actions, the recommended flow is to start recording first then schedule.
 
 ---
+## [v1.3.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27
+### Changed
+* Improved recovery for cases where Superwhisper crashes.
+  * Cleanup of all watchers after a crash is detected.
+  * This change allows all actions (particularly scheduled actions) continue to execute after a Sw crash.
+  * For automated scheduled actions, the recommended flow is now to start recording prior to scheduling action.
 
+---
 ## [v1.3.2](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27
 ### Changed
 * New validation check for the meta JSON file that stores the user's dictation results.

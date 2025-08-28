@@ -1,4 +1,4 @@
 {
-  "version" : "1.3.2",
-  "description" : "* New validation check for the meta JSON file that stores the user's dictation results.\n* This is an IMPORTANT update that ensures Macrowhisper continues working smoothly with an upcoming version of Superwhisper."
+  "version" : "1.3.3",
+  "description" : "* Improved recovery for cases where Superwhisper crashes.\n* New validation check for the meta JSON file that stores the user's dictation results.\n* This is an IMPORTANT update that ensures Macrowhisper continues working smoothly with an upcoming version of Superwhisper."
   }

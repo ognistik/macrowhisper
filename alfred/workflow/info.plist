@@ -1039,8 +1039,10 @@ Set these in the workflow’s configuration:
 			<string>dictateMode</string>
 		</dict>
 	</array>
+	<key>variablesdontexport</key>
+	<array/>
 	<key>version</key>
-	<string>1.0.0</string>
+	<string>1.0.1</string>
 	<key>webaddress</key>
 	<string>https://github.com/ognistik/macrowhisper/tree/main/alfred</string>
 </dict>
