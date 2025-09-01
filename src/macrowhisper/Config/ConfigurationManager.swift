@@ -29,7 +29,7 @@ class ConfigurationManager {
     private var hasNotifiedAboutJsonError = false
     private var suppressNextConfigReload = false
     
-    // UserDefaults for persistent config path storage
+    // UserDefaults for persistent config path storage - now using unified manager
     private static let userDefaultsKey = "MacrowhisperConfigPath"
     private static let appDefaults = UserDefaults(suiteName: "com.macrowhisper.preferences") ?? UserDefaults.standard
     
@@ -44,10 +44,10 @@ class ConfigurationManager {
         // 3. Default path
         if let explicitPath = configPath {
             self.configPath = Self.normalizeConfigPath(explicitPath)
-            // Save this as the user's preferred path for future runs
-            Self.appDefaults.set(self.configPath, forKey: Self.userDefaultsKey)
+            // Save this as the user's preferred path for future runs using unified manager
+            UserDefaultsManager.shared.setConfigPath(self.configPath)
             logDebug("Using explicit config path: \(self.configPath)")
-        } else if let savedPath = Self.appDefaults.string(forKey: Self.userDefaultsKey),
+        } else if let savedPath = UserDefaultsManager.shared.getConfigPath(),
                   !savedPath.isEmpty {
             self.configPath = savedPath
             logDebug("Using saved config path: \(savedPath)")
@@ -130,7 +130,7 @@ class ConfigurationManager {
             if !FileManager.default.fileExists(atPath: parentDir) {
                 try FileManager.default.createDirectory(atPath: parentDir, withIntermediateDirectories: true, attributes: nil)
             }
-            appDefaults.set(normalizedPath, forKey: userDefaultsKey)
+            UserDefaultsManager.shared.setConfigPath(normalizedPath)
             return true
         } catch {
             return false
@@ -139,12 +139,12 @@ class ConfigurationManager {
     
     // Method to reset to default config path
     static func resetToDefaultConfigPath() {
-        appDefaults.removeObject(forKey: userDefaultsKey)
+        UserDefaultsManager.shared.removeConfigPath()
     }
     
     // Method to get current saved config path
     static func getSavedConfigPath() -> String? {
-        return appDefaults.string(forKey: userDefaultsKey)
+        return UserDefaultsManager.shared.getConfigPath()
     }
     
     // Method to get the config path that would be used (for --get-config)

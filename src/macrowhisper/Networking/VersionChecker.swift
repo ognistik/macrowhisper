@@ -4,15 +4,10 @@ import Cocoa
 class VersionChecker {
     private var lastFailedCheckDate: Date? {
         get {
-            let timestamp = UserDefaults.standard.double(forKey: "macrowhisper.lastFailedCheckDate")
-            return timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : nil
+            return UserDefaultsManager.shared.getLastFailedCheckDate()
         }
         set {
-            if let date = newValue {
-                UserDefaults.standard.set(date.timeIntervalSince1970, forKey: "macrowhisper.lastFailedCheckDate")
-            } else {
-                UserDefaults.standard.removeObject(forKey: "macrowhisper.lastFailedCheckDate")
-            }
+            UserDefaultsManager.shared.setLastFailedCheckDate(newValue)
         }
     }
     
@@ -23,15 +18,10 @@ class VersionChecker {
     
     private var lastCheckDate: Date? {
         get {
-            let timestamp = UserDefaults.standard.double(forKey: "macrowhisper.lastCheckDate")
-            return timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : nil
+            return UserDefaultsManager.shared.getLastCheckDate()
         }
         set {
-            if let date = newValue {
-                UserDefaults.standard.set(date.timeIntervalSince1970, forKey: "macrowhisper.lastCheckDate")
-            } else {
-                UserDefaults.standard.removeObject(forKey: "macrowhisper.lastCheckDate")
-            }
+            UserDefaultsManager.shared.setLastCheckDate(newValue)
         }
     }
     
@@ -40,15 +30,19 @@ class VersionChecker {
     
     private var lastReminderDate: Date? {
         get {
-            let timestamp = UserDefaults.standard.double(forKey: "macrowhisper.lastReminderDate")
-            return timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : nil
+            return UserDefaultsManager.shared.getLastReminderDate()
         }
         set {
-            if let date = newValue {
-                UserDefaults.standard.set(date.timeIntervalSince1970, forKey: "macrowhisper.lastReminderDate")
-            } else {
-                UserDefaults.standard.removeObject(forKey: "macrowhisper.lastReminderDate")
-            }
+            UserDefaultsManager.shared.setLastReminderDate(newValue)
+        }
+    }
+    
+    private var lastRemindedVersion: String? {
+        get {
+            return UserDefaultsManager.shared.getLastRemindedVersion()
+        }
+        set {
+            UserDefaultsManager.shared.setLastRemindedVersion(newValue)
         }
     }
     
@@ -165,7 +159,7 @@ class VersionChecker {
             // Check if update is available
             if isNewerVersion(latest: latestVersion, current: currentCLIVersion) {
                 let versionMessage = "v\(currentCLIVersion) → v\(latestVersion)"
-                showCLIUpdateDialog(versionMessage: versionMessage, description: description, bypassReminderCheck: isForcedCheck)
+                showCLIUpdateDialog(versionMessage: versionMessage, description: description, latestVersion: latestVersion, bypassReminderCheck: isForcedCheck)
             } else {
                 logDebug("CLI is up to date (\(currentCLIVersion))")
             }
@@ -195,27 +189,34 @@ class VersionChecker {
         return false
     }
     
-    private func showCLIUpdateDialog(versionMessage: String, description: String, bypassReminderCheck: Bool = false) {
+    private func showCLIUpdateDialog(versionMessage: String, description: String, latestVersion: String, bypassReminderCheck: Bool = false) {
         DispatchQueue.main.async {
             logDebug("showCLIUpdateDialog called with version: \(versionMessage), bypassReminderCheck: \(bypassReminderCheck)")
             
             // Re-read from UserDefaults to ensure we have the latest state
-            let currentReminderTimestamp = UserDefaults.standard.double(forKey: "macrowhisper.lastReminderDate")
-            let currentLastReminder = currentReminderTimestamp > 0 ? Date(timeIntervalSince1970: currentReminderTimestamp) : nil
+            let currentLastReminder = UserDefaultsManager.shared.getLastReminderDate()
             
-            logDebug("Current reminder timestamp from UserDefaults: \(currentReminderTimestamp)")
+            logDebug("Current reminder date from UserDefaults: \(currentLastReminder?.description ?? "nil")")
             
-            // Check if we should show reminder (not too frequent) - unless bypassed
+            // Check if we should show reminder using hybrid approach - unless bypassed
             if !bypassReminderCheck {
-                if let lastReminder = currentLastReminder {
-                    let timeSinceReminder = Date().timeIntervalSince(lastReminder)
-                    logDebug("Last reminder was \(Int(timeSinceReminder/3600))h ago, interval is \(Int(self.reminderInterval/3600))h")
-                    if timeSinceReminder < self.reminderInterval {
-                        logDebug("Skipping dialog - too recent reminder (within \(Int(self.reminderInterval/3600))h)")
-                        return
+                // First check if this is a different version than last reminded
+                if let lastRemindedVer = self.lastRemindedVersion {
+                    if lastRemindedVer != latestVersion {
+                        logDebug("Different version detected (\(lastRemindedVer) → \(latestVersion)) - showing dialog immediately")
+                    } else {
+                        // Same version, check timing
+                        if let lastReminder = currentLastReminder {
+                            let timeSinceReminder = Date().timeIntervalSince(lastReminder)
+                            logDebug("Same version (\(latestVersion)), last reminder was \(Int(timeSinceReminder/3600))h ago, interval is \(Int(self.reminderInterval/3600))h")
+                            if timeSinceReminder < self.reminderInterval {
+                                logDebug("Skipping dialog - too recent reminder for same version (within \(Int(self.reminderInterval/3600))h)")
+                                return
+                            }
+                        }
                     }
                 } else {
-                    logDebug("No previous reminder found - will show dialog")
+                    logDebug("No previous version reminder found - will show dialog")
                 }
             } else {
                 logDebug("Bypassing reminder check for forced update")
@@ -223,6 +224,7 @@ class VersionChecker {
             
             logDebug("Showing update dialog now...")
             self.lastReminderDate = Date()
+            self.lastRemindedVersion = latestVersion
             
             // Build the dialog message with version info, description, and update instructions
             var fullMessage = "Macrowhisper update available:\n\(versionMessage)"
@@ -281,7 +283,9 @@ class VersionChecker {
     /// Test method to show update dialog with custom version and description
     /// This is for development/testing purposes only
     func testUpdateDialog(versionMessage: String, description: String) {
-        showCLIUpdateDialog(versionMessage: versionMessage, description: description, bypassReminderCheck: true)
+        // Extract version from message for testing (assumes format "vX.X.X → vY.Y.Y")
+        let testVersion = versionMessage.components(separatedBy: " → ").last?.replacingOccurrences(of: "v", with: "") ?? "test"
+        showCLIUpdateDialog(versionMessage: versionMessage, description: description, latestVersion: testVersion, bypassReminderCheck: true)
     }
     
     /// Debug method to log current version checker state
@@ -323,7 +327,8 @@ class VersionChecker {
         if let lastReminder = lastReminderDate {
             let timeSinceReminder = now.timeIntervalSince(lastReminder)
             let timeUntilNextReminder = reminderInterval - timeSinceReminder
-            logDebug("Last reminder: \(formatter.string(from: lastReminder)) (\(Int(timeSinceReminder/(24*3600)))d ago)")
+            let reminderVersionInfo = lastRemindedVersion != nil ? " (v\(lastRemindedVersion!))" : ""
+            logDebug("Last reminder: \(formatter.string(from: lastReminder)) (\(Int(timeSinceReminder/(24*3600)))d ago)\(reminderVersionInfo)")
             if timeUntilNextReminder > 0 {
                 logDebug("Next reminder allowed in: \(Int(timeUntilNextReminder/(24*3600)))d \(Int((timeUntilNextReminder.truncatingRemainder(dividingBy: 24*3600))/3600))h")
             } else {
@@ -331,6 +336,12 @@ class VersionChecker {
             }
         } else {
             logDebug("Last reminder: Never - will show immediately if update available")
+        }
+        
+        if let remindedVersion = lastRemindedVersion {
+            logDebug("Last reminded version: v\(remindedVersion)")
+        } else {
+            logDebug("Last reminded version: Never")
         }
         
         logDebug("Updates disabled: \(globalState.disableUpdates)")
@@ -378,7 +389,8 @@ class VersionChecker {
         if let lastReminder = lastReminderDate {
             let timeSinceReminder = now.timeIntervalSince(lastReminder)
             let timeUntilNextReminder = reminderInterval - timeSinceReminder
-            lines.append("Last reminder: \(formatter.string(from: lastReminder)) (\(Int(timeSinceReminder/(24*3600)))d ago)")
+            let reminderVersionInfo = lastRemindedVersion != nil ? " (v\(lastRemindedVersion!))" : ""
+            lines.append("Last reminder: \(formatter.string(from: lastReminder)) (\(Int(timeSinceReminder/(24*3600)))d ago)\(reminderVersionInfo)")
             if timeUntilNextReminder > 0 {
                 lines.append("Next reminder allowed in: \(Int(timeUntilNextReminder/(24*3600)))d \(Int((timeUntilNextReminder.truncatingRemainder(dividingBy: 24*3600))/3600))h")
             } else {
@@ -388,19 +400,20 @@ class VersionChecker {
             lines.append("Last reminder: Never - will show immediately if update available")
         }
         
+        if let remindedVersion = lastRemindedVersion {
+            lines.append("Last reminded version: v\(remindedVersion)")
+        } else {
+            lines.append("Last reminded version: Never")
+        }
+        
         lines.append("Updates disabled: \(globalState.disableUpdates)")
         lines.append("Check in progress: \(updateCheckInProgress)")
         lines.append("Current version: \(currentCLIVersion)")
         
-        // Add raw UserDefaults values for debugging
+        // Add unified UserDefaults debug info
         lines.append("")
-        lines.append("Raw UserDefaults values:")
-        let lastCheckRaw = UserDefaults.standard.double(forKey: "macrowhisper.lastCheckDate")
-        let lastFailedRaw = UserDefaults.standard.double(forKey: "macrowhisper.lastFailedCheckDate")
-        let lastReminderRaw = UserDefaults.standard.double(forKey: "macrowhisper.lastReminderDate")
-        lines.append("macrowhisper.lastCheckDate: \(lastCheckRaw == 0 ? "not set" : String(lastCheckRaw))")
-        lines.append("macrowhisper.lastFailedCheckDate: \(lastFailedRaw == 0 ? "not set" : String(lastFailedRaw))")
-        lines.append("macrowhisper.lastReminderDate: \(lastReminderRaw == 0 ? "not set" : String(lastReminderRaw))")
+        lines.append("Unified UserDefaults Debug:")
+        lines.append(UserDefaultsManager.shared.getDebugStateString())
         
         lines.append("==============================")
         
@@ -418,6 +431,7 @@ class VersionChecker {
         lastCheckDate = nil
         lastFailedCheckDate = nil
         lastReminderDate = nil  // Also reset this for force check to ensure dialog shows
+        lastRemindedVersion = nil  // Reset reminded version to ensure dialog shows for any version
         
         logDebug("Performing forced update check...")
         
@@ -492,9 +506,7 @@ class VersionChecker {
     
     /// Completely clear all UserDefaults for version checker (nuclear option for debugging)
     func clearAllUserDefaults() {
-        UserDefaults.standard.removeObject(forKey: "macrowhisper.lastCheckDate")
-        UserDefaults.standard.removeObject(forKey: "macrowhisper.lastFailedCheckDate")
-        UserDefaults.standard.removeObject(forKey: "macrowhisper.lastReminderDate")
-        logDebug("All version checker UserDefaults cleared")
+        UserDefaultsManager.shared.clearAllUpdateDefaults()
+        logDebug("All version checker UserDefaults cleared from unified domain")
     }
 } 

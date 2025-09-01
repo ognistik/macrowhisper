@@ -1,6 +1,13 @@
 # CHANGELOG
 
 ## UNRELEASED
+### Changed
+* Improved update system
+  * Will now keep track of last dialogue version - will notify of updates if there's a new version before the timout for dialogues happens (before 4 days)
+  * `--version-state` now includes more useful information for debugging version checks
+  * `--version-clear` flag added to CLI to clear the version check data
+* Improved saving of UserDefaults
+  * Migration from previous scattered plist preference files
 
 ---
 ## [v1.3.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27

@@ -1280,6 +1280,8 @@ func printHelp() {
 
     OTHER (require running daemon):
       --check-updates               Force check for updates
+      --version-clear               Clears all UserDefaults related
+                                    to version checks. Only to be used for debugging
       --version-state               Checks the state of update checks
                                     (useful for debugging)
     
