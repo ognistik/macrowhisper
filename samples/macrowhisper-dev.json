@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,
@@ -98,7 +98,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : "Listen"
+      "triggerVoice" : ""
     }
   },
   "scriptsShell" : {
@@ -130,6 +130,20 @@
     }
   },
   "urls" : {
+    "Alter AI Humanizer" : {
+      "action" : "alter://action/ai-humanizer?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "actionDelay" : null,
+      "icon" : "",
+      "moveTo" : "",
+      "noEsc" : null,
+      "openBackground" : false,
+      "openWith" : "",
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
     "Alter Answerer ★" : {
       "action" : "alter://action/answerer?input={{result||(?s)^(.*)$||<user_message>$1</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
       "actionDelay" : null,

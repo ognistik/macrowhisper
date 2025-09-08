@@ -8,6 +8,7 @@
   * `--version-clear` flag added to CLI to clear the version check data
 * Improved saving of UserDefaults
   * Migration from previous scattered plist preference files
+* App Context placeholder now will also capture description of active element
 
 ---
 ## [v1.3.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27

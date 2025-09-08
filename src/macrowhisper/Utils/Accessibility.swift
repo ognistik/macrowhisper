@@ -514,6 +514,11 @@ func getAppContext() -> String {
         contextParts.append("ACTIVE ELEMENT CONTENT:\n\(inputContent)")
     }
     
+    // Active Element Info (optional - description/label of focused element)
+    if let elementDescription = getFocusedElementDescription(appElement: appElement) {
+        contextParts.append("ACTIVE ELEMENT INFO: \(elementDescription)")
+    }
+    
     let result = contextParts.joined(separator: "\n")
     logDebug("[AppContext] Generated app context with \(contextParts.count) sections")
     return result
@@ -794,6 +799,50 @@ private func isValidURL(_ text: String) -> Bool {
     } catch {
         return false
     }
+}
+
+/// Gets the description/label information of the currently focused element (without role)
+private func getFocusedElementDescription(appElement: AXUIElement) -> String? {
+    // Get focused element
+    var focusedElement: CFTypeRef?
+    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    
+    guard focusedError == .success, let focusedElement = focusedElement else {
+        return nil
+    }
+    
+    let element = focusedElement as! AXUIElement
+    
+    // Collect description information from various accessibility attributes
+    var descriptions: [String] = []
+    
+    // Try to get descriptive attributes in order of preference (omit role)
+    let descriptiveAttributes = [
+        ("AXLabel", "Label"),
+        ("AXTitle", "Title"), 
+        ("AXDescription", "Description"),
+        ("AXHelp", "Help"),
+        ("AXPlaceholderValue", "Placeholder")
+    ]
+    
+    for (attribute, displayName) in descriptiveAttributes {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        
+        if error == .success, let value = value, let text = value as? String, !text.isEmpty {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && trimmed.count > 1 { // Skip very short text that might be UI noise
+                descriptions.append("\(displayName): \(trimmed)")
+            }
+        }
+    }
+    
+    // If we have no meaningful descriptions, return nil to avoid clutter
+    if descriptions.isEmpty {
+        return nil
+    }
+    
+    return descriptions.joined(separator: ", ")
 }
 
 /// Gets the content of the currently focused input field
