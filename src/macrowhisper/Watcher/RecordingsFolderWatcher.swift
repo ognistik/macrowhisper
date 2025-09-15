@@ -605,7 +605,7 @@ class RecordingsFolderWatcher {
             // FIRST: Check for auto-return (highest priority - overrides everything)
             if globalState.autoReturnEnabled {
                 // Apply the result directly using {{swResult}}
-                let resultValue = enhancedMetaJson["result"] as? String ?? enhancedMetaJson["llmResult"] as? String ?? ""
+                let swResult = (enhancedMetaJson["llmResult"] as? String) ?? (enhancedMetaJson["result"] as? String) ?? ""
                 
                 // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
                 let actionDelay = configManager.config.defaults.actionDelay
@@ -614,7 +614,7 @@ class RecordingsFolderWatcher {
                 clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                     insertAction: { [weak self] in
                         // Apply the result without ESC (handled by clipboard monitor)
-                        self?.socketCommunication.applyInsertWithoutEsc(resultValue, activeInsert: nil)
+                        self?.socketCommunication.applyInsertWithoutEsc(swResult, activeInsert: nil)
                         // Reset the flag after using it once
                         globalState.autoReturnEnabled = false
                         // Cancel timeout since auto-return was used

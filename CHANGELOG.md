@@ -9,6 +9,7 @@
 * Improved saving of UserDefaults
   * Migration from previous scattered plist preference files
 * App Context placeholder now will also capture description of active element
+* Fixed `--auto-return true` so that it correctly inserts AI processed result if available.
 
 ---
 ## [v1.3.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27

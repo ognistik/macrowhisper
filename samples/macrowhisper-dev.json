@@ -131,7 +131,7 @@
   },
   "urls" : {
     "Alter AI Humanizer" : {
-      "action" : "alter://action/ai-humanizer?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "action" : "alter://action/ai-humanizer?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -145,7 +145,7 @@
       "triggerVoice" : ""
     },
     "Alter Answerer ★" : {
-      "action" : "alter://action/answerer?input={{result||(?s)^(.*)$||<user_message>$1</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "action" : "alter://action/answerer?input={{result||(?s)^(.*)$||<user-message>$1</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "༜",
       "moveTo" : "",
@@ -158,22 +158,8 @@
       "triggerModes" : "",
       "triggerVoice" : ""
     },
-    "Alter Ask" : {
-      "action" : "alter://action/ask-anything?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
-      "actionDelay" : null,
-      "icon" : "☣",
-      "moveTo" : "",
-      "noEsc" : null,
-      "openBackground" : true,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : ""
-    },
     "Alter Coder (★)" : {
-      "action" : "alter://action/coder?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}{{appContext||(?s)^(.*)$||\n\n<app_context>\n$1\n</app_context>}}",
+      "action" : "alter://action/coder?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "⌬",
       "moveTo" : "",
@@ -187,7 +173,7 @@
       "triggerVoice" : ""
     },
     "Alter Editor (★)" : {
-      "action" : "alter://action/editor?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}{{appContext||(?s)^(.*)$||\n\n<app_context>\n$1\n</app_context>}}",
+      "action" : "alter://action/editor?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -201,7 +187,7 @@
       "triggerVoice" : ""
     },
     "Alter Helper ★" : {
-      "action" : "alter://action/helper?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "action" : "alter://action/helper?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "⚛",
       "moveTo" : "",
@@ -215,7 +201,7 @@
       "triggerVoice" : ""
     },
     "Alter Prompter MD (★)" : {
-      "action" : "alter://action/prompter-md?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}{{appContext||(?s)^(.*)$||\n\n<app_context>\n$1\n</app_context>}}",
+      "action" : "alter://action/prompter-md?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -229,7 +215,7 @@
       "triggerVoice" : ""
     },
     "Alter Prompter XML (★)" : {
-      "action" : "alter://action/prompter-xml?input={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}{{appContext||(?s)^(.*)$||\n\n<app_context>\n$1\n</app_context>}}",
+      "action" : "alter://action/prompter-xml?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -243,7 +229,7 @@
       "triggerVoice" : ""
     },
     "Alter TM" : {
-      "action" : "https://typingmind.com?message={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}-arcMain",
+      "action" : "https://typingmind.com?message={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}-arcMain",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -257,12 +243,26 @@
       "triggerVoice" : ""
     },
     "Alter Translate" : {
-      "action" : "alter://action/ask-anything?input={{selectedText||(?s)^(.*)$||Please translate into english my selected text: \n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||Please translate into english my clipboard content: \n\n<clipboard_context>\n$1\n</clipboard_context>}}",
+      "action" : "alter://action/ask-anything?input={{selectedText||(?s)^(.*)$||Please translate into english my selected text: \n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||Please translate into english my clipboard content: \n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
       "noEsc" : null,
       "openBackground" : false,
+      "openWith" : "",
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
+    "Alter Whatever" : {
+      "action" : "alter://action/whatever?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "actionDelay" : null,
+      "icon" : "☣",
+      "moveTo" : "",
+      "noEsc" : null,
+      "openBackground" : true,
       "openWith" : "",
       "restoreClipboard" : null,
       "triggerApps" : "",
@@ -313,7 +313,7 @@
       "triggerVoice" : "ask letterboxd|ask letterboxed"
     },
     "OpenAI" : {
-      "action" : "https://chat.openai.com/?q={{result||(?s)^(.*)$||<user_message>\n$1\n</user_message>}}{{selectedText||(?s)^(.*)$||\n\n<selected_text>\n$1\n</selected_text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard_context>\n$1\n</clipboard_context>}}{{appContext||(?s)^(.*)$||\n\n<app_context>\n$1\n</app_context>}}",
+      "action" : "https://chat.openai.com/?q={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
