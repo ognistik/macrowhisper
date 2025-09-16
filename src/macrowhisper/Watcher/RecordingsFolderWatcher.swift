@@ -14,6 +14,9 @@ class RecordingsFolderWatcher {
     private let queue = DispatchQueue(label: "com.macrowhisper.recordingswatcher")
     private var lastKnownSubdirectories: Set<String> = []
     private var pendingMetaJsonFiles: [String: DispatchSourceFileSystemObject] = [:]
+    private var pendingAudioFileWatchers: [String: DispatchSourceFileSystemObject] = [:]
+    private var recordingHadWavFiles: [String: Bool] = [:] // Track if recording ever had .wav files
+    private var recordingTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout timers for recordings
     private var processedRecordings: Set<String> = []
     private let configManager: ConfigurationManager
     private let historyManager: HistoryManager
@@ -23,6 +26,9 @@ class RecordingsFolderWatcher {
     private let clipboardMonitor: ClipboardMonitor
     private let processedRecordingsFile: String
     private let versionChecker: VersionChecker?
+    
+    // Constants
+    private let RECORDING_TIMEOUT_SECONDS: Double = 17.0 // Timeout for recordings without WAV files
 
     init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?) {
         self.path = "\(basePath)/recordings"
@@ -107,6 +113,19 @@ class RecordingsFolderWatcher {
             watcher.cancel()
         }
         pendingMetaJsonFiles.removeAll()
+        
+        // Cancel all pending audio file watchers
+        for (_, watcher) in pendingAudioFileWatchers {
+            watcher.cancel()
+        }
+        pendingAudioFileWatchers.removeAll()
+        recordingHadWavFiles.removeAll()
+        
+        // Cancel all timeout timers
+        for (_, timer) in recordingTimeoutTimers {
+            timer.cancel()
+        }
+        recordingTimeoutTimers.removeAll()
         
         // Stop all early clipboard monitoring sessions
         let currentSubdirectories = getCurrentSubdirectories()
@@ -222,10 +241,10 @@ class RecordingsFolderWatcher {
                         cancelAutoReturn(reason: "multiple recordings appeared simultaneously - autoReturn was intended for a single recording session")
                         cancelScheduledAction(reason: "multiple recordings appeared simultaneously - scheduled action was intended for a single recording session")
                         
-                        // CRASH RECOVERY: Clean up all pending watchers since multiple recordings appeared
+                        // UNIFIED RECOVERY: Clean up all pending watchers since multiple recordings appeared
                         // This could indicate a Superwhisper crash or restart scenario
-                        if !pendingMetaJsonFiles.isEmpty {
-                            cleanupAllPendingWatchers(reason: "Superwhisper crash detected - multiple recordings appeared simultaneously while previous recording was being processed")
+                        if !pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty {
+                            performRecordingRecovery(reason: "Superwhisper crash detected - multiple recordings appeared simultaneously while previous recording was being processed")
                         }
                     }
                     
@@ -248,14 +267,11 @@ class RecordingsFolderWatcher {
                     
                     // Cancel auto-return and scheduled action if this is a newer recording superseding a previous one being processed
                     // Only cancel if there are actually pending recordings being processed
-                    if !pendingMetaJsonFiles.isEmpty, let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
-                        cancelAutoReturn(reason: "newer recording \(dirName) appeared while processing older recording - autoReturn was intended for the original recording")
-                        cancelScheduledAction(reason: "newer recording \(dirName) appeared while processing older recording - scheduled action was intended for the original recording")
-                        
-                        // CRASH RECOVERY: Clean up only OLD pending watchers since Superwhisper likely crashed
+                    if (!pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty), let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
+                        // UNIFIED RECOVERY: Clean up only OLD pending watchers since Superwhisper likely crashed
                         // and started a new recording session. This prevents orphaned watchers from
                         // interfering with the new recording session, but preserves the new recording's watcher.
-                        cleanupOldPendingWatchers(preservingNewRecording: fullPath, reason: "Superwhisper crash detected - new recording \(dirName) appeared while previous recording was being processed")
+                        performRecordingRecovery(reason: "Superwhisper crash detected - new recording \(dirName) appeared while previous recording was being processed", preserveRecording: fullPath)
                     }
                     
                     processNewRecording(atPath: fullPath)
@@ -270,23 +286,34 @@ class RecordingsFolderWatcher {
                 let fullPath = "\(path)/\(dirName)"
                 let metaJsonPath = "\(fullPath)/meta.json"
                 
-                // Remove watcher if it exists
+                var hadWatchers = false
+                
+                // Remove meta.json watcher if it exists
                 if let watcher = pendingMetaJsonFiles[metaJsonPath] {
                     watcher.cancel()
                     pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
                     logDebug("Removed watcher for deleted directory (meta.json watcher): \(fullPath)")
-                    
-                    // Cancel auto-return and scheduled action if they were enabled - recording was interrupted
-                    cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
-                    cancelScheduledAction(reason: "recording folder \(dirName) was deleted during processing")
+                    hadWatchers = true
                 }
                 // Also remove a potential creation watcher keyed by the recording directory path
                 if let creationWatcher = pendingMetaJsonFiles[fullPath] {
                     creationWatcher.cancel()
                     pendingMetaJsonFiles.removeValue(forKey: fullPath)
                     logDebug("Removed watcher for deleted directory (creation watcher): \(fullPath)")
-                    
-                    // Cancel auto-return and scheduled action if they were enabled - recording was interrupted
+                    hadWatchers = true
+                }
+                
+                // Remove audio file watcher if it exists
+                if let audioWatcher = pendingAudioFileWatchers[fullPath] {
+                    audioWatcher.cancel()
+                    pendingAudioFileWatchers.removeValue(forKey: fullPath)
+                    recordingHadWavFiles.removeValue(forKey: fullPath)
+                    logDebug("Removed watcher for deleted directory (audio watcher): \(fullPath)")
+                    hadWatchers = true
+                }
+                
+                // Cancel auto-return and scheduled action only if we had watchers (recording was being processed)
+                if hadWatchers {
                     cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
                     cancelScheduledAction(reason: "recording folder \(dirName) was deleted during processing")
                 }
@@ -315,6 +342,12 @@ class RecordingsFolderWatcher {
         // Start early monitoring immediately when the recording folder appears
         // This captures selected text and clipboard context at session start
         clipboardMonitor.startEarlyMonitoring(for: path)
+        
+        // Start monitoring for .wav file changes to detect cancellation
+        setupAudioFileMonitoring(for: path)
+        
+        // Start timeout timer for recording to detect stalled recordings
+        startRecordingTimeout(for: path)
 
         // Cancel timeouts since a recording session has started (folder appeared)
         cancelAutoReturnTimeout()
@@ -430,6 +463,126 @@ class RecordingsFolderWatcher {
         logDebug("Started watching for meta.json creation in: \(recordingPath)")
     }
     
+    /// Sets up monitoring for .wav file changes to detect recording cancellation
+    private func setupAudioFileMonitoring(for recordingPath: String) {
+        // Skip if already processed
+        if isAlreadyProcessed(recordingPath: recordingPath) {
+            return
+        }
+        
+        // Initialize tracking - check if .wav files exist initially (they might not yet)
+        recordingHadWavFiles[recordingPath] = checkForWavFiles(in: recordingPath)
+        
+        // Watch the recording directory for file changes to detect .wav file removal
+        let fileDescriptor = open(recordingPath, O_EVTONLY)
+        guard fileDescriptor >= 0 else {
+            logError("Failed to open file descriptor for audio monitoring: \(recordingPath)")
+            return
+        }
+        
+        let watcher = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fileDescriptor, eventMask: .all, queue: queue)
+        
+        watcher.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            
+            // Skip if already processed
+            if self.isAlreadyProcessed(recordingPath: recordingPath) {
+                watcher.cancel()
+                self.pendingAudioFileWatchers.removeValue(forKey: recordingPath)
+                self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                return
+            }
+            
+            // Add a delay to avoid false positives during file rewrites
+            // This gives Superwhisper time to finish writing/rewriting the file
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self = self else { return }
+                
+                // Re-check if already processed after delay
+                if self.isAlreadyProcessed(recordingPath: recordingPath) {
+                    return
+                }
+                
+                // Check current state
+                let directoryExists = FileManager.default.fileExists(atPath: recordingPath)
+                let hasWavFiles = directoryExists ? self.checkForWavFiles(in: recordingPath) : false
+                let hadWavFilesBefore = self.recordingHadWavFiles[recordingPath] ?? false
+                
+                // Update tracking if we now have .wav files (recording started)
+                if hasWavFiles && !hadWavFilesBefore {
+                    self.recordingHadWavFiles[recordingPath] = true
+                    logDebug("Audio recording started: .wav file detected in \(recordingPath)")
+                    
+                    // Cancel timeout timer since WAV file appeared
+                    self.cancelRecordingTimeout(for: recordingPath)
+                }
+                
+                // Only trigger cancellation if:
+                // 1. Directory still exists (folder deletion is handled separately)
+                // 2. We previously had .wav files (recording was active)
+                // 3. No .wav files are present now (they were removed)
+                if directoryExists && hadWavFilesBefore && !hasWavFiles {
+                    // Double-check after another brief delay to be absolutely sure
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        guard let self = self else { return }
+                        
+                        // Final verification
+                        let finalCheck = self.checkForWavFiles(in: recordingPath)
+                        if !finalCheck && FileManager.default.fileExists(atPath: recordingPath) {
+                            logInfo("CANCELLATION DETECTED: .wav file removed from \(recordingPath) - triggering recovery")
+                            
+                            // Mark as processed to prevent further processing
+                            self.markAsProcessed(recordingPath: recordingPath)
+                            
+                            // Trigger unified recovery for cancellation
+                            self.performRecordingRecovery(reason: "recording cancelled - .wav file removed from \((recordingPath as NSString).lastPathComponent)")
+                            
+                            // Clean up this watcher and tracking
+                            watcher.cancel()
+                            self.pendingAudioFileWatchers.removeValue(forKey: recordingPath)
+                            self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                        } else if finalCheck {
+                            logDebug("False alarm: .wav file reappeared in \(recordingPath) - continuing monitoring")
+                        }
+                    }
+                }
+            }
+        }
+        
+        watcher.setCancelHandler {
+            close(fileDescriptor)
+        }
+        
+        watcher.resume()
+        pendingAudioFileWatchers[recordingPath] = watcher
+        logDebug("Started monitoring for .wav file changes in: \(recordingPath)")
+    }
+    
+    /// Checks if any .wav files exist in the given directory with additional validation
+    private func checkForWavFiles(in directoryPath: String) -> Bool {
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(atPath: directoryPath)
+            let wavFiles = contents.filter { $0.lowercased().hasSuffix(".wav") }
+            
+            // Not only check for existence, but also verify the files are accessible and not zero-size
+            // This helps distinguish between file deletion and temporary file states during rewrites
+            for wavFile in wavFiles {
+                let wavPath = "\(directoryPath)/\(wavFile)"
+                let attributes = try? FileManager.default.attributesOfItem(atPath: wavPath)
+                if let fileSize = attributes?[.size] as? Int64, fileSize > 0 {
+                    // Found at least one valid .wav file with content
+                    return true
+                }
+            }
+            
+            // Either no .wav files found, or all are zero-size (which could indicate deletion in progress)
+            return false
+        } catch {
+            logError("Failed to check directory contents for .wav files: \(error)")
+            return false
+        }
+    }
+    
     private func watchMetaJsonForChanges(metaJsonPath: String, recordingPath: String) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: recordingPath) {
@@ -459,20 +612,31 @@ class RecordingsFolderWatcher {
                 return
             }
             
-            // Check if the file still exists (it might have been deleted)
+             // Check if the file still exists (it might have been deleted or overwritten)
             guard FileManager.default.fileExists(atPath: metaJsonPath) else {
-                // File was deleted, clean up
-                watcher.cancel()
-                self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
-                
-                // Cancel auto-return and scheduled action if they were enabled - meta.json was deleted during processing
-                cancelAutoReturn(reason: "meta.json was deleted during processing")
-                cancelScheduledAction(reason: "meta.json was deleted during processing")
-                
-                // Stop clipboard monitoring for this recording path as well
-                self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-                logDebug("Stopped clipboard monitoring for \(recordingPath) - meta.json was deleted")
-                
+                // File might be temporarily unavailable during overwrite, add delay to check if it reappears
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    guard let self = self else { return }
+                    
+                    // Re-check if file exists after delay
+                    if !FileManager.default.fileExists(atPath: metaJsonPath) {
+                        // File was truly deleted, not just overwritten
+                        watcher.cancel()
+                        self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
+                        
+                        // Cancel auto-return and scheduled action if they were enabled - meta.json was deleted during processing
+                        cancelAutoReturn(reason: "meta.json was deleted during processing")
+                        cancelScheduledAction(reason: "meta.json was deleted during processing")
+                        
+                        // Stop clipboard monitoring for this recording path as well
+                        self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                        logDebug("Stopped clipboard monitoring for \(recordingPath) - meta.json was deleted")
+                    } else {
+                        // File reappeared, it was just being overwritten - continue processing
+                        logDebug("meta.json reappeared after overwrite in \(recordingPath) - continuing monitoring")
+                        self.processMetaJson(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                    }
+                }
                 return
             }
             
@@ -593,6 +757,9 @@ class RecordingsFolderWatcher {
             
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)
+            
+            // Cancel timeout timer since recording completed successfully
+            cancelRecordingTimeout(for: recordingPath)
             
             // IMMEDIATE CLEANUP: Clean up pending watchers as soon as recording is processed
             // This ensures hasActiveRecordingSessions() returns false immediately, allowing scheduled actions to work properly
@@ -931,12 +1098,12 @@ class RecordingsFolderWatcher {
         return clipboardMonitor
     }
     
-    /// Checks if there are any active recording sessions (pending meta.json files)
+    /// Checks if there are any active recording sessions (pending meta.json files or audio watchers)
     func hasActiveRecordingSessions() -> Bool {
-        // Ensure thread-safe access to pendingMetaJsonFiles, which is mutated on the watcher's queue
+        // Ensure thread-safe access to pending watchers, which are mutated on the watcher's queue
         var hasActive = false
         queue.sync {
-            hasActive = !pendingMetaJsonFiles.isEmpty
+            hasActive = !pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty
         }
         return hasActive
     }
@@ -947,111 +1114,71 @@ class RecordingsFolderWatcher {
         queue.async { [weak self] in
             guard let self = self else { return }
             
-            // Clean up watcher if it exists for this path
+            // Clean up meta.json watcher if it exists for this path
             if let watcher = self.pendingMetaJsonFiles[path] {
                 watcher.cancel()
                 self.pendingMetaJsonFiles.removeValue(forKey: path)
-                logDebug("Cleaned up pending watcher for path: \(path)")
-            } else {
-                logDebug("No pending watcher found for path: \(path)")
+                logDebug("Cleaned up pending meta watcher for path: \(path)")
+            }
+            
+            // Clean up audio file watcher if it exists for this path
+            if let audioWatcher = self.pendingAudioFileWatchers[path] {
+                audioWatcher.cancel()
+                self.pendingAudioFileWatchers.removeValue(forKey: path)
+                self.recordingHadWavFiles.removeValue(forKey: path)
+                logDebug("Cleaned up pending audio watcher for path: \(path)")
+            }
+            
+            if self.pendingMetaJsonFiles[path] == nil && self.pendingAudioFileWatchers[path] == nil {
+                logDebug("No pending watchers found for path: \(path)")
             }
             
             // Log current state for debugging
-            let remainingCount = self.pendingMetaJsonFiles.count
-            if remainingCount > 0 {
-                logDebug("Remaining pending watchers: \(remainingCount)")
+            let remainingMetaCount = self.pendingMetaJsonFiles.count
+            let remainingAudioCount = self.pendingAudioFileWatchers.count
+            let totalRemaining = remainingMetaCount + remainingAudioCount
+            
+            if totalRemaining > 0 {
+                logDebug("Remaining pending watchers: \(totalRemaining) (\(remainingMetaCount) meta, \(remainingAudioCount) audio)")
             } else {
                 logDebug("All pending watchers cleaned up - no active recording sessions")
             }
         }
     }
     
-    /// CRASH RECOVERY: Cleans up all pending watchers when Superwhisper crashes and starts a new recording
-    /// This prevents orphaned watchers from interfering with the new recording session
-    private func cleanupAllPendingWatchers(reason: String) {
+    /// UNIFIED RECOVERY: Handles both crash recovery and cancellation recovery
+    /// This prevents orphaned watchers from interfering with new recording sessions
+    private func performRecordingRecovery(reason: String, preserveRecording: String? = nil) {
         queue.async { [weak self] in
             guard let self = self else { return }
             
-            let watcherCount = self.pendingMetaJsonFiles.count
-            if watcherCount > 0 {
-                logInfo("CRASH RECOVERY: Cleaning up \(watcherCount) pending watchers - \(reason)")
-                
-                // Track which recording paths had early monitoring stopped to avoid duplicate logs
-                var stoppedMonitoringPaths: Set<String> = []
-                
-                // Cancel all pending watchers and collect recording paths that need early monitoring cleanup
-                for (path, watcher) in self.pendingMetaJsonFiles {
-                    watcher.cancel()
-                    logDebug("Cancelled pending watcher for: \(path)")
-                    
-                    // Extract recording path from watcher path
-                    // Watcher paths can be either:
-                    // - Recording directory path (e.g., "/path/to/recordings/1234567890")
-                    // - Meta.json path (e.g., "/path/to/recordings/1234567890/meta.json")
-                    let recordingPath: String
-                    if path.hasSuffix("/meta.json") {
-                        // Remove "/meta.json" suffix to get the recording directory
-                        recordingPath = String(path.dropLast(10))
-                    } else {
-                        // Already a recording directory path
-                        recordingPath = path
-                    }
-                    
-                    // Only stop early monitoring if we haven't already stopped it for this recording
-                    if !stoppedMonitoringPaths.contains(recordingPath) {
-                        self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-                        stoppedMonitoringPaths.insert(recordingPath)
-                    }
+            let metaWatcherCount = self.pendingMetaJsonFiles.count
+            let audioWatcherCount = self.pendingAudioFileWatchers.count
+            let totalWatchers = metaWatcherCount + audioWatcherCount
+            
+            if totalWatchers > 0 {
+                if let preserveRecording = preserveRecording {
+                    logInfo("UNIFIED RECOVERY: Cleaning up old pending watchers while preserving new recording \((preserveRecording as NSString).lastPathComponent) - \(reason)")
+                } else {
+                    logInfo("UNIFIED RECOVERY: Cleaning up \(totalWatchers) pending watchers (\(metaWatcherCount) meta, \(audioWatcherCount) audio) - \(reason)")
                 }
-                
-                // Clear all pending watchers
-                self.pendingMetaJsonFiles.removeAll()
-                
-                logInfo("CRASH RECOVERY: All pending watchers cleaned up successfully")
-            } else {
-                logDebug("CRASH RECOVERY: No pending watchers to clean up")
-            }
-        }
-    }
-    
-    /// CRASH RECOVERY: Cleans up only OLD pending watchers when Superwhisper crashes and starts a new recording
-    /// This prevents orphaned watchers from interfering with the new recording session, but preserves the new recording's watcher
-    private func cleanupOldPendingWatchers(preservingNewRecording: String, reason: String) {
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            
-            let watcherCount = self.pendingMetaJsonFiles.count
-            if watcherCount > 0 {
-                logInfo("CRASH RECOVERY: Cleaning up old pending watchers while preserving new recording - \(reason)")
                 
                 // Track which recording paths had early monitoring stopped to avoid duplicate logs
                 var stoppedMonitoringPaths: Set<String> = []
                 var cleanedUpCount = 0
                 
-                // Cancel only OLD pending watchers (not the new recording's watcher)
+                // Cancel meta.json watchers
                 for (path, watcher) in self.pendingMetaJsonFiles {
-                    // Extract recording path from watcher path
-                    // Watcher paths can be either:
-                    // - Recording directory path (e.g., "/path/to/recordings/1234567890")
-                    // - Meta.json path (e.g., "/path/to/recordings/1234567890/meta.json")
-                    let recordingPath: String
-                    if path.hasSuffix("/meta.json") {
-                        // Remove "/meta.json" suffix to get the recording directory
-                        recordingPath = String(path.dropLast(10))
-                    } else {
-                        // Already a recording directory path
-                        recordingPath = path
-                    }
+                    let recordingPath = self.extractRecordingPath(from: path)
                     
-                    // Skip if this watcher belongs to the new recording we want to preserve
-                    if recordingPath == preservingNewRecording {
-                        logDebug("Preserving watcher for new recording: \(path)")
+                    // Skip if this watcher belongs to the recording we want to preserve
+                    if let preserveRecording = preserveRecording, recordingPath == preserveRecording {
+                        logDebug("Preserving meta watcher for new recording: \(path)")
                         continue
                     }
                     
-                    // Cancel this old watcher
                     watcher.cancel()
-                    logDebug("Cancelled old pending watcher for: \(path)")
+                    logDebug("Cancelled pending meta watcher for: \(path)")
                     cleanedUpCount += 1
                     
                     // Only stop early monitoring if we haven't already stopped it for this recording
@@ -1061,25 +1188,162 @@ class RecordingsFolderWatcher {
                     }
                 }
                 
-                // Remove only the old watchers from the dictionary
-                let oldWatchers = self.pendingMetaJsonFiles.filter { (path, _) in
-                    let recordingPath: String
-                    if path.hasSuffix("/meta.json") {
-                        recordingPath = String(path.dropLast(10))
-                    } else {
-                        recordingPath = path
+                // Cancel audio file watchers
+                for (path, watcher) in self.pendingAudioFileWatchers {
+                    let recordingPath = self.extractRecordingPath(from: path)
+                    
+                    // Skip if this watcher belongs to the recording we want to preserve
+                    if let preserveRecording = preserveRecording, recordingPath == preserveRecording {
+                        logDebug("Preserving audio watcher for new recording: \(path)")
+                        continue
                     }
-                    return recordingPath != preservingNewRecording
+                    
+                    watcher.cancel()
+                    logDebug("Cancelled pending audio watcher for: \(path)")
+                    cleanedUpCount += 1
                 }
                 
-                for (path, _) in oldWatchers {
-                    self.pendingMetaJsonFiles.removeValue(forKey: path)
+                // Remove watchers from dictionaries
+                if let preserveRecording = preserveRecording {
+                    // Remove only old watchers, preserve new recording's watchers
+                    let oldMetaWatchers = self.pendingMetaJsonFiles.filter { (path, _) in
+                        self.extractRecordingPath(from: path) != preserveRecording
+                    }
+                    let oldAudioWatchers = self.pendingAudioFileWatchers.filter { (path, _) in
+                        self.extractRecordingPath(from: path) != preserveRecording
+                    }
+                    
+                    for (path, _) in oldMetaWatchers {
+                        self.pendingMetaJsonFiles.removeValue(forKey: path)
+                    }
+                    for (path, _) in oldAudioWatchers {
+                        self.pendingAudioFileWatchers.removeValue(forKey: path)
+                        self.recordingHadWavFiles.removeValue(forKey: path)
+                    }
+                    
+                    logInfo("UNIFIED RECOVERY: Cleaned up \(cleanedUpCount) old pending watchers, preserved new recording watcher")
+                } else {
+                    // Clear all pending watchers
+                    self.pendingMetaJsonFiles.removeAll()
+                    self.pendingAudioFileWatchers.removeAll()
+                    self.recordingHadWavFiles.removeAll()
+                    
+                    logInfo("UNIFIED RECOVERY: All pending watchers cleaned up successfully")
                 }
                 
-                logInfo("CRASH RECOVERY: Cleaned up \(cleanedUpCount) old pending watchers, preserved new recording watcher")
+                // Cancel auto-return and scheduled actions for all recovery scenarios
+                cancelAutoReturn(reason: reason)
+                cancelScheduledAction(reason: reason)
+                
+                // Clean up timeout timers for all recordings (or preserve for new recording)
+                if let preserveRecording = preserveRecording {
+                    // Cancel timeout timers for old recordings only
+                    let recordingPathsToCleanup = self.recordingTimeoutTimers.keys.filter { $0 != preserveRecording }
+                    for recordingPath in recordingPathsToCleanup {
+                        if let timer = self.recordingTimeoutTimers[recordingPath] {
+                            timer.cancel()
+                            self.recordingTimeoutTimers.removeValue(forKey: recordingPath)
+                        }
+                    }
+                } else {
+                    // Cancel all timeout timers
+                    for (_, timer) in self.recordingTimeoutTimers {
+                        timer.cancel()
+                    }
+                    self.recordingTimeoutTimers.removeAll()
+                }
+                
+                // Trigger clipboard cleanup to reset state (same as action execution)
+                self.clipboardMonitor.triggerClipboardCleanupForCLI()
+                
             } else {
-                logDebug("CRASH RECOVERY: No pending watchers to clean up")
+                logDebug("UNIFIED RECOVERY: No pending watchers to clean up")
             }
         }
     }
+    
+    /// Helper function to extract recording directory path from various watcher path formats
+    private func extractRecordingPath(from path: String) -> String {
+        // Watcher paths can be:
+        // - Recording directory path (e.g., "/path/to/recordings/1234567890")
+        // - Meta.json path (e.g., "/path/to/recordings/1234567890/meta.json")
+        // - Audio file path (e.g., "/path/to/recordings/1234567890/audio.wav")
+        if path.hasSuffix("/meta.json") {
+            return String(path.dropLast(10)) // Remove "/meta.json"
+        } else if path.contains("/") && path.hasSuffix(".wav") {
+            return (path as NSString).deletingLastPathComponent
+        } else {
+            return path // Already a recording directory path
+        }
+    }
+    
+    /// DEPRECATED: Use performRecordingRecovery instead
+    /// Legacy wrapper for crash recovery - use performRecordingRecovery(preserveRecording:) instead
+    private func cleanupOldPendingWatchers(preservingNewRecording: String, reason: String) {
+        performRecordingRecovery(reason: reason, preserveRecording: preservingNewRecording)
+    }
+    
+    /// DEPRECATED: Use performRecordingRecovery instead  
+    /// Legacy wrapper for crash recovery - use performRecordingRecovery() instead
+    private func cleanupAllPendingWatchers(reason: String) {
+        performRecordingRecovery(reason: reason)
+    }
+    
+    // MARK: - Recording Timeout Management
+    
+    /// Starts a timeout timer for a recording to detect stalled recordings without WAV files
+    private func startRecordingTimeout(for recordingPath: String) {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Cancel any existing timer for this recording
+            if let existingTimer = self.recordingTimeoutTimers[recordingPath] {
+                existingTimer.cancel()
+            }
+            
+            // Create a new timeout timer
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            timer.schedule(deadline: .now() + self.RECORDING_TIMEOUT_SECONDS)
+            
+            timer.setEventHandler { [weak self] in
+                guard let self = self else { return }
+                
+                // Check if recording still doesn't have WAV files and hasn't been processed
+                if !self.isAlreadyProcessed(recordingPath: recordingPath) {
+                    let hasWavFiles = self.checkForWavFiles(in: recordingPath)
+                    if !hasWavFiles {
+                        logInfo("TIMEOUT CANCELLATION: Recording \((recordingPath as NSString).lastPathComponent) timed out after \(self.RECORDING_TIMEOUT_SECONDS) seconds without WAV file")
+                        
+                        // Mark as processed to prevent further processing
+                        self.markAsProcessed(recordingPath: recordingPath)
+                        
+                        // Trigger unified recovery for timeout cancellation
+                        self.performRecordingRecovery(reason: "recording timed out after \(self.RECORDING_TIMEOUT_SECONDS) seconds without WAV file - \((recordingPath as NSString).lastPathComponent)")
+                    }
+                }
+                
+                // Clean up timer
+                self.recordingTimeoutTimers.removeValue(forKey: recordingPath)
+            }
+            
+            timer.resume()
+            self.recordingTimeoutTimers[recordingPath] = timer
+            
+            logDebug("Started \(self.RECORDING_TIMEOUT_SECONDS)-second timeout timer for recording: \((recordingPath as NSString).lastPathComponent)")
+        }
+    }
+    
+    /// Cancels the timeout timer for a recording (called when WAV file appears or recording completes)
+    private func cancelRecordingTimeout(for recordingPath: String) {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            if let timer = self.recordingTimeoutTimers[recordingPath] {
+                timer.cancel()
+                self.recordingTimeoutTimers.removeValue(forKey: recordingPath)
+                logDebug("Cancelled timeout timer for recording: \((recordingPath as NSString).lastPathComponent)")
+            }
+        }
+    }
+
 } 

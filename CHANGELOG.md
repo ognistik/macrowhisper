@@ -10,6 +10,15 @@
   * Migration from previous scattered plist preference files
 * App Context placeholder now will also capture description of active element
 * Fixed `--auto-return true` so that it correctly inserts AI processed result if available.
+* Improved cancellation detection and crash detection
+  * Crash is detected if an unprocessed folder is being watched but a new folder appears in the recordings directory.
+  * Cancellation detection:
+    * WAV file removal
+    * Meta.json deletion (with overwrite handling)
+    * Recording folder deletion
+    * Timeout after 17 seconds without WAV file
+  * Unified Recovery System: Handles crashes, cancellations, and timeouts. Ensures that after recovery, the app returns to a clean state where new recordings can be processed normally without interference from orphaned watchers or actions.
+
 
 ---
 ## [v1.3.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27
