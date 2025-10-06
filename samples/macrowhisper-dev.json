@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "pasteResult",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,
@@ -130,13 +130,27 @@
     }
   },
   "urls" : {
+    "1337" : {
+      "action" : "https://1337x.to/search/{{selectedText||(\\.$)||}}{{clipboardContext||\\.$||}}/1/",
+      "actionDelay" : null,
+      "icon" : "",
+      "moveTo" : "",
+      "noEsc" : null,
+      "openBackground" : true,
+      "openWith" : "",
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : "==^search film\\.?$=="
+    },
     "Alter AI Humanizer" : {
       "action" : "alter://action/ai-humanizer?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
       "noEsc" : null,
-      "openBackground" : false,
+      "openBackground" : true,
       "openWith" : "",
       "restoreClipboard" : null,
       "triggerApps" : "",
@@ -150,7 +164,7 @@
       "icon" : "༜",
       "moveTo" : "",
       "noEsc" : null,
-      "openBackground" : false,
+      "openBackground" : true,
       "openWith" : "",
       "restoreClipboard" : null,
       "triggerApps" : "",
@@ -178,7 +192,7 @@
       "icon" : "",
       "moveTo" : "",
       "noEsc" : null,
-      "openBackground" : false,
+      "openBackground" : true,
       "openWith" : "",
       "restoreClipboard" : null,
       "triggerApps" : "",
@@ -248,7 +262,7 @@
       "icon" : "",
       "moveTo" : "",
       "noEsc" : null,
-      "openBackground" : false,
+      "openBackground" : true,
       "openWith" : "",
       "restoreClipboard" : null,
       "triggerApps" : "",
@@ -282,7 +296,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : "ask google"
+      "triggerVoice" : "ask google|as google"
     },
     "Google This" : {
       "action" : "https://www.google.com/search?q={{selectedText}}{{clipboardContext}}",

@@ -311,7 +311,7 @@ class ClipboardMonitor {
             for (index, content) in allClipboardChanges.enumerated() {
                 let tagNumber = index + 1
                 let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                result += "<clipboard_context_\(tagNumber)>\n\(trimmedContent)\n</clipboard_context_\(tagNumber)>\n\n"
+                result += "<clipboard-context-\(tagNumber)>\n\(trimmedContent)\n</clipboard-context-\(tagNumber)>\n\n"
             }
             logDebug("[ClipboardMonitor] Multiple clipboard changes for stacking - formatted with \(allClipboardChanges.count) XML tags")
             return result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -397,7 +397,7 @@ class ClipboardMonitor {
             for (index, content) in allClipboardChanges.enumerated() {
                 let tagNumber = index + 1
                 let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                result += "<clipboard_context_\(tagNumber)>\n\(trimmedContent)\n</clipboard_context_\(tagNumber)>\n\n"
+                result += "<clipboard-context-\(tagNumber)>\n\(trimmedContent)\n</clipboard-context-\(tagNumber)>\n\n"
             }
             logDebug("[ClipboardMonitor] Multiple clipboard changes for CLI stacking - formatted with \(allClipboardChanges.count) XML tags")
             return result.trimmingCharacters(in: .whitespacesAndNewlines)

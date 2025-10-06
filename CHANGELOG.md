@@ -12,12 +12,12 @@
 * Fixed `--auto-return true` so that it correctly inserts AI processed result if available.
 * Improved cancellation detection and crash detection
   * Crash is detected if an unprocessed folder is being watched but a new folder appears in the recordings directory.
+  * Unified Recovery System: Handles crashes, cancellations, and timeouts. Ensures that after recovery, the app returns to a clean state where new recordings can be processed normally without interference from orphaned watchers or actions.
   * Cancellation detection:
     * WAV file removal
     * Meta.json deletion (with overwrite handling)
     * Recording folder deletion
     * Timeout after 17 seconds without WAV file
-  * Unified Recovery System: Handles crashes, cancellations, and timeouts. Ensures that after recovery, the app returns to a clean state where new recordings can be processed normally without interference from orphaned watchers or actions.
 
 
 ---
