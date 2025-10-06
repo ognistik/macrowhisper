@@ -312,6 +312,14 @@ class RecordingsFolderWatcher {
                     hadWatchers = true
                 }
                 
+                // Cancel timeout timer if it exists
+                if let timer = recordingTimeoutTimers[fullPath] {
+                    timer.cancel()
+                    recordingTimeoutTimers.removeValue(forKey: fullPath)
+                    logDebug("Cancelled timeout timer for deleted directory: \(fullPath)")
+                    hadWatchers = true
+                }
+                
                 // Cancel auto-return and scheduled action only if we had watchers (recording was being processed)
                 if hadWatchers {
                     cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
