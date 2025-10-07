@@ -1,6 +1,9 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07
 ### Changed
 * Improved update system
   * Will now keep track of last dialogue version - will notify of updates if there's a new version before the timout for dialogues happens (before 4 days)
@@ -19,9 +22,8 @@
     * Recording folder deletion
     * Timeout after 17 seconds without WAV file
 
-
 ---
-## [v1.3.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.2) - 2025/08/27
+## [v1.3.3](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.3) - 2025/08/27
 ### Changed
 * Improved recovery for cases where Superwhisper crashes.
   * Cleanup of all watchers after a crash is detected.
