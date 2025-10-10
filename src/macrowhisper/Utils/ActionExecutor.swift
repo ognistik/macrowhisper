@@ -345,6 +345,7 @@ class ActionExecutor {
         let task = Process()
         task.launchPath = "/bin/bash"
         task.arguments = ["-c", processedAction]
+        task.environment = getUTF8Environment()
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
         do {
@@ -361,6 +362,7 @@ class ActionExecutor {
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", processedAction]
+        task.environment = getUTF8Environment()
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
         do {
@@ -373,6 +375,29 @@ class ActionExecutor {
     }
     
     // MARK: - Helper Methods
+    
+    private func getUTF8Environment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        
+        let utf8Locale: String
+        if let existingLang = env["LANG"], !existingLang.isEmpty {
+            if existingLang.contains("UTF-8") || existingLang.contains("utf8") {
+                utf8Locale = existingLang
+            } else {
+                let baseLocale = existingLang.components(separatedBy: ".").first ?? "en_US"
+                utf8Locale = "\(baseLocale).UTF-8"
+            }
+        } else {
+            let localeIdentifier = Locale.current.identifier
+            let normalizedIdentifier = localeIdentifier.replacingOccurrences(of: "-", with: "_")
+            utf8Locale = "\(normalizedIdentifier).UTF-8"
+        }
+        
+        env["LANG"] = utf8Locale
+        env["LC_ALL"] = utf8Locale
+        
+        return env
+    }
     
     private func handleMoveToSetting(folderPath: String, activeInsert: AppConfiguration.Insert?) {
         // Determine the moveTo value with proper precedence

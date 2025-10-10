@@ -2,6 +2,17 @@
 
 ## UNRELEASED
 
+1. Created getUTF8Environment() helper that:
+ • Inherits all existing environment variables
+ • Checks if LANG is already set with UTF-8 encoding
+ • If yes, uses it as-is
+ • If LANG exists but without UTF-8, appends .UTF-8 to the base locale
+ • If LANG doesn't exist, uses system locale (Locale.current.identifier) with .UTF-8
+ • Sets both LANG and LC_ALL to ensure UTF-8 encoding
+2. Applied to both:
+ • processShellScriptAction() (line 348)
+ • processAppleScriptAction() (line 364)
+
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07
 ### Changed
