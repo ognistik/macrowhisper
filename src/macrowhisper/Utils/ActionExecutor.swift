@@ -293,9 +293,10 @@ class ActionExecutor {
             let task = Process()
             task.launchPath = "/usr/bin/shortcuts"
             task.arguments = ["run", shortcutName]
+            task.environment = getUTF8Environment()
             task.standardOutput = FileHandle.nullDevice
             task.standardError = FileHandle.nullDevice
-            
+
             do {
                 try task.run()
                 logDebug("[ShortcutAction] Shortcut launched without input")
@@ -315,9 +316,10 @@ class ActionExecutor {
                 let task = Process()
                 task.launchPath = "/usr/bin/shortcuts"
                 task.arguments = ["run", shortcutName, "-i", tempFile]
+                task.environment = getUTF8Environment()
                 task.standardOutput = FileHandle.nullDevice
                 task.standardError = FileHandle.nullDevice
-                
+
                 try task.run()
                 logDebug("[ShortcutAction] Shortcut launched with temporary file input")
                 
@@ -378,24 +380,34 @@ class ActionExecutor {
     
     private func getUTF8Environment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
-        
+
         let utf8Locale: String
         if let existingLang = env["LANG"], !existingLang.isEmpty {
             if existingLang.contains("UTF-8") || existingLang.contains("utf8") {
+                // Already has UTF-8, use as-is
                 utf8Locale = existingLang
+                logDebug("[UTF8Env] Using existing UTF-8 locale: \(utf8Locale)")
+            } else if existingLang == "C" || existingLang == "POSIX" {
+                // Invalid locale for launchd services - use en_US.UTF-8
+                utf8Locale = "en_US.UTF-8"
+                logDebug("[UTF8Env] Detected invalid locale '\(existingLang)', using fallback: \(utf8Locale)")
             } else {
+                // Has a base locale, append UTF-8
                 let baseLocale = existingLang.components(separatedBy: ".").first ?? "en_US"
                 utf8Locale = "\(baseLocale).UTF-8"
+                logDebug("[UTF8Env] Appending UTF-8 to base locale: \(utf8Locale)")
             }
         } else {
+            // No LANG set, use system locale
             let localeIdentifier = Locale.current.identifier
             let normalizedIdentifier = localeIdentifier.replacingOccurrences(of: "-", with: "_")
             utf8Locale = "\(normalizedIdentifier).UTF-8"
+            logDebug("[UTF8Env] No LANG set, using system locale: \(utf8Locale)")
         }
-        
+
         env["LANG"] = utf8Locale
         env["LC_ALL"] = utf8Locale
-        
+
         return env
     }
     

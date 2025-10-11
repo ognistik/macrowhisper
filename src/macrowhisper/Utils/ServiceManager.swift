@@ -139,6 +139,13 @@ class ServiceManager {
     <array>
 \(argumentsXML)
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+        <key>LC_ALL</key>
+        <string>en_US.UTF-8</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -229,7 +236,7 @@ class ServiceManager {
         }
     }
     
-    /// Check if the service needs to be updated (binary path changed)
+    /// Check if the service needs to be updated (binary path or environment changed)
     private func checkServiceNeedsUpdate() -> (needsUpdate: Bool, currentPath: String)? {
         guard let plistData = try? Data(contentsOf: URL(fileURLWithPath: servicePlistPath)),
               let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
@@ -238,9 +245,25 @@ class ServiceManager {
             logWarning("Could not read existing service plist")
             return nil
         }
-        
+
         let newBinaryPath = getCurrentBinaryPath()
-        return (currentBinaryPath != newBinaryPath, currentBinaryPath)
+        let binaryPathChanged = currentBinaryPath != newBinaryPath
+
+        // Check if EnvironmentVariables section exists with proper UTF-8 locale
+        var envVarsNeedUpdate = false
+        if let envVars = plist["EnvironmentVariables"] as? [String: String],
+           let lang = envVars["LANG"],
+           let lcAll = envVars["LC_ALL"],
+           lang.contains("UTF-8") && lcAll.contains("UTF-8") {
+            // Environment variables are properly set
+            envVarsNeedUpdate = false
+        } else {
+            // Missing or incorrect environment variables
+            envVarsNeedUpdate = true
+            logInfo("Service plist needs update: missing or incorrect UTF-8 environment variables")
+        }
+
+        return (binaryPathChanged || envVarsNeedUpdate, currentBinaryPath)
     }
     
     /// Start the service
