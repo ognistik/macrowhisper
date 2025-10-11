@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0.05,
-    "activeAction" : "pasteResult",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardStacking" : true,
@@ -313,7 +313,7 @@
       "triggerVoice" : "==^google this\\.?$=="
     },
     "Letterboxd" : {
-      "action" : "https://letterboxd.com/search/{{result||\\.$||}}",
+      "action" : "https://letterboxd.com/search/{{result||\\.$||}}{{selectedText||\\.|| }}{{clipboardContext||\\.|| }}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -324,7 +324,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : "ask letterboxd|ask letterboxed"
+      "triggerVoice" : "ask letterboxd|ask letterboxed|ask, letterboxed"
     },
     "OpenAI" : {
       "action" : "https://chat.openai.com/?q={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
