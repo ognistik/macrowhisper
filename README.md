@@ -57,7 +57,7 @@ To prevent conflicts between the two apps:
 ### Test Your Setup
 After granting accessibility permissions, test dictation in different apps. By default, Macrowhisper mimics Superwhisper's auto-paste behavior.
 
-*Note: If Superwhisper's recording window is not closing all the time, then the setting you have to adjust in your configuration is the `actionDelay`.*
+*Note: If Superwhisper's recording window is not closing all the time, the setting you have to adjust in your configuration is the `actionDelay`.*
 
 ---
 ## Key Commands
