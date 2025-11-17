@@ -1,10 +1,10 @@
 {
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
-    "actionDelay" : 0.05,
-    "activeAction" : "swWebView",
+    "actionDelay" : 0.02,
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
-    "clipboardBuffer" : 5,
+    "clipboardBuffer" : 3,
     "clipboardStacking" : true,
     "history" : 5,
     "icon" : "",
@@ -22,7 +22,7 @@
   "inserts" : {
     "autoPaste" : {
       "action" : ".autoPaste",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "•",
       "moveTo" : "",
       "noEsc" : null,
@@ -36,7 +36,7 @@
     },
     "pasteChat" : {
       "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "⇄",
       "moveTo" : "",
       "noEsc" : null,
@@ -50,7 +50,7 @@
     },
     "pasteResult" : {
       "action" : "{{swResult}}",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "⏎",
       "moveTo" : "",
       "noEsc" : null,
@@ -77,8 +77,8 @@
       "triggerVoice" : ""
     },
     "swWebDebug" : {
-      "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"DURATION: {{duration}}\nV PRCS: {{processingTime}}{{languageModelProcessingTime||^(.*)$||\nLLM PRCS: $1}}\n\nMODE: {{modeName}}\n{{modelName}}{{languageModelName||^(.*)$|| | $1}}\n\nVOICE RESULT:\n{{result}}{{llmResult||\\n\\n\\n||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\nLLM RESULT:\n$1||\\s+$||}}{{prompt||\\n\\s*\\n\\s*\\n(\\s*\\n)*||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n$1}}\"\ntrigger_named\"swResultOn\"\nend tell",
-      "actionDelay" : null,
+      "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"DURATION: {{duration}}\nV PRCS: {{processingTime}}{{languageModelProcessingTime||^(.*)$||\nLLM PRCS: $1}}\n\nMODE: {{modeName}}\n{{modelName}}{{languageModelName||^(.*)$|| | $1}}\n\nVOICE RESULT:\n{{result}}{{llmResult||\\n\\n\\n||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\nLLM RESULT:\n$1||\\s+$||}}{{prompt||\\n\\s*\\n\\s*\\n(\\s*\\n)*||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n$1}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
+      "actionDelay" : 0,
       "icon" : "",
       "moveTo" : "",
       "noEsc" : null,
@@ -89,8 +89,8 @@
       "triggerVoice" : "Debug"
     },
     "swWebView" : {
-      "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"{{swResult}}\"\ntrigger_named\"swResultOn\"\nend tell",
-      "actionDelay" : null,
+      "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"{{swResult}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
+      "actionDelay" : 0,
       "icon" : "❑",
       "moveTo" : "",
       "noEsc" : null,
@@ -117,7 +117,7 @@
   },
   "shortcuts" : {
     "AI Memos" : {
-      "action" : "{\"cmd\": \"process\",\"details\": \"{{json:date:long}}\",\"memo\": \"{{json:swResult}}\",\"rawMemo\": \"{{json:result}}\",\"specialCase\": \"yes\"}",
+      "action" : "{\"cmd\": \"process\",\"details\": \"{{json:date:long}}\",\"memo\": \"{{json:swResult||^Make note[.,:;] ||}}\",\"rawMemo\": \"{{json:result}}\",\"specialCase\": \"yes\"}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -200,6 +200,20 @@
       "triggerModes" : "",
       "triggerVoice" : ""
     },
+    "Alter Helper" : {
+      "action" : "alter://action/helper-simple?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "actionDelay" : null,
+      "icon" : "☣",
+      "moveTo" : "",
+      "noEsc" : null,
+      "openBackground" : true,
+      "openWith" : "",
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
     "Alter Helper ★" : {
       "action" : "alter://action/helper?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
@@ -242,20 +256,6 @@
       "triggerModes" : "֍ Prompter XML ★",
       "triggerVoice" : ""
     },
-    "Alter TM" : {
-      "action" : "https://typingmind.com?message={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}-arcMain",
-      "actionDelay" : null,
-      "icon" : "",
-      "moveTo" : "",
-      "noEsc" : null,
-      "openBackground" : false,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : ""
-    },
     "Alter Translate" : {
       "action" : "alter://action/ask-anything?input={{selectedText||(?s)^(.*)$||Please translate into english my selected text: \n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||Please translate into english my clipboard content: \n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
@@ -270,22 +270,8 @@
       "triggerModes" : "",
       "triggerVoice" : ""
     },
-    "Alter Whatever" : {
-      "action" : "alter://action/whatever?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
-      "actionDelay" : null,
-      "icon" : "☣",
-      "moveTo" : "",
-      "noEsc" : null,
-      "openBackground" : true,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : ""
-    },
     "Google" : {
-      "action" : "https://www.google.com/search?q={{result||\\.$||}}",
+      "action" : "https://www.google.com/search?q={{swResult||\\.$||}}{{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -355,7 +341,7 @@
       "triggerVoice" : "ask perplexity"
     },
     "Rotten Tomatoes" : {
-      "action" : "https://www.rottentomatoes.com/search?search={{result||\\.$||}}",
+      "action" : "https://www.rottentomatoes.com/search?search={{result||\\.$||}}{{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -368,8 +354,22 @@
       "triggerModes" : "",
       "triggerVoice" : "ask rotten|ask roten"
     },
+    "TypingMind" : {
+      "action" : "https://typingmind.com?message={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}-arcMain",
+      "actionDelay" : null,
+      "icon" : "",
+      "moveTo" : "",
+      "noEsc" : null,
+      "openBackground" : false,
+      "openWith" : "",
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
     "YouTube" : {
-      "action" : "https://www.youtube.com/results?search_query={{result||\\.$||}}{{clipboardContext}}",
+      "action" : "https://www.youtube.com/results?search_query={{selectedText}}{{clipboardContext}}{{result||\\.$||}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
