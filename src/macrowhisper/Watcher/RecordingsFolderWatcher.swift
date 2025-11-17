@@ -881,7 +881,47 @@ class RecordingsFolderWatcher {
                 var updatedJson = enhancedMetaJson
                 if let stripped = strippedResult {
                     updatedJson["result"] = stripped
-                    updatedJson["swResult"] = stripped
+                    
+                    // Also strip the trigger from llmResult if it exists
+                    // This ensures {{swResult}} doesn't contain the trigger string when using llmResult
+                    if let llmResult = enhancedMetaJson["llmResult"] as? String, !llmResult.isEmpty {
+                        // Get the triggerVoice pattern from the matched action
+                        var triggerVoice: String? = nil
+                        switch type {
+                        case .insert:
+                            if let insert = action as? AppConfiguration.Insert {
+                                triggerVoice = insert.triggerVoice
+                            }
+                        case .url:
+                            if let url = action as? AppConfiguration.Url {
+                                triggerVoice = url.triggerVoice
+                            }
+                        case .shortcut:
+                            if let shortcut = action as? AppConfiguration.Shortcut {
+                                triggerVoice = shortcut.triggerVoice
+                            }
+                        case .shell:
+                            if let shell = action as? AppConfiguration.ScriptShell {
+                                triggerVoice = shell.triggerVoice
+                            }
+                        case .appleScript:
+                            if let ascript = action as? AppConfiguration.ScriptAppleScript {
+                                triggerVoice = ascript.triggerVoice
+                            }
+                        }
+                        
+                        // Apply the same trigger stripping logic to llmResult
+                        if let triggerVoicePattern = triggerVoice, !triggerVoicePattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            let strippedLlmResult = stripTriggerFromText(
+                                text: llmResult,
+                                triggerVoice: triggerVoicePattern
+                            )
+                            if let strippedLlm = strippedLlmResult {
+                                updatedJson["llmResult"] = strippedLlm
+                                logDebug("[TriggerAction] Stripped trigger from llmResult: '\(llmResult)' -> '\(strippedLlm)'")
+                            }
+                        }
+                    }
                 }
                 
                 // Execute the action on the main thread with cleanup callback
@@ -1352,6 +1392,109 @@ class RecordingsFolderWatcher {
                 logDebug("Cancelled timeout timer for recording: \((recordingPath as NSString).lastPathComponent)")
             }
         }
+    }
+    
+    /// Strips trigger pattern from text using the same logic as TriggerEvaluator
+    /// Returns stripped text if a trigger matches, nil otherwise
+    private func stripTriggerFromText(text: String, triggerVoice: String) -> String? {
+        // Split triggers by '|' but ignore '|' inside raw regex blocks delimited by '=='
+        let triggers = splitVoiceTriggers(triggerVoice)
+        
+        for trigger in triggers {
+            let isException = trigger.hasPrefix("!")
+            if isException {
+                continue // Don't strip exception patterns
+            }
+            
+            let actualPattern = trigger
+            
+            // Check if this is a raw regex pattern (wrapped in ==)
+            let isRawRegex = actualPattern.hasPrefix("==") && actualPattern.hasSuffix("==")
+            let regexPattern: String
+            
+            if isRawRegex {
+                // Don't strip raw regex patterns (same as TriggerEvaluator logic)
+                continue
+            } else {
+                // For prefix matching (current behavior)
+                regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: actualPattern)
+            }
+            
+            if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                let range = NSRange(location: 0, length: text.utf16.count)
+                if let match = regex.firstMatch(in: text, options: [], range: range) {
+                    // Strip the trigger from the start, plus any leading punctuation/whitespace after
+                    let afterTriggerIdx = text.index(text.startIndex, offsetBy: match.range.length)
+                    var stripped = String(text[afterTriggerIdx...])
+                    let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+                    while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
+                        stripped.removeFirst()
+                    }
+                    if let first = stripped.first {
+                        stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
+                    }
+                    return stripped
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    /// Splits a triggerVoice string into individual patterns, using '|' as separator,
+    /// but ignoring '|' inside raw regex blocks delimited by '==' ... '=='.
+    /// Trims whitespace around each part and removes empty parts.
+    private func splitVoiceTriggers(_ input: String) -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var i = input.startIndex
+        var inRaw = false
+
+        func pushCurrent() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { parts.append(trimmed) }
+            current.removeAll(keepingCapacity: true)
+        }
+
+        while i < input.endIndex {
+            if inRaw {
+                // Look for closing '=='
+                if input[i] == "=" {
+                    let next = input.index(after: i)
+                    if next < input.endIndex && input[next] == "=" {
+                        // Append the closing '==' and exit raw mode
+                        current.append("==")
+                        i = input.index(after: next)
+                        inRaw = false
+                        continue
+                    }
+                }
+                // Regular char inside raw
+                current.append(input[i])
+                i = input.index(after: i)
+            } else {
+                // Not in raw mode
+                if input[i] == "|" {
+                    pushCurrent()
+                    i = input.index(after: i)
+                    continue
+                }
+                // Enter raw mode on '=='
+                if input[i] == "=" {
+                    let next = input.index(after: i)
+                    if next < input.endIndex && input[next] == "=" {
+                        inRaw = true
+                        current.append("==")
+                        i = input.index(after: next)
+                        continue
+                    }
+                }
+                current.append(input[i])
+                i = input.index(after: i)
+            }
+        }
+        pushCurrent()
+        return parts
     }
 
 } 
