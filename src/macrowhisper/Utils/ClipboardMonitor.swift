@@ -47,6 +47,7 @@ class ClipboardMonitor {
         var preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (mutable for cleanup)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
+        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (1.5s blackout period)
     }
     
     private struct ClipboardChange {
@@ -94,6 +95,7 @@ class ClipboardMonitor {
         let preRecordingClipboardStack = capturePreRecordingClipboardStack(beforeTime: sessionStartTime)
         
         let currentChangeCount = pasteboard.changeCount
+        let ignoreUntil = sessionStartTime.addingTimeInterval(2.0) // Ignore clipboard for 2.0 seconds
         let session = EarlyMonitoringSession(
             userOriginalClipboard: userOriginal,
             startTime: sessionStartTime,
@@ -101,7 +103,8 @@ class ClipboardMonitor {
             preRecordingClipboard: preRecordingClipboard,
             preRecordingClipboardStack: preRecordingClipboardStack,
             startingChangeCount: currentChangeCount,
-            lastSeenChangeCount: currentChangeCount
+            lastSeenChangeCount: currentChangeCount,
+            ignoreClipboardUntil: ignoreUntil
         )
         
         sessionsQueue.async(flags: .barrier) { [weak self] in
@@ -110,6 +113,7 @@ class ClipboardMonitor {
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
         logDebug("[ClipboardMonitor] Captured user original clipboard content")
+        logDebug("[ClipboardMonitor] Ignoring clipboard changes for 2.0 seconds to avoid unwanted capture")
         if !selectedText.isEmpty {
             logDebug("[ClipboardMonitor] Captured selected text at recording start")
         }
@@ -478,7 +482,7 @@ class ClipboardMonitor {
     /// Monitors clipboard changes during early monitoring session
     private func monitorClipboardChangesForSession(recordingPath: String) {
         // Get session data in a single atomic operation to prevent race conditions
-        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?, isExecutingAction: Bool, lastSeenChangeCount: Int) = (false, nil, nil, false, 0)
+        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?, isExecutingAction: Bool, lastSeenChangeCount: Int, ignoreClipboardUntil: Date) = (false, nil, nil, false, 0, Date.distantPast)
         
         sessionsQueue.sync { [weak self] in
             guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
@@ -487,6 +491,7 @@ class ClipboardMonitor {
             sessionData.lastChange = session.clipboardChanges.last
             sessionData.isExecutingAction = session.isExecutingAction
             sessionData.lastSeenChangeCount = session.lastSeenChangeCount
+            sessionData.ignoreClipboardUntil = session.ignoreClipboardUntil
         }
         
         // Exit silently if session is not active - session will be cleaned up naturally
@@ -500,11 +505,15 @@ class ClipboardMonitor {
         // Use changeCount for more reliable change detection
         if currentChangeCount != sessionData.lastSeenChangeCount {
             let currentContent = pasteboard.string(forType: .string)
+            let now = Date()
+            
+            // Check if we're still in the 1.5-second ignore window
+            let isInIgnoreWindow = now < sessionData.ignoreClipboardUntil
             
             // Check if the frontmost app should be ignored
             let shouldIgnore = self.shouldIgnoreFrontmostApp()
             
-            if !shouldIgnore {
+            if !shouldIgnore && !isInIgnoreWindow {
                 // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
                 // This fixes the bug where copying the same content multiple times wasn't being detected
                 let change = ClipboardChange(content: currentContent, timestamp: Date(), changeCount: currentChangeCount)
@@ -537,8 +546,24 @@ class ClipboardMonitor {
                         logDebug("[ClipboardMonitor] Detected clipboard change during action execution (changeCount: \(currentChangeCount))")
                     }
                 }
+            } else if isInIgnoreWindow {
+                // We're in the 2.0-second ignore window - update last seen change count but don't track the change
+                sessionsQueue.async(flags: .barrier) { [weak self] in
+                    guard let self = self,
+                          var session = self.earlyMonitoringSessions[recordingPath],
+                          session.isActive else {
+                        return
+                    }
+                    
+                    session.lastSeenChangeCount = currentChangeCount
+                    self.earlyMonitoringSessions[recordingPath] = session
+                }
+                
+                // Log this ignoring only once when we detect the first change in the ignore window
+                let timeRemaining = sessionData.ignoreClipboardUntil.timeIntervalSince(now)
+                logDebug("[ClipboardMonitor] Ignoring clipboard change during 2.0s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
             } else {
-                // Update the session's last seen change count even if we're ignoring this change
+                // Update the session's last seen change count even if we're ignoring this change (app-based ignore)
                 sessionsQueue.async(flags: .barrier) { [weak self] in
                     guard let self = self,
                           var session = self.earlyMonitoringSessions[recordingPath],

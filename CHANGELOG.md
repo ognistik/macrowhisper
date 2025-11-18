@@ -9,8 +9,10 @@
  * If LANG doesn't exist, uses system locale (Locale.current.identifier) with .UTF-8
  * Sets both LANG and LC_ALL to ensure UTF-8 encoding
  * Applies to Shell Scripts and AppleScripts
-
 * The removal of trigger words or phrases was happening only on `result`  (without LLM), but now it's also happening on `llmResult`. This ensures that it will never appear once `{{swResult}}` is formed.
+* New `clipboardIgnore` setting in config defaults. User can set app names or bundle IDs to indicate applications whose clipboard interactions shouldn't be captured by the `{{clipboardContext}}` placeholder.
+* When a recording starts, there's now a two-second blackout for the clipboard context to avoid clipboard context contamination.
+  * Prior to this, if the user was on an app where there was no selected text range (for example, Finder), the app—in its attempts to capture selected text—would interact with the clipboard.
 
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07
