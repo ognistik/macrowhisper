@@ -23,11 +23,12 @@ struct AppConfiguration: Codable {
         var scheduledActionTimeout: Double
         var clipboardStacking: Bool
         var clipboardBuffer: Double
+        var clipboardIgnore: String?
         var autoUpdateConfig: Bool
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking, clipboardBuffer, autoUpdateConfig
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, autoUpdateConfig
         }
         
         // Custom encoding to preserve null values
@@ -49,6 +50,7 @@ struct AppConfiguration: Codable {
             try container.encode(scheduledActionTimeout, forKey: .scheduledActionTimeout)
             try container.encode(clipboardStacking, forKey: .clipboardStacking)
             try container.encode(clipboardBuffer, forKey: .clipboardBuffer)
+            try container.encode(clipboardIgnore, forKey: .clipboardIgnore)
             try container.encode(autoUpdateConfig, forKey: .autoUpdateConfig)
         }
         
@@ -91,11 +93,12 @@ struct AppConfiguration: Codable {
             scheduledActionTimeout = try container.decodeIfPresent(Double.self, forKey: .scheduledActionTimeout) ?? 5
             clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking) ?? false
             clipboardBuffer = try container.decodeIfPresent(Double.self, forKey: .clipboardBuffer) ?? 5.0
+            clipboardIgnore = try container.decodeIfPresent(String.self, forKey: .clipboardIgnore)
             autoUpdateConfig = try container.decodeIfPresent(Bool.self, forKey: .autoUpdateConfig) ?? true
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool, clipboardBuffer: Double, autoUpdateConfig: Bool) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, autoUpdateConfig: Bool) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -112,6 +115,7 @@ struct AppConfiguration: Codable {
             self.scheduledActionTimeout = scheduledActionTimeout
             self.clipboardStacking = clipboardStacking
             self.clipboardBuffer = clipboardBuffer
+            self.clipboardIgnore = clipboardIgnore
             self.autoUpdateConfig = autoUpdateConfig
         }
         
@@ -133,6 +137,7 @@ struct AppConfiguration: Codable {
                 scheduledActionTimeout: 5,
                 clipboardStacking: false,
                 clipboardBuffer: 5.0,
+                clipboardIgnore: "",
                 autoUpdateConfig: true
             )
         }

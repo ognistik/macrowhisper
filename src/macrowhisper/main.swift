@@ -1480,6 +1480,10 @@ configManager.onConfigChanged = { reason in
     if let watcher = recordingsWatcher {
         let bufferSeconds = configManager.config.defaults.clipboardBuffer
         watcher.getClipboardMonitor().updateClipboardBuffer(seconds: bufferSeconds)
+        
+        // Apply clipboard ignore pattern changes live to the global ClipboardMonitor
+        let ignorePattern = configManager.config.defaults.clipboardIgnore ?? ""
+        watcher.getClipboardMonitor().updateClipboardIgnore(pattern: ignorePattern)
     }
     
     // If updates were disabled but are now enabled, reset the version checker state and perform immediate check

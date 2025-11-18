@@ -16,6 +16,9 @@ class ClipboardMonitor {
     // Global clipboard history for pre-recording capture (lightweight, app-lifetime monitoring)
     private var preRecordingBuffer: TimeInterval // Keep N seconds of history (0 disables)
     
+    // Clipboard ignore pattern for filtering clipboard content from specific apps
+    private var clipboardIgnorePattern: String
+    
     /// Dynamic cleanup interval that scales with user's clipboard buffer setting
     private var cleanupInterval: TimeInterval {
         return max(30.0, preRecordingBuffer + 10.0)
@@ -52,9 +55,10 @@ class ClipboardMonitor {
         let changeCount: Int  // NSPasteboard changeCount when this change was detected
     }
     
-    init(logger: Logger, preRecordingBufferSeconds: TimeInterval = 5.0) {
+    init(logger: Logger, preRecordingBufferSeconds: TimeInterval = 5.0, clipboardIgnore: String = "") {
         self.logger = logger
         self.preRecordingBuffer = max(0.0, preRecordingBufferSeconds)
+        self.clipboardIgnorePattern = clipboardIgnore
         // Initialize with current pasteboard state
         let pasteboard = NSPasteboard.general
         lastSeenChangeCount = pasteboard.changeCount
@@ -497,36 +501,53 @@ class ClipboardMonitor {
         if currentChangeCount != sessionData.lastSeenChangeCount {
             let currentContent = pasteboard.string(forType: .string)
             
-            // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
-            // This fixes the bug where copying the same content multiple times wasn't being detected
-            let change = ClipboardChange(content: currentContent, timestamp: Date(), changeCount: currentChangeCount)
+            // Check if the frontmost app should be ignored
+            let shouldIgnore = self.shouldIgnoreFrontmostApp()
             
-            // Always track the change, but only log if we're actively executing an action
-            sessionsQueue.async(flags: .barrier) { [weak self] in
-                guard let self = self,
-                      let session = self.earlyMonitoringSessions[recordingPath],
-                      session.isActive else {
-                    return
-                }
+            if !shouldIgnore {
+                // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
+                // This fixes the bug where copying the same content multiple times wasn't being detected
+                let change = ClipboardChange(content: currentContent, timestamp: Date(), changeCount: currentChangeCount)
                 
-                // Always append the change for restoration logic, with bounds checking
-                if var session = self.earlyMonitoringSessions[recordingPath] {
-                    session.clipboardChanges.append(change)
+                // Always track the change, but only log if we're actively executing an action
+                sessionsQueue.async(flags: .barrier) { [weak self] in
+                    guard let self = self,
+                          let session = self.earlyMonitoringSessions[recordingPath],
+                          session.isActive else {
+                        return
+                    }
                     
-                    // Prevent unbounded growth by removing oldest entries if we exceed the limit
-                    if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
-                        let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
-                        session.clipboardChanges.removeFirst(excessCount)
-                        logDebug("[ClipboardMonitor] Trimmed \(excessCount) old clipboard changes to stay within bounds")
+                    // Always append the change for restoration logic, with bounds checking
+                    if var session = self.earlyMonitoringSessions[recordingPath] {
+                        session.clipboardChanges.append(change)
+                        
+                        // Prevent unbounded growth by removing oldest entries if we exceed the limit
+                        if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
+                            let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
+                            session.clipboardChanges.removeFirst(excessCount)
+                            logDebug("[ClipboardMonitor] Trimmed \(excessCount) old clipboard changes to stay within bounds")
+                        }
+                        
+                        session.lastSeenChangeCount = currentChangeCount
+                        self.earlyMonitoringSessions[recordingPath] = session
+                    }
+                    
+                    // Only log if we're currently executing an action
+                    if session.isExecutingAction {
+                        logDebug("[ClipboardMonitor] Detected clipboard change during action execution (changeCount: \(currentChangeCount))")
+                    }
+                }
+            } else {
+                // Update the session's last seen change count even if we're ignoring this change
+                sessionsQueue.async(flags: .barrier) { [weak self] in
+                    guard let self = self,
+                          var session = self.earlyMonitoringSessions[recordingPath],
+                          session.isActive else {
+                        return
                     }
                     
                     session.lastSeenChangeCount = currentChangeCount
                     self.earlyMonitoringSessions[recordingPath] = session
-                }
-                
-                // Only log if we're currently executing an action
-                if session.isExecutingAction {
-                    logDebug("[ClipboardMonitor] Detected clipboard change during action execution (changeCount: \(currentChangeCount))")
                 }
             }
         }
@@ -1367,6 +1388,68 @@ class ClipboardMonitor {
         startPeriodicCleanup()
     }
     
+    /// Updates the clipboard ignore pattern for filtering clipboard content from specific apps
+    /// - Parameter pattern: Regex pattern matching app names or bundle IDs (pipe-separated)
+    func updateClipboardIgnore(pattern: String) {
+        clipboardIgnorePattern = pattern
+        if pattern.isEmpty {
+            logInfo("[ClipboardMonitor] Cleared clipboard ignore pattern - all apps will be monitored")
+        } else {
+            logInfo("[ClipboardMonitor] Updated clipboard ignore pattern: '\(pattern)'")
+        }
+    }
+    
+    /// Checks if the frontmost application should be ignored based on clipboardIgnore pattern
+    /// Returns true if the app matches the ignore pattern, false otherwise
+    private func shouldIgnoreFrontmostApp() -> Bool {
+        // If no ignore pattern is set, don't ignore any apps
+        guard !clipboardIgnorePattern.isEmpty else { return false }
+        
+        // Get the frontmost application
+        let frontApp: NSRunningApplication?
+        if Thread.isMainThread {
+            frontApp = NSWorkspace.shared.frontmostApplication
+        } else {
+            var app: NSRunningApplication?
+            let semaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                app = NSWorkspace.shared.frontmostApplication
+                semaphore.signal()
+            }
+            _ = semaphore.wait(timeout: .now() + 0.1)
+            frontApp = app
+        }
+        
+        guard let app = frontApp else { return false }
+        
+        // Get app name and bundle ID for matching
+        let appName = app.localizedName ?? ""
+        let bundleId = app.bundleIdentifier ?? ""
+        
+        // Try to match against the ignore pattern (supports regex with pipe-separated values)
+        do {
+            let regex = try NSRegularExpression(pattern: clipboardIgnorePattern, options: [.caseInsensitive])
+            
+            // Check if app name matches
+            let nameRange = NSRange(appName.startIndex..., in: appName)
+            if regex.firstMatch(in: appName, options: [], range: nameRange) != nil {
+                logDebug("[ClipboardMonitor] Ignoring clipboard change from app '\(appName)' (matched by name)")
+                return true
+            }
+            
+            // Check if bundle ID matches
+            let bundleRange = NSRange(bundleId.startIndex..., in: bundleId)
+            if regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil {
+                logDebug("[ClipboardMonitor] Ignoring clipboard change from app '\(appName)' (\(bundleId)) (matched by bundle ID)")
+                return true
+            }
+        } catch {
+            logError("[ClipboardMonitor] Invalid clipboardIgnore regex pattern '\(clipboardIgnorePattern)': \(error.localizedDescription)")
+        }
+        
+        return false
+    }
+    
     /// Triggers clipboard cleanup for CLI actions that bypass the normal action execution flow
     /// This ensures CLI actions also get the full reset treatment to prevent contamination
     func triggerClipboardCleanupForCLI() {
@@ -1432,22 +1515,29 @@ class ClipboardMonitor {
             
             // Use changeCount for more reliable change detection - track ANY clipboard operation
             if currentChangeCount != self.lastSeenChangeCount {
-                // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
-                // This fixes the bug where copying the same content multiple times wasn't being detected
-                let change = ClipboardChange(content: currentClipboard, timestamp: now, changeCount: currentChangeCount)
-                self.globalClipboardHistory.append(change)
+                // Check if the frontmost app should be ignored
+                let shouldIgnore = self.shouldIgnoreFrontmostApp()
                 
-                // Prevent unbounded growth by removing oldest entries if we exceed the limit
-                if self.globalClipboardHistory.count > MAX_GLOBAL_CLIPBOARD_HISTORY {
-                    let excessCount = self.globalClipboardHistory.count - MAX_GLOBAL_CLIPBOARD_HISTORY
-                    self.globalClipboardHistory.removeFirst(excessCount)
-                    logDebug("[ClipboardMonitor] Trimmed \(excessCount) old global history entries to stay within bounds")
+                if !shouldIgnore {
+                    // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
+                    // This fixes the bug where copying the same content multiple times wasn't being detected
+                    let change = ClipboardChange(content: currentClipboard, timestamp: now, changeCount: currentChangeCount)
+                    self.globalClipboardHistory.append(change)
+                    
+                    // Prevent unbounded growth by removing oldest entries if we exceed the limit
+                    if self.globalClipboardHistory.count > MAX_GLOBAL_CLIPBOARD_HISTORY {
+                        let excessCount = self.globalClipboardHistory.count - MAX_GLOBAL_CLIPBOARD_HISTORY
+                        self.globalClipboardHistory.removeFirst(excessCount)
+                        logDebug("[ClipboardMonitor] Trimmed \(excessCount) old global history entries to stay within bounds")
+                    }
+                    
+                    logDebug("[ClipboardMonitor] Global monitoring detected clipboard operation (changeCount: \(currentChangeCount))")
+                    logDebug("[ClipboardMonitor] Global history size: \(self.globalClipboardHistory.count)/\(MAX_GLOBAL_CLIPBOARD_HISTORY)")
                 }
                 
+                // Always update last seen values even if we're ignoring this change
                 self.lastSeenClipboardContent = currentClipboard
                 self.lastSeenChangeCount = currentChangeCount
-                logDebug("[ClipboardMonitor] Global monitoring detected clipboard operation (changeCount: \(currentChangeCount))")
-                logDebug("[ClipboardMonitor] Global history size: \(self.globalClipboardHistory.count)/\(MAX_GLOBAL_CLIPBOARD_HISTORY)")
             }
             
             // Clean up old entries beyond the buffer time (keep only last 5 seconds)

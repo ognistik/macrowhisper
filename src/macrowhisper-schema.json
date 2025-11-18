@@ -101,6 +101,12 @@
           "minimum": 0,
           "default": 5
         },
+        "clipboardIgnore": {
+          "type": ["string", "null"],
+          "description": "Regex pattern to ignore clipboard content from specific applications. Use '|' for multiple apps (e.g., 'AppName|com.bundle.id'). Matches against app name or bundle ID. Empty string or null means no apps are ignored.",
+          "examples": ["Chrome|Safari", "com.google.Chrome", "^Slack$", "", null],
+          "default": ""
+        },
         "autoUpdateConfig": {
           "type": "boolean",
           "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config.",
