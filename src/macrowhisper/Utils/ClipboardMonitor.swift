@@ -47,7 +47,7 @@ class ClipboardMonitor {
         var preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (mutable for cleanup)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
-        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (1.5s blackout period)
+        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (2.0s blackout period)
     }
     
     private struct ClipboardChange {
@@ -87,7 +87,7 @@ class ClipboardMonitor {
         let userOriginal = pasteboard.string(forType: .string)
         
         // Capture selected text immediately when recording folder appears
-        let selectedText = getSelectedText()
+        let selectedText = "getSelectedText()"
         
         // Capture pre-recording clipboard from global history (5 seconds before this recording started)
         let sessionStartTime = Date()
