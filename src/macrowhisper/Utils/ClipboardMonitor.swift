@@ -5,6 +5,10 @@ import Cocoa
 private let MAX_SESSION_CLIPBOARD_CHANGES = 50  // Maximum clipboard changes per session
 private let MAX_GLOBAL_CLIPBOARD_HISTORY = 100  // Maximum global history entries
 
+/// Time window for retroactive clipboard cleanup when ignored apps become frontmost
+/// This handles cases where apps trigger clipboard changes before gaining focus (e.g., during window activation)
+private let RETROACTIVE_CLEANUP_WINDOW: TimeInterval = 0.5  // Look back 0.5 seconds for cleanup
+
 /// Handles clipboard monitoring and synchronization for insert actions triggered by valid results
 /// This solves the timing issue where Superwhisper puts content on clipboard at the same time as insert execution
 class ClipboardMonitor {
@@ -576,8 +580,43 @@ class ClipboardMonitor {
                 // Log this ignoring only once when we detect the first change in the ignore window
                 let timeRemaining = sessionData.ignoreClipboardUntil.timeIntervalSince(now)
                 logDebug("[ClipboardMonitor] Ignoring clipboard change during 2.0s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
+            } else if shouldIgnore {
+                // RETROACTIVE CLEANUP: When an ignored app becomes frontmost and triggers clipboard changes,
+                // check if there were recent clipboard changes that might have actually been caused by this
+                // ignored app before it gained focus (e.g., during window activation).
+                sessionsQueue.async(flags: .barrier) { [weak self] in
+                    guard let self = self,
+                          var session = self.earlyMonitoringSessions[recordingPath],
+                          session.isActive else {
+                        return
+                    }
+                    
+                    // Look for recent changes within the retroactive cleanup window
+                    let retroactiveCleanupCutoff = now.addingTimeInterval(-RETROACTIVE_CLEANUP_WINDOW)
+                    let recentChanges = session.clipboardChanges.filter { change in
+                        change.timestamp >= retroactiveCleanupCutoff
+                    }
+                    
+                    if !recentChanges.isEmpty {
+                        // Remove these recent changes as they were likely caused by the ignored app
+                        // during its activation before it became frontmost
+                        let beforeCount = session.clipboardChanges.count
+                        session.clipboardChanges.removeAll { change in
+                            change.timestamp >= retroactiveCleanupCutoff
+                        }
+                        let removedCount = beforeCount - session.clipboardChanges.count
+                        
+                        if removedCount > 0 {
+                            let removedAppNames = recentChanges.compactMap { $0.frontAppName }.joined(separator: ", ")
+                            logDebug("[ClipboardMonitor] Session retroactive cleanup: Removed \(removedCount) recent clipboard change(s) attributed to '\(removedAppNames)' (likely caused by '\(appName)' during window activation)")
+                        }
+                    }
+                    
+                    session.lastSeenChangeCount = currentChangeCount
+                    self.earlyMonitoringSessions[recordingPath] = session
+                }
             } else {
-                // Update the session's last seen change count even if we're ignoring this change (app-based ignore)
+                // Update the session's last seen change count (fallback case)
                 sessionsQueue.async(flags: .barrier) { [weak self] in
                     guard let self = self,
                           var session = self.earlyMonitoringSessions[recordingPath],
@@ -1572,7 +1611,33 @@ class ClipboardMonitor {
                 // Check if the captured app should be ignored (using the app info we captured atomically)
                 let shouldIgnore = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
                 
-                if !shouldIgnore {
+                if shouldIgnore {
+                    // RETROACTIVE CLEANUP: When an ignored app becomes frontmost and triggers clipboard changes,
+                    // check if there were recent clipboard changes from other apps that might have actually been
+                    // caused by this ignored app before it gained focus (e.g., during window activation).
+                    // This handles cases like Alter using clipboard before its window is fully activated.
+                    let retroactiveCleanupCutoff = now.addingTimeInterval(-RETROACTIVE_CLEANUP_WINDOW)
+                    
+                    // Look for recent changes that might have been incorrectly attributed to other apps
+                    let recentChanges = self.globalClipboardHistory.filter { change in
+                        change.timestamp >= retroactiveCleanupCutoff
+                    }
+                    
+                    if !recentChanges.isEmpty {
+                        // Remove these recent changes as they were likely caused by the ignored app
+                        // during its activation before it became frontmost
+                        let beforeCount = self.globalClipboardHistory.count
+                        self.globalClipboardHistory.removeAll { change in
+                            change.timestamp >= retroactiveCleanupCutoff
+                        }
+                        let removedCount = beforeCount - self.globalClipboardHistory.count
+                        
+                        if removedCount > 0 {
+                            let removedAppNames = recentChanges.compactMap { $0.frontAppName }.joined(separator: ", ")
+                            logDebug("[ClipboardMonitor] Retroactive cleanup: Removed \(removedCount) recent clipboard change(s) attributed to '\(removedAppNames)' (likely caused by '\(appName)' during window activation)")
+                        }
+                    }
+                } else {
                     // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
                     // Store the app info with the change so we know which app made it
                     let change = ClipboardChange(
