@@ -54,6 +54,8 @@ class ClipboardMonitor {
         let content: String?
         let timestamp: Date
         let changeCount: Int  // NSPasteboard changeCount when this change was detected
+        let frontAppName: String?  // Name of the frontmost app that made this change
+        let frontAppBundleId: String?  // Bundle ID of the frontmost app that made this change
     }
     
     init(logger: Logger, preRecordingBufferSeconds: TimeInterval = 5.0, clipboardIgnore: String = "") {
@@ -87,7 +89,7 @@ class ClipboardMonitor {
         let userOriginal = pasteboard.string(forType: .string)
         
         // Capture selected text immediately when recording folder appears
-        let selectedText = "getSelectedText()"
+        let selectedText = getSelectedText()
         
         // Capture pre-recording clipboard from global history (5 seconds before this recording started)
         let sessionStartTime = Date()
@@ -507,16 +509,28 @@ class ClipboardMonitor {
             let currentContent = pasteboard.string(forType: .string)
             let now = Date()
             
+            // CRITICAL: Capture frontmost app info IMMEDIATELY when detecting clipboard change
+            // This prevents race conditions where the user switches apps before we can check
+            let frontApp = NSWorkspace.shared.frontmostApplication
+            let appName = frontApp?.localizedName ?? ""
+            let bundleId = frontApp?.bundleIdentifier ?? ""
+            
             // Check if we're still in the 1.5-second ignore window
             let isInIgnoreWindow = now < sessionData.ignoreClipboardUntil
             
-            // Check if the frontmost app should be ignored
-            let shouldIgnore = self.shouldIgnoreFrontmostApp()
+            // Check if the captured app should be ignored (using the app info we captured atomically)
+            let shouldIgnore = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
             
             if !shouldIgnore && !isInIgnoreWindow {
                 // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
-                // This fixes the bug where copying the same content multiple times wasn't being detected
-                let change = ClipboardChange(content: currentContent, timestamp: Date(), changeCount: currentChangeCount)
+                // Store the app info with the change so we know which app made it
+                let change = ClipboardChange(
+                    content: currentContent, 
+                    timestamp: Date(), 
+                    changeCount: currentChangeCount,
+                    frontAppName: appName.isEmpty ? nil : appName,
+                    frontAppBundleId: bundleId.isEmpty ? nil : bundleId
+                )
                 
                 // Always track the change, but only log if we're actively executing an action
                 sessionsQueue.async(flags: .barrier) { [weak self] in
@@ -1427,9 +1441,6 @@ class ClipboardMonitor {
     /// Checks if the frontmost application should be ignored based on clipboardIgnore pattern
     /// Returns true if the app matches the ignore pattern, false otherwise
     private func shouldIgnoreFrontmostApp() -> Bool {
-        // If no ignore pattern is set, don't ignore any apps
-        guard !clipboardIgnorePattern.isEmpty else { return false }
-        
         // Get the frontmost application
         let frontApp: NSRunningApplication?
         if Thread.isMainThread {
@@ -1450,6 +1461,18 @@ class ClipboardMonitor {
         // Get app name and bundle ID for matching
         let appName = app.localizedName ?? ""
         let bundleId = app.bundleIdentifier ?? ""
+        
+        return shouldIgnoreApp(appName: appName, bundleId: bundleId)
+    }
+    
+    /// Checks if an application should be ignored based on clipboardIgnore pattern
+    /// - Parameters:
+    ///   - appName: The name of the application
+    ///   - bundleId: The bundle identifier of the application
+    /// - Returns: true if the app matches the ignore pattern, false otherwise
+    private func shouldIgnoreApp(appName: String, bundleId: String) -> Bool {
+        // If no ignore pattern is set, don't ignore any apps
+        guard !clipboardIgnorePattern.isEmpty else { return false }
         
         // Try to match against the ignore pattern (supports regex with pipe-separated values)
         do {
@@ -1526,6 +1549,12 @@ class ClipboardMonitor {
         let currentClipboard = pasteboard.string(forType: .string)
         let now = Date()
         
+        // CRITICAL: Capture frontmost app info IMMEDIATELY when detecting clipboard change
+        // This prevents race conditions where the user switches apps before we can check
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        let appName = frontApp?.localizedName ?? ""
+        let bundleId = frontApp?.bundleIdentifier ?? ""
+        
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
             
@@ -1540,13 +1569,19 @@ class ClipboardMonitor {
             
             // Use changeCount for more reliable change detection - track ANY clipboard operation
             if currentChangeCount != self.lastSeenChangeCount {
-                // Check if the frontmost app should be ignored
-                let shouldIgnore = self.shouldIgnoreFrontmostApp()
+                // Check if the captured app should be ignored (using the app info we captured atomically)
+                let shouldIgnore = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
                 
                 if !shouldIgnore {
                     // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
-                    // This fixes the bug where copying the same content multiple times wasn't being detected
-                    let change = ClipboardChange(content: currentClipboard, timestamp: now, changeCount: currentChangeCount)
+                    // Store the app info with the change so we know which app made it
+                    let change = ClipboardChange(
+                        content: currentClipboard, 
+                        timestamp: now, 
+                        changeCount: currentChangeCount,
+                        frontAppName: appName.isEmpty ? nil : appName,
+                        frontAppBundleId: bundleId.isEmpty ? nil : bundleId
+                    )
                     self.globalClipboardHistory.append(change)
                     
                     // Prevent unbounded growth by removing oldest entries if we exceed the limit
@@ -1556,7 +1591,7 @@ class ClipboardMonitor {
                         logDebug("[ClipboardMonitor] Trimmed \(excessCount) old global history entries to stay within bounds")
                     }
                     
-                    logDebug("[ClipboardMonitor] Global monitoring detected clipboard operation (changeCount: \(currentChangeCount))")
+                    logDebug("[ClipboardMonitor] Global monitoring detected clipboard operation from '\(appName)' (changeCount: \(currentChangeCount))")
                     logDebug("[ClipboardMonitor] Global history size: \(self.globalClipboardHistory.count)/\(MAX_GLOBAL_CLIPBOARD_HISTORY)")
                 }
                 
