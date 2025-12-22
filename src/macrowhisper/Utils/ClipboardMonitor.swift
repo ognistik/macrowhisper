@@ -51,7 +51,7 @@ class ClipboardMonitor {
         var preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (mutable for cleanup)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
-        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (2.0s blackout period)
+        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (2.5s blackout period)
     }
     
     private struct ClipboardChange {
@@ -101,7 +101,7 @@ class ClipboardMonitor {
         let preRecordingClipboardStack = capturePreRecordingClipboardStack(beforeTime: sessionStartTime)
         
         let currentChangeCount = pasteboard.changeCount
-        let ignoreUntil = sessionStartTime.addingTimeInterval(2.0) // Ignore clipboard for 2.0 seconds
+        let ignoreUntil = sessionStartTime.addingTimeInterval(2.5) // Ignore clipboard for 2.5 seconds
         let session = EarlyMonitoringSession(
             userOriginalClipboard: userOriginal,
             startTime: sessionStartTime,
@@ -579,7 +579,7 @@ class ClipboardMonitor {
                 
                 // Log this ignoring only once when we detect the first change in the ignore window
                 let timeRemaining = sessionData.ignoreClipboardUntil.timeIntervalSince(now)
-                logDebug("[ClipboardMonitor] Ignoring clipboard change during 2.0s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
+                logDebug("[ClipboardMonitor] Ignoring clipboard change during 2.5s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
             } else if shouldIgnore {
                 // RETROACTIVE CLEANUP: When an ignored app becomes frontmost and triggers clipboard changes,
                 // check if there were recent clipboard changes that might have actually been caused by this

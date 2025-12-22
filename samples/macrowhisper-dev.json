@@ -7,7 +7,7 @@
     "clipboardBuffer" : 3,
     "clipboardIgnore" : "Alter",
     "clipboardStacking" : true,
-    "history" : 5,
+    "history" : 8,
     "icon" : "",
     "moveTo" : "",
     "noEsc" : false,
@@ -134,7 +134,7 @@
       "triggerVoice" : "==^search film\\.?$=="
     },
     "Alter AI Humanizer" : {
-      "action" : "alter://action/ai-humanizer?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "action" : "alter://action/ai-humanizer?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -148,7 +148,7 @@
       "triggerVoice" : ""
     },
     "Alter Answerer ★" : {
-      "action" : "alter://action/answerer?input={{result||(?s)^(.*)$||<user-message>$1</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "action" : "alter://action/answerer?input={{swResult||(?s)^(.*)$||<user-message>$1</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "༜",
       "moveTo" : "",
@@ -162,7 +162,7 @@
       "triggerVoice" : ""
     },
     "Alter Coder (★)" : {
-      "action" : "alter://action/coder?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
+      "action" : "alter://action/coder?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "⌬",
       "moveTo" : "",
@@ -176,7 +176,7 @@
       "triggerVoice" : ""
     },
     "Alter Editor (★)" : {
-      "action" : "alter://action/editor?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
+      "action" : "alter://action/editor?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -190,7 +190,7 @@
       "triggerVoice" : ""
     },
     "Alter Helper" : {
-      "action" : "alter://action/helper-simple?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "action" : "alter://action/helper-simple?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "☣",
       "moveTo" : "",
@@ -204,7 +204,7 @@
       "triggerVoice" : ""
     },
     "Alter Helper ★" : {
-      "action" : "alter://action/helper?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "action" : "alter://action/helper?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "⚛",
       "moveTo" : "",
@@ -218,7 +218,7 @@
       "triggerVoice" : ""
     },
     "Alter Prompter MD (★)" : {
-      "action" : "alter://action/prompter-md?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
+      "action" : "alter://action/prompter-md?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -232,7 +232,7 @@
       "triggerVoice" : ""
     },
     "Alter Prompter XML (★)" : {
-      "action" : "alter://action/prompter-xml?input={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
+      "action" : "alter://action/prompter-xml?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -288,7 +288,7 @@
       "triggerVoice" : "==^google this\\.?$=="
     },
     "Letterboxd" : {
-      "action" : "https://letterboxd.com/search/{{result||\\.$||}}{{selectedText||\\.|| }}{{clipboardContext||\\.|| }}",
+      "action" : "https://letterboxd.com/search/{{swResult||\\.$||}}{{selectedText||\\.|| }}{{clipboardContext||\\.|| }}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -302,7 +302,7 @@
       "triggerVoice" : "ask letterboxd|ask letterboxed|ask, letterboxed"
     },
     "OpenAI" : {
-      "action" : "https://chat.openai.com/?q={{result||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
+      "action" : "https://chat.openai.com/?q={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -316,7 +316,7 @@
       "triggerVoice" : "ask ai"
     },
     "Perplexity" : {
-      "action" : "https://www.perplexity.ai/?q={{result||\\.$||}}",
+      "action" : "https://www.perplexity.ai/?q={{swResult||\\.$||}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -330,7 +330,7 @@
       "triggerVoice" : "ask perplexity"
     },
     "Rotten Tomatoes" : {
-      "action" : "https://www.rottentomatoes.com/search?search={{result||\\.$||}}{{selectedText}}{{clipboardContext}}",
+      "action" : "https://www.rottentomatoes.com/search?search={{swResult||\\.$||}}{{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
@@ -358,7 +358,7 @@
       "triggerVoice" : ""
     },
     "YouTube" : {
-      "action" : "https://www.youtube.com/results?search_query={{selectedText}}{{clipboardContext}}{{result||\\.$||}}",
+      "action" : "https://www.youtube.com/results?search_query={{selectedText}}{{clipboardContext}}{{swResult||\\.$||}}",
       "actionDelay" : null,
       "icon" : "",
       "moveTo" : "",
