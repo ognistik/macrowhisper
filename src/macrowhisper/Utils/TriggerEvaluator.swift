@@ -181,7 +181,7 @@ class TriggerEvaluator {
                 if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
                     let range = NSRange(location: 0, length: result.utf16.count)
                     let found = regex.firstMatch(in: result, options: [], range: range) != nil
-                    logDebug("[TriggerEval] Pattern '\(trigger)' (raw regex: \(isRawRegex)) found=\(found) in result.")
+                    logDebug("[TriggerEval] Pattern '\(trigger)' (raw regex: \(isRawRegex)) matching against '\(result)' (length: \(result.count)) - found=\(found). Regex pattern: '\(regexPattern)'")
                     
                     if isException && found {
                         exceptionMatched = true
