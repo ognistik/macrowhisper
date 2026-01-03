@@ -15,6 +15,7 @@
 * When a recording starts, there's now a two-second blackout for the clipboard context to avoid clipboard context contamination.
   * Prior to this, if the user was on an app where there was no selected text range (for example, Finder), the app—in its attempts to capture selected text—would interact with the clipboard.
 * Added validation to wait for `result` when `llmResult` is present in the meta json file. Superwhisper now seems to write `llmResult` before `result` in those cases. This fixes voice triggers not working when LLMs are being used.
+* Fix. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
 
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07

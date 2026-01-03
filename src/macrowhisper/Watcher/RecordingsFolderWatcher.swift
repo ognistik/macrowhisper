@@ -871,6 +871,10 @@ class RecordingsFolderWatcher {
                     return
                 } else {
                     logWarning("Scheduled action '\(actionName)' not found - cancelling scheduled action")
+
+                    // CRITICAL: Stop early monitoring since no action will be executed
+                    clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+
                     globalState.scheduledActionName = nil
                     // Cancel timeout since scheduled action was cancelled
                     cancelScheduledActionTimeout()
@@ -1043,20 +1047,26 @@ class RecordingsFolderWatcher {
                     }
                 } else {
                     logDebug("Active action '\(activeActionName)' not found, skipping action.")
+
+                    // CRITICAL: Stop early monitoring since no action will be executed
+                    clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+
                     // Clean up pending watchers since no action was executed (both keys for consistency)
                     cleanupPendingWatcher(for: metaJsonPathForCleanup)
                     cleanupPendingWatcher(for: recordingPath)
                 }
             } else {
                 logDebug("No active action, skipping action.")
+
+                // CRITICAL: Stop early monitoring since no action will be executed
+                clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+
                 // Clean up pending watchers since no action was executed (both keys for consistency)
                 cleanupPendingWatcher(for: metaJsonPathForCleanup)
                 cleanupPendingWatcher(for: recordingPath)
             }
-            
+
             handlePostProcessing(recordingPath: recordingPath)
-            
-            // Early monitoring will be stopped by ClipboardMonitor when done
         } catch {
             logError("Error reading meta.json at \(metaJsonPath): \(error)")
             watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
