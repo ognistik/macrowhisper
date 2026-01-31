@@ -2,7 +2,7 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0.02,
-    "activeAction" : "",
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 3,
     "clipboardIgnore" : "Alter",
@@ -21,6 +21,20 @@
     "watch" : "~/Documents/superwhisper"
   },
   "inserts" : {
+    "alterInsert" : {
+      "action" : "{{swResult}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "actionDelay" : null,
+      "icon" : "",
+      "moveTo" : "",
+      "noEsc" : null,
+      "pressReturn" : null,
+      "restoreClipboard" : null,
+      "simKeypress" : null,
+      "triggerApps" : "Alter",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
+      "triggerVoice" : ""
+    },
     "autoPaste" : {
       "action" : ".autoPaste",
       "actionDelay" : 0,
@@ -65,6 +79,18 @@
     }
   },
   "scriptsAS" : {
+    "as" : {
+      "action" : "{{raw:swResult}}",
+      "actionDelay" : null,
+      "icon" : "",
+      "moveTo" : "",
+      "noEsc" : null,
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "AS",
+      "triggerVoice" : ""
+    },
     "swWebDebug" : {
       "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"DURATION: {{duration}}\nV PRCS: {{processingTime}}{{languageModelProcessingTime||^(.*)$||\nLLM PRCS: $1}}\n\nMODE: {{modeName}}\n{{modelName}}{{languageModelName||^(.*)$|| | $1}}\n\nVOICE RESULT:\n{{result}}{{llmResult||\\n\\n\\n||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\nLLM RESULT:\n$1||\\s+$||}}{{prompt||\\n\\s*\\n\\s*\\n(\\s*\\n)*||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n$1}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
       "actionDelay" : null,
@@ -243,6 +269,20 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "֍ Prompter XML ★",
+      "triggerVoice" : ""
+    },
+    "Alter Remote" : {
+      "action" : "alter://action/helper-remote?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>\n\n<note>IMPORTANT: User is communicating with you remotely and will not be able to continue this same conversation nor see your result in this interface. This is a one-shot request and you must NOT ask for feedback or additional information to the user, since he cannot answer. If he asks for an output in a way it not specified, your output text must go to a new Bear note. If something doesn't work properly, you cannot understand, or you cannot provide the output expected by user, explain that in the contents of a new Bear note.</note>}}",
+      "actionDelay" : null,
+      "icon" : "",
+      "moveTo" : "",
+      "noEsc" : null,
+      "openBackground" : false,
+      "openWith" : "",
+      "restoreClipboard" : null,
+      "triggerApps" : "",
+      "triggerLogic" : "or",
+      "triggerModes" : "",
       "triggerVoice" : ""
     },
     "Alter Translate" : {
