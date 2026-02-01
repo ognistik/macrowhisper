@@ -119,7 +119,7 @@ class ClipboardMonitor {
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
         logDebug("[ClipboardMonitor] Captured user original clipboard content")
-        logDebug("[ClipboardMonitor] Ignoring clipboard changes for 2.0 seconds to avoid unwanted capture")
+        logDebug("[ClipboardMonitor] Ignoring clipboard changes for 1.0 seconds to avoid unwanted capture")
         if !selectedText.isEmpty {
             logDebug("[ClipboardMonitor] Captured selected text at recording start")
         }
@@ -519,7 +519,7 @@ class ClipboardMonitor {
             let appName = frontApp?.localizedName ?? ""
             let bundleId = frontApp?.bundleIdentifier ?? ""
             
-            // Check if we're still in the 1.5-second ignore window
+            // Check if we're still in the 1.0-second ignore window
             let isInIgnoreWindow = now < sessionData.ignoreClipboardUntil
             
             // Check if the captured app should be ignored (using the app info we captured atomically)
@@ -565,7 +565,7 @@ class ClipboardMonitor {
                     }
                 }
             } else if isInIgnoreWindow {
-                // We're in the 2.0-second ignore window - update last seen change count but don't track the change
+                // We're in the 1.0-second ignore window - update last seen change count but don't track the change
                 sessionsQueue.async(flags: .barrier) { [weak self] in
                     guard let self = self,
                           var session = self.earlyMonitoringSessions[recordingPath],
