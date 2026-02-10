@@ -12,7 +12,7 @@
 * The removal of trigger words or phrases was happening only on `result`  (without LLM), but now it's also happening on `llmResult`. This ensures that it will never appear once `{{swResult}}` is formed.
 * New `clipboardIgnore` setting in config defaults. User can set app names or bundle IDs to indicate applications whose clipboard interactions shouldn't be captured by the `{{clipboardContext}}` placeholder.
   * Implemented retroactive cleanup for clipboard in case the detection from an app happens half a second later.
-* When a recording starts, there's now a one-second blackout for the clipboard context to avoid clipboard context contamination.
+* When a recording starts, there's now a 1.5-second blackout for the clipboard context to avoid clipboard context contamination.
   * If the user is on an app where there is no selected text range (for example, Finder), Superwhisper attempts to fallback to capturing selected text via a clipboard operation. Prior to this, this would unexpectedly appear in Macrowhisper capture.
 * Added validation to wait for `result` when `llmResult` is present in the meta json file. Superwhisper now seems to write `llmResult` before `result` in those cases. This fixes voice triggers not working when LLMs are being used.
 * Fix. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
