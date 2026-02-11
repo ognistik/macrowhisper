@@ -4,7 +4,7 @@
     "actionDelay" : 0.02,
     "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
-    "clipboardBuffer" : 3,
+    "clipboardBuffer" : 5,
     "clipboardIgnore" : "Alter",
     "clipboardStacking" : true,
     "history" : 8,
