@@ -16,6 +16,7 @@
   * If the user is on an app where there is no selected text range (for example, Finder), Superwhisper attempts to fallback to capturing selected text via a clipboard operation. Prior to this, this would unexpectedly appear in Macrowhisper capture.
 * Added validation to wait for `result` when `llmResult` is present in the meta json file. Superwhisper now seems to write `llmResult` before `result` in those cases. This fixes voice triggers not working when LLMs are being used.
 * Fix. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
+* Impovement. Macrowhisper correctly ignores transient/concealed clipboard types.
 
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07

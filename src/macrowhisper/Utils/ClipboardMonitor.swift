@@ -66,7 +66,7 @@ class ClipboardMonitor {
         var preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (mutable for cleanup)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
-        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (1.5s blackout period)
+        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (2.5s blackout period)
     }
     
     private struct ClipboardChange {
@@ -116,7 +116,7 @@ class ClipboardMonitor {
         let preRecordingClipboardStack = capturePreRecordingClipboardStack(beforeTime: sessionStartTime)
         
         let currentChangeCount = pasteboard.changeCount
-        let ignoreUntil = sessionStartTime.addingTimeInterval(1.5) // Ignore clipboard for 1.5 second
+        let ignoreUntil = sessionStartTime.addingTimeInterval(2.5) // Ignore clipboard for 2.5 seconds
         let session = EarlyMonitoringSession(
             userOriginalClipboard: userOriginal,
             startTime: sessionStartTime,
@@ -534,7 +534,7 @@ class ClipboardMonitor {
             let appName = frontApp?.localizedName ?? ""
             let bundleId = frontApp?.bundleIdentifier ?? ""
             
-            // Check if we're still in the 1.0-second ignore window
+            // Check if we're still in the 2.5-second ignore window
             let isInIgnoreWindow = now < sessionData.ignoreClipboardUntil
             
             // Check if the captured app should be ignored (using the app info we captured atomically)
@@ -595,7 +595,7 @@ class ClipboardMonitor {
                 
                 // Log this ignoring only once when we detect the first change in the ignore window
                 let timeRemaining = sessionData.ignoreClipboardUntil.timeIntervalSince(now)
-                logDebug("[ClipboardMonitor] Ignoring clipboard change during 1.5s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
+                logDebug("[ClipboardMonitor] Ignoring clipboard change during 2.5s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
             } else if shouldIgnoreAppFlag || containsSensitiveMarkers { // MODIFIED LINE
                 if containsSensitiveMarkers { // NEW LOGIC
                     logDebug("[ClipboardMonitor] Skipping clipboard capture due to sensitive marker types.")
