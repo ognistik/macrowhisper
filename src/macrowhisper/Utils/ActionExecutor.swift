@@ -106,7 +106,6 @@ class ActionExecutor {
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard,
             onCompletion: onCompletion
         )
@@ -133,7 +132,6 @@ class ActionExecutor {
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard,
             onCompletion: onCompletion
         )
@@ -159,7 +157,6 @@ class ActionExecutor {
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard,
             onCompletion: onCompletion
         )
@@ -185,7 +182,6 @@ class ActionExecutor {
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
-            metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard,
             onCompletion: onCompletion
         )

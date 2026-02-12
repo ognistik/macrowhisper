@@ -154,7 +154,7 @@ var superwhisperFolderWatcher: SuperwhisperFolderWatcher?
 let logDirectory = ("~/Library/Logs/Macrowhisper" as NSString).expandingTildeInPath
 
 // Initialize logger and notification manager
-let logger = Logger(logDirectory: logDirectory)
+logger = Logger(logDirectory: logDirectory)
 let notificationManager = NotificationManager()
 
 let lockPath = "/tmp/macrowhisper.lock"

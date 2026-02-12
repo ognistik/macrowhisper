@@ -17,6 +17,7 @@
 * Added validation to wait for `result` when `llmResult` is present in the meta json file. Superwhisper now seems to write `llmResult` before `result` in those cases. This fixes voice triggers not working when LLMs are being used.
 * Fix. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
 * Impovement. Macrowhisper correctly ignores transient/concealed clipboard types.
+* Improvement. Clipboard restoration now restores the contents of your pasteboard from the moment dictation started. This approach is more consistent than attempting to synchronize with Sw and detect the correct clipboard after an action executes.
 
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07

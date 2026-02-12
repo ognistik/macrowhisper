@@ -150,6 +150,9 @@ class Logger {
 
 // MARK: - Helper functions for logging and notifications
 
+/// Process-wide logger instance initialized from main.swift.
+var logger: Logger!
+
 func logInfo(_ message: String) {
     logger.log(message, level: .info)
 }
