@@ -447,7 +447,7 @@ class SocketCommunication {
         // Try to create URL directly from processed action
         // Placeholders are now URL-encoded individually during processing
         guard let url = URL(string: processedAction) else {
-            logError("Invalid URL after processing: \(processedAction)")
+            logError("Invalid URL after processing: \(redactForLogs(processedAction))")
             return
         }
         
@@ -488,7 +488,7 @@ class SocketCommunication {
         }
         do {
             try task.run()
-            logDebug("URL opened \(inBackground ? "in background" : "normally") via CLI: \(url.absoluteString)")
+            logDebug("URL opened \(inBackground ? "in background" : "normally") via CLI: \(redactForLogs(url.absoluteString))")
         } catch {
             logError("Failed to open URL \(inBackground ? "in background" : "normally") via CLI: \(error)")
             // Ultimate fallback to standard opening
@@ -752,6 +752,7 @@ class SocketCommunication {
                 lines.append("noNoti: \(defaults.noNoti ? "yes" : "no")")
                 lines.append("noEsc: \(defaults.noEsc ? "yes" : "no")")
                 lines.append("simKeypress: \(defaults.simKeypress ? "yes" : "no")")
+                lines.append("redactedLogs: \(defaults.redactedLogs ? "yes" : "no")")
                 lines.append(String(format: "actionDelay: %.2fs", defaults.actionDelay))
                 lines.append("pressReturn: \(defaults.pressReturn ? "yes" : "no")")
                 lines.append(String(format: "returnDelay: %.2fs", defaults.returnDelay))

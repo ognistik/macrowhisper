@@ -711,7 +711,7 @@ class RecordingsFolderWatcher {
                     // result must also be a non-empty string (needed for trigger evaluation)
                     if let resultString = result as? String, !resultString.isEmpty {
                         // Both llmResult and result are valid, continue processing
-                        logDebug("[Validation] Passed validation with languageModelName present. result='\(resultString)', llmResult='\(llmResultString)'")
+                        logDebug("[Validation] Passed validation with languageModelName present. result=\(redactForLogs(resultString)), llmResult=\(redactForLogs(llmResultString))")
                     } else {
                         logDebug("result is empty in meta.json for \(recordingPath) (llmResult present but result empty, needed for triggers), watching for updates.")
                         // Watch for changes to the meta.json file
@@ -739,7 +739,7 @@ class RecordingsFolderWatcher {
                 // result must be a non-empty string
                 if let resultString = result as? String, !resultString.isEmpty {
                     // result is valid, continue processing
-                    logDebug("[Validation] Passed validation without languageModelName. result='\(resultString)'")
+                    logDebug("[Validation] Passed validation without languageModelName. result=\(redactForLogs(resultString))")
                 } else {
                     logDebug("result is empty in meta.json for \(recordingPath), watching for updates.")
                     // Watch for changes to the meta.json file
@@ -890,9 +890,9 @@ class RecordingsFolderWatcher {
             let resultText = enhancedMetaJson["result"] as? String ?? ""
 
             // Diagnostic logging for trigger evaluation
-            logDebug("[TriggerEval] Extracted resultText for matching: '\(resultText)' (length: \(resultText.count))")
-            logDebug("[TriggerEval] result field value: '\(enhancedMetaJson["result"] ?? "nil")'")
-            logDebug("[TriggerEval] llmResult field value: '\(enhancedMetaJson["llmResult"] ?? "nil")'")
+            logDebug("[TriggerEval] Extracted resultText for matching: \(redactForLogs(resultText)) (length: \(resultText.count))")
+            logDebug("[TriggerEval] result field value: \(redactAnyForLogs(enhancedMetaJson["result"]))")
+            logDebug("[TriggerEval] llmResult field value: \(redactAnyForLogs(enhancedMetaJson["llmResult"]))")
 
             let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
                 configManager: configManager,
@@ -947,7 +947,7 @@ class RecordingsFolderWatcher {
                             )
                             if let strippedLlm = strippedLlmResult {
                                 updatedJson["llmResult"] = strippedLlm
-                                logDebug("[TriggerAction] Stripped trigger from llmResult: '\(llmResult)' -> '\(strippedLlm)'")
+                                logDebug("[TriggerAction] Stripped trigger from llmResult: \(redactForLogs(llmResult)) -> \(redactForLogs(strippedLlm))")
                             }
                         }
                     }

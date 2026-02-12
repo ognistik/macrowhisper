@@ -64,7 +64,7 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
                         // (which is the last one processed due to reverse order)
                         if extractedTags[tagName] == nil {
                             extractedTags[tagName] = content
-                            logDebug("[XMLPlaceholders] Extracted tag '\(tagName)': '\(content)'")
+                            logDebug("[XMLPlaceholders] Extracted tag '\(tagName)': \(redactForLogs(content))")
                         }
                         
                         // Remove the XML tag and its content from the result
@@ -491,10 +491,10 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
             let range = NSRange(result.startIndex..., in: result)
             let beforeReplace = result
             result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: replacement)
-            logDebug("[RegexReplacement] Pattern: '\(regexPattern)' | Replacement: '\(replacement)' | Before: '\(beforeReplace)' | After: '\(result)'")
+            logDebug("[RegexReplacement] Pattern: \(redactForLogs(regexPattern)) | Replacement: \(redactForLogs(replacement)) | Before: \(redactForLogs(beforeReplace)) | After: \(redactForLogs(result))")
         } catch {
             // If regex compilation fails, log the error but continue with other replacements
-            logError("[RegexReplacement] Invalid regex pattern '\(regexPattern)': \(error.localizedDescription)")
+            logError("[RegexReplacement] Invalid regex pattern \(redactForLogs(regexPattern)): \(error.localizedDescription)")
         }
     }
     
@@ -521,13 +521,21 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
         // logDebug("[UnifiedPlaceholders] Original llmResult: '\(llmResult)'")
         let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
         // logDebug("[UnifiedPlaceholders] Cleaned llmResult: '\(cleaned)'")
-        logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
+        if redactedLogsEnabled {
+            logDebug("[UnifiedPlaceholders] Extracted tags: [REDACTED count=\(tags.count)]")
+        } else {
+            logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
+        }
         updatedMetaJson["llmResult"] = cleaned
         result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: actionType)
     } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
         // logDebug("[UnifiedPlaceholders] Original result: '\(regularResult)'")
         let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
-        logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
+        if redactedLogsEnabled {
+            logDebug("[UnifiedPlaceholders] Extracted tags: [REDACTED count=\(tags.count)]")
+        } else {
+            logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
+        }
         result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: actionType)
     }
     

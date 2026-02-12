@@ -222,7 +222,7 @@ class ActionExecutor {
         
         // Try to create URL directly from processed action
         guard let url = URL(string: processedAction) else {
-            logError("Invalid URL after processing: \(processedAction)")
+            logError("Invalid URL after processing: \(redactForLogs(processedAction))")
             return
         }
         
@@ -269,7 +269,7 @@ class ActionExecutor {
         }
         do {
             try task.run()
-            logDebug("URL opened \(inBackground ? "in background" : "normally"): \(url.absoluteString)")
+            logDebug("URL opened \(inBackground ? "in background" : "normally"): \(redactForLogs(url.absoluteString))")
         } catch {
             logError("Failed to open URL \(inBackground ? "in background" : "normally"): \(error)")
             // Ultimate fallback to standard opening
@@ -280,7 +280,7 @@ class ActionExecutor {
     private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {
         let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
         
-        logDebug("[ShortcutAction] Processed action before sending to shortcuts: '\(processedAction)'")
+        logDebug("[ShortcutAction] Processed action before sending to shortcuts: \(redactForLogs(processedAction))")
         
         // Check if action is .none or empty - if so, run shortcut without input
         if processedAction == ".none" || processedAction.isEmpty {

@@ -111,6 +111,11 @@
           "type": "boolean",
           "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config.",
           "default": true
+        },
+        "redactedLogs": {
+          "type": "boolean",
+          "description": "Redact sensitive content from logs (dictation result, clipboard context, selected text, app context, trigger payloads, and regex replacement before/after values). Set to false only for deep debugging.",
+          "default": true
         }
       },
       "required": ["watch", "actionDelay"],

@@ -564,12 +564,12 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
     if bundleId == "company.thebrowser.Browser" {
         // Try AppleScript first to get the complete URL with path/parameters
         if let scriptUrl = getArcURLViaAppleScript() {
-            logDebug("[AppContext] Successfully found full Arc URL via AppleScript: \(scriptUrl)")
+            logDebug("[AppContext] Successfully found full Arc URL via AppleScript: \(redactForLogs(scriptUrl))")
             return scriptUrl
         } else {
             // Fallback to accessibility method for basic domain
             if let arcUrl = findArcBrowserURL(windowElement) {
-                logDebug("[AppContext] AppleScript failed, using accessibility Arc URL: \(arcUrl)")
+                logDebug("[AppContext] AppleScript failed, using accessibility Arc URL: \(redactForLogs(arcUrl))")
                 return arcUrl
             }
         }
@@ -579,7 +579,7 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
     let urlString = findAddressBarURL(windowElement)
     
     if let url = urlString, !url.isEmpty {
-        logDebug("[AppContext] Successfully found URL: \(url)")
+        logDebug("[AppContext] Successfully found URL: \(redactForLogs(url))")
     } else {
         logDebug("[AppContext] No URL found in browser window")
     }
@@ -612,10 +612,10 @@ private func findArcURLRecursively(_ element: AXUIElement, depth: Int) -> String
                 if !trimmed.isEmpty && trimmed != "Search…" { // Ignore placeholder text
                     // Arc stores URL without protocol most of the time, so add https:// if it looks like a domain
                     if trimmed.contains(".") && !trimmed.hasPrefix("http") {
-                        logDebug("[ARC URL] Found Arc domain: \(trimmed), adding https://")
+                        logDebug("[ARC URL] Found Arc domain: \(redactForLogs(trimmed)), adding https://")
                         return "https://\(trimmed)"
                     } else if trimmed.hasPrefix("http") {
-                        logDebug("[ARC URL] Found Arc URL with protocol: \(trimmed)")
+                        logDebug("[ARC URL] Found Arc URL with protocol: \(redactForLogs(trimmed))")
                         return trimmed
                     }
                 }
@@ -700,7 +700,7 @@ private func getArcURLViaAppleScript() -> String? {
                 if let output = String(data: data, encoding: .utf8) {
                     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty && trimmed != "" && isValidURL(trimmed) {
-                        logDebug("[ARC APPLESCRIPT] Successfully retrieved full URL (approach \(index + 1)): \(trimmed)")
+                        logDebug("[ARC APPLESCRIPT] Successfully retrieved full URL (approach \(index + 1)): \(redactForLogs(trimmed))")
                         return trimmed
                     } else {
                         logDebug("[ARC APPLESCRIPT] Approach \(index + 1) returned empty/invalid: '\(trimmed)'")
@@ -929,6 +929,11 @@ private func collectTextFromElement(_ element: AXUIElement) -> String {
 private func debugLogAllElements(_ element: AXUIElement, depth: Int, maxDepth: Int, prefix: String) {
     // Limit recursion depth for performance
     guard depth <= maxDepth else { return }
+    if redactedLogsEnabled {
+        let indent = String(repeating: "  ", count: depth)
+        logInfo("\(prefix) \(indent)ELEMENT[depth=\(depth)]: [REDACTED accessibility element details]")
+        return
+    }
     
     let indent = String(repeating: "  ", count: depth)
     

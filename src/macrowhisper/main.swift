@@ -1382,6 +1382,7 @@ historyManager = HistoryManager(configManager: configManager)
 let config = configManager.config
 globalState.disableUpdates = config.defaults.noUpdates
 globalState.disableNotifications = config.defaults.noNoti
+redactedLogsEnabled = config.defaults.redactedLogs
 
 // Request accessibility permissions upfront for better user experience
 // This ensures users grant permissions at startup rather than being surprised later
@@ -1475,6 +1476,7 @@ configManager.onConfigChanged = { reason in
     // Update global state variables using thread-safe operations
     globalState.disableUpdates = configManager.config.defaults.noUpdates
     globalState.disableNotifications = configManager.config.defaults.noNoti
+    redactedLogsEnabled = configManager.config.defaults.redactedLogs
     
     // Apply clipboard buffer changes live to the global ClipboardMonitor
     if let watcher = recordingsWatcher {

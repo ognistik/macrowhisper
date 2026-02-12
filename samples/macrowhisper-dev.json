@@ -14,6 +14,7 @@
     "noNoti" : false,
     "noUpdates" : false,
     "pressReturn" : false,
+    "redactedLogs" : true,
     "restoreClipboard" : true,
     "returnDelay" : 0.15,
     "scheduledActionTimeout" : 15,

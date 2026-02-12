@@ -25,10 +25,11 @@ struct AppConfiguration: Codable {
         var clipboardBuffer: Double
         var clipboardIgnore: String?
         var autoUpdateConfig: Bool
+        var redactedLogs: Bool
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, autoUpdateConfig
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, autoUpdateConfig, redactedLogs
         }
         
         // Custom encoding to preserve null values
@@ -52,6 +53,7 @@ struct AppConfiguration: Codable {
             try container.encode(clipboardBuffer, forKey: .clipboardBuffer)
             try container.encode(clipboardIgnore, forKey: .clipboardIgnore)
             try container.encode(autoUpdateConfig, forKey: .autoUpdateConfig)
+            try container.encode(redactedLogs, forKey: .redactedLogs)
         }
         
         // Custom decoding with migration logic from activeInsert to activeAction
@@ -95,10 +97,11 @@ struct AppConfiguration: Codable {
             clipboardBuffer = try container.decodeIfPresent(Double.self, forKey: .clipboardBuffer) ?? 5.0
             clipboardIgnore = try container.decodeIfPresent(String.self, forKey: .clipboardIgnore)
             autoUpdateConfig = try container.decodeIfPresent(Bool.self, forKey: .autoUpdateConfig) ?? true
+            redactedLogs = try container.decodeIfPresent(Bool.self, forKey: .redactedLogs) ?? true
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, autoUpdateConfig: Bool) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, autoUpdateConfig: Bool, redactedLogs: Bool) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -117,6 +120,7 @@ struct AppConfiguration: Codable {
             self.clipboardBuffer = clipboardBuffer
             self.clipboardIgnore = clipboardIgnore
             self.autoUpdateConfig = autoUpdateConfig
+            self.redactedLogs = redactedLogs
         }
         
         static func defaultValues() -> Defaults {
@@ -138,7 +142,8 @@ struct AppConfiguration: Codable {
                 clipboardStacking: false,
                 clipboardBuffer: 5.0,
                 clipboardIgnore: "",
-                autoUpdateConfig: true
+                autoUpdateConfig: true,
+                redactedLogs: true
             )
         }
     }

@@ -1,6 +1,7 @@
 import Foundation
 
 var suppressConsoleLogging = false
+var redactedLogsEnabled = true
 
 class Logger {
     private let logFilePath: String
@@ -168,3 +169,29 @@ func logError(_ message: String) {
 func logDebug(_ message: String) {
     logger.log(message, level: .debug)
 } 
+
+func redactForLogs(_ value: String?) -> String {
+    guard let value = value else {
+        return "nil"
+    }
+    if !redactedLogsEnabled {
+        return value
+    }
+    return value.isEmpty ? "[REDACTED empty]" : "[REDACTED len=\(value.count)]"
+}
+
+func redactAnyForLogs(_ value: Any?) -> String {
+    guard let value = value else {
+        return "nil"
+    }
+    if let stringValue = value as? String {
+        return redactForLogs(stringValue)
+    }
+    if value is NSNull {
+        return "null"
+    }
+    if !redactedLogsEnabled {
+        return String(describing: value)
+    }
+    return "[REDACTED]"
+}
