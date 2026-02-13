@@ -356,6 +356,130 @@ class SocketCommunication {
         return (result, false)
     }
 
+    private enum InputConditionToken: String {
+        case restoreClipboard
+        case pressReturn
+        case noEsc
+        case nextAction
+        case moveTo
+        case action
+        case actionDelay
+        case simKeypress
+    }
+
+    private func resolveInsertForCLIExecution(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
+        let (templateInsert, isAutoPasteTemplate) = applyLegacyInsertTemplateOverrides(insert)
+        let needsInputConditionEvaluation = isAutoPasteTemplate || !((templateInsert.inputCondition ?? "").isEmpty)
+
+        var isInInputFieldValue = false
+        if needsInputConditionEvaluation {
+            if requestAccessibilityPermission() {
+                isInInputFieldValue = isInInputField()
+            } else {
+                isInInputFieldValue = false
+            }
+        }
+
+        let resolvedInsert = applyInputCondition(to: templateInsert, isInInputField: isInInputFieldValue)
+        let isAutoPaste = isAutoPasteTemplate ||
+            (resolvedInsert.action == "{{swResult}}" && (resolvedInsert.inputCondition ?? "") == "!restoreClipboard|!noEsc")
+        return (resolvedInsert, isAutoPaste)
+    }
+
+    private func applyLegacyInsertTemplateOverrides(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
+        var resolved = insert
+
+        if insert.action == ".autoPaste" {
+            resolved.action = "{{swResult}}"
+            resolved.inputCondition = "!restoreClipboard|!noEsc"
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        if insert.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, false)
+        }
+
+        return (resolved, false)
+    }
+
+    private func parseInputCondition(_ rawValue: String?) -> [InputConditionToken: Bool] {
+        let normalized = rawValue ?? ""
+        if normalized.isEmpty {
+            return [:]
+        }
+
+        var tokens: [InputConditionToken: Bool] = [:]
+        for rawToken in normalized.components(separatedBy: "|") {
+            if rawToken.isEmpty {
+                continue
+            }
+
+            let appliesOutsideInput = rawToken.hasPrefix("!")
+            let tokenName = appliesOutsideInput ? String(rawToken.dropFirst()) : rawToken
+            guard let token = InputConditionToken(rawValue: tokenName) else {
+                continue
+            }
+            tokens[token] = appliesOutsideInput ? false : true
+        }
+
+        return tokens
+    }
+
+    private func shouldApplyToken(
+        _ token: InputConditionToken,
+        tokens: [InputConditionToken: Bool],
+        isInInputField: Bool
+    ) -> Bool {
+        guard let appliesInInput = tokens[token] else {
+            return true
+        }
+        return appliesInInput ? isInInputField : !isInInputField
+    }
+
+    private func applyInputCondition(
+        to insert: AppConfiguration.Insert,
+        isInInputField: Bool
+    ) -> AppConfiguration.Insert {
+        let tokens = parseInputCondition(insert.inputCondition)
+        if tokens.isEmpty {
+            return insert
+        }
+
+        var resolved = insert
+        if !shouldApplyToken(.restoreClipboard, tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken(.pressReturn, tokens: tokens, isInInputField: isInInputField) {
+            resolved.pressReturn = nil
+        }
+        if !shouldApplyToken(.noEsc, tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken(.nextAction, tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken(.moveTo, tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken(.action, tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken(.actionDelay, tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+        if !shouldApplyToken(.simKeypress, tokens: tokens, isInInputField: isInInputField) {
+            resolved.simKeypress = nil
+        }
+
+        return resolved
+    }
+
     // This version is for the main watcher flow and respects the 'noEsc' setting
     func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
         if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
@@ -944,8 +1068,13 @@ class SocketCommunication {
                         // Cancel timeouts
                         cancelAutoReturnTimeout()
                         cancelScheduledActionTimeout()
-                        let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: lastValidJson)
-                        applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
+                        let (resolvedInsert, isAutoPasteTemplate) = resolveInsertForCLIExecution(insert)
+                        let (processedAction, isAutoPasteResult) = processInsertAction(resolvedInsert.action, metaJson: lastValidJson)
+                        applyInsertForExec(
+                            processedAction,
+                            activeInsert: resolvedInsert,
+                            isAutoPaste: isAutoPasteTemplate || isAutoPasteResult
+                        )
                         
                         // Trigger clipboard cleanup for CLI actions to prevent contamination
                         clipboardMonitorRef?.triggerClipboardCleanupForCLI()
@@ -1221,8 +1350,13 @@ class SocketCommunication {
                             switch actionType {
                             case .insert:
                                 if let insert = action as? AppConfiguration.Insert {
-                                    let (processedAction, isAutoPasteResult) = processInsertAction(insert.action, metaJson: enhancedMetaJson)
-                                    applyInsertForExec(processedAction, activeInsert: insert, isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult)
+                                    let (resolvedInsert, isAutoPasteTemplate) = resolveInsertForCLIExecution(insert)
+                                    let (processedAction, isAutoPasteResult) = processInsertAction(resolvedInsert.action, metaJson: enhancedMetaJson)
+                                    applyInsertForExec(
+                                        processedAction,
+                                        activeInsert: resolvedInsert,
+                                        isAutoPaste: isAutoPasteTemplate || isAutoPasteResult
+                                    )
                                 }
                             case .url:
                                 if let url = action as? AppConfiguration.Url {

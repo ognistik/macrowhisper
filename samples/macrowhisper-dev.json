@@ -1,8 +1,8 @@
 {
-  "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
+  "$schema" : "file:///Users/ognistik/Desktop/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0.02,
-    "activeAction" : "autoPaste",
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
     "clipboardIgnore" : "Alter",
@@ -27,6 +27,7 @@
       "action" : "{{swResult}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "icon" : "",
+      "inputCondition" : "",
       "moveTo" : "",
       "nextAction" : "",
       "noEsc" : null,
@@ -42,6 +43,7 @@
       "action" : ".autoPaste",
       "actionDelay" : 0,
       "icon" : "•",
+      "inputCondition" : "",
       "moveTo" : "",
       "nextAction" : "",
       "noEsc" : null,
@@ -57,6 +59,7 @@
       "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
       "actionDelay" : 0,
       "icon" : "⇄",
+      "inputCondition" : "",
       "moveTo" : "",
       "nextAction" : "",
       "noEsc" : null,
@@ -69,9 +72,10 @@
       "triggerVoice" : ""
     },
     "pasteResult" : {
-      "action" : "{{swResult}}",
+      "action" : ".none",
       "actionDelay" : 0,
       "icon" : "⏎",
+      "inputCondition" : "restoreClipboard",
       "moveTo" : "",
       "nextAction" : "",
       "noEsc" : null,

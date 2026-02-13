@@ -282,6 +282,16 @@
               "type": ["boolean", "null"],
               "description": "Automatically press Return after this action. null = use global default, true/false = explicit override.",
               "default": null
+            },
+            "inputCondition": {
+              "type": ["string", "null"],
+              "description": "Insert-only conditional option gate. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, pressReturn, noEsc, nextAction, moveTo, action, actionDelay, simKeypress. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "examples": [
+                "",
+                "restoreClipboard|pressReturn|moveTo",
+                "!restoreClipboard|!noEsc"
+              ],
+              "default": ""
             }
           },
           "required": ["action"]

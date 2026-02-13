@@ -292,6 +292,11 @@ class ConfigurationManager {
         for (name, shortcut) in config.shortcuts { appendNextAction(name, shortcut.nextAction) }
         for (name, shell) in config.scriptsShell { appendNextAction(name, shell.nextAction) }
         for (name, script) in config.scriptsAS { appendNextAction(name, script.nextAction) }
+
+        for (name, insert) in config.inserts {
+            errors.append(contentsOf: validateInputCondition(insert.inputCondition, actionName: name))
+        }
+
         for name in config.inserts.keys { actionTypeMap[name] = .insert }
         for name in config.urls.keys { actionTypeMap[name] = .url }
         for name in config.shortcuts.keys { actionTypeMap[name] = .shortcut }
@@ -356,6 +361,49 @@ class ConfigurationManager {
         }
 
         return Array(Set(errors)).sorted()
+    }
+
+    private static func validateInputCondition(_ rawValue: String?, actionName: String) -> [String] {
+        let normalized = rawValue ?? ""
+        if normalized.isEmpty {
+            return []
+        }
+
+        if normalized.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+            return ["Action '\(actionName)' has invalid inputCondition '\(normalized)': whitespace is not allowed"]
+        }
+
+        let allowedTokens: Set<String> = [
+            "restoreClipboard",
+            "pressReturn",
+            "noEsc",
+            "nextAction",
+            "moveTo",
+            "action",
+            "actionDelay",
+            "simKeypress"
+        ]
+
+        var errors: [String] = []
+        let parts = normalized.components(separatedBy: "|")
+        for rawToken in parts {
+            if rawToken.isEmpty {
+                errors.append("Action '\(actionName)' has invalid inputCondition '\(normalized)': empty token is not allowed")
+                continue
+            }
+
+            let token = rawToken.hasPrefix("!") ? String(rawToken.dropFirst()) : rawToken
+            if token.isEmpty {
+                errors.append("Action '\(actionName)' has invalid inputCondition '\(normalized)': '!' must be followed by a valid token")
+                continue
+            }
+
+            if !allowedTokens.contains(token) {
+                errors.append("Action '\(actionName)' has invalid inputCondition token '\(rawToken)'")
+            }
+        }
+
+        return errors
     }
     
     /// Formats decoding errors to be more user-friendly
@@ -427,7 +475,7 @@ class ConfigurationManager {
             hasNotifiedAboutJsonError = true
             notify(
                 title: "MacroWhisper - Configuration Error",
-                message: "Configuration validation failed. Using default settings until fixed. Use --reveal-config to fix nextAction/activeAction errors."
+                message: "Configuration validation failed. Using default settings until fixed. Use --reveal-config to inspect and fix validation errors."
             )
         }
         logWarning("Configuration validation errors in \(configPath): \(details)")

@@ -33,6 +33,15 @@ class ActionExecutor {
         let isFirstInChain: Bool
         let isLastInChain: Bool
     }
+
+    private struct ChainRuntimeState {
+        let currentStep: ResolvedActionStep
+        let visited: Set<String>
+        let firstInsertActionName: String?
+        let cachedInputFieldState: Bool?
+        let stepNumber: Int
+        let isFirstStep: Bool
+    }
     
     /// Executes an action based on its type (single-step compatibility wrapper).
     func executeAction(
@@ -65,72 +74,252 @@ class ActionExecutor {
         isTriggeredAction: Bool = true,
         onCompletion: ((ChainExecutionResult) -> Void)? = nil
     ) {
-        do {
-            let chain = try resolveActionChain(initialAction: initialAction, name: name, type: type)
-            guard !chain.isEmpty else {
-                clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-                onCompletion?(ChainExecutionResult(success: false, finalActionName: nil, finalActionType: nil, finalAction: nil, errorMessage: "Empty action chain"))
-                return
-            }
-            executeActionChainSteps(
-                chain: chain,
-                index: 0,
-                metaJson: metaJson,
-                recordingPath: recordingPath,
-                isTriggeredAction: isTriggeredAction,
-                onCompletion: onCompletion
-            )
-        } catch {
-            let message = error.localizedDescription
-            logError("[ActionChain] \(message)")
-            clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-            onCompletion?(ChainExecutionResult(success: false, finalActionName: nil, finalActionType: nil, finalAction: nil, errorMessage: message))
-        }
+        let initialStep = ResolvedActionStep(action: initialAction, name: name, type: type)
+        let initialState = ChainRuntimeState(
+            currentStep: initialStep,
+            visited: [],
+            firstInsertActionName: nil,
+            cachedInputFieldState: nil,
+            stepNumber: 1,
+            isFirstStep: true
+        )
+        executeActionChainStep(
+            state: initialState,
+            metaJson: metaJson,
+            recordingPath: recordingPath,
+            isTriggeredAction: isTriggeredAction,
+            onCompletion: onCompletion
+        )
     }
 
-    private func executeActionChainSteps(
-        chain: [ResolvedActionStep],
-        index: Int,
+    private func executeActionChainStep(
+        state: ChainRuntimeState,
         metaJson: [String: Any],
         recordingPath: String,
         isTriggeredAction: Bool,
         onCompletion: ((ChainExecutionResult) -> Void)?
     ) {
-        guard index < chain.count else {
-            let last = chain.last
-            onCompletion?(ChainExecutionResult(success: true, finalActionName: last?.name, finalActionType: last?.type, finalAction: last?.action, errorMessage: nil))
-            return
-        }
-
-        let current = chain[index]
-        let options = StepExecutionOptions(
-            isFirstInChain: index == 0,
-            isLastInChain: index == chain.count - 1
-        )
-
-        logInfo("[ActionChain] Executing action '\(current.name)' (\(index + 1)/\(chain.count), type: \(current.type))")
-        executeResolvedAction(
-            step: current,
-            metaJson: metaJson,
-            recordingPath: recordingPath,
-            isTriggeredAction: isTriggeredAction,
-            options: options
-        ) { [weak self] success in
-            guard let self = self else { return }
-            if !success {
-                self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-                onCompletion?(ChainExecutionResult(success: false, finalActionName: current.name, finalActionType: current.type, finalAction: current.action, errorMessage: "Action execution failed for '\(current.name)'"))
-                return
+        do {
+            if state.visited.contains(state.currentStep.name) {
+                throw ActionChainError.cycleDetected(state.currentStep.name)
             }
-            self.executeActionChainSteps(
-                chain: chain,
-                index: index + 1,
+
+            var nextVisited = state.visited
+            nextVisited.insert(state.currentStep.name)
+
+            var nextFirstInsertActionName = state.firstInsertActionName
+            if state.currentStep.type == .insert {
+                if let first = nextFirstInsertActionName, first != state.currentStep.name {
+                    throw ActionChainError.multipleInsertActions(first: first, second: state.currentStep.name)
+                }
+                nextFirstInsertActionName = state.currentStep.name
+            }
+
+            let (executionStep, cachedInputState) = resolveStepForExecution(
+                step: state.currentStep,
+                cachedInputFieldState: state.cachedInputFieldState
+            )
+
+            let nextActionName = getEffectiveNextActionName(
+                for: executionStep.action,
+                actionName: executionStep.name,
+                type: executionStep.type,
+                isFirstStep: state.isFirstStep
+            )
+            let nextStep: ResolvedActionStep?
+            if let nextActionName, !nextActionName.isEmpty {
+                guard let next = try findUniqueActionByName(nextActionName) else {
+                    throw ActionChainError.missingAction(nextActionName)
+                }
+                nextStep = ResolvedActionStep(action: next.action, name: next.name, type: next.type)
+            } else {
+                nextStep = nil
+            }
+
+            let options = StepExecutionOptions(
+                isFirstInChain: state.isFirstStep,
+                isLastInChain: nextStep == nil
+            )
+
+            logInfo("[ActionChain] Executing action '\(executionStep.name)' (step \(state.stepNumber), type: \(executionStep.type))")
+            executeResolvedAction(
+                step: executionStep,
                 metaJson: metaJson,
                 recordingPath: recordingPath,
                 isTriggeredAction: isTriggeredAction,
-                onCompletion: onCompletion
-            )
+                options: options
+            ) { [weak self] success in
+                guard let self = self else { return }
+                if !success {
+                    self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                    onCompletion?(ChainExecutionResult(success: false, finalActionName: executionStep.name, finalActionType: executionStep.type, finalAction: executionStep.action, errorMessage: "Action execution failed for '\(executionStep.name)'"))
+                    return
+                }
+
+                guard let nextStep else {
+                    onCompletion?(ChainExecutionResult(success: true, finalActionName: executionStep.name, finalActionType: executionStep.type, finalAction: executionStep.action, errorMessage: nil))
+                    return
+                }
+
+                let nextState = ChainRuntimeState(
+                    currentStep: nextStep,
+                    visited: nextVisited,
+                    firstInsertActionName: nextFirstInsertActionName,
+                    cachedInputFieldState: cachedInputState,
+                    stepNumber: state.stepNumber + 1,
+                    isFirstStep: false
+                )
+                self.executeActionChainStep(
+                    state: nextState,
+                    metaJson: metaJson,
+                    recordingPath: recordingPath,
+                    isTriggeredAction: isTriggeredAction,
+                    onCompletion: onCompletion
+                )
+            }
+        } catch {
+            let message = error.localizedDescription
+            logError("[ActionChain] \(message)")
+            clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+            onCompletion?(ChainExecutionResult(success: false, finalActionName: state.currentStep.name, finalActionType: state.currentStep.type, finalAction: state.currentStep.action, errorMessage: message))
         }
+    }
+
+    private enum InputConditionToken: String {
+        case restoreClipboard
+        case pressReturn
+        case noEsc
+        case nextAction
+        case moveTo
+        case action
+        case actionDelay
+        case simKeypress
+    }
+
+    private func resolveStepForExecution(
+        step: ResolvedActionStep,
+        cachedInputFieldState: Bool?
+    ) -> (ResolvedActionStep, Bool?) {
+        guard step.type == .insert, let rawInsert = step.action as? AppConfiguration.Insert else {
+            return (step, cachedInputFieldState)
+        }
+
+        let (templateInsert, isLegacyAutoPasteTemplate) = applyLegacyInsertTemplateOverrides(rawInsert)
+        let needsInputConditionEvaluation =
+            isLegacyAutoPasteTemplate || !((templateInsert.inputCondition ?? "").isEmpty)
+
+        var inputFieldState = cachedInputFieldState
+        if needsInputConditionEvaluation && inputFieldState == nil {
+            if requestAccessibilityPermission() {
+                inputFieldState = isInInputField()
+            } else {
+                inputFieldState = false
+            }
+        }
+
+        let resolvedInsert = applyInputCondition(
+            to: templateInsert,
+            isInInputField: inputFieldState ?? false
+        )
+        let resolvedStep = ResolvedActionStep(
+            action: resolvedInsert,
+            name: step.name,
+            type: step.type
+        )
+        return (resolvedStep, inputFieldState)
+    }
+
+    private func applyLegacyInsertTemplateOverrides(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
+        var resolved = insert
+
+        if insert.action == ".autoPaste" {
+            resolved.action = "{{swResult}}"
+            resolved.inputCondition = "!restoreClipboard|!noEsc"
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        if insert.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+        }
+
+        return (resolved, false)
+    }
+
+    private func parseInputCondition(_ rawValue: String?) -> [InputConditionToken: Bool] {
+        let normalized = rawValue ?? ""
+        if normalized.isEmpty {
+            return [:]
+        }
+
+        var tokens: [InputConditionToken: Bool] = [:]
+        for rawToken in normalized.components(separatedBy: "|") {
+            if rawToken.isEmpty {
+                continue
+            }
+
+            let appliesOutsideInput = rawToken.hasPrefix("!")
+            let tokenName = appliesOutsideInput ? String(rawToken.dropFirst()) : rawToken
+            guard let token = InputConditionToken(rawValue: tokenName) else {
+                continue
+            }
+            tokens[token] = appliesOutsideInput ? false : true
+        }
+
+        return tokens
+    }
+
+    private func shouldApplyToken(
+        _ token: InputConditionToken,
+        tokens: [InputConditionToken: Bool],
+        isInInputField: Bool
+    ) -> Bool {
+        guard let appliesInInput = tokens[token] else {
+            return true
+        }
+        return appliesInInput ? isInInputField : !isInInputField
+    }
+
+    private func applyInputCondition(
+        to insert: AppConfiguration.Insert,
+        isInInputField: Bool
+    ) -> AppConfiguration.Insert {
+        let tokens = parseInputCondition(insert.inputCondition)
+        if tokens.isEmpty {
+            return insert
+        }
+
+        var resolved = insert
+        if !shouldApplyToken(.restoreClipboard, tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken(.pressReturn, tokens: tokens, isInInputField: isInInputField) {
+            resolved.pressReturn = nil
+        }
+        if !shouldApplyToken(.noEsc, tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken(.nextAction, tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken(.moveTo, tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken(.action, tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken(.actionDelay, tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+        if !shouldApplyToken(.simKeypress, tokens: tokens, isInInputField: isInInputField) {
+            resolved.simKeypress = nil
+        }
+
+        return resolved
     }
 
     private func executeResolvedAction(
@@ -198,8 +387,8 @@ class ActionExecutor {
         var shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
 
-        let isAutoPaste = insert.action == ".autoPaste" || isAutoPasteResult
-        let isEmptyOrNoneInsert = processedAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || insert.action == ".none"
+        let isAutoPaste = isAutoPasteResult || (insert.action == "{{swResult}}" && (insert.inputCondition ?? "") == "!restoreClipboard|!noEsc")
+        let isEmptyOrNoneInsert = processedAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         // Respect noEsc=true strictly. Forced ESC only applies when ESC is otherwise allowed.
         let forceEscForAutoPasteWhenNotInInputField = !options.isLastInChain && baseShouldEsc && isAutoPaste
@@ -208,13 +397,8 @@ class ActionExecutor {
             shouldEsc = true
         }
 
-        // Preserve current single-action behavior for .none/empty inserts.
-        if options.isFirstInChain && options.isLastInChain && isEmptyOrNoneInsert {
-            shouldEsc = false
-        }
-
         // Only the last action controls clipboard restoration decision.
-        let restoreClipboard = (options.isLastInChain && !(options.isFirstInChain && isEmptyOrNoneInsert))
+        let restoreClipboard = options.isLastInChain
             ? (insert.restoreClipboard ?? configManager.config.defaults.restoreClipboard)
             : false
         

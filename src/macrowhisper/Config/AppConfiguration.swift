@@ -162,6 +162,7 @@ struct AppConfiguration: Codable {
         var actionDelay: Double?
         var pressReturn: Bool?
         var restoreClipboard: Bool?  // Action-level override for clipboard restoration
+        var inputCondition: String? = ""
         var nextAction: String? = ""
         // --- Trigger fields for future extensibility ---
         /// Voice trigger regex (matches start of phrase)
@@ -175,7 +176,7 @@ struct AppConfiguration: Codable {
         // ---------------------------------------------
         
         enum CodingKeys: String, CodingKey {
-            case action, icon, moveTo, noEsc, simKeypress, actionDelay, pressReturn, restoreClipboard, nextAction
+            case action, icon, moveTo, noEsc, simKeypress, actionDelay, pressReturn, restoreClipboard, inputCondition, nextAction
             case triggerVoice, triggerApps, triggerModes, triggerLogic
         }
         
@@ -190,6 +191,7 @@ struct AppConfiguration: Codable {
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(pressReturn, forKey: .pressReturn)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
+            try container.encode(inputCondition, forKey: .inputCondition)
             try container.encode(nextAction, forKey: .nextAction)
             // Always encode trigger fields, defaulting to "" if nil
             try container.encode(triggerVoice ?? "", forKey: .triggerVoice)
@@ -208,6 +210,7 @@ struct AppConfiguration: Codable {
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
             pressReturn = try container.decodeIfPresent(Bool.self, forKey: .pressReturn)
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard)
+            inputCondition = try container.decodeIfPresent(String.self, forKey: .inputCondition) ?? ""
             nextAction = try container.decodeIfPresent(String.self, forKey: .nextAction) ?? ""
             triggerVoice = try container.decodeIfPresent(String.self, forKey: .triggerVoice) ?? ""
             triggerApps = try container.decodeIfPresent(String.self, forKey: .triggerApps) ?? ""
@@ -215,7 +218,7 @@ struct AppConfiguration: Codable {
             triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
         }
         // Default initializer for new inserts
-        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, simKeypress: Bool? = nil, actionDelay: Double? = nil, pressReturn: Bool? = nil, restoreClipboard: Bool? = nil, nextAction: String? = "", triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
+        init(action: String, icon: String? = "", moveTo: String? = "", noEsc: Bool? = nil, simKeypress: Bool? = nil, actionDelay: Double? = nil, pressReturn: Bool? = nil, restoreClipboard: Bool? = nil, inputCondition: String? = "", nextAction: String? = "", triggerVoice: String? = "", triggerApps: String? = "", triggerModes: String? = "", triggerLogic: String? = "or") {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
@@ -224,6 +227,7 @@ struct AppConfiguration: Codable {
             self.actionDelay = actionDelay
             self.pressReturn = pressReturn
             self.restoreClipboard = restoreClipboard
+            self.inputCondition = inputCondition ?? ""
             self.nextAction = nextAction ?? ""
             self.triggerVoice = triggerVoice ?? ""
             self.triggerApps = triggerApps ?? ""
