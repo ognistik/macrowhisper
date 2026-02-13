@@ -233,7 +233,6 @@ class ActionExecutor {
         var resolved = insert
 
         if insert.action == ".autoPaste" {
-            resolved.action = "{{swResult}}"
             resolved.inputCondition = "!restoreClipboard|!noEsc"
             resolved.noEsc = true
             resolved.restoreClipboard = false
@@ -387,7 +386,7 @@ class ActionExecutor {
         var shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
 
-        let isAutoPaste = isAutoPasteResult || (insert.action == "{{swResult}}" && (insert.inputCondition ?? "") == "!restoreClipboard|!noEsc")
+        let isAutoPaste = isAutoPasteResult || insert.action == ".autoPaste"
         let isEmptyOrNoneInsert = processedAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         // Respect noEsc=true strictly. Forced ESC only applies when ESC is otherwise allowed.

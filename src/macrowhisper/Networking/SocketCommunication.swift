@@ -381,8 +381,7 @@ class SocketCommunication {
         }
 
         let resolvedInsert = applyInputCondition(to: templateInsert, isInInputField: isInInputFieldValue)
-        let isAutoPaste = isAutoPasteTemplate ||
-            (resolvedInsert.action == "{{swResult}}" && (resolvedInsert.inputCondition ?? "") == "!restoreClipboard|!noEsc")
+        let isAutoPaste = isAutoPasteTemplate || resolvedInsert.action == ".autoPaste"
         return (resolvedInsert, isAutoPaste)
     }
 
@@ -390,7 +389,6 @@ class SocketCommunication {
         var resolved = insert
 
         if insert.action == ".autoPaste" {
-            resolved.action = "{{swResult}}"
             resolved.inputCondition = "!restoreClipboard|!noEsc"
             resolved.noEsc = true
             resolved.restoreClipboard = false

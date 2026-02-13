@@ -29,6 +29,19 @@ swift build
 ./macrowhisper --list-inserts
 ```
 
+### Testing Insert `inputCondition`
+- Configure an insert with `inputCondition` and test watcher flow and CLI flow (`--exec-action`, `--exec-insert`).
+- Verify both input states (inside and outside input field) for positive and negated tokens:
+  - `restoreClipboard`, `!restoreClipboard`
+  - `noEsc`, `!noEsc`
+  - `nextAction`, `!nextAction`
+  - `moveTo`, `!moveTo`
+- Verify strict validation behavior:
+  - Invalid tokens, whitespace, empty segments (`||`), or malformed `!` should fail config validation.
+  - A configuration error notification should be emitted and defaults used until fixed.
+- Verify sentinel compatibility:
+  - `action: ".autoPaste"` and `action: ".none"` must ignore user sibling overrides and apply built-in hard templates.
+
 ## Common Development Tasks
 
 ### Adding New CLI Commands
@@ -115,5 +128,7 @@ else if key == "myNewData" {
 - Configuration changes trigger live reloads
 - Socket communication handles both CLI and daemon interactions  
 - ClipboardMonitor coordinates with Superwhisper timing
+- Insert chains resolve next actions at runtime (not precomputed) to support conditional `nextAction`.
+- Input-field state for conditional insert behavior is sampled once at chain start and reused for the whole chain.
 
 See `CODEBASE_MAP.md` for detailed architecture documentation. 

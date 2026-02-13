@@ -55,6 +55,7 @@ src/
 #### `AppConfiguration.swift`
 - **Unified action types**: Insert, URL, Shortcut, Shell, AppleScript
 - **Common properties**: All actions support triggers, delays, icons, moveTo
+- **Insert-only conditional routing**: `insert.inputCondition` gates selected insert sibling options by input-field state
 - **JSON Schema**: `schema` field for IDE validation (maps to `$schema`)
 - **Auto-migration**: Seamless upgrade from old config formats
 
@@ -92,6 +93,9 @@ src/
 - **Unified execution**: All action types through single interface
 - **Smart clipboard sync**: Coordinates with Superwhisper timing
 - **Placeholder processing**: Dynamic content replacement
+- **Runtime chain resolution**: Next step is resolved at runtime, so conditional `nextAction` works
+- **Input-state caching**: Input-field detection is sampled once (first insert step) and reused for chain consistency
+- **Legacy insert sentinels**: `.autoPaste` and `.none` are hard-override compatibility templates
 
 ### 5. Clipboard Management
 
@@ -109,6 +113,7 @@ src/
 - **Timeout protection**: 10-second timeouts on operations
 - **Unified commands**: Action management across all types
 - **Thread-safe**: Proper queue management
+- **CLI parity for inserts**: `exec-action` and `exec-insert` apply insert `inputCondition` and sentinel template overrides
 
 ---
 
@@ -150,7 +155,13 @@ src/
     "actionDelay": 0.0,
     "clipboardBuffer": 5.0
   },
-  "inserts": { "name": { "action": "text", "triggerVoice": "pattern" }},
+  "inserts": {
+    "name": {
+      "action": "text",
+      "inputCondition": "restoreClipboard|!noEsc",
+      "triggerVoice": "pattern"
+    }
+  },
   "urls": { "name": { "action": "https://...", "openWith": "app" }},
   "shortcuts": { "name": { "action": "shortcutName" }},
   "scriptsShell": { "name": { "action": "command" }},

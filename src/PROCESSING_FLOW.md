@@ -260,8 +260,9 @@ Actions are evaluated in strict priority order. **Higher priority actions comple
 - **Condition**: `config.defaults.activeAction` is set and not empty
 - **Fallback**: Only executed if no auto-return and no trigger actions match
 - **Special Cases**: 
-  - `.none` or empty action: Apply delay but skip execution
-  - `.autoPaste`: Smart paste based on input field detection (insert actions)
+  - `.autoPaste`: Hard compatibility template for insert actions
+  - `.none`: Hard compatibility template for insert actions
+  - Empty insert action (`""`): No insertion content, but action settings still execute (ESC/restore/return/moveTo/chain)
 
 ---
 
@@ -380,9 +381,9 @@ The system intelligently determines what clipboard content to restore:
 
 #### Restoration Conditions:
 Clipboard restoration only occurs when **ALL** conditions are met:
-- ESC simulation is enabled (`shouldEsc == true`)
-- Clipboard restoration is enabled (`restoreClipboard == true`)
-- Action is not `.none` or empty
+- The current action step is the final step in the chain
+- Clipboard restoration is enabled for that step (`restoreClipboard == true`)
+- Clipboard monitoring cleanup/restore path is active for the execution mode
 
 ---
 
@@ -448,9 +449,13 @@ Action execution is coordinated through the ActionExecutor which handles all act
 #### Action Types:
 
 ##### 1. Insert Actions:
-- **Processing**: Placeholder replacement, autoPaste detection
+- **Processing**: Placeholder replacement plus insert runtime conditioning via `inputCondition`
 - **Execution**: Text insertion via clipboard or keystroke simulation
-- **Special Cases**: `.none` (delay only), `.autoPaste` (smart paste)
+- **Special Cases**:
+  - `.autoPaste` hard override: `action="{{swResult}}"`, `inputCondition="!restoreClipboard|!noEsc"`, `noEsc=true`, `restoreClipboard=false`
+  - `.none` hard override: `action=""`, `noEsc=true`, `restoreClipboard=false`
+- **Conditional tokens**: `restoreClipboard`, `pressReturn`, `noEsc`, `nextAction`, `moveTo`, `action`, `actionDelay`, `simKeypress` (with optional `!`)
+- **Chain consistency**: Input-field state is sampled once (first insert step) and reused across the whole action chain
 
 ##### 2. URL Actions:
 - **Processing**: URL encoding, placeholder replacement
@@ -481,15 +486,11 @@ func executeAction(
     metaJson: [String: Any],
     recordingPath: String
 ) {
-    // 1. Determine action-specific settings
-    let actionDelay = action.actionDelay ?? configManager.config.defaults.actionDelay
-    let shouldEsc = !(action.noEsc ?? configManager.config.defaults.noEsc)
-    
-    // 2. Execute with appropriate clipboard handling
-    clipboardMonitor.executeWithClipboardSync(...)
-    
-    // 3. Handle moveTo setting
-    handleMoveToSetting(...)
+    // 1. Resolve current step at runtime (supports conditional nextAction/inputCondition)
+    // 2. For insert steps, apply inputCondition and sentinel overrides
+    // 3. Execute with clipboard synchronization and resolved options
+    // 4. Resolve next step dynamically from resolved nextAction
+    // 5. Apply moveTo after final executed step
 }
 ```
 
@@ -550,6 +551,9 @@ All action types support:
 - `triggerModes: String?` - Mode trigger patterns
 - `triggerLogic: String?` - Trigger combination logic ("and"/"or")
 
+Insert-only settings:
+- `inputCondition: String?` - Pipe-separated conditional gate for selected insert sibling options (`!` inverts condition)
+
 ### Runtime Variables:
 
 #### Global State (`main.swift`):
@@ -576,9 +580,14 @@ All action types support:
 - **Impact**: Less intelligent clipboard restoration
 
 #### 2. Clipboard Restoration Disabled:
-- **Condition**: `restoreClipboard == false` or `shouldEsc == false`
-- **Behavior**: Execute action directly without clipboard handling
-- **Performance**: Faster execution, no synchronization overhead
+- **Condition**: `restoreClipboard == false` for the final effective step
+- **Behavior**: Skip post-action clipboard restoration
+- **Performance**: Slightly lower post-action work (no restore write-back)
+
+#### 3. Input Field Detection Permission Not Granted:
+- **Condition**: Accessibility permission denied during insert conditioning
+- **Behavior**: Treat as `isInInputField == false` (outside-input branch)
+- **Impact**: Negated tokens (`!token`) will apply; positive tokens (`token`) will fall back
 
 ### Meta.json Edge Cases:
 
@@ -597,7 +606,7 @@ All action types support:
 ### Trigger Evaluation Edge Cases:
 
 #### 1. No Matching Triggers:
-- **Behavior**: Fall back to active insert processing
+- **Behavior**: Fall back to active action processing
 - **Logging**: Log that no triggers matched
 
 #### 2. Multiple Matching Triggers:
@@ -646,7 +655,7 @@ All action types support:
 #### 6. `macrowhisper/Config/AppConfiguration.swift` (474 lines)
 - **Purpose**: Configuration data structures, defaults, JSON schema integration
 - **Action Types**: Insert, Url, Shortcut, ScriptShell, ScriptAppleScript
-- **Settings**: actionDelay, noEsc, restoreClipboard, trigger configurations
+- **Settings**: actionDelay, noEsc, restoreClipboard, trigger configurations, insert `inputCondition`
 - **Schema Field**: `schema` property for IDE validation support
 
 #### 7. `macrowhisper/Config/ConfigurationManager.swift` (348 lines)
@@ -654,6 +663,7 @@ All action types support:
 - **Thread Safety**: Dedicated configuration queue
 - **Persistence**: UserDefaults integration for path management
 - **Schema Integration**: Automatic schema reference management
+- **Validation**: Strict `inputCondition` token validation with configuration error notifications
 
 #### 8. `macrowhisper/Utils/SchemaManager.swift` (NEW)
 - **Purpose**: JSON schema discovery and configuration file schema reference management
@@ -667,6 +677,7 @@ All action types support:
 - **Purpose**: CLI command handling, action execution for CLI
 - **Key Methods**: `applyInsert()`, `applyInsertWithoutEsc()`, `processInsertAction()`
 - **Integration**: Configuration updates, placeholder processing
+- **CLI parity**: Insert CLI execution applies `inputCondition` and `.autoPaste`/`.none` hard overrides
 
 #### 10. `macrowhisper/Utils/Placeholders.swift` (427 lines)
 - **Purpose**: Dynamic content replacement
