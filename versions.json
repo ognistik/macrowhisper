@@ -1,4 +1,4 @@
 {
-  "version" : "1.3.4",
-  "description" : "Quality of life improvements for stability and reliability.\n\n• Update system tracks versions and notifies on time\n• Unified preferences for user defaults\n• Enhanced context capture when activated by user\n• Auto-return flag fixed\n• Improved crash and cancellation recovery"
+  "version" : "1.4.0",
+  "description" : "BIG RELEASE\n\n* Ensure you are not on macOS 26.1 or 26.2\n* Bug Fixes\n* Breaking Changes\n* New Features\n\nCHECK the release notes."
   }

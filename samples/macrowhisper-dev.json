@@ -1,5 +1,5 @@
 {
-  "$schema" : "file:///Users/ognistik/Desktop/macrowhisper-schema.json",
+  "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0.02,
     "activeAction" : "autoPaste",
