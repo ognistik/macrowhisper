@@ -37,12 +37,13 @@
 * **Impovement**. Macrowhisper correctly ignores transient/concealed clipboard types.
 * **Improvement**. Clipboard restoration now restores the contents of your pasteboard from the moment dictation started.
   * This approach is more consistent than attempting to synchronize with Superwhisper and detect the correct clipboard after an action executes.
+* **Improvement**. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
 * **Fix**. The removal of trigger words or phrases was happening only on `result`  (without LLM), but now it's also happening on `llmResult`. This ensures that it will never appear once `{{swResult}}` is formed.
 * **Fix**. Added validation for `result` when `llmResult` is present in the meta json file. For some reason, Superwhisper now writes `llmResult` before `result` in those cases. This fixes voice triggers not working when LLMs are being used.
-* **Fix**. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
 * **Fix**. When a recording starts, there's now a 2.5-second where repeat clipboard capture is suspended.
-  *  fix prevents `{{clipboardContext}}` placeholder contamination
+  * Fixes prevents `{{clipboardContext}}` placeholder contamination
   * If the user is on an app where there is no selected text range (for example, Finder), Superwhisper attempts a clipboard operation. Prior to this fix, this would unexpectedly appear in Macrowhisper capture.
+  * Clipboard capture for `{{clipboardContext}}` still works during this period. It just won't capture the same thing more than once.
 
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07
