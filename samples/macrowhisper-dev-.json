@@ -1,7 +1,7 @@
 {
   "$schema" : "file:///Users/ognistik/Desktop/macrowhisper-schema.json",
   "defaults" : {
-    "actionDelay" : 0.02,
+    "actionDelay" : 0,
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "clipboardBuffer" : 5,
@@ -44,7 +44,7 @@
       "actionDelay" : 0,
       "icon" : "•",
       "inputCondition" : "!nextAction|!noEsc",
-      "moveTo" : ".none",
+      "moveTo" : "",
       "nextAction" : "swWebView",
       "noEsc" : false,
       "pressReturn" : null,

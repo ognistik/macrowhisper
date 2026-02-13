@@ -2,28 +2,47 @@
 
 ## UNRELEASED
 
-* Created getUTF8Environment() helper that:
+---
+## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13
+### Breaking
+* When an insert action is empty `""`. Macrowhisper will no longer close Superwhisper's recording window nor leave the result on user's clipboard.
+  * It will respect the user's settings per action. So, to get the previous behaviour, set `noEsc` to `false` and `restoreClipboard` to `false`
+  * You may also use `".none"` which serves as a quick template that does the same.
+  * This is only for those insert actions where the user didn't want the result automatically inserted in the front app.
+
+### Added
+* **New** `clipboardIgnore` setting in config defaults. User can set app names or bundle IDs to indicate applications whose clipboard interactions shouldn't be captured by the `{{clipboardContext}}` placeholder.
+  * Implemented retroactive cleanup for clipboard in case the detection from an app happens half a second later.
+* **New** `redactedLogs` setting in config defaults. This is set to `true` by default.
+  * Now there's more privacy for the dictation and any context capture (even in the logs).
+  * User can set it to `false` to get more detailed information to better diagnose bugs.
+* **New** `nextAction` field which allows action chaining! 
+  * Only one insert action is allowed in the chain
+  * There's protection for endless loops, but tt is suggested you keep your chains short and predictable.
+  * Clipboard restoration only happens until the last action executes
+  * Only the `moveTo` setting of the last action applies.
+* **New** input condition for insert actions.
+  * Conditionally applies selected insert options depending on whether execution starts in an input field.
+  * This means you can have clipboard restoration, Escape simulation, move the recording folder, chained actions, etc. conditionally executed depending on whether you are currently in an input field or not.
+  * Section explaining this added to Documentation.
+
+### Changed
+* **Impovement**. Implemented getUTF8Environment() helper that:
  * Checks if LANG is already set with UTF-8 encoding
  * If yes, uses it as-is
  * If LANG exists but without UTF-8, appends .UTF-8 to the base locale
  * If LANG doesn't exist, uses system locale (Locale.current.identifier) with .UTF-8
  * Sets both LANG and LC_ALL to ensure UTF-8 encoding
  * Applies to Shell Scripts and AppleScripts
-* The removal of trigger words or phrases was happening only on `result`  (without LLM), but now it's also happening on `llmResult`. This ensures that it will never appear once `{{swResult}}` is formed.
-* New `clipboardIgnore` setting in config defaults. User can set app names or bundle IDs to indicate applications whose clipboard interactions shouldn't be captured by the `{{clipboardContext}}` placeholder.
-  * Implemented retroactive cleanup for clipboard in case the detection from an app happens half a second later.
-* When a recording starts, there's now a 1.5-second blackout for the clipboard context to avoid clipboard context contamination.
-  * If the user is on an app where there is no selected text range (for example, Finder), Superwhisper attempts to fallback to capturing selected text via a clipboard operation. Prior to this, this would unexpectedly appear in Macrowhisper capture.
-* Added validation to wait for `result` when `llmResult` is present in the meta json file. Superwhisper now seems to write `llmResult` before `result` in those cases. This fixes voice triggers not working when LLMs are being used.
-* Fix. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
-* Impovement. Macrowhisper correctly ignores transient/concealed clipboard types.
-* Improvement. Clipboard restoration now restores the contents of your pasteboard from the moment dictation started. This approach is more consistent than attempting to synchronize with Sw and detect the correct clipboard after an action executes.
-* New `redactedLogs` setting in config defaults. This is set to `true` by default. That way, there's more privacy for the dictation and any context capture. User can set it to `false` to get more detailed information to better diagnose bugs.
-* New `nextAction` field which allows action chaining! 
-  * Only one insert action is allowed in the chain
-  * There's protection for endless loops, but tt is suggested you keep your chains short and predictable.
-  * Clipboard restoration only happens until the last action executes
-  * Only the `moveTo` setting of the last action applies. 
+* **Impovement**. Macrowhisper correctly ignores transient/concealed clipboard types.
+* **Improvement**. Clipboard restoration now restores the contents of your pasteboard from the moment dictation started.
+  * This approach is more consistent than attempting to synchronize with Superwhisper and detect the correct clipboard after an action executes.
+* **Fix**. The removal of trigger words or phrases was happening only on `result`  (without LLM), but now it's also happening on `llmResult`. This ensures that it will never appear once `{{swResult}}` is formed.
+* **Fix**. Added validation for `result` when `llmResult` is present in the meta json file. For some reason, Superwhisper now writes `llmResult` before `result` in those cases. This fixes voice triggers not working when LLMs are being used.
+* **Fix**. Closes clipboard monitoring sessions when recording happens without actions — it prevents zombie sessions to stay active
+* **Fix**. When a recording starts, there's now a 2.5-second where repeat clipboard capture is suspended.
+  *  fix prevents `{{clipboardContext}}` placeholder contamination
+  * If the user is on an app where there is no selected text range (for example, Finder), Superwhisper attempts a clipboard operation. Prior to this fix, this would unexpectedly appear in Macrowhisper capture.
 
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07
