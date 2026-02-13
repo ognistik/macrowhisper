@@ -14,8 +14,27 @@ class ActionExecutor {
         self.configManager = configManager
         self.clipboardMonitor = clipboardMonitor
     }
+
+    struct ChainExecutionResult {
+        let success: Bool
+        let finalActionName: String?
+        let finalActionType: ActionType?
+        let finalAction: Any?
+        let errorMessage: String?
+    }
+
+    private struct ResolvedActionStep {
+        let action: Any
+        let name: String
+        let type: ActionType
+    }
+
+    private struct StepExecutionOptions {
+        let isFirstInChain: Bool
+        let isLastInChain: Bool
+    }
     
-    /// Executes an action based on its type
+    /// Executes an action based on its type (single-step compatibility wrapper).
     func executeAction(
         action: Any,
         name: String,
@@ -25,172 +44,444 @@ class ActionExecutor {
         isTriggeredAction: Bool = true,  // Default to true since this is typically called for trigger actions
         onCompletion: (() -> Void)? = nil
     ) {
-        logInfo("[TriggerEval] Executing action '\(name)' (type: \(type)) due to trigger match.")
-        
-        switch type {
+        executeActionChain(
+            initialAction: action,
+            name: name,
+            type: type,
+            metaJson: metaJson,
+            recordingPath: recordingPath,
+            isTriggeredAction: isTriggeredAction
+        ) { _ in
+            onCompletion?()
+        }
+    }
+
+    func executeActionChain(
+        initialAction: Any,
+        name: String,
+        type: ActionType,
+        metaJson: [String: Any],
+        recordingPath: String,
+        isTriggeredAction: Bool = true,
+        onCompletion: ((ChainExecutionResult) -> Void)? = nil
+    ) {
+        do {
+            let chain = try resolveActionChain(initialAction: initialAction, name: name, type: type)
+            guard !chain.isEmpty else {
+                clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                onCompletion?(ChainExecutionResult(success: false, finalActionName: nil, finalActionType: nil, finalAction: nil, errorMessage: "Empty action chain"))
+                return
+            }
+            executeActionChainSteps(
+                chain: chain,
+                index: 0,
+                metaJson: metaJson,
+                recordingPath: recordingPath,
+                isTriggeredAction: isTriggeredAction,
+                onCompletion: onCompletion
+            )
+        } catch {
+            let message = error.localizedDescription
+            logError("[ActionChain] \(message)")
+            clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+            onCompletion?(ChainExecutionResult(success: false, finalActionName: nil, finalActionType: nil, finalAction: nil, errorMessage: message))
+        }
+    }
+
+    private func executeActionChainSteps(
+        chain: [ResolvedActionStep],
+        index: Int,
+        metaJson: [String: Any],
+        recordingPath: String,
+        isTriggeredAction: Bool,
+        onCompletion: ((ChainExecutionResult) -> Void)?
+    ) {
+        guard index < chain.count else {
+            let last = chain.last
+            onCompletion?(ChainExecutionResult(success: true, finalActionName: last?.name, finalActionType: last?.type, finalAction: last?.action, errorMessage: nil))
+            return
+        }
+
+        let current = chain[index]
+        let options = StepExecutionOptions(
+            isFirstInChain: index == 0,
+            isLastInChain: index == chain.count - 1
+        )
+
+        logInfo("[ActionChain] Executing action '\(current.name)' (\(index + 1)/\(chain.count), type: \(current.type))")
+        executeResolvedAction(
+            step: current,
+            metaJson: metaJson,
+            recordingPath: recordingPath,
+            isTriggeredAction: isTriggeredAction,
+            options: options
+        ) { [weak self] success in
+            guard let self = self else { return }
+            if !success {
+                self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                onCompletion?(ChainExecutionResult(success: false, finalActionName: current.name, finalActionType: current.type, finalAction: current.action, errorMessage: "Action execution failed for '\(current.name)'"))
+                return
+            }
+            self.executeActionChainSteps(
+                chain: chain,
+                index: index + 1,
+                metaJson: metaJson,
+                recordingPath: recordingPath,
+                isTriggeredAction: isTriggeredAction,
+                onCompletion: onCompletion
+            )
+        }
+    }
+
+    private func executeResolvedAction(
+        step: ResolvedActionStep,
+        metaJson: [String: Any],
+        recordingPath: String,
+        isTriggeredAction: Bool,
+        options: StepExecutionOptions,
+        onCompletion: ((Bool) -> Void)? = nil
+    ) {
+        switch step.type {
         case .insert:
-            if let insert = action as? AppConfiguration.Insert {
-                executeInsertAction(insert, metaJson: metaJson, recordingPath: recordingPath, isTriggeredAction: isTriggeredAction, onCompletion: onCompletion)
+            guard let insert = step.action as? AppConfiguration.Insert else {
+                onCompletion?(false)
+                return
             }
+            executeInsertAction(
+                insert,
+                metaJson: metaJson,
+                recordingPath: recordingPath,
+                isTriggeredAction: isTriggeredAction,
+                options: options,
+                onCompletion: onCompletion
+            )
         case .url:
-            if let url = action as? AppConfiguration.Url {
-                executeUrlAction(url, metaJson: metaJson, recordingPath: recordingPath, onCompletion: onCompletion)
+            guard let url = step.action as? AppConfiguration.Url else {
+                onCompletion?(false)
+                return
             }
+            executeUrlAction(url, metaJson: metaJson, recordingPath: recordingPath, options: options, onCompletion: onCompletion)
         case .shortcut:
-            if let shortcut = action as? AppConfiguration.Shortcut {
-                executeShortcutAction(shortcut, metaJson: metaJson, recordingPath: recordingPath, shortcutName: name, onCompletion: onCompletion)
+            guard let shortcut = step.action as? AppConfiguration.Shortcut else {
+                onCompletion?(false)
+                return
             }
+            executeShortcutAction(shortcut, metaJson: metaJson, recordingPath: recordingPath, shortcutName: step.name, options: options, onCompletion: onCompletion)
         case .shell:
-            if let shell = action as? AppConfiguration.ScriptShell {
-                executeShellScriptAction(shell, metaJson: metaJson, recordingPath: recordingPath, onCompletion: onCompletion)
+            guard let shell = step.action as? AppConfiguration.ScriptShell else {
+                onCompletion?(false)
+                return
             }
+            executeShellScriptAction(shell, metaJson: metaJson, recordingPath: recordingPath, options: options, onCompletion: onCompletion)
         case .appleScript:
-            if let ascript = action as? AppConfiguration.ScriptAppleScript {
-                executeAppleScriptAction(ascript, metaJson: metaJson, recordingPath: recordingPath, onCompletion: onCompletion)
+            guard let ascript = step.action as? AppConfiguration.ScriptAppleScript else {
+                onCompletion?(false)
+                return
             }
+            executeAppleScriptAction(ascript, metaJson: metaJson, recordingPath: recordingPath, options: options, onCompletion: onCompletion)
         }
     }
     
-    private func executeInsertAction(_ insert: AppConfiguration.Insert, metaJson: [String: Any], recordingPath: String, isTriggeredAction: Bool, onCompletion: (() -> Void)? = nil) {
+    private func executeInsertAction(
+        _ insert: AppConfiguration.Insert,
+        metaJson: [String: Any],
+        recordingPath: String,
+        isTriggeredAction: Bool,
+        options: StepExecutionOptions,
+        onCompletion: ((Bool) -> Void)? = nil
+    ) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
         let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: enhancedMetaJson)
-        let shouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
+        var shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
-        
-        // Use action-level restoreClipboard if set, otherwise fall back to global default
-        let restoreClipboard = insert.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+
+        let isAutoPaste = insert.action == ".autoPaste" || isAutoPasteResult
+        let isEmptyOrNoneInsert = processedAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || insert.action == ".none"
+
+        // Respect noEsc=true strictly. Forced ESC only applies when ESC is otherwise allowed.
+        let forceEscForAutoPasteWhenNotInInputField = !options.isLastInChain && baseShouldEsc && isAutoPaste
+        let forceEscForEmptyInsert = !options.isLastInChain && baseShouldEsc && isEmptyOrNoneInsert
+        if forceEscForAutoPasteWhenNotInInputField || forceEscForEmptyInsert {
+            shouldEsc = true
+        }
+
+        // Preserve current single-action behavior for .none/empty inserts.
+        if options.isFirstInChain && options.isLastInChain && isEmptyOrNoneInsert {
+            shouldEsc = false
+        }
+
+        // Only the last action controls clipboard restoration decision.
+        let restoreClipboard = (options.isLastInChain && !(options.isFirstInChain && isEmptyOrNoneInsert))
+            ? (insert.restoreClipboard ?? configManager.config.defaults.restoreClipboard)
+            : false
         
         clipboardMonitor.executeInsertWithEnhancedClipboardSync(
             insertAction: { [weak self] in
                 // Execute the insert action without ESC (already handled by clipboard monitor)
-                self?.socketCommunication.applyInsertWithoutEsc(
+                return self?.socketCommunication.applyInsertWithoutEsc(
                     processedAction,
                     activeInsert: insert,
-                    isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult
-                )
+                    isAutoPaste: isAutoPaste
+                ) ?? false
             },
             actionDelay: actionDelay,
             shouldEsc: shouldEsc,
-            isAutoPaste: insert.action == ".autoPaste" || isAutoPasteResult,
+            isAutoPaste: isAutoPaste,
             recordingPath: recordingPath,
             metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard,
+            shouldUseSuperwhisperSync: options.isFirstInChain,
+            shouldStopMonitoringAfterAction: options.isLastInChain,
+            shouldTriggerCleanupAfterAction: options.isLastInChain,
+            restoreClipboardIndependentlyOfEsc: options.isLastInChain,
+            forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+            forceEscForEmptyInsert: forceEscForEmptyInsert,
             onCompletion: onCompletion
         )
-        
-        // Only handle moveTo for triggered actions; active inserts are handled by RecordingsFolderWatcher
-        if isTriggeredAction {
-            logDebug("Handling moveTo for triggered insert action")
-            handleMoveToSetting(folderPath: recordingPath, activeInsert: insert)
-        } else {
-            logDebug("Skipping moveTo for active insert action (handled by RecordingsFolderWatcher)")
-        }
     }
     
-    private func executeUrlAction(_ url: AppConfiguration.Url, metaJson: [String: Any], recordingPath: String, onCompletion: (() -> Void)? = nil) {
+    private func executeUrlAction(
+        _ url: AppConfiguration.Url,
+        metaJson: [String: Any],
+        recordingPath: String,
+        options: StepExecutionOptions,
+        onCompletion: ((Bool) -> Void)? = nil
+    ) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
-        let shouldEsc = !(url.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = !(url.noEsc ?? configManager.config.defaults.noEsc)
+        let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = url.actionDelay ?? configManager.config.defaults.actionDelay
         
-        // Use action-level restoreClipboard if set, otherwise fall back to global default
-        let restoreClipboard = url.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        // Only the last action controls clipboard restoration decision.
+        let restoreClipboard = options.isLastInChain ? (url.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processUrlAction(url, metaJson: enhancedMetaJson)
+                self?.processUrlAction(url, metaJson: enhancedMetaJson) ?? false
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
+            shouldStopMonitoringAfterAction: options.isLastInChain,
+            shouldTriggerCleanupAfterAction: options.isLastInChain,
+            restoreClipboardIndependentlyOfEsc: options.isLastInChain,
             onCompletion: onCompletion
         )
-        
-        // FIX: Pass the individual recording folder path, not its parent
-        logDebug("Handling moveTo for triggered URL action")
-        handleMoveToSettingForAction(folderPath: recordingPath, action: url)
     }
     
-    private func executeShortcutAction(_ shortcut: AppConfiguration.Shortcut, metaJson: [String: Any], recordingPath: String, shortcutName: String, onCompletion: (() -> Void)? = nil) {
+    private func executeShortcutAction(
+        _ shortcut: AppConfiguration.Shortcut,
+        metaJson: [String: Any],
+        recordingPath: String,
+        shortcutName: String,
+        options: StepExecutionOptions,
+        onCompletion: ((Bool) -> Void)? = nil
+    ) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
-        let shouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
+        let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
         
-        // Use action-level restoreClipboard if set, otherwise fall back to global default
-        let restoreClipboard = shortcut.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        // Only the last action controls clipboard restoration decision.
+        let restoreClipboard = options.isLastInChain ? (shortcut.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: enhancedMetaJson)
+                self?.processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: enhancedMetaJson) ?? false
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
+            shouldStopMonitoringAfterAction: options.isLastInChain,
+            shouldTriggerCleanupAfterAction: options.isLastInChain,
+            restoreClipboardIndependentlyOfEsc: options.isLastInChain,
             onCompletion: onCompletion
         )
-        
-        // FIX: Pass the individual recording folder path, not its parent
-        handleMoveToSettingForAction(folderPath: recordingPath, action: shortcut)
     }
     
-    private func executeShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any], recordingPath: String, onCompletion: (() -> Void)? = nil) {
+    private func executeShellScriptAction(
+        _ shell: AppConfiguration.ScriptShell,
+        metaJson: [String: Any],
+        recordingPath: String,
+        options: StepExecutionOptions,
+        onCompletion: ((Bool) -> Void)? = nil
+    ) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
-        let shouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
+        let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = shell.actionDelay ?? configManager.config.defaults.actionDelay
         
-        // Use action-level restoreClipboard if set, otherwise fall back to global default
-        let restoreClipboard = shell.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        // Only the last action controls clipboard restoration decision.
+        let restoreClipboard = options.isLastInChain ? (shell.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processShellScriptAction(shell, metaJson: enhancedMetaJson)
+                self?.processShellScriptAction(shell, metaJson: enhancedMetaJson) ?? false
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
+            shouldStopMonitoringAfterAction: options.isLastInChain,
+            shouldTriggerCleanupAfterAction: options.isLastInChain,
+            restoreClipboardIndependentlyOfEsc: options.isLastInChain,
             onCompletion: onCompletion
         )
-        
-        // FIX: Pass the individual recording folder path, not its parent
-        handleMoveToSettingForAction(folderPath: recordingPath, action: shell)
     }
     
-    private func executeAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any], recordingPath: String, onCompletion: (() -> Void)? = nil) {
+    private func executeAppleScriptAction(
+        _ ascript: AppConfiguration.ScriptAppleScript,
+        metaJson: [String: Any],
+        recordingPath: String,
+        options: StepExecutionOptions,
+        onCompletion: ((Bool) -> Void)? = nil
+    ) {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
         
-        let shouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
+        let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
         
-        // Use action-level restoreClipboard if set, otherwise fall back to global default
-        let restoreClipboard = ascript.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        // Only the last action controls clipboard restoration decision.
+        let restoreClipboard = options.isLastInChain ? (ascript.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processAppleScriptAction(ascript, metaJson: enhancedMetaJson)
+                self?.processAppleScriptAction(ascript, metaJson: enhancedMetaJson) ?? false
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
+            shouldStopMonitoringAfterAction: options.isLastInChain,
+            shouldTriggerCleanupAfterAction: options.isLastInChain,
+            restoreClipboardIndependentlyOfEsc: options.isLastInChain,
             onCompletion: onCompletion
         )
-        
-        // FIX: Pass the individual recording folder path, not its parent
-        handleMoveToSettingForAction(folderPath: recordingPath, action: ascript)
     }
     
     // MARK: - Helper Methods
+
+    private enum ActionChainError: LocalizedError {
+        case duplicateActionName(String)
+        case missingAction(String)
+        case cycleDetected(String)
+        case multipleInsertActions(first: String, second: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .duplicateActionName(let name):
+                return "Duplicate action name '\(name)' exists across multiple action types. Names must be unique."
+            case .missingAction(let name):
+                return "Chained nextAction '\(name)' was not found."
+            case .cycleDetected(let name):
+                return "Action chain cycle detected at '\(name)'. Chained actions cannot repeat."
+            case .multipleInsertActions(let first, let second):
+                return "Action chain contains multiple insert actions ('\(first)' and '\(second)'). Only one insert action is allowed per chain."
+            }
+        }
+    }
+
+    private func resolveActionChain(initialAction: Any, name: String, type: ActionType) throws -> [ResolvedActionStep] {
+        var chain: [ResolvedActionStep] = []
+        var visited: Set<String> = []
+        var firstInsertActionName: String?
+
+        var currentName = name
+        var currentType = type
+        var currentAction: Any = initialAction
+
+        while true {
+            if visited.contains(currentName) {
+                throw ActionChainError.cycleDetected(currentName)
+            }
+            visited.insert(currentName)
+            chain.append(ResolvedActionStep(action: currentAction, name: currentName, type: currentType))
+            if currentType == .insert {
+                if let firstInsertActionName = firstInsertActionName, firstInsertActionName != currentName {
+                    throw ActionChainError.multipleInsertActions(first: firstInsertActionName, second: currentName)
+                }
+                firstInsertActionName = currentName
+            }
+
+            guard let nextActionName = getEffectiveNextActionName(
+                for: currentAction,
+                actionName: currentName,
+                type: currentType,
+                isFirstStep: chain.count == 1
+            ), !nextActionName.isEmpty else {
+                break
+            }
+
+            guard let next = try findUniqueActionByName(nextActionName) else {
+                throw ActionChainError.missingAction(nextActionName)
+            }
+            currentName = next.name
+            currentType = next.type
+            currentAction = next.action
+        }
+
+        return chain
+    }
+
+    private func getEffectiveNextActionName(for action: Any, actionName: String, type: ActionType, isFirstStep: Bool) -> String? {
+        let actionLevel: String?
+        switch type {
+        case .insert:
+            actionLevel = (action as? AppConfiguration.Insert)?.nextAction
+        case .url:
+            actionLevel = (action as? AppConfiguration.Url)?.nextAction
+        case .shortcut:
+            actionLevel = (action as? AppConfiguration.Shortcut)?.nextAction
+        case .shell:
+            actionLevel = (action as? AppConfiguration.ScriptShell)?.nextAction
+        case .appleScript:
+            actionLevel = (action as? AppConfiguration.ScriptAppleScript)?.nextAction
+        }
+        let normalizedActionLevel = actionLevel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        // defaults.nextAction overrides the first action's own nextAction.
+        // For subsequent chained actions, only action-level nextAction is considered.
+        if isFirstStep {
+            let defaultsNext = configManager.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !defaultsNext.isEmpty {
+                return defaultsNext
+            }
+            return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
+        }
+
+        // Never re-apply defaults.nextAction after first action.
+        if normalizedActionLevel == actionName {
+            return normalizedActionLevel
+        }
+        return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
+    }
+
+    private func findUniqueActionByName(_ name: String) throws -> (name: String, type: ActionType, action: Any)? {
+        let config = configManager.config
+        var matches: [(name: String, type: ActionType, action: Any)] = []
+        if let insert = config.inserts[name] { matches.append((name: name, type: .insert, action: insert)) }
+        if let url = config.urls[name] { matches.append((name: name, type: .url, action: url)) }
+        if let shortcut = config.shortcuts[name] { matches.append((name: name, type: .shortcut, action: shortcut)) }
+        if let shell = config.scriptsShell[name] { matches.append((name: name, type: .shell, action: shell)) }
+        if let script = config.scriptsAS[name] { matches.append((name: name, type: .appleScript, action: script)) }
+        if matches.count > 1 {
+            throw ActionChainError.duplicateActionName(name)
+        }
+        return matches.first
+    }
     
     /// Enhances metaJson with session data from clipboard monitor (selectedText, clipboardContext)
     private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String) -> [String: Any] {
@@ -215,7 +506,7 @@ class ActionExecutor {
     
     // MARK: - Action Processing Methods
     
-    private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) {
+    private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) -> Bool {
         // Process the URL action with both XML and dynamic placeholders
         // Placeholders are now URL-encoded individually during processing
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
@@ -223,13 +514,13 @@ class ActionExecutor {
         // Try to create URL directly from processed action
         guard let url = URL(string: processedAction) else {
             logError("Invalid URL after processing: \(redactForLogs(processedAction))")
-            return
+            return false
         }
         
-        openResolvedUrl(url, with: urlAction)
+        return openResolvedUrl(url, with: urlAction)
     }
 
-    private func openResolvedUrl(_ url: URL, with urlAction: AppConfiguration.Url) {
+    private func openResolvedUrl(_ url: URL, with urlAction: AppConfiguration.Url) -> Bool {
         // Check if URL should open in background
         let shouldOpenInBackground = urlAction.openBackground ?? false
 
@@ -246,19 +537,20 @@ class ActionExecutor {
             }
             do {
                 try task.run()
+                return true
             } catch {
                 logError("Failed to open URL with specified app: \(error)")
                 // Fallback to opening with default handler
-                openUrl(url, inBackground: shouldOpenInBackground)
+                return openUrl(url, inBackground: shouldOpenInBackground)
             }
         } else {
             // Open with default handler
-            openUrl(url, inBackground: shouldOpenInBackground)
+            return openUrl(url, inBackground: shouldOpenInBackground)
         }
     }
 
     // Helper method to open URLs with background option
-    private func openUrl(_ url: URL, inBackground: Bool) {
+    private func openUrl(_ url: URL, inBackground: Bool) -> Bool {
         let task = Process()
         task.launchPath = "/usr/bin/open"
         // Use -g flag only if opening in background
@@ -270,14 +562,15 @@ class ActionExecutor {
         do {
             try task.run()
             logDebug("URL opened \(inBackground ? "in background" : "normally"): \(redactForLogs(url.absoluteString))")
+            return true
         } catch {
             logError("Failed to open URL \(inBackground ? "in background" : "normally"): \(error)")
             // Ultimate fallback to standard opening
-            NSWorkspace.shared.open(url)
+            return NSWorkspace.shared.open(url)
         }
     }
     
-    private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {
+    private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) -> Bool {
         let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
         
         logDebug("[ShortcutAction] Processed action before sending to shortcuts: \(redactForLogs(processedAction))")
@@ -296,8 +589,10 @@ class ActionExecutor {
             do {
                 try task.run()
                 logDebug("[ShortcutAction] Shortcut launched without input")
+                return true
             } catch {
                 logError("Failed to execute shortcut action without input: \(error)")
+                return false
             }
         } else {
             // Use temporary file approach to ensure proper UTF-8 encoding
@@ -328,17 +623,18 @@ class ActionExecutor {
                         logWarning("[ShortcutAction] Failed to clean up temporary file \(tempFile): \(error)")
                     }
                 }
-                
+                return true
             } catch {
                 logError("Failed to execute shortcut action: \(error)")
                 // Clean up temp file on error
                 try? FileManager.default.removeItem(atPath: tempFile)
+                return false
             }
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
     }
     
-    private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) {
+    private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) -> Bool {
         let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
         let task = Process()
         task.launchPath = "/bin/bash"
@@ -349,13 +645,15 @@ class ActionExecutor {
         do {
             try task.run()
             logDebug("Shell script launched asynchronously")
+            return true
         } catch {
             logError("Failed to execute shell script: \(error)")
+            return false
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
     }
     
-    private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) {
+    private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) -> Bool {
         let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
@@ -366,8 +664,10 @@ class ActionExecutor {
         do {
             try task.run()
             logDebug("AppleScript launched asynchronously")
+            return true
         } catch {
             logError("Failed to execute AppleScript action: \(error)")
+            return false
         }
         // ESC simulation and action delay are now handled by ClipboardMonitor
     }

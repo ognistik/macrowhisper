@@ -19,6 +19,11 @@
 * Impovement. Macrowhisper correctly ignores transient/concealed clipboard types.
 * Improvement. Clipboard restoration now restores the contents of your pasteboard from the moment dictation started. This approach is more consistent than attempting to synchronize with Sw and detect the correct clipboard after an action executes.
 * New `redactedLogs` setting in config defaults. This is set to `true` by default. That way, there's more privacy for the dictation and any context capture. User can set it to `false` to get more detailed information to better diagnose bugs.
+* New `nextAction` field which allows action chaining! 
+  * Only one insert action is allowed in the chain
+  * There's protection for endless loops, but tt is suggested you keep your chains short and predictable.
+  * Clipboard restoration only happens until the last action executes
+  * Only the `moveTo` setting of the last action applies. 
 
 ---
 ## [v1.3.4](https://github.com/ognistik/macrowhisper/releases/tag/v1.3.4) - 2025/10/07

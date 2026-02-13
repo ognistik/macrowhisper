@@ -63,16 +63,16 @@ class ConfigurationManager {
         let fileExistedBefore = fileManager.fileExists(atPath: self.configPath)
         
         if fileExistedBefore {
-            // If file exists, attempt to load it
-            if let loadedConfig = Self.loadConfig(from: self.configPath) {
+            // If file exists, attempt to load it (including semantic validation)
+            if let loadedConfig = self.loadConfig() {
                 self._config = loadedConfig
                 logDebug("Configuration loaded from \(self.configPath)")
                 // Reset notification flag on successful load
                 hasNotifiedAboutJsonError = false
             } else {
-                // If loading fails but file exists, don't overwrite it - show notification
-                logWarning("Failed to load configuration due to invalid JSON. Using defaults in memory only.")
-                showJsonErrorNotification()
+                // If loading fails but file exists, don't overwrite it.
+                // loadConfig() already emitted the correct notification.
+                logWarning("Failed to load configuration. Using defaults in memory only.")
             }
         } else {
             // File doesn't exist, create it with defaults
@@ -166,7 +166,19 @@ class ConfigurationManager {
             return nil
         }
         let decoder = JSONDecoder()
-        return try? decoder.decode(AppConfiguration.self, from: data)
+        guard let decoded = try? decoder.decode(AppConfiguration.self, from: data) else {
+            return nil
+        }
+        if let duplicateNames = findDuplicateActionNamesAcrossTypes(in: decoded), !duplicateNames.isEmpty {
+            logError("Configuration validation failed: duplicate action names across types are not allowed: \(duplicateNames.sorted().joined(separator: ", "))")
+            return nil
+        }
+        let validationErrors = collectConfigurationValidationErrors(in: decoded)
+        if !validationErrors.isEmpty {
+            logError("Configuration validation failed: \(validationErrors.joined(separator: " | "))")
+            return nil
+        }
+        return decoded
     }
 
     /// Loads configuration with enhanced error handling and recovery mechanisms
@@ -190,6 +202,18 @@ class ConfigurationManager {
             
             let decoder = JSONDecoder()
             let config = try decoder.decode(AppConfiguration.self, from: data)
+            if let duplicateNames = Self.findDuplicateActionNamesAcrossTypes(in: config), !duplicateNames.isEmpty {
+                let duplicateList = duplicateNames.sorted().joined(separator: ", ")
+                logError("Configuration validation failed: duplicate action names across action types are not allowed: \(duplicateList)")
+                showConfigValidationErrorNotification("Duplicate action names across types are not allowed: \(duplicateList)")
+                return nil
+            }
+
+            let validationErrors = Self.collectConfigurationValidationErrors(in: config)
+            if !validationErrors.isEmpty {
+                showConfigValidationErrorNotification(validationErrors.joined(separator: "\n"))
+                return nil
+            }
             
             // JSON loaded successfully, reset notification flag
             hasNotifiedAboutJsonError = false
@@ -213,6 +237,125 @@ class ConfigurationManager {
             
             return nil
         }
+    }
+
+    /// Returns duplicate action names when the same name is defined in more than one action type map.
+    private static func findDuplicateActionNamesAcrossTypes(in config: AppConfiguration) -> Set<String>? {
+        var counts: [String: Int] = [:]
+        for name in config.inserts.keys { counts[name, default: 0] += 1 }
+        for name in config.urls.keys { counts[name, default: 0] += 1 }
+        for name in config.shortcuts.keys { counts[name, default: 0] += 1 }
+        for name in config.scriptsShell.keys { counts[name, default: 0] += 1 }
+        for name in config.scriptsAS.keys { counts[name, default: 0] += 1 }
+        let duplicates = Set(counts.filter { $0.value > 1 }.map { $0.key })
+        return duplicates
+    }
+
+    private static func collectConfigurationValidationErrors(in config: AppConfiguration) -> [String] {
+        var errors: [String] = []
+
+        // Build unique action name set (duplicate-name check is performed separately).
+        var actionNames: Set<String> = []
+        actionNames.formUnion(config.inserts.keys)
+        actionNames.formUnion(config.urls.keys)
+        actionNames.formUnion(config.shortcuts.keys)
+        actionNames.formUnion(config.scriptsShell.keys)
+        actionNames.formUnion(config.scriptsAS.keys)
+
+        let activeAction = config.defaults.activeAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let defaultsNextAction = config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if !activeAction.isEmpty && !actionNames.contains(activeAction) {
+            errors.append("defaults.activeAction '\(activeAction)' does not exist")
+        }
+        if !defaultsNextAction.isEmpty && !actionNames.contains(defaultsNextAction) {
+            errors.append("defaults.nextAction '\(defaultsNextAction)' does not exist")
+        }
+        if !activeAction.isEmpty && !defaultsNextAction.isEmpty && activeAction == defaultsNextAction {
+            errors.append("defaults.activeAction and defaults.nextAction cannot be the same ('\(activeAction)')")
+        }
+
+        var nextActionMap: [String: String] = [:]
+        var actionTypeMap: [String: ActionType] = [:]
+        func appendNextAction(_ actionName: String, _ rawNextAction: String?) {
+            let next = rawNextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !next.isEmpty else { return }
+            if !actionNames.contains(next) {
+                errors.append("Action '\(actionName)' has nextAction '\(next)' which does not exist")
+                return
+            }
+            nextActionMap[actionName] = next
+        }
+
+        for (name, insert) in config.inserts { appendNextAction(name, insert.nextAction) }
+        for (name, url) in config.urls { appendNextAction(name, url.nextAction) }
+        for (name, shortcut) in config.shortcuts { appendNextAction(name, shortcut.nextAction) }
+        for (name, shell) in config.scriptsShell { appendNextAction(name, shell.nextAction) }
+        for (name, script) in config.scriptsAS { appendNextAction(name, script.nextAction) }
+        for name in config.inserts.keys { actionTypeMap[name] = .insert }
+        for name in config.urls.keys { actionTypeMap[name] = .url }
+        for name in config.shortcuts.keys { actionTypeMap[name] = .shortcut }
+        for name in config.scriptsShell.keys { actionTypeMap[name] = .shell }
+        for name in config.scriptsAS.keys { actionTypeMap[name] = .appleScript }
+
+        // Cycle detection for action-level chains
+        enum NodeState { case visiting, visited }
+        var nodeStates: [String: NodeState] = [:]
+
+        func dfs(_ node: String) {
+            if let state = nodeStates[node] {
+                if state == .visiting {
+                    errors.append("Action chain cycle detected involving '\(node)'")
+                }
+                return
+            }
+
+            nodeStates[node] = .visiting
+            if let next = nextActionMap[node] {
+                dfs(next)
+            }
+            nodeStates[node] = .visited
+        }
+
+        for name in nextActionMap.keys {
+            if nodeStates[name] == nil {
+                dfs(name)
+            }
+        }
+
+        // Validate max one insert action per chain, respecting defaults.nextAction precedence only for first step.
+        for start in actionNames {
+            var current = start
+            var seen: Set<String> = []
+            var firstStep = true
+            var firstInsertName: String?
+
+            while !current.isEmpty && !seen.contains(current) {
+                seen.insert(current)
+                if actionTypeMap[current] == .insert {
+                    if let firstInsertName = firstInsertName, firstInsertName != current {
+                        errors.append("Chain starting at '\(start)' contains multiple insert actions ('\(firstInsertName)' and '\(current)'). Only one insert action is allowed per chain")
+                        break
+                    }
+                    firstInsertName = current
+                }
+
+                let next: String
+                if firstStep && !defaultsNextAction.isEmpty {
+                    next = defaultsNextAction
+                } else {
+                    next = nextActionMap[current] ?? ""
+                }
+                firstStep = false
+
+                if next.isEmpty {
+                    break
+                }
+                current = next
+            }
+        }
+
+        return Array(Set(errors)).sorted()
     }
     
     /// Formats decoding errors to be more user-friendly
@@ -277,6 +420,18 @@ class ConfigurationManager {
             // Reset the file watcher to recover from JSON error
             self.resetFileWatcher()
         }
+    }
+
+    private func showConfigValidationErrorNotification(_ details: String) {
+        if !hasNotifiedAboutJsonError {
+            hasNotifiedAboutJsonError = true
+            notify(
+                title: "MacroWhisper - Configuration Error",
+                message: "Configuration validation failed. Using default settings until fixed. Use --reveal-config to fix nextAction/activeAction errors."
+            )
+        }
+        logWarning("Configuration validation errors in \(configPath): \(details)")
+        self.resetFileWatcher()
     }
     
     /// Post-process JSON string to round all floating point numbers to 3 decimal places
@@ -502,6 +657,11 @@ class ConfigurationManager {
                     logDebug("Configuration automatically reloaded after file change")
                 } else {
                     logError("Failed to reload configuration after file change")
+                    self._config = AppConfiguration.defaultConfig()
+                    DispatchQueue.main.async {
+                        self.onConfigChanged?("configValidationFallback")
+                    }
+                    logWarning("Applied in-memory default configuration due to invalid configuration file")
                 }
             }
         })

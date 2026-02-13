@@ -414,25 +414,26 @@ class SocketCommunication {
     
     // This version is for clipboard-monitored insert actions and does NOT press ESC or apply actionDelay
     // (ESC and delay are handled by ClipboardMonitor)
-    func applyInsertWithoutEsc(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
+    func applyInsertWithoutEsc(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) -> Bool {
         if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
             // For empty or .none actions, do nothing since delay is handled by ClipboardMonitor
-            return
+            return true
         }
         
         if isAutoPaste {
-            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
+            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return false }
             if !isInInputField() {
                 logDebug("Clipboard-monitored auto paste - not in input field, direct paste only")
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulatePressReturn(activeInsert: activeInsert); return
+                checkAndSimulatePressReturn(activeInsert: activeInsert); return true
             }
         }
         
         // No ESC key press or actionDelay - these are handled by ClipboardMonitor
         pasteTextNoRestore(text, activeInsert: activeInsert)
         checkAndSimulatePressReturn(activeInsert: activeInsert)
+        return true
     }
     
     // MARK: - CLI Execution Methods for Non-Insert Actions
@@ -683,6 +684,17 @@ class SocketCommunication {
                             _ = sendResponse(response, to: clientSocket)
                             logError("Attempted to set non-existent action: \(activeAction)")
                             notify(title: "Macrowhisper", message: "Non-existent action: \(activeAction)")
+                            return
+                        }
+                        let defaultsNextAction = configMgr.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        if !activeAction.isEmpty && !defaultsNextAction.isEmpty && activeAction == defaultsNextAction {
+                            response = "Error: activeAction cannot be the same as defaults.nextAction ('\(activeAction)')."
+                            _ = sendResponse(response, to: clientSocket)
+                            logError("Rejected activeAction update due to defaults.nextAction loop: \(activeAction)")
+                            notify(
+                                title: "Macrowhisper - Invalid Action",
+                                message: "activeAction cannot match defaults.nextAction (\(activeAction))."
+                            )
                             return
                         }
                         configMgr.config.defaults.activeAction = activeAction

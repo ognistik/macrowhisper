@@ -796,6 +796,15 @@ class RecordingsFolderWatcher {
             
             // Store the metaJsonPath for cleanup after action completion
             let metaJsonPathForCleanup = metaJsonPath
+            let finalizeAfterAction: (ActionExecutor.ChainExecutionResult?) -> Void = { [weak self] result in
+                self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
+                self?.cleanupPendingWatcher(for: recordingPath)
+                self?.handlePostProcessing(
+                    recordingPath: recordingPath,
+                    executedActionType: result?.finalActionType,
+                    executedAction: result?.finalAction
+                )
+            }
             
             // FIRST: Check for auto-return (highest priority - overrides everything)
             if globalState.autoReturnEnabled {
@@ -809,11 +818,12 @@ class RecordingsFolderWatcher {
                 clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                     insertAction: { [weak self] in
                         // Apply the result without ESC (handled by clipboard monitor)
-                        self?.socketCommunication.applyInsertWithoutEsc(swResult, activeInsert: nil)
+                        let success = self?.socketCommunication.applyInsertWithoutEsc(swResult, activeInsert: nil) ?? false
                         // Reset the flag after using it once
                         globalState.autoReturnEnabled = false
                         // Cancel timeout since auto-return was used
                         cancelAutoReturnTimeout()
+                        return success
                     },
                     actionDelay: actionDelay,
                     shouldEsc: shouldEsc,
@@ -821,15 +831,12 @@ class RecordingsFolderWatcher {
                     recordingPath: recordingPath,
                     metaJson: enhancedMetaJson,
                     restoreClipboard: configManager.config.defaults.restoreClipboard,
-                    onCompletion: { [weak self] in
-                        // Clean up pending watchers when action truly completes (both keys for consistency)
-                        self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
-                        self?.cleanupPendingWatcher(for: recordingPath)
+                    onCompletion: { _ in
+                        finalizeAfterAction(nil)
                     }
                 )
                 
                 logDebug("Applied auto-return with enhanced clipboard monitoring")
-                handlePostProcessing(recordingPath: recordingPath)
                 
                 // Early monitoring will be stopped by ClipboardMonitor when done
                 return
@@ -845,27 +852,22 @@ class RecordingsFolderWatcher {
                     
                     // Execute the action on the main thread with cleanup callback
                     DispatchQueue.main.async { [weak self] in
-                        self?.actionExecutor.executeAction(
-                            action: action,
+                        self?.actionExecutor.executeActionChain(
+                            initialAction: action,
                             name: actionName,
                             type: actionType,
                             metaJson: enhancedMetaJson,
                             recordingPath: recordingPath,
-                            isTriggeredAction: false,  // This is a scheduled action, not triggered
-                            onCompletion: { [weak self] in
-                                // Clean up pending watchers when action truly completes (both keys for consistency)
-                                self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
-                                self?.cleanupPendingWatcher(for: recordingPath)
-                            }
-                        )
+                            isTriggeredAction: false
+                        ) { chainResult in
+                            finalizeAfterAction(chainResult)
+                        }
                     }
                     
                     // Reset the scheduled action after using it once
                     globalState.scheduledActionName = nil
                     // Cancel timeout since scheduled action was used
                     cancelScheduledActionTimeout()
-                    
-                    handlePostProcessing(recordingPath: recordingPath)
                     
                     // Early monitoring will be stopped by ClipboardMonitor when done
                     return
@@ -955,23 +957,18 @@ class RecordingsFolderWatcher {
                 
                 // Execute the action on the main thread with cleanup callback
                 DispatchQueue.main.async { [weak self] in
-                    self?.actionExecutor.executeAction(
-                        action: action,
+                    self?.actionExecutor.executeActionChain(
+                        initialAction: action,
                         name: name,
                         type: type,
                         metaJson: updatedJson,
                         recordingPath: recordingPath,
-                        isTriggeredAction: true,  // This is a trigger action
-                        onCompletion: { [weak self] in
-                            // Clean up pending watchers when action truly completes (both keys for consistency)
-                            self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
-                            self?.cleanupPendingWatcher(for: recordingPath)
-                        }
-                    )
+                        isTriggeredAction: true
+                    ) { chainResult in
+                        finalizeAfterAction(chainResult)
+                    }
                 }
-                
-                handlePostProcessing(recordingPath: recordingPath)
-                
+
                 // Early monitoring will be stopped by ClipboardMonitor when done
                 return
             }
@@ -985,66 +982,19 @@ class RecordingsFolderWatcher {
                 
                 if let action = action {
                     logDebug("Processing with active action: \(activeActionName) (type: \(actionType))")
-                    
-                    // Handle based on action type
-                    switch actionType {
-                    case .insert:
-                        if let activeInsert = action as? AppConfiguration.Insert {
-                            // Check if the insert action is ".none" or empty - if so, skip action but apply delay
-                            if activeInsert.action == ".none" || activeInsert.action.isEmpty {
-                                logDebug("Active insert action is '.none' or empty - skipping action, no ESC, no clipboard restoration")
-                                // Apply actionDelay if specified, but don't do anything else
-                                let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
-                                if actionDelay > 0 {
-                                    Thread.sleep(forTimeInterval: actionDelay)
-                                    logDebug("Applied actionDelay: \(actionDelay)s for .none/.empty action")
-                                }
-                            } else {
-                                // Use enhanced clipboard monitoring for active insert to handle Superwhisper interference
-                                let (processedAction, isAutoPaste) = socketCommunication.processInsertAction(activeInsert.action, metaJson: enhancedMetaJson)
-                                let actionDelay = activeInsert.actionDelay ?? configManager.config.defaults.actionDelay
-                                let shouldEsc = !(activeInsert.noEsc ?? configManager.config.defaults.noEsc)
-                                
-                                // Use action-level restoreClipboard if set, otherwise fall back to global default
-                                let restoreClipboard = activeInsert.restoreClipboard ?? configManager.config.defaults.restoreClipboard
-                                
-                                clipboardMonitor.executeInsertWithEnhancedClipboardSync(
-                                    insertAction: { [weak self] in
-                                        // Apply the insert without ESC (handled by clipboard monitor)
-                                        self?.socketCommunication.applyInsertWithoutEsc(processedAction, activeInsert: activeInsert, isAutoPaste: isAutoPaste)
-                                    },
-                                    actionDelay: actionDelay,
-                                    shouldEsc: shouldEsc,
-                                    isAutoPaste: isAutoPaste,
-                                    recordingPath: recordingPath,
-                                    metaJson: enhancedMetaJson,
-                                    restoreClipboard: restoreClipboard,
-                                    onCompletion: { [weak self] in
-                                        // Clean up pending watchers when action truly completes (both keys for consistency)
-                                        self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
-                                        self?.cleanupPendingWatcher(for: recordingPath)
-                                    }
-                                )
-                            }
-                        }
-                    case .url, .shortcut, .shell, .appleScript:
-                        // For non-insert active actions, execute directly with cleanup callback
-                        DispatchQueue.main.async { [weak self] in
-                            self?.actionExecutor.executeAction(
-                                action: action,
-                                name: activeActionName,
-                                type: actionType,
-                                metaJson: enhancedMetaJson,
-                                recordingPath: recordingPath,
-                                isTriggeredAction: false,  // This is an active action, not triggered
-                                onCompletion: { [weak self] in
-                                    // Clean up pending watchers when action truly completes (both keys for consistency)
-                                    self?.cleanupPendingWatcher(for: metaJsonPathForCleanup)
-                                    self?.cleanupPendingWatcher(for: recordingPath)
-                                }
-                            )
+                    DispatchQueue.main.async { [weak self] in
+                        self?.actionExecutor.executeActionChain(
+                            initialAction: action,
+                            name: activeActionName,
+                            type: actionType,
+                            metaJson: enhancedMetaJson,
+                            recordingPath: recordingPath,
+                            isTriggeredAction: false
+                        ) { chainResult in
+                            finalizeAfterAction(chainResult)
                         }
                     }
+                    return
                 } else {
                     logDebug("Active action '\(activeActionName)' not found, skipping action.")
 
@@ -1054,6 +1004,7 @@ class RecordingsFolderWatcher {
                     // Clean up pending watchers since no action was executed (both keys for consistency)
                     cleanupPendingWatcher(for: metaJsonPathForCleanup)
                     cleanupPendingWatcher(for: recordingPath)
+                    handlePostProcessing(recordingPath: recordingPath)
                 }
             } else {
                 logDebug("No active action, skipping action.")
@@ -1064,9 +1015,8 @@ class RecordingsFolderWatcher {
                 // Clean up pending watchers since no action was executed (both keys for consistency)
                 cleanupPendingWatcher(for: metaJsonPathForCleanup)
                 cleanupPendingWatcher(for: recordingPath)
+                handlePostProcessing(recordingPath: recordingPath)
             }
-
-            handlePostProcessing(recordingPath: recordingPath)
         } catch {
             logError("Error reading meta.json at \(metaJsonPath): \(error)")
             watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
@@ -1074,54 +1024,40 @@ class RecordingsFolderWatcher {
         }
     }
 
-    private func handlePostProcessing(recordingPath: String) {
+    private func handlePostProcessing(recordingPath: String, executedActionType: ActionType? = nil, executedAction: Any? = nil) {
         // Determine the moveTo value with proper precedence (active action takes precedence over default)
         var moveTo: String?
-        
-        if let activeActionName = configManager.config.defaults.activeAction,
-           !activeActionName.isEmpty {
-            // Find the active action and get its moveTo value
-            let (actionType, action) = findActionByName(activeActionName, configManager: configManager)
-            
-            if let action = action {
-                var actionMoveTo: String?
-                
-                switch actionType {
-                case .insert:
-                    if let insert = action as? AppConfiguration.Insert {
-                        actionMoveTo = insert.moveTo
-                    }
-                case .url:
-                    if let url = action as? AppConfiguration.Url {
-                        actionMoveTo = url.moveTo
-                    }
-                case .shortcut:
-                    if let shortcut = action as? AppConfiguration.Shortcut {
-                        actionMoveTo = shortcut.moveTo
-                    }
-                case .shell:
-                    if let shell = action as? AppConfiguration.ScriptShell {
-                        actionMoveTo = shell.moveTo
-                    }
-                case .appleScript:
-                    if let script = action as? AppConfiguration.ScriptAppleScript {
-                        actionMoveTo = script.moveTo
-                    }
-                }
-                
-                if let actionMoveTo = actionMoveTo, !actionMoveTo.isEmpty {
-                    // Active action has an explicit moveTo value (including ".none" and ".delete")
-                    moveTo = actionMoveTo
-                } else {
-                    // Active action moveTo is nil/empty, fall back to default
-                    moveTo = configManager.config.defaults.moveTo
-                }
+        var actionForMoveTo: (type: ActionType, action: Any)?
+        if let explicitType = executedActionType, let explicitAction = executedAction {
+            actionForMoveTo = (type: explicitType, action: explicitAction)
+        } else if let activeActionName = configManager.config.defaults.activeAction,
+                  !activeActionName.isEmpty {
+            let (activeType, activeAction) = findActionByName(activeActionName, configManager: configManager)
+            if let activeAction = activeAction {
+                actionForMoveTo = (type: activeType, action: activeAction)
+            }
+        }
+
+        if let actionForMoveTo = actionForMoveTo {
+            var actionMoveTo: String?
+            switch actionForMoveTo.type {
+            case .insert:
+                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.Insert)?.moveTo
+            case .url:
+                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.Url)?.moveTo
+            case .shortcut:
+                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.Shortcut)?.moveTo
+            case .shell:
+                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.ScriptShell)?.moveTo
+            case .appleScript:
+                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.ScriptAppleScript)?.moveTo
+            }
+            if let actionMoveTo = actionMoveTo, !actionMoveTo.isEmpty {
+                moveTo = actionMoveTo
             } else {
-                // Active action not found, fall back to default
                 moveTo = configManager.config.defaults.moveTo
             }
         } else {
-            // No active action, use default
             moveTo = configManager.config.defaults.moveTo
         }
         

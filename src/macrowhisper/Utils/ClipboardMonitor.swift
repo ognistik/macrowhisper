@@ -152,13 +152,15 @@ class ClipboardMonitor {
     }
     
     /// Marks that action execution is finished (disables clipboard change logging)
-    func finishActionExecution(for recordingPath: String) {
+    func finishActionExecution(for recordingPath: String, shouldCleanup: Bool = true) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             self?.earlyMonitoringSessions[recordingPath]?.isExecutingAction = false
         }
         
         // Trigger cleanup of clipboard changes after 0.5s to prevent contamination
-        cleanupClipboardChangesAfterAction(for: recordingPath)
+        if shouldCleanup {
+            cleanupClipboardChangesAfterAction(for: recordingPath)
+        }
     }
     
     /// Clears clipboard changes after action execution to prevent contamination of clipboardContext
@@ -713,14 +715,20 @@ class ClipboardMonitor {
     ///   - metaJson: The meta.json data to extract swResult from
     ///   - restoreClipboard: Whether clipboard restoration should be performed
     func executeInsertWithEnhancedClipboardSync(
-        insertAction: @escaping () -> Void,
+        insertAction: @escaping () -> Bool,
         actionDelay: TimeInterval,
         shouldEsc: Bool,
         isAutoPaste: Bool = false,
         recordingPath: String,
         metaJson: [String: Any],
         restoreClipboard: Bool = true,
-        onCompletion: (() -> Void)? = nil
+        shouldUseSuperwhisperSync: Bool = true,
+        shouldStopMonitoringAfterAction: Bool = true,
+        shouldTriggerCleanupAfterAction: Bool = true,
+        restoreClipboardIndependentlyOfEsc: Bool = false,
+        forceEscForAutoPasteWhenNotInInputField: Bool = false,
+        forceEscForEmptyInsert: Bool = false,
+        onCompletion: ((Bool) -> Void)? = nil
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -734,113 +742,91 @@ class ClipboardMonitor {
                     // For autoPaste, check once if user is in input field and cache the result
                     if requestAccessibilityPermission() {
                         userIsInInputField = isInInputField()
-                        escWillBeSimulated = userIsInInputField
+                        escWillBeSimulated = userIsInInputField || forceEscForAutoPasteWhenNotInInputField
                     }
                 } else {
                     // For regular inserts, always simulate ESC if enabled
                     escWillBeSimulated = true
                 }
             }
-            
-            // Only restore clipboard if ESC will be simulated AND restoreClipboard is enabled
-            let shouldRestoreClipboard = escWillBeSimulated && restoreClipboard
-            
-            // If clipboard restoration is disabled, execute action directly
-            if !shouldRestoreClipboard {
-                logDebug("[ClipboardMonitor] Clipboard restoration disabled - executing action directly (ESC=\(escWillBeSimulated), restore=\(restoreClipboard))")
-                
-                // Mark action execution as starting
-                self.startActionExecution(for: recordingPath)
-                
-                // Step 1: Apply actionDelay before ESC simulation and action execution
-                if actionDelay > 0 {
-                    Thread.sleep(forTimeInterval: actionDelay)
-                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and action")
-                }
-                
-                // Step 2: Simulate ESC after actionDelay if enabled
-                if shouldEsc {
-                    if isAutoPaste {
-                        // For autoPaste, use the cached input field status
-                        if !requestAccessibilityPermission() {
-                            logWarning("[ClipboardMonitor] Accessibility permission denied for autoPaste input field check")
-                        } else if userIsInInputField {
-                            simulateKeyDown(key: 53) // ESC key
-                            logDebug("[ClipboardMonitor] ESC key pressed for autoPaste (user is in input field)")
-                        } else {
-                            logDebug("[ClipboardMonitor] ESC key skipped for autoPaste (user not in input field)")
-                        }
-                    } else {
-                        // For regular inserts, always simulate ESC if enabled
-                        simulateKeyDown(key: 53) // ESC key
-                        logDebug("[ClipboardMonitor] ESC key pressed for responsiveness")
-                    }
-                }
-                
-                // Step 3: Execute the insert action
-                insertAction()
-                
-                // Mark action execution as finished
-                self.finishActionExecution(for: recordingPath)
-                
-                // Stop early monitoring after cleanup has had time to complete (0.5s + small buffer)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
-                }
-                
-                logDebug("[ClipboardMonitor] Action completed without clipboard restoration")
-                return
+            if forceEscForEmptyInsert && shouldEsc {
+                escWillBeSimulated = true
             }
             
+            let shouldRestoreClipboard = restoreClipboardIndependentlyOfEsc
+                ? restoreClipboard
+                : (escWillBeSimulated && restoreClipboard)
+
             // Get the early monitoring session data with thread safety
             var session: EarlyMonitoringSession?
             self.sessionsQueue.sync {
                 session = self.earlyMonitoringSessions[recordingPath]
             }
+
+            let clipboardToRestore = session?.userOriginalClipboard
             
-            guard let validSession = session else {
-                logError("[ClipboardMonitor] Missing early monitoring session for \(recordingPath) - cannot restore clipboard from session start")
-                return
-            }
-            
+            // Step 1: Mark action execution as starting (enables relevant clipboard logging)
+            self.startActionExecution(for: recordingPath)
+
             // Extract swResult from metaJson (llmResult takes precedence over result)
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            let clipboardToRestore = validSession.userOriginalClipboard
-            
-            // Step 1: Mark that action execution is starting (enables relevant clipboard logging)
-            self.startActionExecution(for: recordingPath)
-            
-            // Step 2: Handle clipboard synchronization with Superwhisper BEFORE applying actionDelay
-            // This ensures proper timing coordination regardless of user's actionDelay setting
-            let pasteboard = NSPasteboard.general
-            let currentClipboard = pasteboard.string(forType: .string)
-            
-            if currentClipboard == swResult {
-                // Superwhisper was faster - we already have swResult on clipboard
-                logDebug("[ClipboardMonitor] Superwhisper was faster: swResult already on clipboard")
+
+            // Step 2: Use Superwhisper clipboard synchronization only when requested (first chain action).
+            if shouldUseSuperwhisperSync {
+                let pasteboard = NSPasteboard.general
+                let currentClipboard = pasteboard.string(forType: .string)
+                if currentClipboard == swResult {
+                    logDebug("[ClipboardMonitor] Superwhisper was faster: swResult already on clipboard")
+                    self.proceedWithActionAndDelay(
+                        insertAction: insertAction,
+                        clipboardToRestore: clipboardToRestore,
+                        superwhisperWasFaster: true,
+                        actionDelay: actionDelay,
+                        shouldEsc: shouldEsc,
+                        isAutoPaste: isAutoPaste,
+                        userIsInInputField: userIsInInputField,
+                        recordingPath: recordingPath,
+                        shouldRestoreClipboard: shouldRestoreClipboard,
+                        shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
+                        shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
+                        forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+                        forceEscForEmptyInsert: forceEscForEmptyInsert,
+                        onCompletion: onCompletion
+                    )
+                } else {
+                    logDebug("[ClipboardMonitor] Waiting for Superwhisper clipboard change (maxWaitTime: \(maxWaitTime)s)")
+                    self.waitForSuperwhisperThenProceed(
+                        insertAction: insertAction,
+                        swResult: swResult,
+                        clipboardToRestore: clipboardToRestore,
+                        actionDelay: actionDelay,
+                        shouldEsc: shouldEsc,
+                        isAutoPaste: isAutoPaste,
+                        userIsInInputField: userIsInInputField,
+                        recordingPath: recordingPath,
+                        shouldRestoreClipboard: shouldRestoreClipboard,
+                        shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
+                        shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
+                        forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+                        forceEscForEmptyInsert: forceEscForEmptyInsert,
+                        onCompletion: onCompletion
+                    )
+                }
+            } else {
                 self.proceedWithActionAndDelay(
                     insertAction: insertAction,
                     clipboardToRestore: clipboardToRestore,
-                    superwhisperWasFaster: true,
+                    superwhisperWasFaster: false,
                     actionDelay: actionDelay,
                     shouldEsc: shouldEsc,
                     isAutoPaste: isAutoPaste,
                     userIsInInputField: userIsInInputField,
                     recordingPath: recordingPath,
-                    onCompletion: onCompletion
-                )
-            } else {
-                // Need to wait for Superwhisper up to maxWaitTime, then proceed regardless
-                logDebug("[ClipboardMonitor] Waiting for Superwhisper clipboard change (maxWaitTime: \(maxWaitTime)s)")
-                self.waitForSuperwhisperThenProceed(
-                    insertAction: insertAction,
-                    swResult: swResult,
-                    clipboardToRestore: clipboardToRestore,
-                    actionDelay: actionDelay,
-                    shouldEsc: shouldEsc,
-                    isAutoPaste: isAutoPaste,
-                    userIsInInputField: userIsInInputField,
-                    recordingPath: recordingPath,
+                    shouldRestoreClipboard: shouldRestoreClipboard,
+                    shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
+                    shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
+                    forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+                    forceEscForEmptyInsert: forceEscForEmptyInsert,
                     onCompletion: onCompletion
                 )
             }
@@ -849,7 +835,7 @@ class ClipboardMonitor {
     
     /// Wait for Superwhisper to update clipboard or proceed after maxWaitTime, then apply actionDelay
     private func waitForSuperwhisperThenProceed(
-        insertAction: @escaping () -> Void,
+        insertAction: @escaping () -> Bool,
         swResult: String,
         clipboardToRestore: String?,
         actionDelay: TimeInterval,
@@ -857,7 +843,12 @@ class ClipboardMonitor {
         isAutoPaste: Bool,
         userIsInInputField: Bool,
         recordingPath: String,
-        onCompletion: (() -> Void)? = nil
+        shouldRestoreClipboard: Bool,
+        shouldStopMonitoringAfterAction: Bool,
+        shouldTriggerCleanupAfterAction: Bool,
+        forceEscForAutoPasteWhenNotInInputField: Bool,
+        forceEscForEmptyInsert: Bool,
+        onCompletion: ((Bool) -> Void)? = nil
     ) {
         let startTime = Date()
         
@@ -872,6 +863,11 @@ class ClipboardMonitor {
             isAutoPaste: isAutoPaste,
             userIsInInputField: userIsInInputField,
             recordingPath: recordingPath,
+            shouldRestoreClipboard: shouldRestoreClipboard,
+            shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
+            shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
+            forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+            forceEscForEmptyInsert: forceEscForEmptyInsert,
             onCompletion: onCompletion
         )
     }
@@ -881,13 +877,18 @@ class ClipboardMonitor {
         startTime: Date,
         swResult: String,
         clipboardToRestore: String?,
-        insertAction: @escaping () -> Void,
+        insertAction: @escaping () -> Bool,
         actionDelay: TimeInterval,
         shouldEsc: Bool,
         isAutoPaste: Bool,
         userIsInInputField: Bool,
         recordingPath: String,
-        onCompletion: (() -> Void)? = nil
+        shouldRestoreClipboard: Bool,
+        shouldStopMonitoringAfterAction: Bool,
+        shouldTriggerCleanupAfterAction: Bool,
+        forceEscForAutoPasteWhenNotInInputField: Bool,
+        forceEscForEmptyInsert: Bool,
+        onCompletion: ((Bool) -> Void)? = nil
     ) {
         let pasteboard = NSPasteboard.general
         let currentClipboard = pasteboard.string(forType: .string)
@@ -905,6 +906,11 @@ class ClipboardMonitor {
                 isAutoPaste: isAutoPaste,
                 userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath,
+                shouldRestoreClipboard: shouldRestoreClipboard,
+                shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
+                shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
+                forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+                forceEscForEmptyInsert: forceEscForEmptyInsert,
                 onCompletion: onCompletion
             )
             return
@@ -923,6 +929,11 @@ class ClipboardMonitor {
                 isAutoPaste: isAutoPaste,
                 userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath,
+                shouldRestoreClipboard: shouldRestoreClipboard,
+                shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
+                shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
+                forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+                forceEscForEmptyInsert: forceEscForEmptyInsert,
                 onCompletion: onCompletion
             )
             return
@@ -940,6 +951,11 @@ class ClipboardMonitor {
                 isAutoPaste: isAutoPaste,
                 userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath,
+                shouldRestoreClipboard: shouldRestoreClipboard,
+                shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
+                shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
+                forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
+                forceEscForEmptyInsert: forceEscForEmptyInsert,
                 onCompletion: onCompletion
             )
         }
@@ -947,7 +963,7 @@ class ClipboardMonitor {
     
     /// Proceeds with action execution: applies actionDelay, simulates ESC, executes action, restores clipboard
     private func proceedWithActionAndDelay(
-        insertAction: @escaping () -> Void,
+        insertAction: @escaping () -> Bool,
         clipboardToRestore: String?,
         superwhisperWasFaster: Bool,
         actionDelay: TimeInterval,
@@ -955,7 +971,12 @@ class ClipboardMonitor {
         isAutoPaste: Bool,
         userIsInInputField: Bool,
         recordingPath: String,
-        onCompletion: (() -> Void)? = nil
+        shouldRestoreClipboard: Bool,
+        shouldStopMonitoringAfterAction: Bool,
+        shouldTriggerCleanupAfterAction: Bool,
+        forceEscForAutoPasteWhenNotInInputField: Bool,
+        forceEscForEmptyInsert: Bool,
+        onCompletion: ((Bool) -> Void)? = nil
     ) {
         // Step 1: Apply actionDelay now that clipboard synchronization is complete
         if actionDelay > 0 {
@@ -972,6 +993,9 @@ class ClipboardMonitor {
                 } else if userIsInInputField {
                     simulateKeyDown(key: 53) // ESC key
                     logDebug("[ClipboardMonitor] ESC key pressed for autoPaste (user is in input field)")
+                } else if forceEscForAutoPasteWhenNotInInputField {
+                    simulateKeyDown(key: 53) // ESC key
+                    logDebug("[ClipboardMonitor] ESC key pressed for autoPaste chain continuation (user not in input field)")
                 } else {
                     logDebug("[ClipboardMonitor] ESC key skipped for autoPaste (user not in input field)")
                 }
@@ -981,22 +1005,36 @@ class ClipboardMonitor {
                 logDebug("[ClipboardMonitor] ESC key pressed for responsiveness")
             }
         }
-        
         // Step 3: Execute the insert action
-        insertAction()
+        let didSucceed = insertAction()
         
         // Step 4: Mark action execution as finished (disables clipboard change logging)
-        self.finishActionExecution(for: recordingPath)
-        
-        // Step 5: Restore the correct clipboard after a minimum wait time for paste to complete
-        let restoreDelay = 0.3 // Minimum delay for paste operation to complete
+        self.finishActionExecution(for: recordingPath, shouldCleanup: shouldTriggerCleanupAfterAction)
+
+        // Step 5: Restore clipboard only when requested; stop monitoring only at end of chain.
         let completion = onCompletion
-        DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
-            self?.restoreCorrectClipboard(clipboardToRestore)
-            // Stop early monitoring after cleanup has had time to complete (0.5s + small buffer)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+        if shouldRestoreClipboard {
+            let restoreDelay = 0.3
+            DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
+                self?.restoreCorrectClipboard(clipboardToRestore)
+                if shouldStopMonitoringAfterAction {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                        self?.stopEarlyMonitoring(for: recordingPath) {
+                            completion?(didSucceed)
+                        }
+                    }
+                } else {
+                    completion?(didSucceed)
+                }
             }
+        } else if shouldStopMonitoringAfterAction {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.stopEarlyMonitoring(for: recordingPath) {
+                    completion?(didSucceed)
+                }
+            }
+        } else {
+            completion?(didSucceed)
         }
         
         logDebug("[ClipboardMonitor] Action completed. Superwhisper was faster: \(superwhisperWasFaster)")
@@ -1024,65 +1062,29 @@ class ClipboardMonitor {
     ///   - recordingPath: The recording path for early monitoring data
     ///   - restoreClipboard: Whether clipboard restoration is enabled in settings
     func executeNonInsertActionWithClipboardRestore(
-        action: @escaping () -> Void,
+        action: @escaping () -> Bool,
         shouldEsc: Bool,
         actionDelay: TimeInterval,
         recordingPath: String,
         restoreClipboard: Bool = true,
-        onCompletion: (() -> Void)? = nil
+        shouldStopMonitoringAfterAction: Bool = true,
+        shouldTriggerCleanupAfterAction: Bool = true,
+        restoreClipboardIndependentlyOfEsc: Bool = false,
+        onCompletion: ((Bool) -> Void)? = nil
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
-            // Only restore clipboard if ESC will be simulated AND restoreClipboard is enabled
-            let shouldRestoreClipboard = shouldEsc && restoreClipboard
-            
-            if !shouldRestoreClipboard {
-                logDebug("[ClipboardMonitor] Non-insert action: No clipboard restoration (ESC=\(shouldEsc), restore=\(restoreClipboard))")
-                
-                // Mark action execution as starting
-                self.startActionExecution(for: recordingPath)
-                
-                // Apply action delay before ESC and action execution
-                if actionDelay > 0 {
-                    Thread.sleep(forTimeInterval: actionDelay)
-                    logDebug("[ClipboardMonitor] Applied actionDelay: \(actionDelay)s before ESC and action (non-insert)")
-                }
-                
-                // Simulate ESC after actionDelay if requested
-                if shouldEsc {
-                    simulateKeyDown(key: 53) // ESC key
-                    logDebug("[ClipboardMonitor] ESC key pressed for non-insert action")
-                }
-                
-                // Execute action directly without clipboard monitoring
-                action()
-                
-                // Mark action execution as finished
-                self.finishActionExecution(for: recordingPath)
-                
-                // Stop early monitoring after cleanup has had time to complete (0.5s + small buffer)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: onCompletion)
-                }
-                return
-            }
             
             // Get the early monitoring session data with thread safety
             var session: EarlyMonitoringSession?
             self.sessionsQueue.sync {
                 session = self.earlyMonitoringSessions[recordingPath]
             }
-            
-            guard let validSession = session else {
-                logError("[ClipboardMonitor] Missing early monitoring session for \(recordingPath) - cannot restore clipboard from session start")
-                return
-            }
-            
-            // Always restore clipboard captured at session start.
-            let clipboardToRestore = validSession.userOriginalClipboard
-            
-            logDebug("[ClipboardMonitor] Non-insert action with clipboard restoration")
+
+            let clipboardToRestore = session?.userOriginalClipboard
+            let shouldRestoreClipboard = restoreClipboardIndependentlyOfEsc
+                ? restoreClipboard
+                : (shouldEsc && restoreClipboard)
             
             // Mark action execution as starting
             self.startActionExecution(for: recordingPath)
@@ -1100,20 +1102,34 @@ class ClipboardMonitor {
             }
             
             // Execute the action
-            action()
+            let didSucceed = action()
             
             // Mark action execution as finished
-            self.finishActionExecution(for: recordingPath)
-            
-            // Restore clipboard after a brief delay to let any action complete
-            let restoreDelay = 0.3
+            self.finishActionExecution(for: recordingPath, shouldCleanup: shouldTriggerCleanupAfterAction)
+
             let completion = onCompletion
-            DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
-                self?.restoreCorrectClipboard(clipboardToRestore)
-                // Stop early monitoring after cleanup has had time to complete (0.5s + small buffer)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.stopEarlyMonitoring(for: recordingPath, onCompletion: completion)
+            if shouldRestoreClipboard {
+                let restoreDelay = 0.3
+                DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
+                    self?.restoreCorrectClipboard(clipboardToRestore)
+                    if shouldStopMonitoringAfterAction {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                            self?.stopEarlyMonitoring(for: recordingPath) {
+                                completion?(didSucceed)
+                            }
+                        }
+                    } else {
+                        completion?(didSucceed)
+                    }
                 }
+            } else if shouldStopMonitoringAfterAction {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                    self?.stopEarlyMonitoring(for: recordingPath) {
+                        completion?(didSucceed)
+                    }
+                }
+            } else {
+                completion?(didSucceed)
             }
         }
     }
