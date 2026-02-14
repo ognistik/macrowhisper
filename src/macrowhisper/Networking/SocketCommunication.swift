@@ -1276,7 +1276,7 @@ class SocketCommunication {
             // Use the new comprehensive CGEvent-based typing
             typeText(text)
         } else {
-            pasteUsingClipboard(text)
+            pasteUsingClipboard(text, activeInsert: activeInsert)
         }
     }
 
@@ -1287,7 +1287,7 @@ class SocketCommunication {
             // Use the new comprehensive CGEvent-based typing
             typeText(text)
         } else {
-            pasteUsingClipboardNoRestore(text)
+            pasteUsingClipboardNoRestore(text, activeInsert: activeInsert)
         }
     }
     
@@ -1316,20 +1316,25 @@ class SocketCommunication {
         }
     }
 
-    private func pasteUsingClipboard(_ text: String) {
+    private func pasteUsingClipboard(_ text: String, activeInsert: AppConfiguration.Insert?) {
         let pasteboard = NSPasteboard.general
         let originalContent = pasteboard.string(forType: .string)
-        logDebug(
-            "[SmartInsert] Clipboard insert payload (restore): len=\(text.count) " +
-            "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
-        )
+        let shouldLogSmartInsertClipboard = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
+        if shouldLogSmartInsertClipboard {
+            logDebug(
+                "[SmartInsert] Clipboard insert payload (restore): len=\(text.count) " +
+                "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
+            )
+        }
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        let confirm = pasteboard.string(forType: .string) ?? ""
-        logDebug(
-            "[SmartInsert] Pasteboard confirmed (restore): len=\(confirm.count) " +
-            "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
-        )
+        if shouldLogSmartInsertClipboard {
+            let confirm = pasteboard.string(forType: .string) ?? ""
+            logDebug(
+                "[SmartInsert] Pasteboard confirmed (restore): len=\(confirm.count) " +
+                "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
+            )
+        }
         simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             pasteboard.clearContents()
@@ -1338,19 +1343,24 @@ class SocketCommunication {
     }
     
     // Version of pasteUsingClipboard that doesn't save/restore clipboard (used with ClipboardMonitor)
-    private func pasteUsingClipboardNoRestore(_ text: String) {
+    private func pasteUsingClipboardNoRestore(_ text: String, activeInsert: AppConfiguration.Insert?) {
         let pasteboard = NSPasteboard.general
-        logDebug(
-            "[SmartInsert] Clipboard insert payload (no-restore): len=\(text.count) " +
-            "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
-        )
+        let shouldLogSmartInsertClipboard = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
+        if shouldLogSmartInsertClipboard {
+            logDebug(
+                "[SmartInsert] Clipboard insert payload (no-restore): len=\(text.count) " +
+                "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
+            )
+        }
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        let confirm = pasteboard.string(forType: .string) ?? ""
-        logDebug(
-            "[SmartInsert] Pasteboard confirmed (no-restore): len=\(confirm.count) " +
-            "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
-        )
+        if shouldLogSmartInsertClipboard {
+            let confirm = pasteboard.string(forType: .string) ?? ""
+            logDebug(
+                "[SmartInsert] Pasteboard confirmed (no-restore): len=\(confirm.count) " +
+                "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
+            )
+        }
         simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
     }
 

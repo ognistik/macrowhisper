@@ -1,5 +1,5 @@
 {
-  "$schema" : "file:///Users/ognistik/Desktop/macrowhisper-schema.json",
+  "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
     "activeAction" : "autoPaste",
@@ -35,7 +35,7 @@
       "pressReturn" : null,
       "restoreClipboard" : null,
       "simKeypress" : null,
-      "smartInsert" : null,
+      "smartInsert" : true,
       "triggerApps" : "Alter",
       "triggerLogic" : "or",
       "triggerModes" : "",
@@ -50,7 +50,7 @@
       "nextAction" : "swWebView",
       "noEsc" : null,
       "pressReturn" : null,
-      "restoreClipboard" : false,
+      "restoreClipboard" : true,
       "simKeypress" : null,
       "smartInsert" : true,
       "triggerApps" : "",
