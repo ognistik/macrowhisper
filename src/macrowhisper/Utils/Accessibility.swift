@@ -371,6 +371,21 @@ struct InputInsertionContext {
     let rightHasLineBreakBeforeNextNonWhitespace: Bool
 }
 
+private let ignoredBoundaryScalarsForSmartInsert: Set<UnicodeScalar> = [
+    "\u{FEFF}", // ZERO WIDTH NO-BREAK SPACE / BOM
+    "\u{200B}", // ZERO WIDTH SPACE
+    "\u{200C}", // ZERO WIDTH NON-JOINER
+    "\u{200D}", // ZERO WIDTH JOINER
+    "\u{2060}"  // WORD JOINER
+]
+
+private func isIgnorableBoundaryCharacterForSmartInsert(_ character: Character?) -> Bool {
+    guard let character = character else { return false }
+    return character.unicodeScalars.allSatisfy { scalar in
+        ignoredBoundaryScalarsForSmartInsert.contains(scalar) || scalar.properties.isJoinControl
+    }
+}
+
 /// Returns insertion boundary characters around the current cursor/selection in a focused input field.
 /// The left character is immediately before selection start, and the right character is immediately after selection end.
 /// Returns nil when context is unavailable or unreliable.
@@ -463,7 +478,9 @@ func getInputInsertionContext() -> InputInsertionContext? {
         while cursor > 0 {
             let range = nsText.rangeOfComposedCharacterSequence(at: cursor - 1)
             let value = nsText.substring(with: range)
-            if let character = value.first, !character.isWhitespace {
+            if let character = value.first,
+               !character.isWhitespace,
+               !isIgnorableBoundaryCharacterForSmartInsert(character) {
                 leftNonWhitespaceCharacter = character
                 break
             }
@@ -504,7 +521,9 @@ func getInputInsertionContext() -> InputInsertionContext? {
         while cursor < textLength {
             let range = nsText.rangeOfComposedCharacterSequence(at: cursor)
             let value = nsText.substring(with: range)
-            if let character = value.first, !character.isWhitespace {
+            if let character = value.first,
+               !character.isWhitespace,
+               !isIgnorableBoundaryCharacterForSmartInsert(character) {
                 rightNonWhitespaceCharacter = character
                 break
             }

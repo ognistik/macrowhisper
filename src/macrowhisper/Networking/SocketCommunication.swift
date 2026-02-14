@@ -920,6 +920,9 @@ class SocketCommunication {
         guard let leftCharacter = leftCharacter else {
             return false
         }
+        if isIgnorableBoundaryCharacter(leftCharacter) {
+            return false
+        }
 
         // Start-of-line should behave like sentence start even if previous line
         // ended with a non-terminal character.
@@ -929,6 +932,9 @@ class SocketCommunication {
 
         if leftCharacter.isWhitespace {
             guard let previous = leftNonWhitespaceCharacter else {
+                return false
+            }
+            if isIgnorableBoundaryCharacter(previous) {
                 return false
             }
             return !".!?".contains(previous)
@@ -1029,12 +1035,26 @@ class SocketCommunication {
         if leftCharacter == nil {
             return true
         }
+        if let leftCharacter, isIgnorableBoundaryCharacter(leftCharacter) {
+            return true
+        }
         return leftCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true
     }
 
     private func isLowercaseLetter(_ character: Character?) -> Bool {
         guard let character = character else { return false }
         return String(character).rangeOfCharacter(from: .lowercaseLetters) != nil
+    }
+
+    private func isIgnorableBoundaryCharacter(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { scalar in
+            scalar == "\u{FEFF}" ||
+            scalar == "\u{200B}" ||
+            scalar == "\u{200C}" ||
+            scalar == "\u{200D}" ||
+            scalar == "\u{2060}" ||
+            scalar.properties.isJoinControl
+        }
     }
 
     private func isOpeningWrapperCharacter(_ character: Character) -> Bool {
