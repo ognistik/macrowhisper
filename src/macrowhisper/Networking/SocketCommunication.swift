@@ -356,16 +356,7 @@ class SocketCommunication {
         return (result, false)
     }
 
-    private enum InputConditionToken: String {
-        case restoreClipboard
-        case pressReturn
-        case noEsc
-        case nextAction
-        case moveTo
-        case action
-        case actionDelay
-        case simKeypress
-    }
+    private typealias ParsedInputCondition = [String: Bool]
 
     private func resolveInsertForCLIExecution(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
         let (templateInsert, isAutoPasteTemplate) = applyLegacyInsertTemplateOverrides(insert)
@@ -383,6 +374,42 @@ class SocketCommunication {
         let resolvedInsert = applyInputCondition(to: templateInsert, isInInputField: isInInputFieldValue)
         let isAutoPaste = isAutoPasteTemplate || resolvedInsert.action == ".autoPaste"
         return (resolvedInsert, isAutoPaste)
+    }
+
+    private func resolveUrlForCLIExecution(_ url: AppConfiguration.Url) -> AppConfiguration.Url {
+        let (templateUrl, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(url)
+        let needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateUrl.inputCondition ?? "").isEmpty)
+        let isInInputFieldValue = resolveInputFieldStateForCLI(needsEvaluation: needsInputConditionEvaluation)
+        return applyInputCondition(to: templateUrl, isInInputField: isInInputFieldValue)
+    }
+
+    private func resolveShellForCLIExecution(_ shell: AppConfiguration.ScriptShell) -> AppConfiguration.ScriptShell {
+        let (templateShell, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(shell)
+        let needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateShell.inputCondition ?? "").isEmpty)
+        let isInInputFieldValue = resolveInputFieldStateForCLI(needsEvaluation: needsInputConditionEvaluation)
+        return applyInputCondition(to: templateShell, isInInputField: isInInputFieldValue)
+    }
+
+    private func resolveAppleScriptForCLIExecution(_ ascript: AppConfiguration.ScriptAppleScript) -> AppConfiguration.ScriptAppleScript {
+        let (templateAppleScript, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(ascript)
+        let needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateAppleScript.inputCondition ?? "").isEmpty)
+        let isInInputFieldValue = resolveInputFieldStateForCLI(needsEvaluation: needsInputConditionEvaluation)
+        return applyInputCondition(to: templateAppleScript, isInInputField: isInInputFieldValue)
+    }
+
+    private func resolveShortcutForCLIExecution(_ shortcut: AppConfiguration.Shortcut) -> AppConfiguration.Shortcut {
+        let (templateShortcut, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(shortcut)
+        let needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateShortcut.inputCondition ?? "").isEmpty)
+        let isInInputFieldValue = resolveInputFieldStateForCLI(needsEvaluation: needsInputConditionEvaluation)
+        return applyInputCondition(to: templateShortcut, isInInputField: isInInputFieldValue)
+    }
+
+    private func resolveInputFieldStateForCLI(needsEvaluation: Bool) -> Bool {
+        guard needsEvaluation else { return false }
+        if requestAccessibilityPermission() {
+            return isInInputField()
+        }
+        return false
     }
 
     private func applyLegacyInsertTemplateOverrides(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
@@ -406,13 +433,69 @@ class SocketCommunication {
         return (resolved, false)
     }
 
-    private func parseInputCondition(_ rawValue: String?) -> [InputConditionToken: Bool] {
+    private func applyLegacyNoopTemplateOverrides(_ url: AppConfiguration.Url) -> (AppConfiguration.Url, Bool) {
+        var resolved = url
+
+        if url.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func applyLegacyNoopTemplateOverrides(_ shell: AppConfiguration.ScriptShell) -> (AppConfiguration.ScriptShell, Bool) {
+        var resolved = shell
+
+        if shell.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func applyLegacyNoopTemplateOverrides(_ ascript: AppConfiguration.ScriptAppleScript) -> (AppConfiguration.ScriptAppleScript, Bool) {
+        var resolved = ascript
+
+        if ascript.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func applyLegacyNoopTemplateOverrides(_ shortcut: AppConfiguration.Shortcut) -> (AppConfiguration.Shortcut, Bool) {
+        var resolved = shortcut
+
+        if shortcut.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func parseInputCondition(_ rawValue: String?) -> ParsedInputCondition {
         let normalized = rawValue ?? ""
         if normalized.isEmpty {
             return [:]
         }
 
-        var tokens: [InputConditionToken: Bool] = [:]
+        var tokens: ParsedInputCondition = [:]
         for rawToken in normalized.components(separatedBy: "|") {
             if rawToken.isEmpty {
                 continue
@@ -420,18 +503,18 @@ class SocketCommunication {
 
             let appliesOutsideInput = rawToken.hasPrefix("!")
             let tokenName = appliesOutsideInput ? String(rawToken.dropFirst()) : rawToken
-            guard let token = InputConditionToken(rawValue: tokenName) else {
+            if tokenName.isEmpty {
                 continue
             }
-            tokens[token] = appliesOutsideInput ? false : true
+            tokens[tokenName] = appliesOutsideInput ? false : true
         }
 
         return tokens
     }
 
     private func shouldApplyToken(
-        _ token: InputConditionToken,
-        tokens: [InputConditionToken: Bool],
+        _ token: String,
+        tokens: ParsedInputCondition,
         isInInputField: Bool
     ) -> Bool {
         guard let appliesInInput = tokens[token] else {
@@ -450,29 +533,157 @@ class SocketCommunication {
         }
 
         var resolved = insert
-        if !shouldApplyToken(.restoreClipboard, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
-        if !shouldApplyToken(.pressReturn, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
             resolved.pressReturn = nil
         }
-        if !shouldApplyToken(.noEsc, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
-        if !shouldApplyToken(.nextAction, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
         }
-        if !shouldApplyToken(.moveTo, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
             resolved.moveTo = nil
         }
-        if !shouldApplyToken(.action, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
             resolved.action = ""
         }
-        if !shouldApplyToken(.actionDelay, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
         }
-        if !shouldApplyToken(.simKeypress, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("simKeypress", tokens: tokens, isInInputField: isInInputField) {
             resolved.simKeypress = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to url: AppConfiguration.Url,
+        isInInputField: Bool
+    ) -> AppConfiguration.Url {
+        let tokens = parseInputCondition(url.inputCondition)
+        if tokens.isEmpty {
+            return url
+        }
+
+        var resolved = url
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to shell: AppConfiguration.ScriptShell,
+        isInInputField: Bool
+    ) -> AppConfiguration.ScriptShell {
+        let tokens = parseInputCondition(shell.inputCondition)
+        if tokens.isEmpty {
+            return shell
+        }
+
+        var resolved = shell
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to ascript: AppConfiguration.ScriptAppleScript,
+        isInInputField: Bool
+    ) -> AppConfiguration.ScriptAppleScript {
+        let tokens = parseInputCondition(ascript.inputCondition)
+        if tokens.isEmpty {
+            return ascript
+        }
+
+        var resolved = ascript
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to shortcut: AppConfiguration.Shortcut,
+        isInInputField: Bool
+    ) -> AppConfiguration.Shortcut {
+        let tokens = parseInputCondition(shortcut.inputCondition)
+        if tokens.isEmpty {
+            return shortcut
+        }
+
+        var resolved = shortcut
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
         }
 
         return resolved
@@ -566,6 +777,11 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty || normalized == ".none" {
+            logDebug("[URL-CLI] Action is empty or '.none' - skipping URL execution")
+            return
+        }
         
         // Try to create URL directly from processed action
         // Placeholders are now URL-encoded individually during processing
@@ -624,6 +840,27 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if normalized == ".run" {
+            let task = Process()
+            task.launchPath = "/usr/bin/shortcuts"
+            task.arguments = ["run", shortcutName]
+            task.standardOutput = FileHandle.nullDevice
+            task.standardError = FileHandle.nullDevice
+
+            do {
+                try task.run()
+            } catch {
+                logError("Failed to execute shortcut action without input: \(error)")
+            }
+            return
+        }
+
+        if normalized.isEmpty || normalized == ".none" {
+            logDebug("[Shortcut-CLI] Action is empty or '.none' - skipping shortcut execution")
+            return
+        }
         
         let tempDir = NSTemporaryDirectory()
         let tempFile = tempDir + "macrowhisper_shortcut_input_\(UUID().uuidString).txt"
@@ -654,6 +891,11 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty || normalized == ".none" {
+            logDebug("[Shell-CLI] Action is empty or '.none' - skipping shell execution")
+            return
+        }
         
         let task = Process()
         task.launchPath = "/bin/bash"
@@ -673,6 +915,11 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty || normalized == ".none" {
+            logDebug("[AppleScript-CLI] Action is empty or '.none' - skipping AppleScript execution")
+            return
+        }
         
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
@@ -1358,19 +1605,23 @@ class SocketCommunication {
                                 }
                             case .url:
                                 if let url = action as? AppConfiguration.Url {
-                                    executeUrlForCLI(url, metaJson: enhancedMetaJson)
+                                    let resolvedUrl = resolveUrlForCLIExecution(url)
+                                    executeUrlForCLI(resolvedUrl, metaJson: enhancedMetaJson)
                                 }
                             case .shortcut:
                                 if let shortcut = action as? AppConfiguration.Shortcut {
-                                    executeShortcutForCLI(shortcut, shortcutName: actionName, metaJson: enhancedMetaJson)
+                                    let resolvedShortcut = resolveShortcutForCLIExecution(shortcut)
+                                    executeShortcutForCLI(resolvedShortcut, shortcutName: actionName, metaJson: enhancedMetaJson)
                                 }
                             case .shell:
                                 if let shell = action as? AppConfiguration.ScriptShell {
-                                    executeShellForCLI(shell, metaJson: enhancedMetaJson)
+                                    let resolvedShell = resolveShellForCLIExecution(shell)
+                                    executeShellForCLI(resolvedShell, metaJson: enhancedMetaJson)
                                 }
                             case .appleScript:
                                 if let script = action as? AppConfiguration.ScriptAppleScript {
-                                    executeAppleScriptForCLI(script, metaJson: enhancedMetaJson)
+                                    let resolvedAppleScript = resolveAppleScriptForCLIExecution(script)
+                                    executeAppleScriptForCLI(resolvedAppleScript, metaJson: enhancedMetaJson)
                                 }
                             }
                             

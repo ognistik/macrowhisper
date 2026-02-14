@@ -1,6 +1,13 @@
 # CHANGELOG
 
 ## UNRELEASED
+* `inputCondition` has been expanded to all action types
+  * You can now have any action behave differently depending on user being in an input field or not.
+* Special action contents have been standardized
+  * `.none` will skip action execution, it will act as `noEsc` false, and `restoreClipboard` will be set to false for that run.
+  * Empty string `""` will simply skip execution but respect the other action settings
+  * `.autoPaste` conttinues to be an insert action type template
+  * `.run` is now a special action content for Shortcuts. It allows the execution of the Shortcut without any input
 
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13
@@ -21,7 +28,7 @@
   * There's protection for endless loops, but tt is suggested you keep your chains short and predictable.
   * Clipboard restoration only happens until the last action executes
   * Only the `moveTo` setting of the last action applies.
-* **New** input condition for insert actions.
+* **New** `inputCondition` for insert actions.
   * Conditionally applies selected insert options depending on whether execution starts in an input field.
   * This means you can have clipboard restoration, Escape simulation, move the recording folder, chained actions, etc. conditionally executed depending on whether you are currently in an input field or not.
   * Section explaining this added to Documentation.

@@ -39,6 +39,7 @@ class ActionExecutor {
         let visited: Set<String>
         let firstInsertActionName: String?
         let cachedInputFieldState: Bool?
+        let failedSteps: [String]
         let stepNumber: Int
         let isFirstStep: Bool
     }
@@ -80,6 +81,7 @@ class ActionExecutor {
             visited: [],
             firstInsertActionName: nil,
             cachedInputFieldState: nil,
+            failedSteps: [],
             stepNumber: 1,
             isFirstStep: true
         )
@@ -150,14 +152,18 @@ class ActionExecutor {
                 options: options
             ) { [weak self] success in
                 guard let self = self else { return }
+                var nextFailedSteps = state.failedSteps
                 if !success {
-                    self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-                    onCompletion?(ChainExecutionResult(success: false, finalActionName: executionStep.name, finalActionType: executionStep.type, finalAction: executionStep.action, errorMessage: "Action execution failed for '\(executionStep.name)'"))
-                    return
+                    nextFailedSteps.append(executionStep.name)
+                    logError("[ActionChain] Action execution failed for '\(executionStep.name)' (continuing chain)")
                 }
 
                 guard let nextStep else {
-                    onCompletion?(ChainExecutionResult(success: true, finalActionName: executionStep.name, finalActionType: executionStep.type, finalAction: executionStep.action, errorMessage: nil))
+                    let didFullySucceed = nextFailedSteps.isEmpty
+                    let errorMessage = didFullySucceed
+                        ? nil
+                        : "Action chain completed with failures in: \(nextFailedSteps.joined(separator: ", "))"
+                    onCompletion?(ChainExecutionResult(success: didFullySucceed, finalActionName: executionStep.name, finalActionType: executionStep.type, finalAction: executionStep.action, errorMessage: errorMessage))
                     return
                 }
 
@@ -166,6 +172,7 @@ class ActionExecutor {
                     visited: nextVisited,
                     firstInsertActionName: nextFirstInsertActionName,
                     cachedInputFieldState: cachedInputState,
+                    failedSteps: nextFailedSteps,
                     stepNumber: state.stepNumber + 1,
                     isFirstStep: false
                 )
@@ -185,28 +192,52 @@ class ActionExecutor {
         }
     }
 
-    private enum InputConditionToken: String {
-        case restoreClipboard
-        case pressReturn
-        case noEsc
-        case nextAction
-        case moveTo
-        case action
-        case actionDelay
-        case simKeypress
-    }
+    private typealias ParsedInputCondition = [String: Bool]
 
     private func resolveStepForExecution(
         step: ResolvedActionStep,
         cachedInputFieldState: Bool?
     ) -> (ResolvedActionStep, Bool?) {
-        guard step.type == .insert, let rawInsert = step.action as? AppConfiguration.Insert else {
-            return (step, cachedInputFieldState)
-        }
+        var resolvedAction = step.action
+        var needsInputConditionEvaluation = false
 
-        let (templateInsert, isLegacyAutoPasteTemplate) = applyLegacyInsertTemplateOverrides(rawInsert)
-        let needsInputConditionEvaluation =
-            isLegacyAutoPasteTemplate || !((templateInsert.inputCondition ?? "").isEmpty)
+        switch step.type {
+        case .insert:
+            guard let rawInsert = step.action as? AppConfiguration.Insert else {
+                return (step, cachedInputFieldState)
+            }
+            let (templateInsert, isLegacyAutoPasteTemplate) = applyLegacyInsertTemplateOverrides(rawInsert)
+            needsInputConditionEvaluation = isLegacyAutoPasteTemplate || !((templateInsert.inputCondition ?? "").isEmpty)
+            resolvedAction = templateInsert
+        case .url:
+            guard let rawUrl = step.action as? AppConfiguration.Url else {
+                return (step, cachedInputFieldState)
+            }
+            let (templateUrl, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawUrl)
+            needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateUrl.inputCondition ?? "").isEmpty)
+            resolvedAction = templateUrl
+        case .shell:
+            guard let rawShell = step.action as? AppConfiguration.ScriptShell else {
+                return (step, cachedInputFieldState)
+            }
+            let (templateShell, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawShell)
+            needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateShell.inputCondition ?? "").isEmpty)
+            resolvedAction = templateShell
+        case .appleScript:
+            guard let rawAppleScript = step.action as? AppConfiguration.ScriptAppleScript else {
+                return (step, cachedInputFieldState)
+            }
+            let (templateAppleScript, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawAppleScript)
+            needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateAppleScript.inputCondition ?? "").isEmpty)
+            resolvedAction = templateAppleScript
+        case .shortcut:
+            guard let rawShortcut = step.action as? AppConfiguration.Shortcut else {
+                return (step, cachedInputFieldState)
+            }
+            let (templateShortcut, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawShortcut)
+            needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateShortcut.inputCondition ?? "").isEmpty)
+            resolvedAction = templateShortcut
+        }
 
         var inputFieldState = cachedInputFieldState
         if needsInputConditionEvaluation && inputFieldState == nil {
@@ -217,16 +248,40 @@ class ActionExecutor {
             }
         }
 
-        let resolvedInsert = applyInputCondition(
-            to: templateInsert,
-            isInInputField: inputFieldState ?? false
+        let inInputField = inputFieldState ?? false
+        let conditionedAction: Any
+        switch step.type {
+        case .insert:
+            guard let insert = resolvedAction as? AppConfiguration.Insert else {
+                return (step, inputFieldState)
+            }
+            conditionedAction = applyInputCondition(to: insert, isInInputField: inInputField)
+        case .url:
+            guard let url = resolvedAction as? AppConfiguration.Url else {
+                return (step, inputFieldState)
+            }
+            conditionedAction = applyInputCondition(to: url, isInInputField: inInputField)
+        case .shell:
+            guard let shell = resolvedAction as? AppConfiguration.ScriptShell else {
+                return (step, inputFieldState)
+            }
+            conditionedAction = applyInputCondition(to: shell, isInInputField: inInputField)
+        case .appleScript:
+            guard let appleScript = resolvedAction as? AppConfiguration.ScriptAppleScript else {
+                return (step, inputFieldState)
+            }
+            conditionedAction = applyInputCondition(to: appleScript, isInInputField: inInputField)
+        case .shortcut:
+            guard let shortcut = resolvedAction as? AppConfiguration.Shortcut else {
+                return (step, inputFieldState)
+            }
+            conditionedAction = applyInputCondition(to: shortcut, isInInputField: inInputField)
+        }
+
+        return (
+            ResolvedActionStep(action: conditionedAction, name: step.name, type: step.type),
+            inputFieldState
         )
-        let resolvedStep = ResolvedActionStep(
-            action: resolvedInsert,
-            name: step.name,
-            type: step.type
-        )
-        return (resolvedStep, inputFieldState)
     }
 
     private func applyLegacyInsertTemplateOverrides(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
@@ -249,13 +304,69 @@ class ActionExecutor {
         return (resolved, false)
     }
 
-    private func parseInputCondition(_ rawValue: String?) -> [InputConditionToken: Bool] {
+    private func applyLegacyNoopTemplateOverrides(_ url: AppConfiguration.Url) -> (AppConfiguration.Url, Bool) {
+        var resolved = url
+
+        if url.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func applyLegacyNoopTemplateOverrides(_ shell: AppConfiguration.ScriptShell) -> (AppConfiguration.ScriptShell, Bool) {
+        var resolved = shell
+
+        if shell.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func applyLegacyNoopTemplateOverrides(_ ascript: AppConfiguration.ScriptAppleScript) -> (AppConfiguration.ScriptAppleScript, Bool) {
+        var resolved = ascript
+
+        if ascript.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func applyLegacyNoopTemplateOverrides(_ shortcut: AppConfiguration.Shortcut) -> (AppConfiguration.Shortcut, Bool) {
+        var resolved = shortcut
+
+        if shortcut.action == ".none" {
+            resolved.action = ""
+            resolved.inputCondition = ""
+            resolved.noEsc = true
+            resolved.restoreClipboard = false
+            return (resolved, true)
+        }
+
+        return (resolved, false)
+    }
+
+    private func parseInputCondition(_ rawValue: String?) -> ParsedInputCondition {
         let normalized = rawValue ?? ""
         if normalized.isEmpty {
             return [:]
         }
 
-        var tokens: [InputConditionToken: Bool] = [:]
+        var tokens: ParsedInputCondition = [:]
         for rawToken in normalized.components(separatedBy: "|") {
             if rawToken.isEmpty {
                 continue
@@ -263,18 +374,18 @@ class ActionExecutor {
 
             let appliesOutsideInput = rawToken.hasPrefix("!")
             let tokenName = appliesOutsideInput ? String(rawToken.dropFirst()) : rawToken
-            guard let token = InputConditionToken(rawValue: tokenName) else {
+            if tokenName.isEmpty {
                 continue
             }
-            tokens[token] = appliesOutsideInput ? false : true
+            tokens[tokenName] = appliesOutsideInput ? false : true
         }
 
         return tokens
     }
 
     private func shouldApplyToken(
-        _ token: InputConditionToken,
-        tokens: [InputConditionToken: Bool],
+        _ token: String,
+        tokens: ParsedInputCondition,
         isInInputField: Bool
     ) -> Bool {
         guard let appliesInInput = tokens[token] else {
@@ -293,29 +404,157 @@ class ActionExecutor {
         }
 
         var resolved = insert
-        if !shouldApplyToken(.restoreClipboard, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
-        if !shouldApplyToken(.pressReturn, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
             resolved.pressReturn = nil
         }
-        if !shouldApplyToken(.noEsc, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
-        if !shouldApplyToken(.nextAction, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
         }
-        if !shouldApplyToken(.moveTo, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
             resolved.moveTo = nil
         }
-        if !shouldApplyToken(.action, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
             resolved.action = ""
         }
-        if !shouldApplyToken(.actionDelay, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
         }
-        if !shouldApplyToken(.simKeypress, tokens: tokens, isInInputField: isInInputField) {
+        if !shouldApplyToken("simKeypress", tokens: tokens, isInInputField: isInInputField) {
             resolved.simKeypress = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to url: AppConfiguration.Url,
+        isInInputField: Bool
+    ) -> AppConfiguration.Url {
+        let tokens = parseInputCondition(url.inputCondition)
+        if tokens.isEmpty {
+            return url
+        }
+
+        var resolved = url
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to shell: AppConfiguration.ScriptShell,
+        isInInputField: Bool
+    ) -> AppConfiguration.ScriptShell {
+        let tokens = parseInputCondition(shell.inputCondition)
+        if tokens.isEmpty {
+            return shell
+        }
+
+        var resolved = shell
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to ascript: AppConfiguration.ScriptAppleScript,
+        isInInputField: Bool
+    ) -> AppConfiguration.ScriptAppleScript {
+        let tokens = parseInputCondition(ascript.inputCondition)
+        if tokens.isEmpty {
+            return ascript
+        }
+
+        var resolved = ascript
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
+        }
+
+        return resolved
+    }
+
+    private func applyInputCondition(
+        to shortcut: AppConfiguration.Shortcut,
+        isInInputField: Bool
+    ) -> AppConfiguration.Shortcut {
+        let tokens = parseInputCondition(shortcut.inputCondition)
+        if tokens.isEmpty {
+            return shortcut
+        }
+
+        var resolved = shortcut
+        if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboard = nil
+        }
+        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.noEsc = nil
+        }
+        if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
+            resolved.nextAction = nil
+        }
+        if !shouldApplyToken("moveTo", tokens: tokens, isInInputField: isInInputField) {
+            resolved.moveTo = nil
+        }
+        if !shouldApplyToken("action", tokens: tokens, isInInputField: isInInputField) {
+            resolved.action = ""
+        }
+        if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.actionDelay = nil
         }
 
         return resolved
@@ -693,6 +932,12 @@ class ActionExecutor {
         // Process the URL action with both XML and dynamic placeholders
         // Placeholders are now URL-encoded individually during processing
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
+
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty || normalized == ".none" {
+            logDebug("[UrlAction] Action is empty or '.none' - skipping URL execution")
+            return true
+        }
         
         // Try to create URL directly from processed action
         guard let url = URL(string: processedAction) else {
@@ -758,10 +1003,10 @@ class ActionExecutor {
         
         logDebug("[ShortcutAction] Processed action before sending to shortcuts: \(redactForLogs(processedAction))")
         
-        // Check if action is .none or empty - if so, run shortcut without input
-        if processedAction == ".none" || processedAction.isEmpty {
-            logDebug("[ShortcutAction] Action is '.none' or empty - running shortcut without input")
-            
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized == ".run" {
+            logDebug("[ShortcutAction] Action is '.run' - running shortcut without input")
+
             let task = Process()
             task.launchPath = "/usr/bin/shortcuts"
             task.arguments = ["run", shortcutName]
@@ -777,6 +1022,9 @@ class ActionExecutor {
                 logError("Failed to execute shortcut action without input: \(error)")
                 return false
             }
+        } else if normalized.isEmpty || normalized == ".none" {
+            logDebug("[ShortcutAction] Action is empty or '.none' - skipping shortcut execution")
+            return true
         } else {
             // Use temporary file approach to ensure proper UTF-8 encoding
             let tempDir = NSTemporaryDirectory()
@@ -819,6 +1067,11 @@ class ActionExecutor {
     
     private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) -> Bool {
         let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty || normalized == ".none" {
+            logDebug("[ShellAction] Action is empty or '.none' - skipping shell execution")
+            return true
+        }
         let task = Process()
         task.launchPath = "/bin/bash"
         task.arguments = ["-c", processedAction]
@@ -838,6 +1091,11 @@ class ActionExecutor {
     
     private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) -> Bool {
         let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
+        let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty || normalized == ".none" {
+            logDebug("[AppleScriptAction] Action is empty or '.none' - skipping AppleScript execution")
+            return true
+        }
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", processedAction]

@@ -294,7 +294,19 @@ class ConfigurationManager {
         for (name, script) in config.scriptsAS { appendNextAction(name, script.nextAction) }
 
         for (name, insert) in config.inserts {
-            errors.append(contentsOf: validateInputCondition(insert.inputCondition, actionName: name))
+            errors.append(contentsOf: validateInputCondition(insert.inputCondition, actionName: name, actionType: .insert))
+        }
+        for (name, url) in config.urls {
+            errors.append(contentsOf: validateInputCondition(url.inputCondition, actionName: name, actionType: .url))
+        }
+        for (name, shortcut) in config.shortcuts {
+            errors.append(contentsOf: validateInputCondition(shortcut.inputCondition, actionName: name, actionType: .shortcut))
+        }
+        for (name, shell) in config.scriptsShell {
+            errors.append(contentsOf: validateInputCondition(shell.inputCondition, actionName: name, actionType: .shell))
+        }
+        for (name, script) in config.scriptsAS {
+            errors.append(contentsOf: validateInputCondition(script.inputCondition, actionName: name, actionType: .appleScript))
         }
 
         for name in config.inserts.keys { actionTypeMap[name] = .insert }
@@ -334,12 +346,18 @@ class ConfigurationManager {
             var seen: Set<String> = []
             var firstStep = true
             var firstInsertName: String?
+            var traversedPath: [String] = []
 
             while !current.isEmpty && !seen.contains(current) {
                 seen.insert(current)
+                traversedPath.append(current)
                 if actionTypeMap[current] == .insert {
                     if let firstInsertName = firstInsertName, firstInsertName != current {
-                        errors.append("Chain starting at '\(start)' contains multiple insert actions ('\(firstInsertName)' and '\(current)'). Only one insert action is allowed per chain")
+                        let chainPath = traversedPath.joined(separator: " -> ")
+                        errors.append(
+                            "Chain starting at '\(start)' contains multiple insert actions ('\(firstInsertName)' and '\(current)'). " +
+                            "Only one insert action is allowed per chain. Path: \(chainPath)"
+                        )
                         break
                     }
                     firstInsertName = current
@@ -363,7 +381,7 @@ class ConfigurationManager {
         return Array(Set(errors)).sorted()
     }
 
-    private static func validateInputCondition(_ rawValue: String?, actionName: String) -> [String] {
+    private static func validateInputCondition(_ rawValue: String?, actionName: String, actionType: ActionType) -> [String] {
         let normalized = rawValue ?? ""
         if normalized.isEmpty {
             return []
@@ -373,16 +391,38 @@ class ConfigurationManager {
             return ["Action '\(actionName)' has invalid inputCondition '\(normalized)': whitespace is not allowed"]
         }
 
-        let allowedTokens: Set<String> = [
-            "restoreClipboard",
-            "pressReturn",
-            "noEsc",
-            "nextAction",
-            "moveTo",
-            "action",
-            "actionDelay",
-            "simKeypress"
-        ]
+        let allowedTokens: Set<String>
+        switch actionType {
+        case .insert:
+            allowedTokens = [
+                "restoreClipboard",
+                "pressReturn",
+                "noEsc",
+                "nextAction",
+                "moveTo",
+                "action",
+                "actionDelay",
+                "simKeypress"
+            ]
+        case .url, .shell, .appleScript:
+            allowedTokens = [
+                "restoreClipboard",
+                "noEsc",
+                "nextAction",
+                "moveTo",
+                "action",
+                "actionDelay"
+            ]
+        case .shortcut:
+            allowedTokens = [
+                "restoreClipboard",
+                "noEsc",
+                "nextAction",
+                "moveTo",
+                "action",
+                "actionDelay"
+            ]
+        }
 
         var errors: [String] = []
         let parts = normalized.components(separatedBy: "|")

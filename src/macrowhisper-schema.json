@@ -307,12 +307,23 @@
             "action": {
               "type": "string",
               "title": "URL to Open",
-              "description": "URL with placeholder support. This field is required and cannot be empty.",
-              "minLength": 1,
+              "description": "URL with placeholder support. Use '.none' or empty string to skip URL execution for this step.",
               "examples": [
                 "https://google.com/search?q={{result}}",
-                "https://www.perplexity.ai/?q={{result||\\.$||}}"
+                "https://www.perplexity.ai/?q={{result||\\.$||}}",
+                ".none",
+                ""
               ]
+            },
+            "inputCondition": {
+              "type": ["string", "null"],
+              "description": "Conditional option gate for URL actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "examples": [
+                "",
+                "restoreClipboard|moveTo",
+                "!noEsc|!action"
+              ],
+              "default": ""
             },
             "openWith": {
               "type": ["string", "null"],
@@ -331,69 +342,31 @@
       ]
     },
     "shortcutAction": {
-      "type": "object",
-      "description": "The action name is the actual Shortcut name to execute.",
-      "properties": {
-          "action": {
-          "type": "string",
-          "description": "Input to pass to the shortcut with placeholder support. Use '.none' or empty string to run the shortcut without any input.",
-          "examples": ["{{swResult}}", "Process this: {{result}}", ".none", ""]
-        },
-        "icon": {
-          "type": ["string", "null"],
-          "description": "Custom icon for this shortcut action. Empty string, null, or omit to use global default. Use '.none' to explicitly show no icon (override global default).",
-          "examples": ["🎤", "📝", "⚡", "🔗", "", null, ".none"],
-          "default": ""
-        },
-        "moveTo": {
-          "type": ["string", "null"],
-          "description": "Where to move the recording folder after processing this shortcut. Path to destination directory, '.delete' (delete folder), '.none' (keep in original location), empty string, null, or omit to use global default.",
-          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", "", null],
-          "default": ""
-        },
-        "noEsc": {
-          "type": ["boolean", "null"],
-          "description": "Disable ESC key simulation for this shortcut. null = use global default, true/false = explicit override.",
-          "default": null
-        },
-        "actionDelay": {
-          "type": ["number", "null"],
-          "description": "Custom delay in seconds before executing this shortcut. null = use global default, number = explicit override.",
-          "minimum": 0,
-          "default": null
-        },
-        "restoreClipboard": {
-          "type": ["boolean", "null"],
-          "description": "Override clipboard restoration setting for this shortcut. null = use global default, true/false = explicit override.",
-          "default": null
-        },
-        "triggerVoice": {
-          "type": ["string", "null"],
-          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Empty string, null, or omit means no trigger.",
-          "examples": ["summarize", "email|mail", "!ignore phrase", "==^google this\\.?$==", "==.*ends with this$==", "", null],
-          "default": ""
-        },
-        "triggerApps": {
-          "type": ["string", "null"],
-          "description": "Regex pattern for application trigger matching (app name or bundle ID). Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
-          "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", "", null],
-          "default": ""
-        },
-        "triggerModes": {
-          "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Empty string, null, or omit means no trigger.",
-          "examples": ["email", "writing|notes", "^(Email|Messages)$", "", null],
-          "default": ""
-        },
-        "triggerLogic": {
-          "type": ["string", "null"],
-          "description": "Logic for combining multiple triggers. Can be 'and' or 'or'. null or omit uses default 'or' logic.",
-          "enum": ["and", "or"],
-          "default": "or"
+      "allOf": [
+        {"$ref": "#/definitions/baseActionProperties"},
+        {
+          "type": "object",
+          "description": "The action name is the actual Shortcut name to execute.",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "Input to pass to the shortcut with placeholder support. Use '.run' to execute the shortcut without input. Use '.none' or empty string to skip shortcut execution for this step.",
+              "examples": ["{{swResult}}", "Process this: {{result}}", ".run", ".none", ""]
+            },
+            "inputCondition": {
+              "type": ["string", "null"],
+              "description": "Conditional option gate for shortcut actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "examples": [
+                "",
+                "restoreClipboard|nextAction",
+                "!action|!noEsc"
+              ],
+              "default": ""
+            }
+          },
+          "required": ["action"]
         }
-      },
-      "required": ["action"],
-      "additionalProperties": false
+      ]
     },
     "shellScriptAction": {
       "allOf": [
@@ -405,13 +378,24 @@
             "action": {
               "type": "string",
               "title": "Shell Command",
-              "description": "Shell command with placeholder support and proper escaping. This field is required and cannot be empty.",
-              "minLength": 1,
+              "description": "Shell command with placeholder support and proper escaping. Use '.none' or empty string to skip shell execution for this step.",
               "examples": [
                 "echo '{{swResult}}' | pbcopy",
                 "curl -X POST 'https://api.example.com' -d '{{json:swResult}}'",
-                "osascript -e 'display notification \"{{result}}\"'"
+                "osascript -e 'display notification \"{{result}}\"'",
+                ".none",
+                ""
               ]
+            },
+            "inputCondition": {
+              "type": ["string", "null"],
+              "description": "Conditional option gate for shell actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "examples": [
+                "",
+                "noEsc|actionDelay",
+                "!action|!restoreClipboard"
+              ],
+              "default": ""
             }
           },
           "required": ["action"]
@@ -428,13 +412,24 @@
             "action": {
               "type": "string",
               "title": "AppleScript Code",
-              "description": "AppleScript code with placeholder support and proper quote escaping. This field is required and cannot be empty.",
-              "minLength": 1,
+              "description": "AppleScript code with placeholder support and proper quote escaping. Use '.none' or empty string to skip AppleScript execution for this step.",
               "examples": [
                 "tell application \"TextEdit\" to make new document with properties {text:\"{{json:swResult}}\"}",
                 "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\"",
-                "{{raw:swResult}}"
+                "{{raw:swResult}}",
+                ".none",
+                ""
               ]
+            },
+            "inputCondition": {
+              "type": ["string", "null"],
+              "description": "Conditional option gate for AppleScript actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "examples": [
+                "",
+                "nextAction|moveTo",
+                "!noEsc|!action"
+              ],
+              "default": ""
             }
           },
           "required": ["action"]
