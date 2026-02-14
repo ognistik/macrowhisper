@@ -900,7 +900,7 @@ class SocketCommunication {
         }
 
         if let right = rightCharacter, isWordCharacter(right), let last = updated.last {
-            if isWordCharacter(last) || ".!?".contains(last) || isClosingWrapperCharacter(last) {
+            if isWordCharacter(last) || ".,;:!?".contains(last) || isClosingWrapperCharacter(last) {
                 updated += " "
             }
         }
