@@ -796,10 +796,10 @@ class SocketCommunication {
         rightNonWhitespaceCharacter: Character?,
         rightHasLineBreakBeforeNextNonWhitespace: Bool
     ) -> String {
-        // At line starts, preserve dictated terminal punctuation.
-        // This prevents stripping "."/"!" when inserting a full sentence
-        // at the beginning of a line or paragraph.
-        if leftCharacter == nil || leftCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true {
+        // At line starts, preserve terminal punctuation when right-side text
+        // looks like a new sentence (uppercase). If right-side starts lowercase,
+        // treat as continuation and allow stripping.
+        if isLineStartBoundary(leftCharacter) && !isLowercaseLetter(rightNonWhitespaceCharacter) {
             return text
         }
 
@@ -1023,6 +1023,18 @@ class SocketCommunication {
 
     private func isWordCharacter(_ character: Character) -> Bool {
         character.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+    }
+
+    private func isLineStartBoundary(_ leftCharacter: Character?) -> Bool {
+        if leftCharacter == nil {
+            return true
+        }
+        return leftCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true
+    }
+
+    private func isLowercaseLetter(_ character: Character?) -> Bool {
+        guard let character = character else { return false }
+        return String(character).rangeOfCharacter(from: .lowercaseLetters) != nil
     }
 
     private func isOpeningWrapperCharacter(_ character: Character) -> Bool {
