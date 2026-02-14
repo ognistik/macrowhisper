@@ -883,7 +883,9 @@ class SocketCommunication {
         var updated = text
 
         if let first = updated.first {
-            let shouldInsertLeadingSpaceForMarkdownList = shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix)
+            let shouldInsertLeadingSpaceForMarkdownList =
+                shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
+                !(leftCharacter?.isWhitespace ?? false)
             let shouldInsertLeadingSpaceAfterWord = leftCharacter.map { isWordCharacter($0) } ?? false
             let punctuationNeedingTrailingSpace = ".,;:!?)]}\""
             let shouldInsertLeadingSpaceAfterPunctuation = leftCharacter.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
@@ -1053,6 +1055,7 @@ class SocketCommunication {
             scalar == "\u{200C}" ||
             scalar == "\u{200D}" ||
             scalar == "\u{2060}" ||
+            scalar == "\u{FFFC}" ||
             scalar.properties.isJoinControl
         }
     }

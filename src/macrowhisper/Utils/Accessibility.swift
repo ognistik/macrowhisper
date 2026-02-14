@@ -376,7 +376,8 @@ private let ignoredBoundaryScalarsForSmartInsert: Set<UnicodeScalar> = [
     "\u{200B}", // ZERO WIDTH SPACE
     "\u{200C}", // ZERO WIDTH NON-JOINER
     "\u{200D}", // ZERO WIDTH JOINER
-    "\u{2060}"  // WORD JOINER
+    "\u{2060}", // WORD JOINER
+    "\u{FFFC}"  // OBJECT REPLACEMENT CHARACTER
 ]
 
 private func isIgnorableBoundaryCharacterForSmartInsert(_ character: Character?) -> Bool {
