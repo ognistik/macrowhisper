@@ -362,6 +362,169 @@ private func pressKey(_ keyCode: Int) {
 
 // MARK: - Selected Text Retrieval
 
+struct InputInsertionContext {
+    let leftCharacter: Character?
+    let leftNonWhitespaceCharacter: Character?
+    let leftLinePrefix: String
+    let rightCharacter: Character?
+    let rightNonWhitespaceCharacter: Character?
+    let rightHasLineBreakBeforeNextNonWhitespace: Bool
+}
+
+/// Returns insertion boundary characters around the current cursor/selection in a focused input field.
+/// The left character is immediately before selection start, and the right character is immediately after selection end.
+/// Returns nil when context is unavailable or unreliable.
+func getInputInsertionContext() -> InputInsertionContext? {
+    guard AXIsProcessTrusted() else {
+        logDebug("[SmartInsert] No accessibility permissions, cannot get insertion context")
+        return nil
+    }
+
+    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+        logDebug("[SmartInsert] No frontmost application found")
+        return nil
+    }
+
+    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+    var focusedElement: CFTypeRef?
+    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    guard focusedError == .success, let focusedElement = focusedElement else {
+        logDebug("[SmartInsert] Could not get focused element")
+        return nil
+    }
+
+    let element = focusedElement as! AXUIElement
+
+    var roleValue: CFTypeRef?
+    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+    guard roleError == .success, let roleValue = roleValue, let role = roleValue as? String else {
+        logDebug("[SmartInsert] Could not get focused element role")
+        return nil
+    }
+
+    let inputRoles = Set(["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"])
+    guard inputRoles.contains(role) else {
+        logDebug("[SmartInsert] Focused element role is not an input field: \(role)")
+        return nil
+    }
+
+    var valueRef: CFTypeRef?
+    let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+    guard valueError == .success, let valueRef = valueRef, let fullText = valueRef as? String else {
+        logDebug("[SmartInsert] Could not get AXValue as String")
+        return nil
+    }
+
+    var selectedRangeRef: CFTypeRef?
+    let selectedRangeError = AXUIElementCopyAttributeValue(element, "AXSelectedTextRange" as CFString, &selectedRangeRef)
+    guard selectedRangeError == .success, let selectedRangeRef = selectedRangeRef else {
+        logDebug("[SmartInsert] Could not get AXSelectedTextRange")
+        return nil
+    }
+
+    guard CFGetTypeID(selectedRangeRef) == AXValueGetTypeID(),
+          AXValueGetType(selectedRangeRef as! AXValue) == .cfRange else {
+        logDebug("[SmartInsert] AXSelectedTextRange has unexpected type")
+        return nil
+    }
+
+    var selectedRange = CFRange(location: 0, length: 0)
+    guard AXValueGetValue(selectedRangeRef as! AXValue, .cfRange, &selectedRange) else {
+        logDebug("[SmartInsert] Failed to decode AXSelectedTextRange value")
+        return nil
+    }
+
+    guard selectedRange.location >= 0, selectedRange.length >= 0 else {
+        logDebug("[SmartInsert] AXSelectedTextRange has invalid negative values")
+        return nil
+    }
+
+    let nsText = fullText as NSString
+    let textLength = nsText.length
+    let insertionStart = Int(selectedRange.location)
+    let insertionEnd = insertionStart + Int(selectedRange.length)
+
+    guard insertionStart <= textLength, insertionEnd <= textLength else {
+        logDebug("[SmartInsert] AXSelectedTextRange is out of bounds for AXValue")
+        return nil
+    }
+
+    var leftCharacter: Character?
+    if insertionStart > 0 {
+        let leftRange = nsText.rangeOfComposedCharacterSequence(at: insertionStart - 1)
+        let leftString = nsText.substring(with: leftRange)
+        leftCharacter = leftString.first
+    }
+
+    var leftNonWhitespaceCharacter: Character?
+    if insertionStart > 0 {
+        var cursor = insertionStart
+        while cursor > 0 {
+            let range = nsText.rangeOfComposedCharacterSequence(at: cursor - 1)
+            let value = nsText.substring(with: range)
+            if let character = value.first, !character.isWhitespace {
+                leftNonWhitespaceCharacter = character
+                break
+            }
+            cursor = range.location
+        }
+    }
+
+    var leftLinePrefix = ""
+    do {
+        let lineStart: Int
+        if insertionStart == 0 {
+            lineStart = 0
+        } else {
+            let searchRange = NSRange(location: 0, length: insertionStart)
+            let newlineRange = nsText.range(
+                of: "\n",
+                options: .backwards,
+                range: searchRange
+            )
+            lineStart = newlineRange.location == NSNotFound ? 0 : newlineRange.location + newlineRange.length
+        }
+        if lineStart <= insertionStart {
+            leftLinePrefix = nsText.substring(with: NSRange(location: lineStart, length: insertionStart - lineStart))
+        }
+    }
+
+    var rightCharacter: Character?
+    if insertionEnd < textLength {
+        let rightRange = nsText.rangeOfComposedCharacterSequence(at: insertionEnd)
+        let rightString = nsText.substring(with: rightRange)
+        rightCharacter = rightString.first
+    }
+
+    var rightNonWhitespaceCharacter: Character?
+    var rightHasLineBreakBeforeNextNonWhitespace = false
+    if insertionEnd < textLength {
+        var cursor = insertionEnd
+        while cursor < textLength {
+            let range = nsText.rangeOfComposedCharacterSequence(at: cursor)
+            let value = nsText.substring(with: range)
+            if let character = value.first, !character.isWhitespace {
+                rightNonWhitespaceCharacter = character
+                break
+            }
+            if value.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) {
+                rightHasLineBreakBeforeNextNonWhitespace = true
+            }
+            cursor = range.location + range.length
+        }
+    }
+
+    return InputInsertionContext(
+        leftCharacter: leftCharacter,
+        leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+        leftLinePrefix: leftLinePrefix,
+        rightCharacter: rightCharacter,
+        rightNonWhitespaceCharacter: rightNonWhitespaceCharacter,
+        rightHasLineBreakBeforeNextNonWhitespace: rightHasLineBreakBeforeNextNonWhitespace
+    )
+}
+
 /// Gets the currently selected text from the frontmost application using accessibility APIs
 /// Returns the selected text if any, or empty string if no text is selected or accessibility fails
 func getSelectedText() -> String {

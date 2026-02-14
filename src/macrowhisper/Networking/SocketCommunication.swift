@@ -557,6 +557,9 @@ class SocketCommunication {
         if !shouldApplyToken("simKeypress", tokens: tokens, isInInputField: isInInputField) {
             resolved.simKeypress = nil
         }
+        if !shouldApplyToken("smartInsert", tokens: tokens, isInInputField: isInInputField) {
+            resolved.smartInsert = nil
+        }
 
         return resolved
     }
@@ -689,9 +692,338 @@ class SocketCommunication {
         return resolved
     }
 
+    private func resolveSmartInsertTextIfNeeded(_ text: String, activeInsert: AppConfiguration.Insert?) -> String {
+        let smartInsertEnabled = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
+        guard smartInsertEnabled else {
+            return text
+        }
+
+        guard requestAccessibilityPermission() else {
+            logDebug("[SmartInsert] Accessibility permission unavailable, skipping smart insertion")
+            return text
+        }
+
+        guard let context = getInputInsertionContext() else {
+            logDebug("[SmartInsert] Input insertion context unavailable, skipping smart insertion")
+            return text
+        }
+
+        var resolved = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if resolved.isEmpty || resolved == ".none" {
+            return resolved
+        }
+
+        let original = resolved
+
+        resolved = applySmartCasing(
+            to: resolved,
+            leftCharacter: context.leftCharacter,
+            leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
+            leftLinePrefix: context.leftLinePrefix
+        )
+        resolved = applySmartTrailingPunctuation(
+            to: resolved,
+            leftCharacter: context.leftCharacter,
+            leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
+            rightCharacter: context.rightCharacter,
+            rightNonWhitespaceCharacter: context.rightNonWhitespaceCharacter,
+            rightHasLineBreakBeforeNextNonWhitespace: context.rightHasLineBreakBeforeNextNonWhitespace
+        )
+        resolved = applySmartBoundarySpacing(
+            to: resolved,
+            leftCharacter: context.leftCharacter,
+            leftLinePrefix: context.leftLinePrefix,
+            rightCharacter: context.rightCharacter
+        )
+
+        let leftChar = context.leftCharacter.map { String($0) } ?? "nil"
+        let leftNonWs = context.leftNonWhitespaceCharacter.map { String($0) } ?? "nil"
+        let rightChar = context.rightCharacter.map { String($0) } ?? "nil"
+        let rightNonWs = context.rightNonWhitespaceCharacter.map { String($0) } ?? "nil"
+        logDebug(
+            "[SmartInsert] Context left=\(redactForLogs(leftChar)) leftNonWs=\(redactForLogs(leftNonWs)) " +
+            "right=\(redactForLogs(rightChar)) rightNonWs=\(redactForLogs(rightNonWs)) " +
+            "rightHasLineBreak=\(context.rightHasLineBreakBeforeNextNonWhitespace) " +
+            "linePrefix=\(redactForLogs(context.leftLinePrefix))"
+        )
+        logDebug("[SmartInsert] Text before: \(redactForLogs(original)) | after: \(redactForLogs(resolved))")
+        logDebug(
+            "[SmartInsert] After stats: len=\(resolved.count) leadingSpaces=\(countLeadingSpaces(resolved)) " +
+            "visible=\(redactForLogs(visibleWhitespace(resolved)))"
+        )
+
+        return resolved
+    }
+
+    private func countLeadingSpaces(_ value: String) -> Int {
+        value.prefix(while: { $0 == " " }).count
+    }
+
+    private func visibleWhitespace(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: " ", with: "␠")
+            .replacingOccurrences(of: "\n", with: "⏎")
+            .replacingOccurrences(of: "\t", with: "⇥")
+    }
+
+    private func applySmartCasing(
+        to text: String,
+        leftCharacter: Character?,
+        leftNonWhitespaceCharacter: Character?,
+        leftLinePrefix: String
+    ) -> String {
+        guard shouldLowercaseForMidSentence(
+            leftCharacter: leftCharacter,
+            leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+            leftLinePrefix: leftLinePrefix
+        ) else {
+            return text
+        }
+
+        let firstToken = extractFirstWordToken(from: text)
+        if shouldPreserveLeadingUppercase(for: firstToken) {
+            return text
+        }
+
+        return lowercasingFirstLetter(in: text)
+    }
+
+    private func applySmartTrailingPunctuation(
+        to text: String,
+        leftCharacter: Character?,
+        leftNonWhitespaceCharacter: Character?,
+        rightCharacter: Character?,
+        rightNonWhitespaceCharacter: Character?,
+        rightHasLineBreakBeforeNextNonWhitespace: Bool
+    ) -> String {
+        // If we're directly before punctuation, avoid duplicate punctuation like ".." or "!!".
+        if let rightCharacter = rightCharacter, ".,;:!?".contains(rightCharacter) {
+            var updated = text
+            while let last = updated.last, ".,;:!?".contains(last) {
+                updated.removeLast()
+            }
+            return updated
+        }
+
+        // Preserve trailing punctuation when inserting a full sentence between sentences.
+        // Example: "Sentence one. |Sentence two" should keep inserted final period.
+        if shouldPreserveTrailingPunctuationForSentenceBoundary(
+            leftCharacter: leftCharacter,
+            leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+            rightCharacter: rightCharacter,
+            rightNonWhitespaceCharacter: rightNonWhitespaceCharacter
+        ) {
+            return text
+        }
+
+        // Strip trailing punctuation only when we're inserting into ongoing word content.
+        // This avoids stripping when only markdown/code delimiters are to the right.
+        guard let rightNonWhitespaceCharacter = rightNonWhitespaceCharacter else {
+            return text
+        }
+        if rightHasLineBreakBeforeNextNonWhitespace {
+            return text
+        }
+        guard isWordCharacter(rightNonWhitespaceCharacter) else {
+            return text
+        }
+
+        var updated = text
+        while let last = updated.last, ".,;:!?".contains(last) {
+            updated.removeLast()
+        }
+        return updated
+    }
+
+    private func shouldPreserveTrailingPunctuationForSentenceBoundary(
+        leftCharacter: Character?,
+        leftNonWhitespaceCharacter: Character?,
+        rightCharacter: Character?,
+        rightNonWhitespaceCharacter: Character?
+    ) -> Bool {
+        let effectiveLeft: Character?
+        if let leftCharacter = leftCharacter, !leftCharacter.isWhitespace {
+            effectiveLeft = leftCharacter
+        } else {
+            effectiveLeft = leftNonWhitespaceCharacter
+        }
+
+        guard let left = effectiveLeft, ".!?".contains(left) else {
+            return false
+        }
+
+        let effectiveRight: Character?
+        if let rightCharacter = rightCharacter, !rightCharacter.isWhitespace {
+            effectiveRight = rightCharacter
+        } else {
+            effectiveRight = rightNonWhitespaceCharacter
+        }
+
+        guard let right = effectiveRight else {
+            return false
+        }
+
+        let rightString = String(right)
+        return rightString.rangeOfCharacter(from: .uppercaseLetters) != nil
+    }
+
+    private func applySmartBoundarySpacing(
+        to text: String,
+        leftCharacter: Character?,
+        leftLinePrefix: String,
+        rightCharacter: Character?
+    ) -> String {
+        var updated = text
+
+        if let first = updated.first, isWordCharacter(first) {
+            let shouldInsertLeadingSpaceForMarkdownList = shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix)
+            let shouldInsertLeadingSpaceAfterWord = leftCharacter.map { isWordCharacter($0) } ?? false
+            let punctuationNeedingTrailingSpace = ".,;:!?)]}\""
+            let shouldInsertLeadingSpaceAfterPunctuation = leftCharacter.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
+
+            if shouldInsertLeadingSpaceForMarkdownList || shouldInsertLeadingSpaceAfterWord || shouldInsertLeadingSpaceAfterPunctuation {
+                updated = " " + updated
+            }
+        }
+
+        if let right = rightCharacter,
+           isWordCharacter(right),
+           let last = updated.last,
+           isWordCharacter(last) {
+            updated += " "
+        } else if let right = rightCharacter,
+                  isWordCharacter(right),
+                  let last = updated.last,
+                  ".!?".contains(last) {
+            // Keep sentence separation when we preserve inserted sentence-ending punctuation.
+            updated += " "
+        }
+
+        return updated
+    }
+
+    private func shouldLowercaseForMidSentence(
+        leftCharacter: Character?,
+        leftNonWhitespaceCharacter: Character?,
+        leftLinePrefix: String
+    ) -> Bool {
+        if isMarkdownListLineStart(leftLinePrefix) {
+            return false
+        }
+
+        guard let leftCharacter = leftCharacter else {
+            return false
+        }
+
+        // Start-of-line should behave like sentence start even if previous line
+        // ended with a non-terminal character.
+        if leftCharacter.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) {
+            return false
+        }
+
+        if leftCharacter.isWhitespace {
+            guard let previous = leftNonWhitespaceCharacter else {
+                return false
+            }
+            return !".!?".contains(previous)
+        }
+
+        return !".!?".contains(leftCharacter)
+    }
+
+    private func isMarkdownListLineStart(_ leftLinePrefix: String) -> Bool {
+        let trimmed = leftLinePrefix.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            return false
+        }
+        return shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) || isMarkdownListWithSpacePrefix(leftLinePrefix)
+    }
+
+    private func shouldInsertLeadingSpaceForMarkdownListPrefix(_ leftLinePrefix: String) -> Bool {
+        let trimmed = leftLinePrefix.trimmingCharacters(in: .whitespaces)
+        if ["*", "-", "+", ">"].contains(trimmed) {
+            return true
+        }
+        if let regex = try? NSRegularExpression(pattern: #"^\d+[.)]$"#),
+           regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: (trimmed as NSString).length)) != nil {
+            return true
+        }
+        return false
+    }
+
+    private func isMarkdownListWithSpacePrefix(_ linePrefix: String) -> Bool {
+        if let regex = try? NSRegularExpression(pattern: #"^\s*(\*|\+|-|>|\d+[.)])\s+$"#),
+           regex.firstMatch(in: linePrefix, options: [], range: NSRange(location: 0, length: (linePrefix as NSString).length)) != nil {
+            return true
+        }
+        return false
+    }
+
+    private func extractFirstWordToken(from text: String) -> String {
+        var scalars: [UnicodeScalar] = []
+        var started = false
+
+        for scalar in text.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                scalars.append(scalar)
+                started = true
+                continue
+            }
+
+            if started && scalar == "'" {
+                scalars.append(scalar)
+                continue
+            }
+
+            if started {
+                break
+            }
+        }
+
+        return String(String.UnicodeScalarView(scalars))
+    }
+
+    private func shouldPreserveLeadingUppercase(for firstToken: String) -> Bool {
+        if firstToken.isEmpty {
+            return false
+        }
+
+        let preserveTokens = Set(["I", "I'm", "I've", "I'll", "I'd"])
+        if preserveTokens.contains(firstToken) {
+            return true
+        }
+
+        let lettersOnly = firstToken.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        if lettersOnly.count > 1 && lettersOnly.allSatisfy({ CharacterSet.uppercaseLetters.contains($0) }) {
+            return true
+        }
+
+        return false
+    }
+
+    private func lowercasingFirstLetter(in text: String) -> String {
+        var result = text
+        for index in result.indices {
+            let character = result[index]
+            let charString = String(character)
+            if charString.rangeOfCharacter(from: .letters) != nil {
+                result.replaceSubrange(index...index, with: charString.lowercased())
+                break
+            }
+        }
+
+        return result
+    }
+
+    private func isWordCharacter(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+    }
+
     // This version is for the main watcher flow and respects the 'noEsc' setting
     func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
-        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
+        let resolvedText = resolveSmartInsertTextIfNeeded(text, activeInsert: activeInsert)
+
+        if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
             // For empty or .none actions, apply actionDelay but don't press ESC, paste, or do any clipboard operations
             let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
             if delay > 0 { Thread.sleep(forTimeInterval: delay) }
@@ -703,19 +1035,21 @@ class SocketCommunication {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
                 logDebug("Auto paste - not in input field, direct paste only")
-                let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
+                let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
             }
         }
         simulateEscKeyPress(activeInsert: activeInsert)
-        pasteText(text, activeInsert: activeInsert)
+        pasteText(resolvedText, activeInsert: activeInsert)
         checkAndSimulatePressReturn(activeInsert: activeInsert)
     }
     
     // This version is for the --exec-insert CLI command and does NOT press ESC.
     func applyInsertForExec(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
-        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" { 
+        let resolvedText = resolveSmartInsertTextIfNeeded(text, activeInsert: activeInsert)
+
+        if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
             // For empty or .none actions, apply actionDelay but don't paste or do any clipboard operations
             let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
             if delay > 0 { Thread.sleep(forTimeInterval: delay) }
@@ -731,16 +1065,16 @@ class SocketCommunication {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
                 logInfo("Exec-insert auto paste - not in input field, direct paste only")
-                let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
+                let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
             }
         }
         // No ESC key press for exec-insert
         if restoreClipboard {
-            pasteText(text, activeInsert: activeInsert)
+            pasteText(resolvedText, activeInsert: activeInsert)
         } else {
-            pasteTextNoRestore(text, activeInsert: activeInsert)
+            pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
         }
         checkAndSimulatePressReturn(activeInsert: activeInsert)
     }
@@ -748,7 +1082,9 @@ class SocketCommunication {
     // This version is for clipboard-monitored insert actions and does NOT press ESC or apply actionDelay
     // (ESC and delay are handled by ClipboardMonitor)
     func applyInsertWithoutEsc(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) -> Bool {
-        if text.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == ".none" {
+        let resolvedText = resolveSmartInsertTextIfNeeded(text, activeInsert: activeInsert)
+
+        if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
             // For empty or .none actions, do nothing since delay is handled by ClipboardMonitor
             return true
         }
@@ -757,14 +1093,14 @@ class SocketCommunication {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return false }
             if !isInInputField() {
                 logDebug("Clipboard-monitored auto paste - not in input field, direct paste only")
-                let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
+                let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return true
             }
         }
         
         // No ESC key press or actionDelay - these are handled by ClipboardMonitor
-        pasteTextNoRestore(text, activeInsert: activeInsert)
+        pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
         checkAndSimulatePressReturn(activeInsert: activeInsert)
         return true
     }
@@ -983,8 +1319,17 @@ class SocketCommunication {
     private func pasteUsingClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
         let originalContent = pasteboard.string(forType: .string)
+        logDebug(
+            "[SmartInsert] Clipboard insert payload (restore): len=\(text.count) " +
+            "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
+        )
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        let confirm = pasteboard.string(forType: .string) ?? ""
+        logDebug(
+            "[SmartInsert] Pasteboard confirmed (restore): len=\(confirm.count) " +
+            "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
+        )
         simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             pasteboard.clearContents()
@@ -995,8 +1340,17 @@ class SocketCommunication {
     // Version of pasteUsingClipboard that doesn't save/restore clipboard (used with ClipboardMonitor)
     private func pasteUsingClipboardNoRestore(_ text: String) {
         let pasteboard = NSPasteboard.general
+        logDebug(
+            "[SmartInsert] Clipboard insert payload (no-restore): len=\(text.count) " +
+            "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
+        )
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        let confirm = pasteboard.string(forType: .string) ?? ""
+        logDebug(
+            "[SmartInsert] Pasteboard confirmed (no-restore): len=\(confirm.count) " +
+            "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
+        )
         simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
     }
 

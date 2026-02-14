@@ -402,7 +402,8 @@ class ConfigurationManager {
                 "moveTo",
                 "action",
                 "actionDelay",
-                "simKeypress"
+                "simKeypress",
+                "smartInsert"
             ]
         case .url, .shell, .appleScript:
             allowedTokens = [
