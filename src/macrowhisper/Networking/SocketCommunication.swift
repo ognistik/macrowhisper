@@ -796,6 +796,13 @@ class SocketCommunication {
         rightNonWhitespaceCharacter: Character?,
         rightHasLineBreakBeforeNextNonWhitespace: Bool
     ) -> String {
+        // At line starts, preserve dictated terminal punctuation.
+        // This prevents stripping "."/"!" when inserting a full sentence
+        // at the beginning of a line or paragraph.
+        if leftCharacter == nil || leftCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true {
+            return text
+        }
+
         // If we're directly before punctuation, avoid duplicate punctuation like ".." or "!!".
         if let rightCharacter = rightCharacter, ".,;:!?".contains(rightCharacter) {
             var updated = text
