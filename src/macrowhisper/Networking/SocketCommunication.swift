@@ -875,28 +875,27 @@ class SocketCommunication {
     ) -> String {
         var updated = text
 
-        if let first = updated.first, isWordCharacter(first) {
+        if let first = updated.first {
             let shouldInsertLeadingSpaceForMarkdownList = shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix)
             let shouldInsertLeadingSpaceAfterWord = leftCharacter.map { isWordCharacter($0) } ?? false
             let punctuationNeedingTrailingSpace = ".,;:!?)]}\""
             let shouldInsertLeadingSpaceAfterPunctuation = leftCharacter.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
+            let startsWithBoundaryNeedingLeadingSpace = isWordCharacter(first) || isOpeningWrapperCharacter(first)
+            let shouldInsertLeadingSpaceBeforeOpeningWrapper = (leftCharacter.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
 
-            if shouldInsertLeadingSpaceForMarkdownList || shouldInsertLeadingSpaceAfterWord || shouldInsertLeadingSpaceAfterPunctuation {
+            if startsWithBoundaryNeedingLeadingSpace &&
+                (shouldInsertLeadingSpaceForMarkdownList ||
+                 shouldInsertLeadingSpaceAfterWord ||
+                 shouldInsertLeadingSpaceAfterPunctuation ||
+                 shouldInsertLeadingSpaceBeforeOpeningWrapper) {
                 updated = " " + updated
             }
         }
 
-        if let right = rightCharacter,
-           isWordCharacter(right),
-           let last = updated.last,
-           isWordCharacter(last) {
-            updated += " "
-        } else if let right = rightCharacter,
-                  isWordCharacter(right),
-                  let last = updated.last,
-                  ".!?".contains(last) {
-            // Keep sentence separation when we preserve inserted sentence-ending punctuation.
-            updated += " "
+        if let right = rightCharacter, isWordCharacter(right), let last = updated.last {
+            if isWordCharacter(last) || ".!?".contains(last) || isClosingWrapperCharacter(last) {
+                updated += " "
+            }
         }
 
         return updated
@@ -1017,6 +1016,14 @@ class SocketCommunication {
 
     private func isWordCharacter(_ character: Character) -> Bool {
         character.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+    }
+
+    private func isOpeningWrapperCharacter(_ character: Character) -> Bool {
+        "([{\"".contains(character)
+    }
+
+    private func isClosingWrapperCharacter(_ character: Character) -> Bool {
+        ")]}\"".contains(character)
     }
 
     // This version is for the main watcher flow and respects the 'noEsc' setting
