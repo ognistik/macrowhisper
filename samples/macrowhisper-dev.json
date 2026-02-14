@@ -1,5 +1,5 @@
 {
-  "$schema" : "file:///Users/ognistik/Desktop/macrowhisper-schema.json",
+  "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
     "actionDelay" : 0,
     "activeAction" : "autoPaste",
@@ -43,10 +43,10 @@
       "action" : "{{swResult}}",
       "actionDelay" : 0,
       "icon" : "•",
-      "inputCondition" : "!nextAction|!noEsc",
+      "inputCondition" : "!nextAction",
       "moveTo" : ".none",
       "nextAction" : "swWebView",
-      "noEsc" : false,
+      "noEsc" : null,
       "pressReturn" : null,
       "restoreClipboard" : null,
       "simKeypress" : null,
