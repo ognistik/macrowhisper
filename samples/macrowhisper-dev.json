@@ -20,7 +20,7 @@
     "returnDelay" : 0.15,
     "scheduledActionTimeout" : 15,
     "simKeypress" : false,
-    "smartInsert" : false,
+    "smartInsert" : true,
     "watch" : "~/Documents/superwhisper"
   },
   "inserts" : {
@@ -35,7 +35,7 @@
       "pressReturn" : null,
       "restoreClipboard" : null,
       "simKeypress" : null,
-      "smartInsert" : true,
+      "smartInsert" : null,
       "triggerApps" : "Alter",
       "triggerLogic" : "or",
       "triggerModes" : "",
@@ -52,7 +52,7 @@
       "pressReturn" : null,
       "restoreClipboard" : true,
       "simKeypress" : null,
-      "smartInsert" : true,
+      "smartInsert" : null,
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
