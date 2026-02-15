@@ -30,6 +30,7 @@ class ClipboardMonitor {
     private let logger: Logger
     private let maxWaitTime: TimeInterval = 0.1 // Maximum time to wait for Superwhisper's clipboard change
     private let pollInterval: TimeInterval = 0.01 // 10ms polling interval
+    private let recentClipboardActivityWindow: TimeInterval = 0.5 // Treat very recent session clipboard activity as Superwhisper sync
     
     // Global clipboard history for pre-recording capture (lightweight, app-lifetime monitoring)
     private var preRecordingBuffer: TimeInterval // Keep N seconds of history (0 disables)
@@ -768,15 +769,12 @@ class ClipboardMonitor {
             // Step 1: Mark action execution as starting (enables relevant clipboard logging)
             self.startActionExecution(for: recordingPath)
 
-            // Extract swResult from metaJson (llmResult takes precedence over result)
-            let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-
             // Step 2: Use Superwhisper clipboard synchronization only when requested (first chain action).
             if shouldUseSuperwhisperSync {
                 let pasteboard = NSPasteboard.general
-                let currentClipboard = pasteboard.string(forType: .string)
-                if currentClipboard == swResult {
-                    logDebug("[ClipboardMonitor] Superwhisper was faster: swResult already on clipboard")
+                let startChangeCount = pasteboard.changeCount
+                if self.hadRecentSessionClipboardActivity(for: recordingPath, within: self.recentClipboardActivityWindow) {
+                    logDebug("[ClipboardMonitor] Skipping wait: recent session clipboard activity detected near execution")
                     self.proceedWithActionAndDelay(
                         insertAction: insertAction,
                         clipboardToRestore: clipboardToRestore,
@@ -794,10 +792,10 @@ class ClipboardMonitor {
                         onCompletion: onCompletion
                     )
                 } else {
-                    logDebug("[ClipboardMonitor] Waiting for Superwhisper clipboard change (maxWaitTime: \(maxWaitTime)s)")
+                    logDebug("[ClipboardMonitor] Waiting for clipboard activity (maxWaitTime: \(maxWaitTime)s)")
                     self.waitForSuperwhisperThenProceed(
                         insertAction: insertAction,
-                        swResult: swResult,
+                        startChangeCount: startChangeCount,
                         clipboardToRestore: clipboardToRestore,
                         actionDelay: actionDelay,
                         shouldEsc: shouldEsc,
@@ -836,7 +834,7 @@ class ClipboardMonitor {
     /// Wait for Superwhisper to update clipboard or proceed after maxWaitTime, then apply actionDelay
     private func waitForSuperwhisperThenProceed(
         insertAction: @escaping () -> Bool,
-        swResult: String,
+        startChangeCount: Int,
         clipboardToRestore: String?,
         actionDelay: TimeInterval,
         shouldEsc: Bool,
@@ -855,7 +853,7 @@ class ClipboardMonitor {
         // Start polling for Superwhisper's clipboard change
         pollForSuperwhisperChange(
             startTime: startTime,
-            swResult: swResult,
+            startChangeCount: startChangeCount,
             clipboardToRestore: clipboardToRestore,
             insertAction: insertAction,
             actionDelay: actionDelay,
@@ -875,7 +873,7 @@ class ClipboardMonitor {
     /// Polls for Superwhisper's clipboard change
     private func pollForSuperwhisperChange(
         startTime: Date,
-        swResult: String,
+        startChangeCount: Int,
         clipboardToRestore: String?,
         insertAction: @escaping () -> Bool,
         actionDelay: TimeInterval,
@@ -891,11 +889,11 @@ class ClipboardMonitor {
         onCompletion: ((Bool) -> Void)? = nil
     ) {
         let pasteboard = NSPasteboard.general
-        let currentClipboard = pasteboard.string(forType: .string)
+        let currentChangeCount = pasteboard.changeCount
         
-        // Check if Superwhisper has placed swResult on clipboard
-        if currentClipboard == swResult {
-            logDebug("[ClipboardMonitor] Detected Superwhisper placed swResult on clipboard during polling")
+        // Check if clipboard changed during polling window.
+        if currentChangeCount != startChangeCount {
+            logDebug("[ClipboardMonitor] Detected clipboard activity during polling")
 
             proceedWithActionAndDelay(
                 insertAction: insertAction,
@@ -943,7 +941,7 @@ class ClipboardMonitor {
         DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
             self?.pollForSuperwhisperChange(
                 startTime: startTime,
-                swResult: swResult,
+                startChangeCount: startChangeCount,
                 clipboardToRestore: clipboardToRestore,
                 insertAction: insertAction,
                 actionDelay: actionDelay,
@@ -959,6 +957,18 @@ class ClipboardMonitor {
                 onCompletion: onCompletion
             )
         }
+    }
+
+    /// Returns true when the session captured clipboard activity very recently.
+    /// This allows skipping the short Superwhisper wait even when clipboard text differs from swResult.
+    private func hadRecentSessionClipboardActivity(for recordingPath: String, within window: TimeInterval) -> Bool {
+        var hasRecentActivity = false
+        let cutoff = Date().addingTimeInterval(-window)
+        sessionsQueue.sync {
+            guard let session = earlyMonitoringSessions[recordingPath] else { return }
+            hasRecentActivity = session.clipboardChanges.contains { $0.timestamp >= cutoff }
+        }
+        return hasRecentActivity
     }
     
     /// Proceeds with action execution: applies actionDelay, simulates ESC, executes action, restores clipboard
