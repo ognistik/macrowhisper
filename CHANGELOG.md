@@ -8,6 +8,7 @@
   * Empty string `""` will simply skip execution but respect the other action settings
   * `.autoPaste` conttinues to be an insert action type template
   * `.run` is now a special action content for Shortcuts. It allows the execution of the Shortcut without any input
+* Improved the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution.
 
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13

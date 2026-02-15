@@ -140,8 +140,8 @@
     }
   },
   "shortcuts" : {
-    "AI Memos" : {
-      "action" : "{\"cmd\": \"process\",\"details\": \"{{json:date:long}}\",\"memo\": \"{{json:swResult||^Make note[.,:;] ||}}\",\"rawMemo\": \"{{json:result}}\",\"specialCase\": \"yes\"}",
+    "Capture" : {
+      "action" : "{\"title\": \"{{json:date:long}}\",\"memo\": \"{{json:swResult}}\"}",
       "actionDelay" : null,
       "icon" : "",
       "inputCondition" : "",
