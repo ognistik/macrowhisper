@@ -4,6 +4,7 @@
     "actionDelay" : 0,
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
+    "bypassModes" : "",
     "clipboardBuffer" : 5,
     "clipboardIgnore" : "Alter",
     "clipboardStacking" : true,

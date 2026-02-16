@@ -9,6 +9,9 @@
   * `.autoPaste` conttinues to be an insert action type template
   * `.run` is now a special action content for Shortcuts. It allows the execution of the Shortcut without any input
 * Improved the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution.
+* New `bypassModes` setting in defaults of the config, where the user can set modes where MacroWhisper should not kick in at all.
+  * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
+  * It is still suggested that users set SuperWhisper's autopaste off in the advanced configuration tab. However, if they do want to use SuperWhisper for pasting with a specific mode, now they can bypass that specifically with MacroWhisper. No actions will trigger when using that mode.
 
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13

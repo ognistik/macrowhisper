@@ -112,6 +112,12 @@
           "examples": ["Chrome|Safari", "com.google.Chrome", "^Slack$", "", null],
           "default": ""
         },
+        "bypassModes": {
+          "type": ["string", "null"],
+          "description": "Pipe-separated Superwhisper mode names that bypass Macrowhisper processing entirely for matching modeName values in meta.json. Matching is case-insensitive. Empty string or null disables bypass.",
+          "examples": ["dictation", "dictation|rewrite", "", null],
+          "default": ""
+        },
         "autoUpdateConfig": {
           "type": "boolean",
           "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config.",

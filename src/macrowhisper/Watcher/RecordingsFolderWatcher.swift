@@ -782,6 +782,20 @@ class RecordingsFolderWatcher {
             if !sessionClipboardContent.isEmpty {
                 enhancedMetaJson["clipboardContext"] = sessionClipboardContent
             }
+
+            // Bypass processing entirely for configured Superwhisper modes.
+            let modeName = metaJson["modeName"] as? String
+            if shouldBypassProcessing(for: modeName) {
+                let normalizedMode = modeName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let readableMode = normalizedMode.isEmpty ? "(empty)" : normalizedMode
+                logInfo("Bypassing Macrowhisper processing for mode '\(readableMode)' due to defaults.bypassModes.")
+                markAsProcessed(recordingPath: recordingPath)
+                cancelRecordingTimeout(for: recordingPath)
+                cleanupPendingWatcher(for: recordingPath)
+                cleanupPendingWatcher(for: metaJsonPath)
+                clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+                return
+            }
             
             // Mark as processed before executing actions to prevent reprocessing
             markAsProcessed(recordingPath: recordingPath)
@@ -1022,6 +1036,22 @@ class RecordingsFolderWatcher {
             watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
             // Don't stop early monitoring here as we're still watching for changes
         }
+    }
+
+    private func shouldBypassProcessing(for modeName: String?) -> Bool {
+        let bypassModes = configManager.config.defaults.bypassModes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !bypassModes.isEmpty else { return false }
+
+        let normalizedMode = modeName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !normalizedMode.isEmpty else { return false }
+
+        let configuredModes = bypassModes
+            .components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !configuredModes.isEmpty else { return false }
+        return configuredModes.contains { $0.caseInsensitiveCompare(normalizedMode) == .orderedSame }
     }
 
     private func handlePostProcessing(recordingPath: String, executedActionType: ActionType? = nil, executedAction: Any? = nil) {

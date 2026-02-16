@@ -1,31 +1,18 @@
 # Macrowhisper
 
-**A powerful automation helper app for [Superwhisper](https://superwhisper.com/?via=robert)**
+Automation helper for [Superwhisper](https://superwhisper.com/?via=robert) on macOS.
+
+Macrowhisper watches Superwhisper recordings and runs configured actions based on triggers (voice/app/mode) or a fallback active action.
 
 [![Swift Version](https://img.shields.io/badge/Swift-6.1.2-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
-[![License](https://img.shields.io/badge/License-GMT-blue.svg)](LICENSE)
 
----
-## What It Does
-Macrowhisper monitors your Superwhisper recordings and executes intelligent automated actions based on configurable rules.
-
-### Key Features
-- ****🎙️ Voice-Triggered Automations****: Execute actions based on voice patterns or keywords
-- ****🧠 Intelligent Trigger System****: Advanced pattern matching for applications and Superwhisper active mode
-- ****📝 Multiple Action Types****: Text insertion, URL opening, shell scripts, AppleScript, and macOS Shortcuts
-- ****⚙️ Service Integration****: Run as background service as a launch agent
-- ****🔄 Live Configuration****: JSON-based configuration with real-time reloading
-- ****🗂️ History Management****: Automatic cleanup of old recordings
-- ****🔌 CLI Interface****: Comprehensive command-line interface which allows for easy integration with automation apps
-
----
 ## Learn More
-**📖 [Check the full docs and sample use cases](https://by.afadingthought.com/macrowhisper)**
+- Full docs and use cases: [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)
+- Alfred workflow: [github.com/ognistik/macrowhisper/tree/main/alfred](https://github.com/ognistik/macrowhisper/tree/main/alfred)
+- Codebase map: [github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
+- Processing flow: [github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
 
-**💫 [Check out the Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)**
-
----
 ## Quick Start
 
 ### Install
@@ -33,151 +20,153 @@ Macrowhisper monitors your Superwhisper recordings and executes intelligent auto
 brew install ognistik/formulae/macrowhisper
 ```
 
-Or you can insall via a script:
+Or install from script:
 ```bash
-# Installs Macrowhisper's binary in /usr/local/bin
 curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 ```
 
-### Configure & Start
+### Configure
 ```bash
-# Reveal/create configuration file
-# By default auto-created at ~/.config/macrowhisper/macrowhisper.json
+# Create/reveal config in Finder (default: ~/.config/macrowhisper/macrowhisper.json)
 macrowhisper --reveal-config
 
-# Start background service
+# (Optional) Store config in a custom location
+macrowhisper --set-config ~/my-configs/
+
+# Check which config path is active
+macrowhisper --get-config
+```
+
+### Run as Service
+```bash
 macrowhisper --start-service
+macrowhisper --service-status
 ```
 
 ### Essential Superwhisper Settings
-To prevent conflicts between the two apps:
-- **Turn OFF**: Paste Result Text, Restore Clipboard After Paste, Simulate Key Presses
-- **Keep ON**: Recording Window
+To avoid conflicts, in Superwhisper set:
+- OFF: `Paste Result Text`, `Restore Clipboard After Paste`, `Simulate Key Presses`
+- ON: `Recording Window`
 
-### Test Your Setup
-After granting accessibility permissions, test dictation in different apps. By default, Macrowhisper mimics Superwhisper's auto-paste behavior.
+If the recording window does not close reliably, increase `defaults.actionDelay` in Macrowhisper config.
 
-*Note: If Superwhisper's recording window is not closing all the time, the setting you have to adjust in your configuration is the `actionDelay`.*
+## Core CLI Commands
 
----
-## Key Commands
-
+### Service + Config
 ```bash
-# Service Management
-macrowhisper --start-service        # Start background service
-macrowhisper --stop-service         # Stop service
-macrowhisper --uninstall-service    # Uninstall service
-macrowhisper --service-status       # Check service status
+macrowhisper --start-service
+macrowhisper --stop-service
+macrowhisper --restart-service
+macrowhisper --uninstall-service
+macrowhisper --service-status
 
-# Configuration
-macrowhisper --reveal-config        # Open config file
-macrowhisper --set-config <path>    # Set custom config location
-
-# Actions
-macrowhisper --action <name>        # Set active action
-macrowhisper --exec-action <name>   # Execute action with last result
-macrowhisper --add-insert <name>    # Add new insert action
-macrowhisper --add-url <name>       # Add URL action
-macrowhisper --add-shell <name>     # Add shell script action
-macrowhisper --add-shortcut <name>  # Add macOS Shortcut action
-macrowhisper --add-as <name>        # Add AppleScript action
-
-# Status & Help
-macrowhisper --status               # Show running status
-macrowhisper --help                 # Full command list
+macrowhisper --reveal-config
+macrowhisper --set-config <path>
+macrowhisper --reset-config
+macrowhisper --get-config
+macrowhisper --update-config
+macrowhisper --schema-info
 ```
 
----
-## How It Works
-1. **Monitor**: Watches your Superwhisper recordings folder
-2. **Evaluate**: Checks triggers (voice patterns, active app, Superwhisper mode)
-3. **Execute**: Runs matching actions (paste text, open URLs, run scripts, etc.)
+### Runtime + Actions (daemon must be running)
+```bash
+macrowhisper --status
+macrowhisper --action <name>           # set fallback action
+macrowhisper --action                  # clear fallback action
+macrowhisper --get-action [name]
+macrowhisper --exec-action <name>
+macrowhisper --schedule-action <name>  # one-shot next session override
+macrowhisper --schedule-action         # cancel scheduled action
+macrowhisper --auto-return <true/false>
 
----
-## Configuration Example
-Macrowhisper uses JSON configuration with dynamic placeholders:
+macrowhisper --list-actions
+macrowhisper --list-inserts
+macrowhisper --list-urls
+macrowhisper --list-shortcuts
+macrowhisper --list-shell
+macrowhisper --list-as
+
+macrowhisper --add-insert <name>
+macrowhisper --add-url <name>
+macrowhisper --add-shortcut <name>
+macrowhisper --add-shell <name>
+macrowhisper --add-as <name>
+macrowhisper --remove-action <name>
+```
+
+## How Matching Works
+Processing priority is strict:
+1. One-shot runtime overrides (`--auto-return`, `--schedule-action`)
+2. Trigger-matched actions (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerLogic`)
+3. `defaults.activeAction` fallback
+
+## Minimal Config Example
 
 ```json
 {
+  "$schema": "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults": {
+    "watch": "~/Documents/superwhisper",
     "activeAction": "autoPaste",
-    "pressReturn": false,
-    "actionDelay": 0.0
+    "actionDelay": 0.02,
+    "restoreClipboard": true,
+    "scheduledActionTimeout": 5,
+    "clipboardBuffer": 5,
+    "redactedLogs": true
   },
   "inserts": {
     "autoPaste": {
+      "action": ".autoPaste"
+    },
+    "pasteResult": {
       "action": "{{swResult}}"
     }
   },
   "urls": {
-    "googleSearch": {
-      "action": "https://www.google.com/search?q={{swResult}}",
-      "triggerVoice": "ask google|search online"
+    "Google": {
+      "action": "https://www.google.com/search?q={{result}}",
+      "triggerVoice": "ask google"
     }
-  }
+  },
+  "shortcuts": {},
+  "scriptsShell": {},
+  "scriptsAS": {}
 }
 ```
 
-**Available Placeholders:**
-- `{{swResult}}` - Your transcription result
-- `{{metaKeyName}}` - Any key from Superwhisper's meta.json file
-- `{{frontApp}}` - Expands to your application
-- `{{selectedText}}` - Your selected text at the time you started dictating
-- `{{clipboardContext}}` - Clipboard content captured during dictation or 5 seconds before dictating
-- `{{appContext}}` - Name of your current app and content of active input field
-- `{{date:yyyy-MM-dd}}`, `{{date:long}}`, `{{date:short}}` - Formatted dates
-- `{{xml:tagname}}` - Extract XML content from LLM results
-- Plus regex replacements and contextual escaping
+Use `macrowhisper --update-config` after upgrades to apply new schema fields/formatting while preserving your settings.
 
-**[Sample Configuration File](https://github.com/ognistik/macrowhisper/blob/main/samples/macrowhisper.json)**  
-*Make sure to run `macrowhisper --restart-service` if you set this as your default config.*
+## Useful Placeholders
+- `{{swResult}}`: final transcription result
+- `{{result}}`: trigger-processed result (for example after voice-prefix stripping)
+- `{{raw:swResult}}`: no escaping (raw value)
+- `{{json:swResult}}`: JSON-escaped value
+- `{{selectedText}}`: selected text captured at recording start
+- `{{clipboardContext}}`: clipboard context captured during recording and optional pre-recording buffer
+- `{{appContext}}`: active app/input context
+- `{{date:short}}`, `{{date:long}}`, `{{date:yyyy-MM-dd}}`
+- `{{xml:tagname}}`: extract XML tag content
+- `{{placeholder||pattern||replacement}}`: regex replacement pipeline
 
----
-## Project Structure
-This is a Swift-based CLI application with the following architecture:
+## Notes for Power Users
+- Config values can be set globally in `defaults` and overridden per action.
+- Most per-action fields support `null` to inherit global defaults.
+- URL actions support `openWith` and `openBackground`.
+- Actions support chaining via `nextAction`.
+- Action-level `inputCondition` can gate options by input state.
 
-```
-src/macrowhisper/
-├── main.swift                   # CLI interface & app entry
-├── Config/                      # Configuration management
-├── Watcher/                     # File system monitoring
-├── Utils/                       # Core utilities & action execution
-├── Networking/                  # Socket communication & updates
-└── History/                     # Recording cleanup
-```
+## Explore More
+Beyond this quick start, Macrowhisper supports advanced patterns and control:
+- Trigger exceptions (`!pattern`) and raw-regex triggers (`==...==`) for precise matching.
+- Placeholder transforms and regex replacement pipelines for post-processing output.
+- Special action values: `.autoPaste` (insert), `.none` (skip this step), `.run` (run Shortcut without input).
+- Conditional behavior with `inputCondition`, plus multi-step flows via `nextAction`.
 
-[Codebase Map](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)  
-[The Processing Flow](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
+This README is intentionally concise. For complete reference, automation examples, and troubleshooting, see:
+- [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)
 
----
-## Contributing
-This project is open source and welcomes contributions! 
-
-- **Source code**: All project files are in the `src/` directory
-- **Issues & PRs**: Use GitHub's issue tracker and pull request system
-
-Whether you're fixing bugs, adding features, improving documentation, or sharing creative use cases, your contributions help make Macrowhisper better for everyone.
-
----
-## Documentation
-
-This README covers the basics. For comprehensive documentation including:
-- Advanced trigger system and logic
-- Complete settings reference  
-- Automation examples and workflows
-- Troubleshooting and debugging
-- Integration with Keyboard Maestro and automation apps
-
-**📖 Visit the full documentation: [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)**
-
-**💫 [Check out the Alfred Workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)**
-
----
 ## Support
-If you find Macrowhisper useful, consider supporting its development:
-**☕ [Buy me a coffee](https://buymeacoffee.com/afadingthought/)**
+If Macrowhisper is useful in your workflow:
+- [Buy me a coffee](https://buymeacoffee.com/afadingthought/)
 
-This is an open source project with no monetization. Your support helps cover development costs and keeps the project active.
-
----
-*Macrowhisper is an independent project and is not affiliated with Superwhisper.* 
+Macrowhisper is an independent project and is not affiliated with Superwhisper.

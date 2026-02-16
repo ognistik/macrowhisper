@@ -25,13 +25,14 @@ struct AppConfiguration: Codable {
         var clipboardStacking: Bool
         var clipboardBuffer: Double
         var clipboardIgnore: String?
+        var bypassModes: String?
         var autoUpdateConfig: Bool
         var redactedLogs: Bool
         var nextAction: String?
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, smartInsert, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, autoUpdateConfig, redactedLogs, nextAction
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, noEsc, simKeypress, smartInsert, actionDelay, history, pressReturn, returnDelay, restoreClipboard, scheduledActionTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, bypassModes, autoUpdateConfig, redactedLogs, nextAction
         }
         
         // Custom encoding to preserve null values
@@ -55,6 +56,7 @@ struct AppConfiguration: Codable {
             try container.encode(clipboardStacking, forKey: .clipboardStacking)
             try container.encode(clipboardBuffer, forKey: .clipboardBuffer)
             try container.encode(clipboardIgnore, forKey: .clipboardIgnore)
+            try container.encode(bypassModes, forKey: .bypassModes)
             try container.encode(autoUpdateConfig, forKey: .autoUpdateConfig)
             try container.encode(redactedLogs, forKey: .redactedLogs)
             try container.encode(nextAction, forKey: .nextAction)
@@ -101,13 +103,14 @@ struct AppConfiguration: Codable {
             clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking) ?? false
             clipboardBuffer = try container.decodeIfPresent(Double.self, forKey: .clipboardBuffer) ?? 5.0
             clipboardIgnore = try container.decodeIfPresent(String.self, forKey: .clipboardIgnore)
+            bypassModes = try container.decodeIfPresent(String.self, forKey: .bypassModes) ?? ""
             autoUpdateConfig = try container.decodeIfPresent(Bool.self, forKey: .autoUpdateConfig) ?? true
             redactedLogs = try container.decodeIfPresent(Bool.self, forKey: .redactedLogs) ?? true
             nextAction = try container.decodeIfPresent(String.self, forKey: .nextAction) ?? ""
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, smartInsert: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, noEsc: Bool, simKeypress: Bool, smartInsert: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, scheduledActionTimeout: Double, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, bypassModes: String?, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -126,6 +129,7 @@ struct AppConfiguration: Codable {
             self.clipboardStacking = clipboardStacking
             self.clipboardBuffer = clipboardBuffer
             self.clipboardIgnore = clipboardIgnore
+            self.bypassModes = bypassModes
             self.autoUpdateConfig = autoUpdateConfig
             self.redactedLogs = redactedLogs
             self.nextAction = nextAction
@@ -151,6 +155,7 @@ struct AppConfiguration: Codable {
                 clipboardStacking: false,
                 clipboardBuffer: 5.0,
                 clipboardIgnore: "",
+                bypassModes: "",
                 autoUpdateConfig: true,
                 redactedLogs: true,
                 nextAction: ""
