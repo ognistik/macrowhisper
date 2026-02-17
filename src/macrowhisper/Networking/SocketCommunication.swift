@@ -915,6 +915,10 @@ class SocketCommunication {
         leftNonWhitespaceCharacter: Character?,
         leftLinePrefix: String
     ) -> Bool {
+        if isMarkdownHeadingLineStart(leftLinePrefix) {
+            return false
+        }
+
         if isMarkdownListLineStart(leftLinePrefix) {
             return false
         }
@@ -943,6 +947,14 @@ class SocketCommunication {
         }
 
         return !".!?".contains(leftCharacter)
+    }
+
+    private func isMarkdownHeadingLineStart(_ leftLinePrefix: String) -> Bool {
+        if let regex = try? NSRegularExpression(pattern: #"^\s{0,3}#{1,6}\s+$"#),
+           regex.firstMatch(in: leftLinePrefix, options: [], range: NSRange(location: 0, length: (leftLinePrefix as NSString).length)) != nil {
+            return true
+        }
+        return false
     }
 
     private func isMarkdownListLineStart(_ leftLinePrefix: String) -> Bool {
