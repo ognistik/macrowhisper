@@ -1,7 +1,7 @@
 {
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
-    "actionDelay" : 0,
+    "actionDelay" : 0.02,
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : "",
@@ -27,7 +27,7 @@
   "inserts" : {
     "alterInsert" : {
       "action" : "{{swResult}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : "",
       "moveTo" : "",
@@ -44,7 +44,7 @@
     },
     "autoPaste" : {
       "action" : "{{swResult}}",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "•",
       "inputCondition" : "!nextAction",
       "moveTo" : "",
@@ -61,7 +61,7 @@
     },
     "pasteChat" : {
       "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "⇄",
       "inputCondition" : "",
       "moveTo" : "",
@@ -78,7 +78,7 @@
     },
     "pasteResult" : {
       "action" : "{{swResult}}",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "⏎",
       "inputCondition" : "",
       "moveTo" : "",
@@ -111,7 +111,7 @@
     },
     "swWebView" : {
       "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"{{swResult}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : "❑",
       "inputCondition" : "",
       "moveTo" : "",
@@ -381,38 +381,6 @@
       "triggerModes" : "",
       "triggerVoice" : "ask letterboxd|ask letterboxed|ask, letterboxed"
     },
-    "OpenAI" : {
-      "action" : "https://chat.openai.com/?q={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
-      "actionDelay" : null,
-      "icon" : "",
-      "inputCondition" : "",
-      "moveTo" : "",
-      "nextAction" : "",
-      "noEsc" : null,
-      "openBackground" : false,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : "ask ai"
-    },
-    "Perplexity" : {
-      "action" : "https://www.perplexity.ai/?q={{swResult||\\.$||}}",
-      "actionDelay" : null,
-      "icon" : "",
-      "inputCondition" : "",
-      "moveTo" : "",
-      "nextAction" : "",
-      "noEsc" : null,
-      "openBackground" : false,
-      "openWith" : "",
-      "restoreClipboard" : null,
-      "triggerApps" : "",
-      "triggerLogic" : "or",
-      "triggerModes" : "",
-      "triggerVoice" : "ask perplexity"
-    },
     "Rotten Tomatoes" : {
       "action" : "https://www.rottentomatoes.com/search?search={{swResult||\\.$||}}{{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
@@ -443,7 +411,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : ""
+      "triggerVoice" : "ask ai"
     },
     "YouTube" : {
       "action" : "https://www.youtube.com/results?search_query={{selectedText}}{{clipboardContext}}{{swResult||\\.$||}}",
