@@ -196,7 +196,7 @@ class ServiceManager {
             if let (needsUpdate, currentPath) = checkServiceNeedsUpdate() {
                 if needsUpdate {
                     let currentBinaryPath = getCurrentBinaryPath()
-                    logInfo("Service binary path changed from '\(currentPath)' to '\(currentBinaryPath)'. Updating service.")
+                    logInfo("Service plist settings changed (current binary: '\(currentPath)', expected binary: '\(currentBinaryPath)'). Updating service.")
                     
                     // Stop the service first if it's running
                     if isServiceRunning() {
@@ -211,7 +211,7 @@ class ServiceManager {
                     do {
                         try plistContent.write(toFile: servicePlistPath, atomically: true, encoding: .utf8)
                         logInfo("Service plist updated successfully")
-                        return (true, "Service updated successfully (binary path changed)")
+                        return (true, "Service updated successfully")
                     } catch {
                         let message = "Failed to update service plist: \(error)"
                         logError(message)
@@ -248,6 +248,15 @@ class ServiceManager {
 
         let newBinaryPath = getCurrentBinaryPath()
         let binaryPathChanged = currentBinaryPath != newBinaryPath
+        var expectedArguments = [newBinaryPath]
+        if let configPath = ConfigurationManager.getSavedConfigPath() {
+            expectedArguments.append("--config")
+            expectedArguments.append(configPath)
+        }
+        let argumentsChanged = programArguments != expectedArguments
+        if argumentsChanged {
+            logInfo("Service plist needs update: program arguments changed")
+        }
 
         // Check if EnvironmentVariables section exists with proper UTF-8 locale
         var envVarsNeedUpdate = false
@@ -263,7 +272,7 @@ class ServiceManager {
             logInfo("Service plist needs update: missing or incorrect UTF-8 environment variables")
         }
 
-        return (binaryPathChanged || envVarsNeedUpdate, currentBinaryPath)
+        return (binaryPathChanged || envVarsNeedUpdate || argumentsChanged, currentBinaryPath)
     }
     
     /// Start the service
@@ -430,7 +439,7 @@ class ServiceManager {
             // Check if binary path matches
             if let (needsUpdate, currentPath) = checkServiceNeedsUpdate() {
                 if needsUpdate {
-                    status += "  Status: ⚠️  Service needs update (binary moved)\n"
+                    status += "  Status: ⚠️  Service needs update (arguments or environment changed)\n"
                     status += "  Current Service Binary: \(currentPath)\n"
                 } else {
                     status += "  Status: ✅ Service is up to date\n"

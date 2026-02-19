@@ -473,6 +473,22 @@ if args.contains("-v") || args.contains("--version") {
 }
 
 // Config management commands (work without daemon)
+func applyConfigPathToRunningDaemonIfAvailable(_ normalizedPath: String) -> Bool {
+    let socketCommunication = SocketCommunication(socketPath: socketPath)
+    guard socketCommunication.sendCommand(.status) != nil else {
+        return false
+    }
+
+    let arguments = ["path": normalizedPath]
+    if let response = socketCommunication.sendCommand(.switchConfigPath, arguments: arguments) {
+        print(response)
+    } else {
+        print("Failed to switch configuration path in running instance.")
+        exit(1)
+    }
+    return true
+}
+
 if args.contains("--reveal-config") {
     // Determine the config file path using the same logic as ConfigurationManager
     let configArgIndex = args.firstIndex(where: { $0 == "--config" })
@@ -542,13 +558,19 @@ if args.contains("--set-config") {
     let setConfigIndex = args.firstIndex(where: { $0 == "--set-config" })
     if let index = setConfigIndex, index + 1 < args.count {
         let newPath = args[index + 1]
-        if ConfigurationManager.setDefaultConfigPath(newPath) {
-            let normalizedPath = ConfigurationManager.normalizeConfigPath(newPath)
-            print("Config path set to: \(normalizedPath)")
-            print("This path will be used for future runs of macrowhisper")
-        } else {
+        let normalizedPath = ConfigurationManager.normalizeConfigPath(newPath)
+        guard ConfigurationManager.setDefaultConfigPath(normalizedPath) else {
             print("Error: Cannot access or create directory for config path: \(newPath)")
             exit(1)
+        }
+        guard ConfigurationManager.ensureConfigFileExists(at: normalizedPath) else {
+            print("Error: Failed to create configuration file at: \(normalizedPath)")
+            exit(1)
+        }
+
+        if !applyConfigPathToRunningDaemonIfAvailable(normalizedPath) {
+            print("Config path set to: \(normalizedPath)")
+            print("This path will be used when macrowhisper starts next.")
         }
     } else {
         print("Missing path after --set-config")
@@ -560,8 +582,38 @@ if args.contains("--set-config") {
 if args.contains("--reset-config") {
     ConfigurationManager.resetToDefaultConfigPath()
     let defaultPath = ("~/.config/macrowhisper/macrowhisper.json" as NSString).expandingTildeInPath
-    print("Config path reset to default: \(defaultPath)")
+    guard ConfigurationManager.ensureConfigFileExists(at: defaultPath) else {
+        print("Error: Failed to create default configuration at: \(defaultPath)")
+        exit(1)
+    }
+    if !applyConfigPathToRunningDaemonIfAvailable(defaultPath) {
+        print("Config path reset to default: \(defaultPath)")
+        print("This path will be used when macrowhisper starts next.")
+    }
     exit(0)
+}
+
+// Persist --config path immediately and apply it live if a daemon is running.
+if args.contains("--config") {
+    let configArgIndex = args.firstIndex(where: { $0 == "--config" })
+    if let index = configArgIndex, index + 1 < args.count {
+        let explicitPath = args[index + 1]
+        let normalizedPath = ConfigurationManager.normalizeConfigPath(explicitPath)
+        guard ConfigurationManager.setDefaultConfigPath(normalizedPath) else {
+            print("Error: Cannot access or create directory for config path: \(explicitPath)")
+            exit(1)
+        }
+        guard ConfigurationManager.ensureConfigFileExists(at: normalizedPath) else {
+            print("Error: Failed to create configuration file at: \(normalizedPath)")
+            exit(1)
+        }
+        if applyConfigPathToRunningDaemonIfAvailable(normalizedPath) {
+            exit(0)
+        }
+    } else {
+        print("Missing path after --config")
+        exit(1)
+    }
 }
 
 if args.contains("--get-config") {
@@ -1203,8 +1255,8 @@ logDebug("Startup context - Parent PID: \(parentPID), LAUNCHED_BY_LAUNCHD: \(env
 if !isStartedByLaunchd {
     let serviceManager = ServiceManager()
     if serviceManager.isServiceRunning() {
-        logInfo("Service is already running. Configuration has been reloaded.")
-        print("✅ macrowhisper service is already running. Configuration has been reloaded.")
+        logInfo("Service is already running.")
+        print("✅ macrowhisper service is already running.")
         exit(0)
     }
 } else {
@@ -1224,7 +1276,7 @@ func printHelp() {
 
     DAEMON COMMANDS (start/manage the app - for debugging. Runs without service):
       (no arguments)                Start app with default configuration
-      --config <path>               Start app with custom config file
+      --config <path>               Start with this config path and persist it for future runs
       --verbose                     Enable verbose logging (debug messages)
 
     QUICK COMMANDS (work without running instance):
@@ -1232,8 +1284,10 @@ func printHelp() {
       -v, --version                 Show version information
       
     CONFIG MANAGEMENT (work without running instance):
-      --set-config <path>           Set the default config path for future runs
-      --reset-config                Reset config path to default location  
+      --set-config <path>           Persist config path without starting daemon
+                                    (if daemon is running, switches to it immediately)
+      --reset-config                Persist default config path without starting daemon
+                                    (if daemon is running, switches to it immediately)
       --get-config                  Show the currently saved config path
       --update-config               Update configuration file with new schema changes
                                     (preserves your settings, fixes formatting issues)

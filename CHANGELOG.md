@@ -8,10 +8,15 @@
   * Empty string `""` will simply skip execution but respect the other action settings
   * `.autoPaste` conttinues to be an insert action type template
   * `.run` is now a special action content for Shortcuts. It allows the execution of the Shortcut without any input
-* Improved the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution.
+* Improved the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This should improve responsiveness.
 * New `bypassModes` setting in defaults of the config, where the user can set modes where MacroWhisper should not kick in at all.
   * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
   * It is still suggested that users set SuperWhisper's autopaste off in the advanced configuration tab. However, if they do want to use SuperWhisper for pasting with a specific mode, now they can bypass that specifically with MacroWhisper. No actions will trigger when using that mode.
+* Updated a couple of config-related CLI flag behavior:
+  * `--set-config <path>`: persists path, creates default config at that path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
+  * `--reset-config`: persists reset to default path, creates default config at default path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
+  * `--config <path>`: now persists path immediately, creates config file if missing, if daemon is running, switches immediately and exits, if daemon is not running, continues startup and runs daemon with that path
+* New `smartInsert` set to true by default
 
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13

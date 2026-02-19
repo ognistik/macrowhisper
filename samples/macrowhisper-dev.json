@@ -1,7 +1,7 @@
 {
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "defaults" : {
-    "actionDelay" : 0.02,
+    "actionDelay" : 0,
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : "",

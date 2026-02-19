@@ -40,6 +40,7 @@ class SocketCommunication {
     
     enum Command: String, Codable {
         case reloadConfig
+        case switchConfigPath
         case updateConfig
         case status
         case debug
@@ -1462,6 +1463,25 @@ class SocketCommunication {
                 } else {
                     response = "Failed to reload configuration"
                     logError(response)
+                }
+                _ = sendResponse(response, to: clientSocket)
+
+            case .switchConfigPath:
+                guard let arguments = commandMessage.arguments,
+                      let requestedPath = arguments["path"],
+                      !requestedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    response = "Missing required argument: path"
+                    _ = sendResponse(response, to: clientSocket)
+                    break
+                }
+
+                if configMgr.switchConfigPath(to: requestedPath) {
+                    let currentPath = configMgr.getCurrentConfigPath()
+                    response = "Configuration path switched successfully to: \(currentPath)"
+                    logInfo(response)
+                } else {
+                    response = "Failed to switch configuration path"
+                    logError("\(response): \(requestedPath)")
                 }
                 _ = sendResponse(response, to: clientSocket)
                 

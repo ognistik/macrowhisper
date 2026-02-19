@@ -119,6 +119,34 @@ class ConfigurationManager {
         // Path points to a file or looks like a file path
         return expandedPath
     }
+
+    /// Creates a default configuration file at path when missing.
+    /// Returns true when the file exists (already existed or was created successfully).
+    static func ensureConfigFileExists(at path: String) -> Bool {
+        if FileManager.default.fileExists(atPath: path) {
+            return true
+        }
+
+        let configDir = (path as NSString).deletingLastPathComponent
+        do {
+            if !FileManager.default.fileExists(atPath: configDir) {
+                try FileManager.default.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
+            }
+            let defaultConfig = AppConfiguration.defaultConfig()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(defaultConfig)
+            guard let jsonString = String(data: data, encoding: .utf8),
+                  let formattedData = jsonString.replacingOccurrences(of: "\\/", with: "/").data(using: .utf8) else {
+                return false
+            }
+            try formattedData.write(to: URL(fileURLWithPath: path))
+            return true
+        } catch {
+            logError("Failed to create default configuration at \(path): \(error)")
+            return false
+        }
+    }
     
     // Method to set a new default config path
     static func setDefaultConfigPath(_ path: String) -> Bool {
@@ -159,6 +187,52 @@ class ConfigurationManager {
     // Method to get current config path from instance
     func getCurrentConfigPath() -> String {
         return configPath
+    }
+
+    /// Switches this running manager to a new config path and reloads live.
+    /// Returns true when the path is active and configuration is loaded.
+    func switchConfigPath(to newPath: String) -> Bool {
+        let normalizedPath = Self.normalizeConfigPath(newPath)
+        let parentDir = (normalizedPath as NSString).deletingLastPathComponent
+
+        do {
+            if !fileManager.fileExists(atPath: parentDir) {
+                try fileManager.createDirectory(atPath: parentDir, withIntermediateDirectories: true, attributes: nil)
+            }
+        } catch {
+            logError("Failed to prepare config directory for path switch: \(error)")
+            return false
+        }
+
+        guard Self.ensureConfigFileExists(at: normalizedPath) else {
+            return false
+        }
+
+        self.configPath = normalizedPath
+
+        guard let loadedConfig = self.loadConfig() else {
+            logError("Failed to load configuration after switching to \(normalizedPath)")
+            return false
+        }
+
+        self._config = loadedConfig
+
+        // Mirror startup behavior: apply auto-update (schema normalization/formatting)
+        // immediately after switching paths when enabled by configuration.
+        let shouldAutoUpdateConfig = loadedConfig.defaults.autoUpdateConfig
+        if shouldAutoUpdateConfig {
+            if !self.updateConfiguration() {
+                logWarning("Config path switched, but automatic configuration update did not apply changes")
+            }
+        }
+
+        self.configurationSuccessfullyLoaded()
+        self.resetFileWatcher()
+        DispatchQueue.main.async {
+            self.onConfigChanged?("configPathChanged")
+        }
+        logInfo("Switched active configuration path to: \(normalizedPath)")
+        return true
     }
     
     private static func loadConfig(from path: String) -> AppConfiguration? {

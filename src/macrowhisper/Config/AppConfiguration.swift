@@ -87,7 +87,7 @@ struct AppConfiguration: Codable {
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
             noEsc = try container.decodeIfPresent(Bool.self, forKey: .noEsc) ?? false
             simKeypress = try container.decodeIfPresent(Bool.self, forKey: .simKeypress) ?? false
-            smartInsert = try container.decodeIfPresent(Bool.self, forKey: .smartInsert) ?? false
+            smartInsert = try container.decodeIfPresent(Bool.self, forKey: .smartInsert) ?? true
             // Handle both Int and Float values for history (some configs may have Float)
             if let intHistory = try? container.decodeIfPresent(Int.self, forKey: .history) {
                 history = intHistory
@@ -145,7 +145,7 @@ struct AppConfiguration: Codable {
                 moveTo: "",
                 noEsc: false,
                 simKeypress: false,
-                smartInsert: false,
+                smartInsert: true,
                 actionDelay: 0,
                 history: nil,
                 pressReturn: false,
