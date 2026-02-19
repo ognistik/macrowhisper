@@ -4,9 +4,9 @@ import Cocoa
 
 /// RecordingsFolderWatcher - Monitors Superwhisper recordings folder
 /// 
-/// CORE PRINCIPLE: Macrowhisper only processes the most recent recording with a valid result.
+/// CORE PRINCIPLE: Macrowhisper processes only single-arrival recordings with a valid result.
 /// - On startup: Mark all existing recordings as processed
-/// - When multiple new recordings appear simultaneously: Process only the most recent, mark others as processed
+/// - When multiple new recordings appear simultaneously: Mark all as processed and skip execution
 /// - This prevents processing storms and handles cloud sync scenarios elegantly
 class RecordingsFolderWatcher {
     private let path: String
@@ -209,48 +209,26 @@ class RecordingsFolderWatcher {
             let allExistingDirs = lastKnownSubdirectories
             let mostRecentExistingDir = allExistingDirs.max() // Most recent existing directory
             
-            // CORE PRINCIPLE: Only process the most recent recording, mark all others as processed
-            // Enhanced to also mark recordings older than existing ones as processed
+            // CORE PRINCIPLE: Burst protection - when multiple recordings appear simultaneously,
+            // mark all as processed and execute none.
             if newSubdirectories.count > 1 {
-                // Multiple new recordings detected - sort by name (timestamp) and only process the most recent
-                let sortedNewDirs = newSubdirectories.sorted(by: >)  // Most recent first
-                let mostRecentNewDir = sortedNewDirs.first!
-                
-                // Check if even the most recent new recording is older than existing recordings
-                if let mostRecentExisting = mostRecentExistingDir, mostRecentNewDir < mostRecentExisting {
-                    // All new recordings are older than existing ones - mark all as processed
-                    logInfo("All new recordings (\(newSubdirectories.count)) are older than existing recordings. Marking all as processed to prevent cloud sync interference.")
-                    for dirName in newSubdirectories {
-                        let fullPath = "\(path)/\(dirName)"
-                        markAsProcessed(recordingPath: fullPath)
-                        logDebug("Marked as processed (older than existing): \(dirName)")
-                    }
-                } else {
-                    // At least one new recording is recent enough to consider
-                    logInfo("Multiple new recordings detected (\(newSubdirectories.count)). Processing only the most recent: \(mostRecentNewDir)")
-                    
-                    // Mark all others as processed immediately (except the most recent)
-                    for dirName in sortedNewDirs.dropFirst() {
-                        let fullPath = "\(path)/\(dirName)"
-                        markAsProcessed(recordingPath: fullPath)
-                        logDebug("Marked as processed (not most recent): \(dirName)")
-                    }
-                    
-                    // Cancel auto-return and scheduled action since multiple recordings appeared - they should only apply to the first recording
-                    if sortedNewDirs.count > 1 {
-                        cancelAutoReturn(reason: "multiple recordings appeared simultaneously - autoReturn was intended for a single recording session")
-                        cancelScheduledAction(reason: "multiple recordings appeared simultaneously - scheduled action was intended for a single recording session")
-                        
-                        // UNIFIED RECOVERY: Clean up all pending watchers since multiple recordings appeared
-                        // This could indicate a Superwhisper crash or restart scenario
-                        if !pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty {
-                            performRecordingRecovery(reason: "Superwhisper crash detected - multiple recordings appeared simultaneously while previous recording was being processed")
-                        }
-                    }
-                    
-                    // Process only the most recent
-                    let mostRecentPath = "\(path)/\(mostRecentNewDir)"
-                    processNewRecording(atPath: mostRecentPath)
+                logInfo("Multiple new recordings detected (\(newSubdirectories.count)). Burst protection active: marking all as processed and skipping execution.")
+
+                // Mark all burst recordings as processed
+                for dirName in newSubdirectories {
+                    let fullPath = "\(path)/\(dirName)"
+                    markAsProcessed(recordingPath: fullPath)
+                    logDebug("Marked as processed (burst protection): \(dirName)")
+                }
+
+                // Cancel one-shot state since bursts do not represent a single valid session
+                cancelAutoReturn(reason: "multiple recordings appeared simultaneously - burst protection skips execution")
+                cancelScheduledAction(reason: "multiple recordings appeared simultaneously - burst protection skips execution")
+
+                // UNIFIED RECOVERY: Clean up all pending watchers since multiple recordings appeared
+                // This can indicate a Superwhisper crash or restart scenario
+                if !pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty {
+                    performRecordingRecovery(reason: "Superwhisper crash detected - multiple recordings appeared simultaneously while previous recording was being processed")
                 }
             } else {
                 // Single new recording - check if it's older than existing recordings

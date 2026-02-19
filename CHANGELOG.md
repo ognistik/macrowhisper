@@ -17,6 +17,8 @@
   * `--reset-config`: persists reset to default path, creates default config at default path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
   * `--config <path>`: now persists path immediately, creates config file if missing, if daemon is running, switches immediately and exits, if daemon is not running, continues startup and runs daemon with that path
 * New `smartInsert` set to true by default
+  * I have covered a lot of edge cases. Most minor remaining issues are with those apps that do not have good accessibility integrations.
+* Improved guard protection when multiple recordings appear in burst (none will process).
 
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13
