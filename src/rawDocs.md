@@ -352,12 +352,17 @@ About `$schema`:
 
 ## Value semantics: defaults vs per-action overrides
 
-Use this mental model:
+Use this simple model:
 
-- Put your common behavior in `defaults`.
-- Per-action fields can either:
-  - use their own value, or
-  - "fall back" to `defaults` if the action value is empty/`null` (depends on field).
+- `defaults` = your normal behavior.
+- Action-level values = one action can override `defaults`.
+- Some empty values mean "use defaults again", but not all fields work the same.
+
+Three words used in this guide:
+
+- `inherit`: use `defaults` for that field.
+- `empty payload`: run this action with no content.
+- `template`: a special string (like `.none`) that sets multiple fields for you.
 
 ### 5.1 Quick rules (what wins?)
 
@@ -366,7 +371,13 @@ Use this mental model:
 | Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
 | `moveTo` | `""` or `null` -> use `defaults.moveTo` | Action value wins (`.none`, `.delete`, or a path) |
 | `icon` | `""` or `null` -> use `defaults.icon` | Action value wins (`.none` means "show no icon") |
-| `action` payload | `""` -> run with an empty payload (no template magic) | Non-empty payload is executed after placeholders |
+| `action` payload | `""` -> empty payload (does **not** inherit from `defaults`) | Non-empty payload is executed after placeholders |
+
+Important:
+
+- `action` does not have fallback-to-default behavior.
+- `action: ""` means empty payload.
+- `action: ".none"` means apply a template (next section).
 
 Special `action` values:
 
@@ -386,7 +397,7 @@ For insert/url/shortcut/shell/AppleScript actions, `.none` is converted to:
 Important:
 
 - `action: ""` and `action: ".none"` are different.
-- `""` only means "empty payload".
+- `""` only means "empty payload" (no template behavior).
 - `.none` also forces `noEsc=true` and `restoreClipboard=false`.
 
 ### 5.3 What insert `action: ".autoPaste"` actually does
@@ -408,7 +419,27 @@ Then `inputCondition` is checked:
 
 So `.autoPaste` is not just a label. It applies both template values and conditional fallback behavior.
 
-### 5.4 Empty/null string values that mean "disabled"
+### 5.4 Quick real-world examples
+
+```json
+"action": ""
+```
+
+Meaning: this action runs with no payload.
+
+```json
+"action": ".none"
+```
+
+Meaning: no-op template (`action=""`, `noEsc=true`, `restoreClipboard=false`).
+
+```json
+"restoreClipboard": null
+```
+
+Meaning: inherit `defaults.restoreClipboard`.
+
+### 5.5 Empty/null string values that mean "disabled"
 
 | Field | Empty/`null` means |
 | --- | --- |
@@ -418,7 +449,7 @@ So `.autoPaste` is not just a label. It applies both template values and conditi
 | `defaults.clipboardIgnore` | No app-ignore regex for clipboard capture |
 | `triggerVoice` / `triggerApps` / `triggerModes` | That trigger type is not configured for this action |
 
-### 5.5 Special string values cheat sheet
+### 5.6 Special string values cheat sheet
 
 - `.none` -> no-op template (`noEsc=true`, `restoreClipboard=false`)
 - `.autoPaste` -> insert-only template + input-field conditional behavior
@@ -578,35 +609,14 @@ Example:
 }
 ```
 
-Special insert action values:
+`action` semantics for insert actions are defined in section 5.
 
-- `.autoPaste` - special template behavior that mirrors smart autopaste behavior.
-- `.none` - no-op template.
-- `""` - empty payload (not template).
+Insert reminders:
 
-Exact `.autoPaste` template details:
-
-- `inputCondition` behaves like `!restoreClipboard|!noEsc`
-- `noEsc` becomes `true`
-- `restoreClipboard` becomes `false`
-
-After that, `inputCondition` is evaluated:
-
-- outside input fields: those two values remain active
-- inside input fields: those two values are neutralized to `nil`, so defaults are used
-
-Exact `.none` details for insert actions:
-
-- `action` is converted to empty string
-- `inputCondition` is cleared
-- `noEsc=true`
-- `restoreClipboard=false`
-
-Exact empty-string insert details (`"action": ""`):
-
-- payload is empty
-- `noEsc` / `restoreClipboard` are still resolved from action/default values
-- if you want guaranteed no ESC + no clipboard restore, use `.none`, not empty string
+- `.autoPaste` = insert-only template with input-field-aware behavior (section 5.3).
+- `.none` = no-op template (section 5.2).
+- `""` = empty payload, not template.
+- If you need guaranteed `noEsc=true` and `restoreClipboard=false`, use `.none` (not `""`).
 
 Practical `.autoPaste` use:
 
@@ -661,17 +671,11 @@ Another URL example with punctuation cleanup:
 }
 ```
 
-Exact `.none` details for URL actions:
+`action` semantics are the same as section 5:
 
-- `action` becomes empty string
-- `inputCondition` is cleared
-- `noEsc=true`
-- `restoreClipboard=false`
-
-Exact empty-string URL details (`"action": ""`):
-
-- URL payload is skipped
-- `noEsc` / `restoreClipboard` still follow resolved action/default values
+- `.none` = no-op template.
+- `""` = empty payload (URL open is skipped).
+- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
 
 ## 7.3 Shortcut actions
 
@@ -692,23 +696,15 @@ Example:
 }
 ```
 
-Special shortcut `action` values:
+Shortcut-specific reminder:
 
-- `.run` - run shortcut with no input
-- `.none` - template no-op (forces `noEsc=true`, `restoreClipboard=false`)
-- `""` - empty payload no-op (keeps normal resolved `noEsc`/`restoreClipboard`)
+- `.run` = run shortcut with no input payload.
 
-Exact `.none` details for shortcut actions:
+Other `action` semantics come from section 5:
 
-- `action` becomes empty string
-- `inputCondition` is cleared
-- `noEsc=true`
-- `restoreClipboard=false`
-
-Exact empty-string shortcut details (`"action": ""`):
-
-- shortcut input payload is empty / skipped
-- `noEsc` / `restoreClipboard` still follow resolved action/default values
+- `.none` = no-op template.
+- `""` = empty payload.
+- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
 
 Shortcut examples:
 
@@ -744,19 +740,11 @@ Example:
 }
 ```
 
-`.none` gives template no-op semantics. Empty string gives payload-empty semantics.
+`action` semantics are the same as section 5:
 
-Exact `.none` details for shell actions:
-
-- `action` becomes empty string
-- `inputCondition` is cleared
-- `noEsc=true`
-- `restoreClipboard=false`
-
-Exact empty-string shell details (`"action": ""`):
-
-- shell payload is skipped
-- `noEsc` / `restoreClipboard` still follow resolved action/default values
+- `.none` = no-op template.
+- `""` = empty payload (shell execution is skipped).
+- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
 
 Shell example with metadata key:
 
@@ -783,19 +771,11 @@ Example:
 }
 ```
 
-`.none` gives template no-op semantics. Empty string gives payload-empty semantics.
+`action` semantics are the same as section 5:
 
-Exact `.none` details for AppleScript actions:
-
-- `action` becomes empty string
-- `inputCondition` is cleared
-- `noEsc=true`
-- `restoreClipboard=false`
-
-Exact empty-string AppleScript details (`"action": ""`):
-
-- AppleScript payload is skipped
-- `noEsc` / `restoreClipboard` still follow resolved action/default values
+- `.none` = no-op template.
+- `""` = empty payload (AppleScript execution is skipped).
+- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
 
 ---
 
