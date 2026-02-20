@@ -327,6 +327,7 @@ class ConfigurationManager {
 
     private static func collectConfigurationValidationErrors(in config: AppConfiguration) -> [String] {
         var errors: [String] = []
+        let explicitEmptySemantics = config.usesExplicitEmptySemantics
 
         // Build unique action name set (duplicate-name check is performed separately).
         var actionNames: Set<String> = []
@@ -349,10 +350,21 @@ class ConfigurationManager {
             errors.append("defaults.activeAction and defaults.nextAction cannot be the same ('\(activeAction)')")
         }
 
+        struct NextActionSetting {
+            let isExplicitlySet: Bool
+            let value: String
+        }
+
         var nextActionMap: [String: String] = [:]
+        var nextActionSettings: [String: NextActionSetting] = [:]
         var actionTypeMap: [String: ActionType] = [:]
         func appendNextAction(_ actionName: String, _ rawNextAction: String?) {
-            let next = rawNextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard let rawNextAction else {
+                nextActionSettings[actionName] = NextActionSetting(isExplicitlySet: false, value: "")
+                return
+            }
+            let next = rawNextAction.trimmingCharacters(in: .whitespacesAndNewlines)
+            nextActionSettings[actionName] = NextActionSetting(isExplicitlySet: true, value: next)
             guard !next.isEmpty else { return }
             if !actionNames.contains(next) {
                 errors.append("Action '\(actionName)' has nextAction '\(next)' which does not exist")
@@ -388,6 +400,56 @@ class ConfigurationManager {
         for name in config.shortcuts.keys { actionTypeMap[name] = .shortcut }
         for name in config.scriptsShell.keys { actionTypeMap[name] = .shell }
         for name in config.scriptsAS.keys { actionTypeMap[name] = .appleScript }
+
+        if explicitEmptySemantics {
+            if config.defaults.icon == ".none" {
+                errors.append("defaults.icon cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no icon or null to inherit")
+            }
+            if config.defaults.moveTo == ".none" {
+                errors.append("defaults.moveTo cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no move or null to inherit")
+            }
+
+            for (name, insert) in config.inserts {
+                if insert.icon == ".none" {
+                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+                if insert.moveTo == ".none" {
+                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+            }
+            for (name, url) in config.urls {
+                if url.icon == ".none" {
+                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+                if url.moveTo == ".none" {
+                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+            }
+            for (name, shortcut) in config.shortcuts {
+                if shortcut.icon == ".none" {
+                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+                if shortcut.moveTo == ".none" {
+                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+            }
+            for (name, shell) in config.scriptsShell {
+                if shell.icon == ".none" {
+                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+                if shell.moveTo == ".none" {
+                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+            }
+            for (name, ascript) in config.scriptsAS {
+                if ascript.icon == ".none" {
+                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+                if ascript.moveTo == ".none" {
+                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                }
+            }
+        }
 
         // Cycle detection for action-level chains
         enum NodeState { case visiting, visited }
@@ -438,8 +500,18 @@ class ConfigurationManager {
                 }
 
                 let next: String
-                if firstStep && !defaultsNextAction.isEmpty {
-                    next = defaultsNextAction
+                if firstStep {
+                    if explicitEmptySemantics {
+                        if let setting = nextActionSettings[current], setting.isExplicitlySet {
+                            next = setting.value
+                        } else {
+                            next = defaultsNextAction
+                        }
+                    } else if !defaultsNextAction.isEmpty {
+                        next = defaultsNextAction
+                    } else {
+                        next = nextActionMap[current] ?? ""
+                    }
                 } else {
                     next = nextActionMap[current] ?? ""
                 }
@@ -889,9 +961,24 @@ class ConfigurationManager {
             return false
         }
         
-        // Update our in-memory config with the loaded data
+        var updatedConfig = currentConfig
+        if (currentConfig.configVersion ?? 1) < AppConfiguration.currentConfigVersion {
+            let createdBackup = createPreMigrationBackupIfNeeded()
+            if !createdBackup {
+                logWarning("Pre-migration backup could not be created; continuing migration")
+            }
+            let didMigrate = migrateConfigurationToCurrentVersion(&updatedConfig)
+            if didMigrate {
+                logInfo("Migrated configuration semantics to configVersion \(AppConfiguration.currentConfigVersion)")
+            } else {
+                updatedConfig.configVersion = AppConfiguration.currentConfigVersion
+                logInfo("Marked configuration as configVersion \(AppConfiguration.currentConfigVersion)")
+            }
+        }
+
+        // Update our in-memory config with the loaded/migrated data
         syncQueue.sync {
-            _config = currentConfig
+            _config = updatedConfig
         }
         
         // Save the configuration, which will apply any new schema changes and formatting
@@ -904,6 +991,129 @@ class ConfigurationManager {
         
         logInfo("Configuration file updated successfully")
         return true
+    }
+
+    private func createPreMigrationBackupIfNeeded() -> Bool {
+        let backupPath = configPath + ".backup.pre-v\(AppConfiguration.currentConfigVersion)"
+        if fileManager.fileExists(atPath: backupPath) {
+            return true
+        }
+        do {
+            try fileManager.copyItem(atPath: configPath, toPath: backupPath)
+            logInfo("Created pre-migration backup at: \(backupPath)")
+            return true
+        } catch {
+            logError("Failed to create pre-migration backup: \(error)")
+            return false
+        }
+    }
+
+    private func migrateConfigurationToCurrentVersion(_ config: inout AppConfiguration) -> Bool {
+        var changed = false
+
+        if (config.configVersion ?? 1) < 2 {
+            changed = migrateConfigurationToV2(&config) || changed
+        }
+
+        if config.configVersion != AppConfiguration.currentConfigVersion {
+            config.configVersion = AppConfiguration.currentConfigVersion
+            changed = true
+        }
+
+        return changed
+    }
+
+    private func migrateConfigurationToV2(_ config: inout AppConfiguration) -> Bool {
+        var changed = false
+
+        func normalize(_ value: inout String?) {
+            guard let raw = value else { return }
+            if raw == ".none" {
+                value = ""
+                changed = true
+                return
+            }
+            if raw.isEmpty {
+                value = nil
+                changed = true
+            }
+        }
+
+        func normalizeInputLike(_ value: inout String?) {
+            if value?.isEmpty == true {
+                value = nil
+                changed = true
+            }
+        }
+
+        normalize(&config.defaults.icon)
+        normalize(&config.defaults.moveTo)
+        normalizeInputLike(&config.defaults.nextAction)
+        normalizeInputLike(&config.defaults.clipboardIgnore)
+        normalizeInputLike(&config.defaults.bypassModes)
+
+        for name in config.inserts.keys {
+            guard var insert = config.inserts[name] else { continue }
+            normalize(&insert.icon)
+            normalize(&insert.moveTo)
+            normalizeInputLike(&insert.nextAction)
+            normalizeInputLike(&insert.inputCondition)
+            normalizeInputLike(&insert.triggerVoice)
+            normalizeInputLike(&insert.triggerApps)
+            normalizeInputLike(&insert.triggerModes)
+            config.inserts[name] = insert
+        }
+
+        for name in config.urls.keys {
+            guard var url = config.urls[name] else { continue }
+            normalize(&url.icon)
+            normalize(&url.moveTo)
+            normalizeInputLike(&url.nextAction)
+            normalizeInputLike(&url.inputCondition)
+            normalizeInputLike(&url.triggerVoice)
+            normalizeInputLike(&url.triggerApps)
+            normalizeInputLike(&url.triggerModes)
+            normalizeInputLike(&url.openWith)
+            config.urls[name] = url
+        }
+
+        for name in config.shortcuts.keys {
+            guard var shortcut = config.shortcuts[name] else { continue }
+            normalize(&shortcut.icon)
+            normalize(&shortcut.moveTo)
+            normalizeInputLike(&shortcut.nextAction)
+            normalizeInputLike(&shortcut.inputCondition)
+            normalizeInputLike(&shortcut.triggerVoice)
+            normalizeInputLike(&shortcut.triggerApps)
+            normalizeInputLike(&shortcut.triggerModes)
+            config.shortcuts[name] = shortcut
+        }
+
+        for name in config.scriptsShell.keys {
+            guard var shell = config.scriptsShell[name] else { continue }
+            normalize(&shell.icon)
+            normalize(&shell.moveTo)
+            normalizeInputLike(&shell.nextAction)
+            normalizeInputLike(&shell.inputCondition)
+            normalizeInputLike(&shell.triggerVoice)
+            normalizeInputLike(&shell.triggerApps)
+            normalizeInputLike(&shell.triggerModes)
+            config.scriptsShell[name] = shell
+        }
+
+        for name in config.scriptsAS.keys {
+            guard var ascript = config.scriptsAS[name] else { continue }
+            normalize(&ascript.icon)
+            normalize(&ascript.moveTo)
+            normalizeInputLike(&ascript.nextAction)
+            normalizeInputLike(&ascript.inputCondition)
+            normalizeInputLike(&ascript.triggerVoice)
+            normalizeInputLike(&ascript.triggerApps)
+            normalizeInputLike(&ascript.triggerModes)
+            config.scriptsAS[name] = ascript
+        }
+
+        return changed
     }
 
 } 

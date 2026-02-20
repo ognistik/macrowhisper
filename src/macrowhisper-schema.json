@@ -2,12 +2,18 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
-  "description": "Configuration schema for Macrowhisper, an automation helper for Superwhisper dictation app. CLI commands create actions with empty values for string fields and null for boolean/numeric fields — both fall back to global defaults. Explicit values override global defaults.",
+  "description": "Configuration schema for Macrowhisper. In configVersion 2, null means inherit defaults and empty string means explicit empty value.",
   "type": "object",
   "properties": {
     "$schema": {
       "type": "string",
       "description": "JSON Schema reference for IDE validation support. Auto detected by Macrowhisper next to binary or in Homebrew's share/macrowhisper folder"
+    },
+    "configVersion": {
+      "type": "integer",
+      "description": "Configuration semantics version. Version 1 is legacy behavior. Version 2 uses explicit empty semantics: null inherits defaults, empty string is explicit.",
+      "enum": [1, 2],
+      "default": 2
     },
     "defaults": {
       "type": "object",
@@ -36,15 +42,15 @@
         },
         "icon": {
           "type": ["string", "null"],
-          "description": "Default icon for actions (emoji, character, empty string, null, or '.none' for no icon)",
-          "examples": ["🎤", "📝", "⚡", "", null, ".none"],
-          "default": ""
+          "description": "Default icon for actions. null means no default icon. Empty string means explicit empty icon.",
+          "examples": ["🎤", "📝", "⚡", "", null],
+          "default": null
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Default location to move recording folders after processing. Path to destination directory, '.delete' (delete folder), '.none' (keep in original location), empty string, or null for no default move behavior",
-          "examples": ["~/Documents/processed-recordings", ".delete", ".none", "", null],
-          "default": ""
+          "description": "Default location to move recording folders after processing. Path to destination directory, '.delete' (delete folder), empty string (explicit no move), or null (no default move behavior).",
+          "examples": ["~/Documents/processed-recordings", ".delete", "", null],
+          "default": null
         },
         "noEsc": {
           "type": "boolean",
@@ -110,13 +116,13 @@
           "type": ["string", "null"],
           "description": "Regex pattern to ignore clipboard content from specific applications. Use '|' for multiple apps (e.g., 'AppName|com.bundle.id'). Matches against app name or bundle ID. Empty string or null means no apps are ignored.",
           "examples": ["Chrome|Safari", "com.google.Chrome", "^Slack$", "", null],
-          "default": ""
+          "default": null
         },
         "bypassModes": {
           "type": ["string", "null"],
           "description": "Pipe-separated Superwhisper mode names that bypass Macrowhisper processing entirely for matching modeName values in meta.json. Matching is case-insensitive. Empty string or null disables bypass.",
           "examples": ["dictation", "dictation|rewrite", "", null],
-          "default": ""
+          "default": null
         },
         "autoUpdateConfig": {
           "type": "boolean",
@@ -130,9 +136,9 @@
         },
         "nextAction": {
           "type": ["string", "null"],
-          "description": "Default action name to execute after a matched action completes. Empty string, null, or omitted means no chaining.",
+          "description": "Default action name to execute after a matched action completes. Empty string or null means no chaining.",
           "examples": ["followUpAction", "", null],
-          "default": ""
+          "default": null
         }
       },
       "required": ["watch", "actionDelay"],
@@ -202,15 +208,15 @@
       "properties": {
         "icon": {
           "type": ["string", "null"],
-          "description": "Custom icon for this action. Empty string, null, or omit to use global default. Use '.none' to explicitly show no icon (override global default).",
-          "examples": ["🎤", "📝", "⚡", "🔗", "", null, ".none"],
-          "default": ""
+          "description": "Custom icon for this action. null or omitted = inherit defaults.icon. Empty string = explicit no icon.",
+          "examples": ["🎤", "📝", "⚡", "🔗", "", null],
+          "default": null
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Where to move the recording folder after processing. Path to destination directory, '.delete' (delete folder), '.none' (keep in original location), empty string, null, or omit to use global default.",
-          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", ".none", "", null],
-          "default": ""
+          "description": "Where to move the recording folder after processing. null or omitted = inherit defaults.moveTo. Empty string = explicit no move. '.delete' deletes the folder.",
+          "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", "", null],
+          "default": null
         },
         "noEsc": {
           "type": ["boolean", "null"],
@@ -230,8 +236,8 @@
         },
         "nextAction": {
           "type": ["string", "null"],
-          "description": "Action name to execute after this action completes. Empty string, null, or omitted means fall back to defaults.nextAction (or no chaining).",
-          "default": ""
+          "description": "Action name to execute after this action completes. null or omitted = inherit defaults.nextAction. Empty string = explicit no next action.",
+          "default": null
         },
         "triggerVoice": {
           "type": ["string", "null"],
@@ -243,19 +249,19 @@
             "==(?-i)^Exact Case$==",
             ""
           ],
-          "default": ""
+          "default": null
         },
         "triggerApps": {
           "type": ["string", "null"], 
           "description": "Regex pattern for application trigger matching (app name or bundle ID). Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
           "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", "", null],
-          "default": ""
+          "default": null
         },
         "triggerModes": {
           "type": ["string", "null"],
           "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
           "examples": ["email", "writing|notes", "^(Email|Messages)$", "", null],
-          "default": ""
+          "default": null
         },
         "triggerLogic": {
           "type": ["string", "null"],
@@ -274,7 +280,7 @@
             "action": {
               "type": "string",
               "title": "Insert Action Content",
-              "description": "Text to insert with placeholder support. Use '.autoPaste' for smart paste behavior, '.none' or empty string to skip insertion and not auto-close Superwhisper's window.",
+              "description": "Text to insert with placeholder support. Use '.autoPaste' for smart paste behavior. Use empty string for empty payload. Use '.none' for no-op template behavior (different from empty string).",
               "examples": [
                 "{{swResult}}",
                 "{{result}}",
@@ -307,7 +313,7 @@
                 "restoreClipboard|pressReturn|moveTo",
                 "!restoreClipboard|!noEsc"
               ],
-              "default": ""
+              "default": null
             }
           },
           "required": ["action"]
@@ -323,7 +329,7 @@
             "action": {
               "type": "string",
               "title": "URL to Open",
-              "description": "URL with placeholder support. Use '.none' or empty string to skip URL execution for this step.",
+              "description": "URL with placeholder support. Empty string skips URL payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": [
                 "https://google.com/search?q={{result}}",
                 "https://www.perplexity.ai/?q={{result||\\.$||}}",
@@ -339,13 +345,13 @@
                 "restoreClipboard|moveTo",
                 "!noEsc|!action"
               ],
-              "default": ""
+              "default": null
             },
             "openWith": {
               "type": ["string", "null"],
               "description": "Specific application or bundle id to open the URL with. Empty string, null, or omit uses system default.",
               "examples": ["Safari", "/Applications/Google Chrome.app", "com.google.Chrome", "", null],
-              "default": ""
+              "default": null
             },
             "openBackground": {
               "type": ["boolean", "null"],
@@ -362,11 +368,11 @@
         {"$ref": "#/definitions/baseActionProperties"},
         {
           "type": "object",
-          "description": "The action name is the actual Shortcut name to execute.",
+          "description": "Shortcut actions use a separate path: the property name is the exact macOS Shortcut name to run.",
           "properties": {
             "action": {
               "type": "string",
-              "description": "Input to pass to the shortcut with placeholder support. Use '.run' to execute the shortcut without input. Use '.none' or empty string to skip shortcut execution for this step.",
+              "description": "Input to pass to the shortcut with placeholder support. Use '.run' to execute the shortcut without input. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": ["{{swResult}}", "Process this: {{result}}", ".run", ".none", ""]
             },
             "inputCondition": {
@@ -377,7 +383,7 @@
                 "restoreClipboard|nextAction",
                 "!action|!noEsc"
               ],
-              "default": ""
+              "default": null
             }
           },
           "required": ["action"]
@@ -394,7 +400,7 @@
             "action": {
               "type": "string",
               "title": "Shell Command",
-              "description": "Shell command with placeholder support and proper escaping. Use '.none' or empty string to skip shell execution for this step.",
+              "description": "Shell command with placeholder support and proper escaping. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": [
                 "echo '{{swResult}}' | pbcopy",
                 "curl -X POST 'https://api.example.com' -d '{{json:swResult}}'",
@@ -411,7 +417,7 @@
                 "noEsc|actionDelay",
                 "!action|!restoreClipboard"
               ],
-              "default": ""
+              "default": null
             }
           },
           "required": ["action"]
@@ -428,7 +434,7 @@
             "action": {
               "type": "string",
               "title": "AppleScript Code",
-              "description": "AppleScript code with placeholder support and proper quote escaping. Use '.none' or empty string to skip AppleScript execution for this step.",
+              "description": "AppleScript code with placeholder support and proper quote escaping. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": [
                 "tell application \"TextEdit\" to make new document with properties {text:\"{{json:swResult}}\"}",
                 "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\"",
@@ -445,7 +451,7 @@
                 "nextAction|moveTo",
                 "!noEsc|!action"
               ],
-              "default": ""
+              "default": null
             }
           },
           "required": ["action"]

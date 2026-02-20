@@ -1,6 +1,35 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+## Config semantics update (clearer and more predictable)
+This release introduces `configVersion: 2` with clearer rules.
+
+### New rule
+- `null` = inherit default
+- `""` = explicit empty value
+- Action templates stay explicit:
+  - `.none` (no-op template)
+  - `.autoPaste` (insert only)
+  - `.run` (shortcuts only)
+
+### Important behavior
+- `action: ""` and `action: ".none"` are **not the same**.
+- `action: ""` = empty payload.
+- `action: ".none"` = template behavior (also affects options like `noEsc` / `restoreClipboard`).
+
+### Migration
+- If your config is v1, `--update-config` migrates it to v2.
+- A backup is created once: `macrowhisper.json.backup.pre-v2`.
+- If `defaults.autoUpdateConfig` is `false`, migration is not automatic.  
+  You can migrate later by running `--update-config`.
+
+### Non-action `.none`
+- In v2, `.none` is no longer valid for fields like `icon` or `moveTo`.
+- Use:
+  - `null` to inherit from defaults
+  - `""` for explicit empty
+
 * `inputCondition` has been expanded to all action types
   * You can now have any action behave differently depending on user being in an input field or not.
 * Special action contents have been standardized

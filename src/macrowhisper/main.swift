@@ -1428,6 +1428,12 @@ if shouldAutoUpdateConfig {
     }
 } else {
     logDebug("Startup auto configuration update disabled by defaults.autoUpdateConfig = false")
+    if !configManager.config.usesExplicitEmptySemantics {
+        notify(
+            title: "Macrowhisper - Config Migration Pending",
+            message: "Your config is using legacy semantics (configVersion 1). Automatic migration is disabled. Run --update-config when ready."
+        )
+    }
 }
 
 historyManager = HistoryManager(configManager: configManager)

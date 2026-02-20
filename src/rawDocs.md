@@ -366,11 +366,11 @@ Three words used in this guide:
 
 ### 5.1 Quick rules (what wins?)
 
-| Field type | If action value is empty/`null` | If action value is set |
+| Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
 | Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
-| `moveTo` | `""` or `null` -> use `defaults.moveTo` | Action value wins (`.none`, `.delete`, or a path) |
-| `icon` | `""` or `null` -> use `defaults.icon` | Action value wins (`.none` means "show no icon") |
+| `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
+| `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
 | `action` payload | `""` -> empty payload (does **not** inherit from `defaults`) | Non-empty payload is executed after placeholders |
 
 Important:
@@ -378,6 +378,7 @@ Important:
 - `action` does not have fallback-to-default behavior.
 - `action: ""` means empty payload.
 - `action: ".none"` means apply a template (next section).
+- For action-level string overrides like `icon` / `moveTo` / `nextAction`: `null` = inherit, `""` = explicit empty.
 
 Special `action` values:
 
@@ -439,7 +440,19 @@ Meaning: no-op template (`action=""`, `noEsc=true`, `restoreClipboard=false`).
 
 Meaning: inherit `defaults.restoreClipboard`.
 
-### 5.5 Empty/null string values that mean "disabled"
+```json
+"icon": null
+```
+
+Meaning: inherit `defaults.icon`.
+
+```json
+"icon": ""
+```
+
+Meaning: explicit no icon for this action.
+
+### 5.5 Empty/null values that mean "disabled"
 
 | Field | Empty/`null` means |
 | --- | --- |
@@ -455,11 +468,13 @@ Meaning: inherit `defaults.restoreClipboard`.
 - `.autoPaste` -> insert-only template + input-field conditional behavior
 - `.delete` -> `moveTo` should delete processed recording folder
 - `.run` -> shortcut runs without input payload
+- `.none` is for `action` payload templates only (not for `icon`/`moveTo` in configVersion 2)
 
 ## Minimal starter config
 
 ```json
 {
+  "configVersion": 2,
   "defaults": {
     "watch": "~/Documents/superwhisper",
     "activeAction": "autoPaste",
@@ -490,8 +505,8 @@ These live under `defaults`.
 | `noUpdates` | bool | `false` | Disable periodic update checks. |
 | `noNoti` | bool | `false` | Disable notifications. |
 | `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty/null means none. |
-| `icon` | string/null | `""` | Default icon for actions. `.none` forces no icon. |
-| `moveTo` | string/null | `""` | Default post-processing path, `.delete`, `.none`, or empty fallback. |
+| `icon` | string/null | `null` | Default icon for actions. |
+| `moveTo` | string/null | `null` | Default post-processing path (`.delete`, a path, or empty). |
 | `noEsc` | bool | `false` | Disable ESC simulation before actions. |
 | `simKeypress` | bool | `false` | Insert by typing instead of clipboard paste (insert actions). |
 | `smartInsert` | bool | `true` | Smart casing/spacing behavior for insert actions. |
@@ -503,11 +518,11 @@ These live under `defaults`.
 | `scheduledActionTimeout` | number | `5` | Timeout (seconds) for pending auto-return/scheduled action when no recording starts. `0` means no timeout. |
 | `clipboardStacking` | bool | `false` | Capture multiple clipboard events for `{{clipboardContext}}`. |
 | `clipboardBuffer` | number | `5.0` | Pre-recording clipboard capture window in seconds. `0` disables buffer capture. |
-| `clipboardIgnore` | string/null | `""` | Regex for apps ignored in clipboard capture. |
-| `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that bypass Macrowhisper entirely (case-insensitive). |
+| `clipboardIgnore` | string/null | `null` | Regex for apps ignored in clipboard capture. |
+| `bypassModes` | string/null | `null` | Pipe-separated Superwhisper mode names that bypass Macrowhisper entirely (case-insensitive). |
 | `autoUpdateConfig` | bool | `true` | Auto-refresh config format/schema fields at startup. |
 | `redactedLogs` | bool | `true` | Redact sensitive content in logs. |
-| `nextAction` | string/null | `""` | Default next action chain target (first-step override). |
+| `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
 
 ## Validation rules involving defaults
 
@@ -551,7 +566,7 @@ Action names must be unique across all five dictionaries.
 How to read these fields in practice:
 
 - For bool/number override fields, `null` means fallback to `defaults`.
-- For `moveTo` and `icon`, empty/null means fallback to defaults.
+- For `moveTo`, `icon`, and `nextAction`: `null` means fallback to defaults; `""` means explicit empty.
 - For `action`, empty string means empty payload for that step (not template behavior).
 - For `action`, `.none` and `.autoPaste` (insert only) are template behaviors.
 - `inputCondition` can neutralize fields at runtime before execution.
@@ -564,7 +579,7 @@ How to read these fields in practice:
 ```
 
 ```json
-"icon": ".none"
+"icon": ""
 ```
 
 ```json
@@ -647,7 +662,7 @@ URL field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"https://...{{swResult}}"`, `".none"` | URL template. Empty/`.none` skips URL opening. |
+| `action` | string | `"https://...{{swResult}}"`, `".none"` | URL template. `""` skips URL payload. `.none` is template behavior (see section 5.2). |
 | `openWith` | string/null | `"Safari"`, `"/Applications/Google Chrome.app"`, `"com.google.Chrome"` | Passed to `open -a`. |
 | `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in background. `false` or `null` resolves to foreground behavior. |
 
@@ -679,13 +694,13 @@ Another URL example with punctuation cleanup:
 
 ## 7.3 Shortcut actions
 
-Important: the action name is the macOS Shortcut name.
+Important: the action name (the object key) is the macOS Shortcut name.
 
 Shortcut field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"{{swResult}}"`, `".run"`, `".none"` | Input sent to shortcut. `.run` executes shortcut without input. |
+| `action` | string | `"{{swResult}}"`, `".run"`, `".none"` | Input sent to shortcut. `.run` executes shortcut without input. `""` and `.none` are not equivalent (section 5.2). |
 | `triggerVoice` | string/null | `"task"`, `"==^todo\\\\s+(.+)$=="` | Optional trigger entry points. |
 
 Example:
@@ -728,7 +743,7 @@ Shell field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string. |
+| `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string. `""` and `.none` are not equivalent (section 5.2). |
 | `triggerApps` | string/null | `"Terminal|iTerm"` | Useful to scope command actions by app. |
 
 Example:
@@ -760,7 +775,7 @@ AppleScript field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"display notification ..."`, `".none"` | AppleScript source. |
+| `action` | string | `"display notification ..."`, `".none"` | AppleScript source. `""` and `.none` are not equivalent (section 5.2). |
 | `triggerModes` | string/null | `"email|message"` | Good for mode-specific scripting. |
 
 Example:
@@ -995,7 +1010,8 @@ It can be set:
 
 For first step only:
 
-- if `defaults.nextAction` is non-empty, it overrides the first action's own `nextAction`
+- if action-level `nextAction` is `null`, `defaults.nextAction` can apply
+- if action-level `nextAction` is `""`, that explicitly means "no next action" for first step
 
 For subsequent steps:
 
@@ -1292,8 +1308,8 @@ Supported values:
 
 - folder path: move processed recording folder
 - `.delete`: delete processed folder
-- `.none`: explicitly do nothing
-- `""`/`null` on action-level: fallback to defaults
+- `""`: explicitly do nothing
+- `null` on action-level: fallback to defaults
 
 ## 16.2 `history`
 
@@ -1342,6 +1358,7 @@ Example:
 
 ```json
 {
+  "configVersion": 2,
   "defaults": {
     "watch": "~/Documents/superwhisper",
     "activeAction": "autoPaste",
@@ -1351,9 +1368,9 @@ Example:
     "smartInsert": true,
     "clipboardBuffer": 5,
     "clipboardStacking": false,
-    "clipboardIgnore": "",
-    "bypassModes": "",
-    "nextAction": ""
+    "clipboardIgnore": null,
+    "bypassModes": null,
+    "nextAction": null
   },
   "inserts": {
     "autoPaste": {
@@ -1399,10 +1416,11 @@ Example:
 
 ```json
 {
+  "configVersion": 2,
   "defaults": {
     "watch": "~/Documents/superwhisper",
     "activeAction": "compose",
-    "nextAction": "",
+    "nextAction": null,
     "restoreClipboard": true,
     "moveTo": "~/Documents/SW-Processed"
   },

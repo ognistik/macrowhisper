@@ -875,23 +875,34 @@ class ActionExecutor {
         case .appleScript:
             actionLevel = (action as? AppConfiguration.ScriptAppleScript)?.nextAction
         }
-        let normalizedActionLevel = actionLevel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedActionLevel = actionLevel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitEmptySemantics = configManager.config.usesExplicitEmptySemantics
 
-        // defaults.nextAction overrides the first action's own nextAction.
-        // For subsequent chained actions, only action-level nextAction is considered.
         if isFirstStep {
+            if explicitEmptySemantics {
+                if let normalizedActionLevel {
+                    if normalizedActionLevel == actionName {
+                        return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
+                    }
+                    return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
+                }
+                let defaultsNext = configManager.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return defaultsNext.isEmpty ? nil : defaultsNext
+            }
+
+            // Legacy behavior: defaults.nextAction overrides the first action's own nextAction.
             let defaultsNext = configManager.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !defaultsNext.isEmpty {
                 return defaultsNext
             }
-            return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
+            return (normalizedActionLevel ?? "").isEmpty ? nil : normalizedActionLevel
         }
 
         // Never re-apply defaults.nextAction after first action.
         if normalizedActionLevel == actionName {
-            return normalizedActionLevel
+            return (normalizedActionLevel ?? "").isEmpty ? nil : normalizedActionLevel
         }
-        return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
+        return (normalizedActionLevel ?? "").isEmpty ? nil : normalizedActionLevel
     }
 
     private func findUniqueActionByName(_ name: String) throws -> (name: String, type: ActionType, action: Any)? {
@@ -1153,12 +1164,23 @@ class ActionExecutor {
     
     private func handleMoveToSetting(folderPath: String, activeInsert: AppConfiguration.Insert?) {
         // Determine the moveTo value with proper precedence
+        let explicitEmptySemantics = configManager.config.usesExplicitEmptySemantics
         var moveTo: String?
-        if let activeInsert = activeInsert, let insertMoveTo = activeInsert.moveTo, !insertMoveTo.isEmpty {
-            // Insert has an explicit moveTo value (including ".none" and ".delete")
-            moveTo = insertMoveTo
+        if let activeInsert = activeInsert {
+            if explicitEmptySemantics {
+                if let insertMoveTo = activeInsert.moveTo {
+                    moveTo = insertMoveTo
+                } else {
+                    moveTo = configManager.config.defaults.moveTo
+                }
+            } else if let insertMoveTo = activeInsert.moveTo, !insertMoveTo.isEmpty {
+                // Insert has an explicit moveTo value (including ".none" and ".delete")
+                moveTo = insertMoveTo
+            } else {
+                // Insert moveTo is nil or empty, fall back to default
+                moveTo = configManager.config.defaults.moveTo
+            }
         } else {
-            // Insert moveTo is nil or empty, fall back to default
             moveTo = configManager.config.defaults.moveTo
         }
         
@@ -1181,28 +1203,37 @@ class ActionExecutor {
     
     private func handleMoveToSettingForAction(folderPath: String, action: Any) {
         // Determine the moveTo value with proper precedence for different action types
+        let explicitEmptySemantics = configManager.config.usesExplicitEmptySemantics
         var moveTo: String?
         
         if let url = action as? AppConfiguration.Url {
-            if let actionMoveTo = url.moveTo, !actionMoveTo.isEmpty {
+            if explicitEmptySemantics, let actionMoveTo = url.moveTo {
+                moveTo = actionMoveTo
+            } else if let actionMoveTo = url.moveTo, !actionMoveTo.isEmpty {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo
             }
         } else if let shortcut = action as? AppConfiguration.Shortcut {
-            if let actionMoveTo = shortcut.moveTo, !actionMoveTo.isEmpty {
+            if explicitEmptySemantics, let actionMoveTo = shortcut.moveTo {
+                moveTo = actionMoveTo
+            } else if let actionMoveTo = shortcut.moveTo, !actionMoveTo.isEmpty {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo
             }
         } else if let shell = action as? AppConfiguration.ScriptShell {
-            if let actionMoveTo = shell.moveTo, !actionMoveTo.isEmpty {
+            if explicitEmptySemantics, let actionMoveTo = shell.moveTo {
+                moveTo = actionMoveTo
+            } else if let actionMoveTo = shell.moveTo, !actionMoveTo.isEmpty {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo
             }
         } else if let ascript = action as? AppConfiguration.ScriptAppleScript {
-            if let actionMoveTo = ascript.moveTo, !actionMoveTo.isEmpty {
+            if explicitEmptySemantics, let actionMoveTo = ascript.moveTo {
+                moveTo = actionMoveTo
+            } else if let actionMoveTo = ascript.moveTo, !actionMoveTo.isEmpty {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo
