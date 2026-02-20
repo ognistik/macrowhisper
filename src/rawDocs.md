@@ -352,83 +352,78 @@ About `$schema`:
 
 ## Value semantics: defaults vs per-action overrides
 
-This section is exact, not approximate.
+Use this mental model:
 
-### 5.1 Exact value semantics by field family
+- Put your common behavior in `defaults`.
+- Per-action fields can either:
+  - use their own value, or
+  - "fall back" to `defaults` if the action value is empty/`null` (depends on field).
 
-| Field family | Value | Exact behavior |
+### 5.1 Quick rules (what wins?)
+
+| Field type | If action value is empty/`null` | If action value is set |
 | --- | --- | --- |
-| Override booleans/numbers (for example `noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | `null` | Fallback to corresponding `defaults` value. |
-| Override booleans/numbers | explicit value | Override `defaults`. |
-| String override field `moveTo` | `""` or `null` | Fallback to `defaults.moveTo`. |
-| String override field `moveTo` | `.none` | Explicit keep-in-place (no move, no delete). |
-| String override field `moveTo` | `.delete` | Delete processed recording folder. |
-| String override field `icon` | `""` or `null` | Fallback to `defaults.icon`. |
-| String override field `icon` | `.none` | Explicitly no icon. |
-| Action payload field (`action`) | non-empty normal value | Execute that payload after placeholder resolution. |
-| Action payload field (`action`) | `""` | Payload is empty for that step (no insert/open/run payload). No automatic template overrides are applied. |
-| Action payload field (`action`) | `.none` | Template behavior (see 5.2). |
-| Insert `action` only | `.autoPaste` | Template behavior (see 5.3). |
-| Shortcut `action` only | `.run` | Run shortcut with no input payload. |
+| Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
+| `moveTo` | `""` or `null` -> use `defaults.moveTo` | Action value wins (`.none`, `.delete`, or a path) |
+| `icon` | `""` or `null` -> use `defaults.icon` | Action value wins (`.none` means "show no icon") |
+| `action` payload | `""` -> run with an empty payload (no template magic) | Non-empty payload is executed after placeholders |
 
-### 5.2 Exact `.none` template behavior
+Special `action` values:
 
-When `action` is `.none`, Macrowhisper converts it into a no-op template for that action step:
+- `action: ".none"` -> apply the no-op template (section 5.2)
+- Insert only: `action: ".autoPaste"` -> apply the autoPaste template (section 5.3)
+- Shortcut only: `action: ".run"` -> run shortcut with no input payload
 
-- `action` becomes empty string
-- `inputCondition` becomes empty string
-- `noEsc` is set to `true`
-- `restoreClipboard` is set to `false`
+### 5.2 What `action: ".none"` actually does
 
-This template behavior is applied for:
+For insert/url/shortcut/shell/AppleScript actions, `.none` is converted to:
 
-- insert actions
-- URL actions
-- shortcut actions
-- shell actions
-- AppleScript actions
+- `action = ""`
+- `inputCondition = ""`
+- `noEsc = true`
+- `restoreClipboard = false`
 
-Important distinction:
+Important:
 
-- `action: ""` is not the same as `action: ".none"`.
-- `""` means empty payload but keeps normal `noEsc` / `restoreClipboard` logic.
-- `.none` forces `noEsc=true` and `restoreClipboard=false` for that step.
+- `action: ""` and `action: ".none"` are different.
+- `""` only means "empty payload".
+- `.none` also forces `noEsc=true` and `restoreClipboard=false`.
 
-### 5.3 Exact `.autoPaste` template behavior (insert only)
+### 5.3 What insert `action: ".autoPaste"` actually does
 
-When insert `action` is `.autoPaste`, Macrowhisper applies this template before execution:
+For insert actions only, `.autoPaste` sets:
 
 - `inputCondition = "!restoreClipboard|!noEsc"`
 - `noEsc = true`
 - `restoreClipboard = false`
 
-Then `inputCondition` is evaluated:
+Then `inputCondition` is checked:
 
-- Outside input fields:
-  - `noEsc=true` remains active
-  - `restoreClipboard=false` remains active
-- Inside input fields:
-  - `noEsc` is neutralized to `nil` (falls back to `defaults.noEsc`)
-  - `restoreClipboard` is neutralized to `nil` (falls back to `defaults.restoreClipboard`)
+- If you are **outside** an input field:
+  - `noEsc=true` stays active
+  - `restoreClipboard=false` stays active
+- If you are **inside** an input field:
+  - `noEsc` is cleared and falls back to `defaults.noEsc`
+  - `restoreClipboard` is cleared and falls back to `defaults.restoreClipboard`
 
-This is why reproducing `.autoPaste` manually requires both template values and the same `inputCondition` behavior.
+So `.autoPaste` is not just a label. It applies both template values and conditional fallback behavior.
 
-### 5.4 String fields where empty/null means "disabled trigger/feature"
+### 5.4 Empty/null string values that mean "disabled"
 
-| Field | Empty/null means |
+| Field | Empty/`null` means |
 | --- | --- |
-| `defaults.activeAction` | No fallback action. |
-| `defaults.nextAction` | No global first-step chain override. |
-| `defaults.bypassModes` | Bypass mode feature disabled. |
-| `defaults.clipboardIgnore` | No app ignore regex for clipboard capture. |
-| `triggerVoice` / `triggerApps` / `triggerModes` | That trigger type is not configured for that action. |
+| `defaults.activeAction` | No fallback action |
+| `defaults.nextAction` | No global first-step chain override |
+| `defaults.bypassModes` | Bypass-mode feature off |
+| `defaults.clipboardIgnore` | No app-ignore regex for clipboard capture |
+| `triggerVoice` / `triggerApps` / `triggerModes` | That trigger type is not configured for this action |
 
-### 5.5 Common special string values
+### 5.5 Special string values cheat sheet
 
-- `.none` -> template no-op (with `noEsc=true`, `restoreClipboard=false`)
-- `.autoPaste` -> insert-specific template with conditional behavior
-- `.delete` -> `moveTo` delete behavior
-- `.run` -> shortcut run-without-input behavior
+- `.none` -> no-op template (`noEsc=true`, `restoreClipboard=false`)
+- `.autoPaste` -> insert-only template + input-field conditional behavior
+- `.delete` -> `moveTo` should delete processed recording folder
+- `.run` -> shortcut runs without input payload
 
 ## Minimal starter config
 

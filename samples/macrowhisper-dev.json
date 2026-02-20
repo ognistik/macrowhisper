@@ -363,7 +363,7 @@
       "triggerApps" : "",
       "triggerLogic" : "or",
       "triggerModes" : "",
-      "triggerVoice" : "==^google this\\.?$=="
+      "triggerVoice" : "==^google this[[:punct:]]?$=="
     },
     "Letterboxd" : {
       "action" : "https://letterboxd.com/search/{{swResult||\\.$||}}{{selectedText||\\.|| }}{{clipboardContext||\\.|| }}",
