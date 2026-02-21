@@ -241,7 +241,7 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Empty string, null, or omit means no trigger.",
+          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Matching is case-insensitive by default; use regex flags (for example '(?-i)') in raw regex to force case-sensitive matching. Empty string, null, or omit means no trigger.",
           "examples": [
             "!all but this",
             "email|mail",
@@ -253,20 +253,20 @@
         },
         "triggerApps": {
           "type": ["string", "null"], 
-          "description": "Regex pattern for application trigger matching (app name or bundle ID). Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
+          "description": "Regex pattern for application trigger matching (app name or bundle ID). Use '!' prefix for exceptions and '|' for multiple triggers. Matching is case-insensitive by default; prefix a pattern with '(?-i)' to force case-sensitive matching. null or empty string means no trigger.",
           "examples": ["com.apple.mail", "Mail|Notes", "^com\\.apple\\.", "", null],
           "default": null
         },
         "triggerModes": {
           "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. null or empty string means no trigger.",
+          "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Matching is case-insensitive by default; prefix a pattern with '(?-i)' to force case-sensitive matching. null or empty string means no trigger.",
           "examples": ["email", "writing|notes", "^(Email|Messages)$", "", null],
           "default": null
         },
         "triggerLogic": {
           "type": ["string", "null"],
-          "description": "Logic for combining multiple triggers. Can be 'and' or 'or'. null defaults to 'or'.",
-          "enum": ["and", "or"],
+          "description": "Logic for combining multiple triggers. Accepts 'and' or 'or' (case-insensitive). null defaults to 'or'.",
+          "pattern": "^([Aa][Nn][Dd]|[Oo][Rr])$",
           "default": "or"
         }
       }

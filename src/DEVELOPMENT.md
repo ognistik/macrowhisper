@@ -30,7 +30,7 @@ swift build
 ```
 
 ### Testing Insert `inputCondition`
-- Configure an insert with `inputCondition` and test watcher flow and CLI flow (`--exec-action`, `--exec-insert`).
+- Configure an insert with `inputCondition` and test watcher flow and CLI flow (`--exec-action`).
 - Verify both input states (inside and outside input field) for positive and negated tokens:
   - `restoreClipboard`, `!restoreClipboard`
   - `noEsc`, `!noEsc`

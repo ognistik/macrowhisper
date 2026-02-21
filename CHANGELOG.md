@@ -46,7 +46,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * Now the only required key is the watch folder. This allows for minimal configuration files if users set `autoUpdateConfig` to `false`.
   * It is still suggested to set `autoUpdateConfig` to `true` so users don't miss out on future new features.
 * **Improvement.** Better guard protection when multiple recordings appear in burst (none will process).
-
+* **Improvement.** `--insert, --get-insert, --exec-insert, getInsert, execInsert` flags have been deprecated for quite some time, and now they've been cleaned up from the code.
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13
 ### Breaking

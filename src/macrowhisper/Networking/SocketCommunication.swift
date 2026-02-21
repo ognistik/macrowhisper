@@ -45,13 +45,11 @@ class SocketCommunication {
         case status
         case debug
         case version
-        case listInserts  // Deprecated, but maintained for backward compatibility
+        case listInserts
         case addInsert
         case getIcon
-        case getInsert    // Deprecated, but maintained for backward compatibility
         case autoReturn
         case scheduleAction
-        case execInsert   // Deprecated, but maintained for backward compatibility
         case addUrl
         case addShortcut
         case addShell
@@ -1107,7 +1105,7 @@ class SocketCommunication {
         checkAndSimulatePressReturn(activeInsert: activeInsert)
     }
     
-    // This version is for the --exec-insert CLI command and does NOT press ESC.
+    // This version is for CLI action execution and does NOT press ESC.
     func applyInsertForExec(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
         let resolvedText = resolveSmartInsertTextIfNeeded(text, activeInsert: activeInsert)
 
@@ -1126,13 +1124,13 @@ class SocketCommunication {
         if isAutoPaste {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
-                logInfo("Exec-insert auto paste - not in input field, direct paste only")
+                logInfo("CLI exec auto paste - not in input field, direct paste only")
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
             }
         }
-        // No ESC key press for exec-insert
+        // No ESC key press for CLI execution
         if restoreClipboard {
             pasteText(resolvedText, activeInsert: activeInsert)
         } else {
@@ -1662,33 +1660,6 @@ class SocketCommunication {
                 logInfo("Returning icon: '\(response)'")
                 _ = sendResponse(response, to: clientSocket)
                 
-            case .getInsert:
-                if let insertName = commandMessage.arguments?["name"], !insertName.isEmpty {
-                    if let insert = configMgr.config.inserts[insertName] {
-                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
-                            let (processedAction, _) = processInsertAction(insert.action, metaJson: lastValidJson)
-                            response = processedAction
-                            logInfo("Returning processed action for insert '\(insertName)'.")
-                        } else {
-                            response = "No valid JSON file found with results"
-                            logError("No valid JSON file found for get-insert <name>")
-                        }
-                    } else {
-                        response = "Insert not found: \(insertName)"
-                        logError("Insert not found for get-insert: \(insertName)")
-                    }
-                } else {
-                    let activeActionName = configMgr.config.defaults.activeAction ?? ""
-                    if activeActionName.isEmpty {
-                        response = "No active action is set."
-                        logInfo("No active action is set for get-insert.")
-                    } else {
-                        response = activeActionName
-                        logInfo("Returning active action: '\(response)'")
-                    }
-                }
-                _ = sendResponse(response, to: clientSocket)
-                
             case .autoReturn:
                 if let enableStr = commandMessage.arguments?["enable"], let enable = Bool(enableStr) {
                     globalState.autoReturnEnabled = enable
@@ -1743,40 +1714,6 @@ class SocketCommunication {
                 } else {
                     response = "Missing action name parameter"
                     logError(response)
-                }
-                _ = sendResponse(response, to: clientSocket)
-                
-            case .execInsert:
-                if let insertName = commandMessage.arguments?["name"], let insert = configMgr.config.inserts[insertName] {
-                    if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
-                        // Ensure autoReturn and scheduled action are always false for exec-insert
-                        globalState.autoReturnEnabled = false
-                        globalState.scheduledActionName = nil
-                        // Cancel timeouts
-                        cancelAutoReturnTimeout()
-                        cancelScheduledActionTimeout()
-                        let (resolvedInsert, isAutoPasteTemplate) = resolveInsertForCLIExecution(insert)
-                        let (processedAction, isAutoPasteResult) = processInsertAction(resolvedInsert.action, metaJson: lastValidJson)
-                        applyInsertForExec(
-                            processedAction,
-                            activeInsert: resolvedInsert,
-                            isAutoPaste: isAutoPasteTemplate || isAutoPasteResult
-                        )
-                        
-                        // Trigger clipboard cleanup for CLI actions to prevent contamination
-                        clipboardMonitorRef?.triggerClipboardCleanupForCLI()
-                        
-                        response = "Executed insert '\(insertName)'"
-                        logInfo("Successfully executed insert: \(insertName)")
-                    } else {
-                        response = "No valid JSON file found with results"
-                        logError("No valid JSON file found for exec-insert")
-                        notify(title: "Macrowhisper", message: "No valid result found for insert: \(insertName). Please check Superwhisper recordings.")
-                    }
-                } else {
-                    response = "Insert not found or name missing"
-                    logError(response)
-                    notify(title: "Macrowhisper", message: "Insert not found or name missing for exec-insert.")
                 }
                 _ = sendResponse(response, to: clientSocket)
                 

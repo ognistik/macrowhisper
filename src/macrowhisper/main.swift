@@ -795,10 +795,10 @@ if args.contains("--service-status") {
 
 // Commands that require a running daemon
 let requireDaemonCommands = [
-    "-s", "--status", "--get-icon", "--get-insert", "--list-inserts", 
-    "--check-updates", "--exec-insert", "--auto-return", "--schedule-action", "--add-url", 
+    "-s", "--status", "--get-icon", "--list-inserts", 
+    "--check-updates", "--auto-return", "--schedule-action", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
-    "--remove-action", "--insert", 
+    "--remove-action",
     // New unified action commands
     "--list-actions", "--list-urls", "--list-shortcuts", "--list-shell", 
     "--list-as", "--exec-action", "--get-action", "--action"
@@ -841,20 +841,6 @@ if hasDaemonCommand {
         exit(0)
     }
     
-    if args.contains("--get-insert") {
-        let getInsertIndex = args.firstIndex(where: { $0 == "--get-insert" })
-        var arguments: [String: String]? = nil
-        if let index = getInsertIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
-            arguments = ["name": args[index + 1]]
-        }
-        if let response = socketCommunication.sendCommand(.getInsert, arguments: arguments) {
-            print(response)
-        } else {
-            print("Failed to get insert.")
-        }
-        exit(0)
-    }
-    
     if args.contains("--list-inserts") {
         if let response = socketCommunication.sendCommand(.listInserts) {
             print(response)
@@ -869,22 +855,6 @@ if hasDaemonCommand {
             print(response)
         } else {
             print("Failed to check for updates.")
-        }
-        exit(0)
-    }
-    
-    if args.contains("--exec-insert") {
-        let execInsertIndex = args.firstIndex(where: { $0 == "--exec-insert" })
-        if let index = execInsertIndex, index + 1 < args.count {
-            let insertName = args[index + 1]
-            let arguments: [String: String] = ["name": insertName]
-            if let response = socketCommunication.sendCommand(.execInsert, arguments: arguments) {
-                print(response)
-            } else {
-                print("Failed to execute insert.")
-            }
-        } else {
-            print("Missing insert name after --exec-insert")
         }
         exit(0)
     }
@@ -1098,15 +1068,6 @@ if hasDaemonCommand {
     // Handle configuration update commands (require daemon)
     var arguments: [String: String] = [:]
     
-    if args.contains("--insert") {
-        let insertIndex = args.firstIndex(where: { $0 == "--insert" })
-        if let index = insertIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
-            arguments["activeInsert"] = args[index + 1]  // Backward compatibility
-        } else {
-            arguments["activeInsert"] = ""  // Backward compatibility
-        }
-    }
-    
     if args.contains("--action") {
         let actionIndex = args.firstIndex(where: { $0 == "--action" })
         if let index = actionIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
@@ -1211,11 +1172,10 @@ if args.count > 1 {
         
         // Skip arguments that are values for flags (like paths after --config)
         if i > 1 && (args[i-1] == "--config" || args[i-1] == "--set-config" || 
-                     args[i-1] == "--exec-insert" || args[i-1] == "--get-insert" ||
                      args[i-1] == "--add-url" || args[i-1] == "--add-shortcut" ||
                      args[i-1] == "--add-shell" || args[i-1] == "--add-as" ||
                      args[i-1] == "--add-insert" || args[i-1] == "--remove-action" || 
-                     args[i-1] == "--insert" || args[i-1] == "--auto-return" || 
+                     args[i-1] == "--auto-return" || 
                      args[i-1] == "--schedule-action" || args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
                      args[i-1] == "--exec-action" || args[i-1] == "--get-action" || 
                      args[i-1] == "--action") {
@@ -1339,11 +1299,6 @@ func printHelp() {
       --version-state               Checks the state of update checks
                                     (useful for debugging)
     
-    DEPRECATED COMMANDS (temporarily maintained for backward compatibility):
-      --exec-insert <name>          Use --exec-action instead
-      --get-insert [<name>]         Use --get-action instead  
-      --insert [<name>]             Use --action instead
-
     Examples:
       macrowhisper --action pasteResult
         # Sets the active action to 'pasteResult' (works for any action type)

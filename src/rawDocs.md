@@ -293,29 +293,16 @@ macrowhisper --remove-action <name>
 
 Important: action names must be unique across all action types.
 
-## Deprecated but still accepted
-
-```bash
-macrowhisper --insert [<name>]
-macrowhisper --get-insert [<name>]
-macrowhisper --exec-insert <name>
-```
-
-Prefer:
-
-- `--action`
-- `--get-action`
-- `--exec-action`
-
 ---
 
 ## 5) Configuration File Fundamentals
 
-## Top-level shape
+### 5.1 Top-level shape
 
 ```json
 {
   "$schema": "file:///path/to/macrowhisper-schema.json",
+  "configVersion": 2,
   "defaults": {},
   "inserts": {},
   "urls": {},
@@ -331,156 +318,101 @@ About `$schema`:
 - It helps editors/IDEs validate JSON and suggest keys.
 - In normal use, you should not need to edit this manually.
 
-### 5.0 Manual authoring checklist (important)
+### 5.2 Recommended workflow
 
-If you create/edit config JSON manually, keep these required values in mind:
+For most people, the safest and simplest approach is:
 
-- Top level: `defaults` is required.
-- Under `defaults`: `watch` is required.
-- Any action you define (`inserts`, `urls`, `shortcuts`, `scriptsShell`, `scriptsAS`) must include `action`.
+- Keep `"autoUpdateConfig": true` (default).
+- Let Macrowhisper normalize/migrate config automatically on startup.
+- Add/edit/remove actions with CLI commands (section 4), not by hand-editing JSON.
+  - Examples: `--add-insert`, `--add-url`, `--add-shortcut`, `--add-shell`, `--add-as`, `--remove-action`.
 
-Versioning + auto-update behavior:
+Why this is recommended:
 
-- `configVersion` controls semantics. Current semantics are `configVersion: 2`.
-- If `configVersion` is missing, runtime treats it as legacy (`1`) for semantics checks.
-- `defaults.autoUpdateConfig` defaults to `true`.
-- With `autoUpdateConfig: true`, startup can rewrite config (schema/format normalization and version migration).
-- If `configVersion` is missing and auto-update is enabled, startup update can mark/update it to current version.
+- It avoids common JSON mistakes.
+- It keeps values aligned with current semantics (`configVersion: 2`).
+- It reduces confusion around `null` vs `""` and special template strings.
 
-Recommended when manually maintaining config:
+Use manual JSON editing only only for inserting setting values. You'll receive hints from the schema to understand the semantics.
 
-- Set `"configVersion": 2` explicitly.
-- Decide whether startup should rewrite file:
-  - keep `"autoUpdateConfig": true` for automatic migration/normalization
-  - set `"autoUpdateConfig": false` for stricter manual control (you can still run `macrowhisper --update-config` manually)
+#### For Advanced Users
+**If you prefer manually editing everything**
+  - Top level: `defaults` is required.
+  - Under `defaults`: `watch` is required.
+  - Any action you define (`inserts`, `urls`, `shortcuts`, `scriptsShell`, `scriptsAS`) must include `action`.
+  - `defaults.autoUpdateConfig` defaults to `true`. You must define it as `false` if you do not want the file to update itself.
 
-Strict manual-control starter template:
+**Versioning and auto-update**
+  - `configVersion` controls semantics. Current semantics are `configVersion: 2`.
+  - If `configVersion` is missing, runtime treats it as legacy (`1`) for semantics checks.
+  - With `autoUpdateConfig: true`, startup can rewrite config for migration and normalization.
+  - If `configVersion` is missing and auto-update is enabled, startup can update it to current.
 
-```json
-{
-  "configVersion": 2,
-  "defaults": {
-    "watch": "~/Documents/superwhisper",
-    "actionDelay": 0,
-    "autoUpdateConfig": false
-  },
-  "inserts": {},
-  "urls": {},
-  "shortcuts": {},
-  "scriptsShell": {},
-  "scriptsAS": {}
-}
-```
+**Practical guidance**
+  - Most users should keep `autoUpdateConfig` enabled.
+  - Set `autoUpdateConfig: false` only if you intentionally manage config updates yourself.
+  - Even with `autoUpdateConfig: false`, you can still run `macrowhisper --update-config` manually.
+  
+### 5.3 Value semantics: defaults vs action-level overrides
 
-## Value semantics: defaults vs per-action overrides
+Mental model
 
-Use this simple model:
+- `defaults` = normal behavior.
+- Action-level values = per-action overrides.
+- In `configVersion: 2`, inheritance is uniform: `null` means "inherit/use default".
+- `""` is explicit empty for supported string fields; it is not inheritance.
 
-- `defaults` = your normal behavior.
-- Action-level values = one action can override `defaults`.
-- Some empty values mean "use defaults again", but not all fields work the same.
-
-Defaults-level note (important):
+Defaults-level note
 
 - For nullable scalar defaults fields (most bool/number toggles), `null` means "use built-in Macrowhisper default".
 - For action-level overrides, `null` means "inherit from `defaults`".
 - `activeAction` is special: starter configs set it to `autoPaste`, but explicit `null` or `""` means no fallback action.
 
-Three words used in this guide:
-
-- `inherit`: use `defaults` for that field.
-- `empty payload`: run this action with no content.
-- `template`: a special string (like `.none`) that sets multiple fields for you.
-
-### 5.1 Quick rules (what wins?)
+Quick rules (what wins?)
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
 | Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
 | `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
 | `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
-| `action` payload | `""` -> empty payload (does **not** inherit from `defaults`) | Non-empty payload is executed after placeholders |
+| `nextAction` | `null` -> use `defaults.nextAction` (first chain step only) | Action value wins (`""` = explicit no next action) |
+| `action` payload | No fallback to defaults | `""` = empty payload; non-empty executes after placeholders |
 
-Important:
+### 5.4 Special `action` values (advanced, exact behavior)
 
-- `action` does not have fallback-to-default behavior.
-- `action: ""` means empty payload.
-- `action: ".none"` means apply a template (next section).
-- For action-level string overrides like `icon` / `moveTo` / `nextAction`: `null` = inherit, `""` = explicit empty.
+*Macrowhisper has a few built-in templates meant to simplify common behaviors.*
 
-Special `action` values:
+#### For all action types
 
-- `action: ".none"` -> apply the no-op template (section 5.2)
-- Insert only: `action: ".autoPaste"` -> apply the autoPaste template (section 5.3)
+- `action: ".none"` applies:
+    - >> `action = ""`
+    - >> `inputCondition = ""`
+    - >> `noEsc = true`
+    - >> `restoreClipboard = false`
+
+---
+
+#### For insert actions
+
+- `action: ".autoPaste"` applies:
+    - >> `inputCondition = "!restoreClipboard|!noEsc"`
+    - >> `noEsc = true`
+    - >> `restoreClipboard = false`
+
+These values simulate the exact behavior of Superwhisper's auto-paste.
+
+- Outside input fields: Esc-press is not simulated, clipboard is not restored.
+- Inside input fields: those values are cleared and fall back to defaults.
+
+`.autoPaste` and `.none` are not just labels. They apply both template values and conditional fallback behavior. Knowing how this works, can allow you to customize.
+
+---
+
+#### For Shortcut actions
+
 - Shortcut only: `action: ".run"` -> run shortcut with no input payload
 
-### 5.2 What `action: ".none"` actually does
-
-For insert/url/shortcut/shell/AppleScript actions, `.none` is converted to:
-
-- `action = ""`
-- `inputCondition = ""`
-- `noEsc = true`
-- `restoreClipboard = false`
-
-Important:
-
-- `action: ""` and `action: ".none"` are different.
-- `""` only means "empty payload" (no template behavior).
-- `.none` also forces `noEsc=true` and `restoreClipboard=false`.
-
-### 5.3 What insert `action: ".autoPaste"` actually does
-
-For insert actions only, `.autoPaste` sets:
-
-- `inputCondition = "!restoreClipboard|!noEsc"`
-- `noEsc = true`
-- `restoreClipboard = false`
-
-Then `inputCondition` is checked:
-
-- If you are **outside** an input field:
-  - `noEsc=true` stays active
-  - `restoreClipboard=false` stays active
-- If you are **inside** an input field:
-  - `noEsc` is cleared and falls back to `defaults.noEsc`
-  - `restoreClipboard` is cleared and falls back to `defaults.restoreClipboard`
-
-So `.autoPaste` is not just a label. It applies both template values and conditional fallback behavior.
-
-### 5.4 Quick real-world examples
-
-```json
-"action": ""
-```
-
-Meaning: this action runs with no payload.
-
-```json
-"action": ".none"
-```
-
-Meaning: no-op template (`action=""`, `noEsc=true`, `restoreClipboard=false`).
-
-```json
-"restoreClipboard": null
-```
-
-Meaning: inherit `defaults.restoreClipboard`.
-
-```json
-"icon": null
-```
-
-Meaning: inherit `defaults.icon`.
-
-```json
-"icon": ""
-```
-
-Meaning: explicit no icon for this action.
-
-### 5.5 Empty/null values that mean "disabled"
+### 5.5 Empty/null values that disable behavior
 
 | Field | Empty/`null` means |
 | --- | --- |
@@ -490,36 +422,40 @@ Meaning: explicit no icon for this action.
 | `defaults.clipboardIgnore` | No app-ignore regex for clipboard capture |
 | `triggerVoice` / `triggerApps` / `triggerModes` | That trigger type is not configured for this action |
 
-### 5.6 Special string values cheat sheet
-
-- `.none` -> no-op template (`noEsc=true`, `restoreClipboard=false`)
-- `.autoPaste` -> insert-only template + input-field conditional behavior
-- `.delete` -> `moveTo` should delete processed recording folder
-- `.run` -> shortcut runs without input payload
-- `.none` is for `action` payload templates only (not for `icon`/`moveTo` in configVersion 2)
-
-## Minimal starter config
+### 5.6 Quick real-world examples
 
 ```json
-{
-  "configVersion": 2,
-  "defaults": {
-    "watch": "~/Documents/superwhisper",
-    "activeAction": "autoPaste",
-    "actionDelay": 0,
-    "restoreClipboard": true
-  },
-  "inserts": {
-    "autoPaste": {
-      "action": ".autoPaste"
-    }
-  },
-  "urls": {},
-  "shortcuts": {},
-  "scriptsShell": {},
-  "scriptsAS": {}
-}
+"action": ""
 ```
+Meaning: this action runs with no payload.
+
+---
+
+```json
+"action": ".none"
+```
+Meaning: no-op template (`action=""`, `noEsc=true`, `restoreClipboard=false`).
+
+---
+
+```json
+"restoreClipboard": null
+```
+Meaning: inherit `defaults.restoreClipboard`.
+
+---
+
+```json
+"icon": null
+```
+Meaning: inherit `defaults.icon`.
+
+---
+
+```json
+"icon": ""
+```
+Meaning: explicit no icon for this action.
 
 ---
 
