@@ -28,6 +28,7 @@ class ConfigurationManager {
     // Add properties to track JSON error state and prevent reload loops
     private var hasNotifiedAboutJsonError = false
     private var suppressNextConfigReload = false
+    private(set) var hasLegacyConfigOnDisk = false
     
     // UserDefaults for persistent config path storage - now using unified manager
     private static let userDefaultsKey = "MacrowhisperConfigPath"
@@ -224,6 +225,11 @@ class ConfigurationManager {
             if !self.updateConfiguration() {
                 logWarning("Config path switched, but automatic configuration update did not apply changes")
             }
+        } else if hasLegacyConfigOnDisk {
+            notify(
+                title: "Macrowhisper - Outdated Config",
+                message: "You are running an outdated config. Run --update-config to migrate."
+            )
         }
 
         self.configurationSuccessfullyLoaded()
@@ -240,9 +246,10 @@ class ConfigurationManager {
             return nil
         }
         let decoder = JSONDecoder()
-        guard let decoded = try? decoder.decode(AppConfiguration.self, from: data) else {
+        guard var decoded = try? decoder.decode(AppConfiguration.self, from: data) else {
             return nil
         }
+        normalizeConfigurationForRuntime(&decoded)
         if let duplicateNames = findDuplicateActionNamesAcrossTypes(in: decoded), !duplicateNames.isEmpty {
             logError("Configuration validation failed: duplicate action names across types are not allowed: \(duplicateNames.sorted().joined(separator: ", "))")
             return nil
@@ -275,7 +282,9 @@ class ConfigurationManager {
             }
             
             let decoder = JSONDecoder()
-            let config = try decoder.decode(AppConfiguration.self, from: data)
+            var config = try decoder.decode(AppConfiguration.self, from: data)
+            hasLegacyConfigOnDisk = (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion
+            Self.normalizeConfigurationForRuntime(&config)
             if let duplicateNames = Self.findDuplicateActionNamesAcrossTypes(in: config), !duplicateNames.isEmpty {
                 let duplicateList = duplicateNames.sorted().joined(separator: ", ")
                 logError("Configuration validation failed: duplicate action names across action types are not allowed: \(duplicateList)")
@@ -327,7 +336,6 @@ class ConfigurationManager {
 
     private static func collectConfigurationValidationErrors(in config: AppConfiguration) -> [String] {
         var errors: [String] = []
-        let explicitEmptySemantics = config.usesExplicitEmptySemantics
 
         // Build unique action name set (duplicate-name check is performed separately).
         var actionNames: Set<String> = []
@@ -401,53 +409,51 @@ class ConfigurationManager {
         for name in config.scriptsShell.keys { actionTypeMap[name] = .shell }
         for name in config.scriptsAS.keys { actionTypeMap[name] = .appleScript }
 
-        if explicitEmptySemantics {
-            if config.defaults.icon == ".none" {
-                errors.append("defaults.icon cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no icon or null to inherit")
-            }
-            if config.defaults.moveTo == ".none" {
-                errors.append("defaults.moveTo cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no move or null to inherit")
-            }
+        if config.defaults.icon == ".none" {
+            errors.append("defaults.icon cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no icon or null to inherit")
+        }
+        if config.defaults.moveTo == ".none" {
+            errors.append("defaults.moveTo cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no move or null to inherit")
+        }
 
-            for (name, insert) in config.inserts {
-                if insert.icon == ".none" {
-                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
-                if insert.moveTo == ".none" {
-                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
+        for (name, insert) in config.inserts {
+            if insert.icon == ".none" {
+                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
             }
-            for (name, url) in config.urls {
-                if url.icon == ".none" {
-                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
-                if url.moveTo == ".none" {
-                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
+            if insert.moveTo == ".none" {
+                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
             }
-            for (name, shortcut) in config.shortcuts {
-                if shortcut.icon == ".none" {
-                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
-                if shortcut.moveTo == ".none" {
-                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
+        }
+        for (name, url) in config.urls {
+            if url.icon == ".none" {
+                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
             }
-            for (name, shell) in config.scriptsShell {
-                if shell.icon == ".none" {
-                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
-                if shell.moveTo == ".none" {
-                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
+            if url.moveTo == ".none" {
+                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
             }
-            for (name, ascript) in config.scriptsAS {
-                if ascript.icon == ".none" {
-                    errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
-                if ascript.moveTo == ".none" {
-                    errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
-                }
+        }
+        for (name, shortcut) in config.shortcuts {
+            if shortcut.icon == ".none" {
+                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+            }
+            if shortcut.moveTo == ".none" {
+                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+            }
+        }
+        for (name, shell) in config.scriptsShell {
+            if shell.icon == ".none" {
+                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+            }
+            if shell.moveTo == ".none" {
+                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+            }
+        }
+        for (name, ascript) in config.scriptsAS {
+            if ascript.icon == ".none" {
+                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+            }
+            if ascript.moveTo == ".none" {
+                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
             }
         }
 
@@ -501,16 +507,10 @@ class ConfigurationManager {
 
                 let next: String
                 if firstStep {
-                    if explicitEmptySemantics {
-                        if let setting = nextActionSettings[current], setting.isExplicitlySet {
-                            next = setting.value
-                        } else {
-                            next = defaultsNextAction
-                        }
-                    } else if !defaultsNextAction.isEmpty {
-                        next = defaultsNextAction
+                    if let setting = nextActionSettings[current], setting.isExplicitlySet {
+                        next = setting.value
                     } else {
-                        next = nextActionMap[current] ?? ""
+                        next = defaultsNextAction
                     }
                 } else {
                     next = nextActionMap[current] ?? ""
@@ -962,7 +962,7 @@ class ConfigurationManager {
         }
         
         var updatedConfig = currentConfig
-        if (currentConfig.configVersion ?? 1) < AppConfiguration.currentConfigVersion {
+        if hasLegacyConfigOnDisk || (currentConfig.configVersion ?? 1) < AppConfiguration.currentConfigVersion {
             let createdBackup = createPreMigrationBackupIfNeeded()
             if !createdBackup {
                 logWarning("Pre-migration backup could not be created; continuing migration")
@@ -990,6 +990,7 @@ class ConfigurationManager {
         }
         
         logInfo("Configuration file updated successfully")
+        hasLegacyConfigOnDisk = false
         return true
     }
 
@@ -1024,6 +1025,18 @@ class ConfigurationManager {
     }
 
     private func migrateConfigurationToV2(_ config: inout AppConfiguration) -> Bool {
+        return Self.applyV2Normalization(&config)
+    }
+
+    private static func normalizeConfigurationForRuntime(_ config: inout AppConfiguration) {
+        guard (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion else {
+            return
+        }
+        _ = applyV2Normalization(&config)
+        config.configVersion = AppConfiguration.currentConfigVersion
+    }
+
+    private static func applyV2Normalization(_ config: inout AppConfiguration) -> Bool {
         var changed = false
 
         func normalize(_ value: inout String?) {
@@ -1116,4 +1129,4 @@ class ConfigurationManager {
         return changed
     }
 
-} 
+}

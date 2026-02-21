@@ -1,20 +1,5 @@
 # Macrowhisper Complete Documentation
 
-This guide is intentionally detailed.
-
-If someone has never used Macrowhisper before, they should be able to read this file and understand:
-
-- how Macrowhisper thinks
-- how actions are chosen
-- what every important setting does
-- how triggers and placeholders work
-- how clipboard/context capture timing works
-- how to debug real problems
-
-Macrowhisper works with [Superwhisper](https://superwhisper.com/?via=robert). It watches Superwhisper recordings and executes automations based on your config.
-
----
-
 ## Table of Contents
 
 1. What Macrowhisper Is
@@ -44,95 +29,97 @@ Macrowhisper works with [Superwhisper](https://superwhisper.com/?via=robert). It
 
 ## 1) What Macrowhisper Is
 
-Macrowhisper is the layer that turns Superwhisper dictation into repeatable workflows.
+Macrowhisper is an automation helper for [Superwhisper](https://superwhisper.com/?via=robert). It watches Superwhisper recordings and executes automations based on a configuration file. It's a layer that turns your dictation into repeatable workflows.
 
-Superwhisper is excellent at capturing voice.  
-Macrowhisper is what makes that voice useful beyond plain paste.
-
-### Why learn Macrowhisper
-
-- It removes repetitive post-dictation steps.
-- It makes voice workflows predictable and repeatable.
-- It lets you decide different behavior by phrase, app, and mode.
-- It scales from simple setup to advanced automations without changing tools.
-
-### Without vs with Macrowhisper
-
-Without Macrowhisper:
-
-1. Dictate text.
-2. Manually copy/edit/clean it.
-3. Switch apps.
-4. Run shortcuts/scripts manually.
-5. Repeat that process many times per day.
-
-With Macrowhisper:
-
-1. Dictate once.
-2. Matching logic picks the right action.
-3. Action runs immediately (insert, URL, shortcut, shell, or AppleScript).
-4. Optional chained steps run automatically.
-5. Clipboard and post-processing are handled consistently.
-
-### Real examples
-
-Example 1: Voice command -> web action
-
-- You say: `google best mechanical keyboard for mac`.
-- `triggerVoice` matches `google`.
-- Macrowhisper strips the trigger word and opens:
-  `https://www.google.com/search?q=best mechanical keyboard for mac`
-
-Example 2: Dictation -> structured writing template
-
-- You dictate in a writing mode.
-- Insert action pastes a consistent structure: opening text, your dictation (`{{swResult}}`), and closing/signature text.
-- Result: consistent output format every time.
-
-Example 3: Dictation -> shortcut pipeline
-
-- You dictate task details.
-- Shortcut action sends `{{swResult}}` to a macOS Shortcut.
-- Shortcut creates a task in your task app.
-- Optional `nextAction` opens the related project page.
-
-Example 4: Dictation -> script execution
-
-- You dictate: `log this release note`.
-- Shell action writes processed text to a file.
-- Same format, same destination, no manual copy/paste.
-
-### What Macrowhisper actually does each time
-
-1. Superwhisper writes a recording folder and `meta.json`.
-2. Macrowhisper validates required result fields.
-3. Macrowhisper captures and enriches context (front app, selected text, clipboard context).
-4. Macrowhisper resolves action priority (auto-return, scheduled, triggers, active action).
-5. Macrowhisper executes action(s), handles clipboard restoration rules, and applies post-processing.
+  - Superwhisper is excellent at capturing voice and processing it with AI.
+  - Macrowhisper makes the results useful beyond pasting your dictations.
 
 ### Action types it can execute
 
-- Insert actions (paste/type text)
-- URL actions (open links/apps)
-- Shortcut actions (run macOS Shortcuts)
-- Shell actions
-- AppleScript actions
+  - Insert actions (paste/type text)
+  - URL actions (open links/apps)
+  - Shortcut actions (run macOS Shortcuts)
+  - Shell actions
+  - AppleScript actions
+
+### Macrowhisper
+
+  - Removes repetitive post-dictation steps.
+  - Makes voice workflows predictable and repeatable.
+  - It lets you decide different behavior by phrase, app, and mode.
+  - It scales from simple setup to advanced automations without changing tools.
+
+### What actually happens
+
+  1. Superwhisper writes a recording folder and `meta.json`.
+  2. Macrowhisper validates required result fields.
+  3. Macrowhisper captures and enriches context (front app, selected text, clipboard context).
+  4. Macrowhisper resolves action priority (auto-return, scheduled, triggers, active action).
+  5. Macrowhisper executes action(s), handles clipboard restoration rules, and applies post-processing.
+   
+### Quick Examples
+
+  #### **Without Macrowhisper:**
+    1. Dictate text.
+    2. Manually edit/clean it/copy.
+    3. Switch apps to copy and paste results.
+    4. Run shortcuts/scripts/macros manually.
+    5. Repeat that process many times per day.
+
+  #### **With Macrowhisper:**
+    1. Dictate once.
+    2. Matching logic picks the right action.
+    3. Action runs immediately (insert, URL, shortcut, shell, or AppleScript).
+    4. Optional chained steps run automatically.
+    5. Clipboard and post-processing are handled consistently.
+
+  #### Example 1: Voice command -> web action
+    - You say: `google best mechanical keyboard for mac`.
+    - `triggerVoice` matches `google`.
+    - Macrowhisper strips the trigger word and opens: `https://www.google.com/search?q=best mechanical keyboard for mac`
+
+  #### Example 2: Dictation -> structured writing template
+    - You dictate in a cleanup Superwhisper mode.
+    - Insert action pastes a consistent structure: opening text, your dictation (`{{swResult}}`), and closing/signature text.
+    - Result: consistent output format every time in a specific app, mode, or with a voice trigger.
+
+  #### Example 3: Dictation -> shortcut pipeline
+    - You dictate task details. AI transforms it into a dictionary.
+    - Shortcut action sends `{{swResult}}` to a macOS Shortcut.
+    - Shortcut creates a task in your task app parsing the details from the dictionary.
+    - Optional `nextAction` opens the app to review the task.
+
+  #### Example 4: Dictation -> script execution
+    - You dictate: `log this release note`.
+    - Shell action writes processed text to a file.
+    - Same format, same destination, no manual copy/paste.
 
 ---
 
 ## 2) Quick Start
 
-### Install (Homebrew)
+### Install Option 1 (Homebrew)
 
 ```bash
 brew install ognistik/formulae/macrowhisper
 ```
 
-### Install (Script)
+### Install Option 2 (Script)
 
 ```bash
-curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sh
+curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 ```
+
+*Note: installing via the script allows you to skip giving accessibility permissions after every update.*
+
+### Configure Superwhisper (IMPORTANT)
+
+- Recording Window: ON
+- Paste Result Text: OFF
+- Restore Clipboard After Paste: OFF
+- Simulate Key Presses: OFF
+
+*Why: Macrowhisper should be the single source of truth for paste/clipboard/key behavior.*
 
 ### Open or create config
 
@@ -141,19 +128,7 @@ macrowhisper --reveal-config
 ```
 
 Default path:
-
 `~/.config/macrowhisper/macrowhisper.json`
-
-### Configure Superwhisper (important)
-
-Recommended Superwhisper settings:
-
-- Recording Window: ON
-- Paste Result Text: OFF
-- Restore Clipboard After Paste: OFF
-- Simulate Key Presses: OFF
-
-Why: Macrowhisper should be the single source of truth for paste/clipboard/key behavior.
 
 ### Start service
 
@@ -173,7 +148,7 @@ Dictate once in a normal text field. By default, Macrowhisper creates `autoPaste
 
 ---
 
-## 3) How Macrowhisper Processes a Dictation (Execution Flow)
+## 3) The Execution Flow
 
 This section is the most important mental model.
 
@@ -192,6 +167,8 @@ Macrowhisper waits until `meta.json` has valid result fields:
 - if `languageModelName` exists and is non-empty, it requires `llmResult` and `result`
 - otherwise, it requires `result`
 
+*This allows MacroWhisper to be triggered with correct timing for both voice-only modes or modes with AI processing.*
+
 ### Step C: Add runtime context
 
 Before action evaluation/execution, Macrowhisper enriches metadata with:
@@ -204,6 +181,8 @@ Before action evaluation/execution, Macrowhisper enriches metadata with:
 
 If `defaults.bypassModes` matches the current mode (`modeName`, case-insensitive), Macrowhisper skips all processing.
 
+*If for some reason you want to bypass Macrowhisper for a specific Superwhisper mode, you can set that here. It is still important that you set auto-paste off in Superwhisper's default configuration, but you can override that option at the mode level.*
+
 ### Step E: Priority-based action selection
 
 Priority order:
@@ -213,6 +192,8 @@ Priority order:
 3. Trigger matches (`triggerVoice`, `triggerApps`, `triggerModes`)
 4. `defaults.activeAction`
 5. No action
+
+*`--auto-return` and `--schedule-action` are CLI commands that allow for one-time Macrowhisper triggers. These are useful to set via other automation apps like Keyboard Maestro.*
 
 ### Step F: Action execution + chain resolution
 

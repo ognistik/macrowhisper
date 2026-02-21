@@ -2,13 +2,13 @@
 
 ## UNRELEASED
 
-## Config semantics update (clearer and more predictable)
-This release introduces `configVersion: 2` with clearer rules.
+## Big Config semantics update (clearer and more predictable)
+This release introduces `configVersion: 2` with clearer rules for the configuration file.
 
-### New rule
+### New rule at action level
 - `null` = inherit default
 - `""` = explicit empty value
-- Action templates stay explicit:
+- Action payload templates stay explicit:
   - `.none` (no-op template)
   - `.autoPaste` (insert only)
   - `.run` (shortcuts only)
@@ -19,10 +19,9 @@ This release introduces `configVersion: 2` with clearer rules.
 - `action: ".none"` = template behavior (also affects options like `noEsc` / `restoreClipboard`).
 
 ### Migration
-- If your config is v1, `--update-config` migrates it to v2.
 - A backup is created once: `macrowhisper.json.backup.pre-v2`.
 - If `defaults.autoUpdateConfig` is `false`, migration is not automatic.  
-  You can migrate later by running `--update-config`.
+  - You can migrate by running `--update-config`.
 
 ### Non-action `.none`
 - In v2, `.none` is no longer valid for fields like `icon` or `moveTo`.
@@ -30,24 +29,23 @@ This release introduces `configVersion: 2` with clearer rules.
   - `null` to inherit from defaults
   - `""` for explicit empty
 
-* `inputCondition` has been expanded to all action types
-  * You can now have any action behave differently depending on user being in an input field or not.
-* Special action contents have been standardized
-  * `.none` will skip action execution, it will act as `noEsc` false, and `restoreClipboard` will be set to false for that run.
-  * Empty string `""` will simply skip execution but respect the other action settings
-  * `.autoPaste` conttinues to be an insert action type template
-  * `.run` is now a special action content for Shortcuts. It allows the execution of the Shortcut without any input
-* Improved the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This should improve responsiveness.
-* New `bypassModes` setting in defaults of the config, where the user can set modes where MacroWhisper should not kick in at all.
+## Other
+* **New** `smartInsert` set to true by default
+  * I have covered a lot of edge cases. Most minor remaining issues are with those apps that do not have good accessibility integrations.
+* **New** `bypassModes` setting in defaults of the config, where the user can set modes where Macrowhisper should not kick in at all.
   * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
-  * It is still suggested that users set SuperWhisper's autopaste off in the advanced configuration tab. However, if they do want to use SuperWhisper for pasting with a specific mode, now they can bypass that specifically with MacroWhisper. No actions will trigger when using that mode.
-* Updated a couple of config-related CLI flag behavior:
+  * It is still suggested that users set Superwhisper's autopaste off in the advanced configuration tab. However, if they do want to use SuperWhisper for pasting with a specific mode, now they can bypass that specifically with Macrowhisper. No actions will trigger when using that mode.
+* **Improvement.** `inputCondition` has been expanded to all action types
+  * You can now have any action behave differently depending on user being in an input field or not.
+* **Improvement.** Streamlined the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This improves responsiveness.
+* **Improvement.** Updated a couple of config-related CLI flag behavior:
   * `--set-config <path>`: persists path, creates default config at that path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
   * `--reset-config`: persists reset to default path, creates default config at default path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
   * `--config <path>`: now persists path immediately, creates config file if missing, if daemon is running, switches immediately and exits, if daemon is not running, continues startup and runs daemon with that path
-* New `smartInsert` set to true by default
-  * I have covered a lot of edge cases. Most minor remaining issues are with those apps that do not have good accessibility integrations.
-* Improved guard protection when multiple recordings appear in burst (none will process).
+* * **Improvement.** standardized values at default level of config.
+  * Now the only required key is the watch folder. This allows for minimal configuration files if users set `autoUpdateConfig` to `false`.
+  * It is still suggested to set `autoUpdateConfig` to `true` so users don't miss out on future new features.
+* **Improvement.** Better guard protection when multiple recordings appear in burst (none will process).
 
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13

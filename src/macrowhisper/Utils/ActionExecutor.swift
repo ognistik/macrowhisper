@@ -876,26 +876,16 @@ class ActionExecutor {
             actionLevel = (action as? AppConfiguration.ScriptAppleScript)?.nextAction
         }
         let normalizedActionLevel = actionLevel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let explicitEmptySemantics = configManager.config.usesExplicitEmptySemantics
 
         if isFirstStep {
-            if explicitEmptySemantics {
-                if let normalizedActionLevel {
-                    if normalizedActionLevel == actionName {
-                        return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
-                    }
+            if let normalizedActionLevel {
+                if normalizedActionLevel == actionName {
                     return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
                 }
-                let defaultsNext = configManager.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return defaultsNext.isEmpty ? nil : defaultsNext
+                return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
             }
-
-            // Legacy behavior: defaults.nextAction overrides the first action's own nextAction.
             let defaultsNext = configManager.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !defaultsNext.isEmpty {
-                return defaultsNext
-            }
-            return (normalizedActionLevel ?? "").isEmpty ? nil : normalizedActionLevel
+            return defaultsNext.isEmpty ? nil : defaultsNext
         }
 
         // Never re-apply defaults.nextAction after first action.
@@ -1164,20 +1154,11 @@ class ActionExecutor {
     
     private func handleMoveToSetting(folderPath: String, activeInsert: AppConfiguration.Insert?) {
         // Determine the moveTo value with proper precedence
-        let explicitEmptySemantics = configManager.config.usesExplicitEmptySemantics
         var moveTo: String?
         if let activeInsert = activeInsert {
-            if explicitEmptySemantics {
-                if let insertMoveTo = activeInsert.moveTo {
-                    moveTo = insertMoveTo
-                } else {
-                    moveTo = configManager.config.defaults.moveTo
-                }
-            } else if let insertMoveTo = activeInsert.moveTo, !insertMoveTo.isEmpty {
-                // Insert has an explicit moveTo value (including ".none" and ".delete")
+            if let insertMoveTo = activeInsert.moveTo {
                 moveTo = insertMoveTo
             } else {
-                // Insert moveTo is nil or empty, fall back to default
                 moveTo = configManager.config.defaults.moveTo
             }
         } else {
@@ -1203,37 +1184,28 @@ class ActionExecutor {
     
     private func handleMoveToSettingForAction(folderPath: String, action: Any) {
         // Determine the moveTo value with proper precedence for different action types
-        let explicitEmptySemantics = configManager.config.usesExplicitEmptySemantics
         var moveTo: String?
         
         if let url = action as? AppConfiguration.Url {
-            if explicitEmptySemantics, let actionMoveTo = url.moveTo {
-                moveTo = actionMoveTo
-            } else if let actionMoveTo = url.moveTo, !actionMoveTo.isEmpty {
+            if let actionMoveTo = url.moveTo {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo
             }
         } else if let shortcut = action as? AppConfiguration.Shortcut {
-            if explicitEmptySemantics, let actionMoveTo = shortcut.moveTo {
-                moveTo = actionMoveTo
-            } else if let actionMoveTo = shortcut.moveTo, !actionMoveTo.isEmpty {
+            if let actionMoveTo = shortcut.moveTo {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo
             }
         } else if let shell = action as? AppConfiguration.ScriptShell {
-            if explicitEmptySemantics, let actionMoveTo = shell.moveTo {
-                moveTo = actionMoveTo
-            } else if let actionMoveTo = shell.moveTo, !actionMoveTo.isEmpty {
+            if let actionMoveTo = shell.moveTo {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo
             }
         } else if let ascript = action as? AppConfiguration.ScriptAppleScript {
-            if explicitEmptySemantics, let actionMoveTo = ascript.moveTo {
-                moveTo = actionMoveTo
-            } else if let actionMoveTo = ascript.moveTo, !actionMoveTo.isEmpty {
+            if let actionMoveTo = ascript.moveTo {
                 moveTo = actionMoveTo
             } else {
                 moveTo = configManager.config.defaults.moveTo

@@ -10,10 +10,6 @@ struct AppConfiguration: Codable {
     // v2: explicit empty-string semantics (null=inherits, ""=explicit empty)
     var configVersion: Int?
     static let currentConfigVersion = 2
-
-    var usesExplicitEmptySemantics: Bool {
-        (configVersion ?? 1) >= AppConfiguration.currentConfigVersion
-    }
     
     struct Defaults: Codable {
         var watch: String

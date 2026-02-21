@@ -1618,7 +1618,6 @@ class SocketCommunication {
             case .getIcon:
                 let (activeType, activeAction, _) = getActiveAction(configManager: configMgr)
                 var icon: String?
-                let explicitEmptySemantics = configMgr.config.usesExplicitEmptySemantics
                 
                 if let action = activeAction {
                     // Get icon based on action type
@@ -1645,8 +1644,8 @@ class SocketCommunication {
                         }
                     }
                     
-                    // v1: nil/empty falls back; v2: only nil falls back (empty is explicit no icon)
-                    if (explicitEmptySemantics && icon == nil) || (!explicitEmptySemantics && (icon == nil || icon?.isEmpty == true)) {
+                    // Empty string is explicit no icon; only nil inherits defaults.
+                    if icon == nil {
                         icon = configMgr.config.defaults.icon
                     }
                 } else {
@@ -1654,10 +1653,7 @@ class SocketCommunication {
                     icon = configMgr.config.defaults.icon
                 }
                 
-                // Handle special values and return appropriate response
-                if !explicitEmptySemantics && icon == ".none" {
-                    response = " "  // Explicit no icon
-                } else if let iconValue = icon, !iconValue.isEmpty {
+                if let iconValue = icon, !iconValue.isEmpty {
                     response = iconValue  // Use the icon
                 } else {
                     response = " "  // No icon defined (nil or empty)

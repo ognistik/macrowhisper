@@ -1428,10 +1428,10 @@ if shouldAutoUpdateConfig {
     }
 } else {
     logDebug("Startup auto configuration update disabled by defaults.autoUpdateConfig = false")
-    if !configManager.config.usesExplicitEmptySemantics {
+    if configManager.hasLegacyConfigOnDisk {
         notify(
-            title: "Macrowhisper - Config Migration Pending",
-            message: "Your config is using legacy semantics (configVersion 1). Automatic migration is disabled. Run --update-config when ready."
+            title: "Macrowhisper - Outdated Config",
+            message: "You are running an outdated config. Run --update-config to migrate."
         )
     }
 }
