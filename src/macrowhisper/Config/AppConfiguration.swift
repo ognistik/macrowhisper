@@ -76,7 +76,7 @@ struct AppConfiguration: Codable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             // Required fields
             watch = try container.decode(String.self, forKey: .watch)
-            actionDelay = try container.decode(Double.self, forKey: .actionDelay)
+            actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay) ?? 0
 
             // Optional fields with sensible fallbacks (aligned with defaultValues())
             noUpdates = try container.decodeIfPresent(Bool.self, forKey: .noUpdates) ?? false

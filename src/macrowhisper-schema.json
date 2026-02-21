@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
-  "description": "Configuration schema for Macrowhisper. In configVersion 2, null means inherit defaults and empty string means explicit empty value.",
+  "description": "Configuration schema for Macrowhisper. In configVersion 2, action-level null means inherit defaults and empty string means explicit empty value (for supported string fields). At defaults level, nullable scalar fields can use null to fall back to built-in Macrowhisper defaults.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -25,20 +25,20 @@
           "examples": ["~/Documents/superwhisper", "/Users/username/Documents/superwhisper"]
         },
         "noUpdates": {
-          "type": "boolean",
-          "description": "Disable automatic update checking",
+          "type": ["boolean", "null"],
+          "description": "Disable automatic update checking. null or omitted = use built-in default (false).",
           "default": false
         },
         "noNoti": {
-          "type": "boolean",
-          "description": "Disable system notifications",
+          "type": ["boolean", "null"],
+          "description": "Disable system notifications. null or omitted = use built-in default (false).",
           "default": false
         },
         "activeAction": {
           "type": ["string", "null"],
-          "description": "Name of the currently active action (fallback when no triggers match). Empty string or null means no active action.",
+          "description": "Name of the currently active action (fallback when no triggers match). Generated starter configs set this to 'autoPaste'. Empty string or null means no active action.",
           "examples": ["autoPaste", "myCustomAction", "", null],
-          "default": ""
+          "default": "autoPaste"
         },
         "icon": {
           "type": ["string", "null"],
@@ -53,23 +53,23 @@
           "default": null
         },
         "noEsc": {
-          "type": "boolean",
-          "description": "Disable ESC key simulation before action execution",
+          "type": ["boolean", "null"],
+          "description": "Disable ESC key simulation before action execution. null or omitted = use built-in default (false).",
           "default": false
         },
         "simKeypress": {
-          "type": "boolean",
-          "description": "Use keystroke simulation instead of clipboard for text insertion",
+          "type": ["boolean", "null"],
+          "description": "Use keystroke simulation instead of clipboard for text insertion. null or omitted = use built-in default (false).",
           "default": false
         },
         "smartInsert": {
-          "type": "boolean",
-          "description": "Enable smart casing and spacing for insert actions in reliable input-field contexts. Applies only to insert actions.",
-          "default": false
+          "type": ["boolean", "null"],
+          "description": "Enable smart casing and spacing for insert actions in reliable input-field contexts. Applies only to insert actions. null or omitted = use built-in default (true).",
+          "default": true
         },
         "actionDelay": {
-          "type": "number",
-          "description": "Default delay in seconds before executing actions",
+          "type": ["number", "null"],
+          "description": "Default delay in seconds before executing actions. null or omitted = use built-in default (0).",
           "minimum": 0,
           "default": 0
         },
@@ -80,35 +80,35 @@
           "examples": [7, 30, 0, null]
         },
         "pressReturn": {
-          "type": "boolean",
-          "description": "Automatically press Return/Enter after action execution. This action can be scheduled with --auto-return <true/false> CLI flag.",
+          "type": ["boolean", "null"],
+          "description": "Automatically press Return/Enter after action execution. This action can be scheduled with --auto-return <true/false> CLI flag. null or omitted = use built-in default (false).",
           "default": false
         },
         "returnDelay": {
-          "type": "number",
-          "description": "Delay in seconds before pressing Return (if pressReturn is enabled)",
+          "type": ["number", "null"],
+          "description": "Delay in seconds before pressing Return (if pressReturn is enabled). null or omitted = use built-in default (0.1).",
           "minimum": 0,
           "default": 0.1
         },
         "restoreClipboard": {
-          "type": "boolean",
-          "description": "Restore original clipboard content after action execution",
+          "type": ["boolean", "null"],
+          "description": "Restore original clipboard content after action execution. null or omitted = use built-in default (true).",
           "default": true
         },
         "scheduledActionTimeout": {
-          "type": "number",
-          "description": "Timeout in seconds for auto-return and scheduled actions when no recording session is active (0 = no timeout, 5 = default)",
+          "type": ["number", "null"],
+          "description": "Timeout in seconds for auto-return and scheduled actions when no recording session is active (0 = no timeout, 5 = default). null or omitted = use built-in default (5).",
           "minimum": 0,
           "default": 5
         },
         "clipboardStacking": {
-          "type": "boolean",
-          "description": "Enable clipboard stacking for clipboardContext placeholder. When enabled, multiple clipboard changes during recording are captured and formatted with XML tags (<clipboard_context_1>, <clipboard_context_2>, etc.). When disabled, only the last clipboard change is captured (default behavior).",
+          "type": ["boolean", "null"],
+          "description": "Enable clipboard stacking for clipboardContext placeholder. When enabled, multiple clipboard changes during recording are captured and formatted with XML tags (<clipboard_context_1>, <clipboard_context_2>, etc.). When disabled, only the last clipboard change is captured (default behavior). null or omitted = use built-in default (false).",
           "default": false
         },
         "clipboardBuffer": {
-          "type": "number",
-          "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls the capture of clipboard content before a recording starts. 0 disables the buffer entirely.",
+          "type": ["number", "null"],
+          "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls the capture of clipboard content before a recording starts. 0 disables the buffer entirely. null or omitted = use built-in default (5.0).",
           "minimum": 0,
           "default": 5
         },
@@ -125,13 +125,13 @@
           "default": null
         },
         "autoUpdateConfig": {
-          "type": "boolean",
-          "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config.",
+          "type": ["boolean", "null"],
+          "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config. null or omitted = use built-in default (true).",
           "default": true
         },
         "redactedLogs": {
-          "type": "boolean",
-          "description": "Redact sensitive content from logs (dictation result, clipboard context, selected text, app context, trigger payloads, and regex replacement before/after values). Set to false only for deep debugging.",
+          "type": ["boolean", "null"],
+          "description": "Redact sensitive content from logs (dictation result, clipboard context, selected text, app context, trigger payloads, and regex replacement before/after values). Set to false only for deep debugging. null or omitted = use built-in default (true).",
           "default": true
         },
         "nextAction": {
@@ -141,7 +141,7 @@
           "default": null
         }
       },
-      "required": ["watch", "actionDelay"],
+      "required": ["watch"],
       "additionalProperties": false
     },
     "inserts": {

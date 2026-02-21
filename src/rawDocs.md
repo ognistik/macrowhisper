@@ -350,6 +350,47 @@ About `$schema`:
 - It helps editors/IDEs validate JSON and suggest keys.
 - In normal use, you should not need to edit this manually.
 
+### 5.0 Manual authoring checklist (important)
+
+If you create/edit config JSON manually, keep these required values in mind:
+
+- Top level: `defaults` is required.
+- Under `defaults`: `watch` is required.
+- Any action you define (`inserts`, `urls`, `shortcuts`, `scriptsShell`, `scriptsAS`) must include `action`.
+
+Versioning + auto-update behavior:
+
+- `configVersion` controls semantics. Current semantics are `configVersion: 2`.
+- If `configVersion` is missing, runtime treats it as legacy (`1`) for semantics checks.
+- `defaults.autoUpdateConfig` defaults to `true`.
+- With `autoUpdateConfig: true`, startup can rewrite config (schema/format normalization and version migration).
+- If `configVersion` is missing and auto-update is enabled, startup update can mark/update it to current version.
+
+Recommended when manually maintaining config:
+
+- Set `"configVersion": 2` explicitly.
+- Decide whether startup should rewrite file:
+  - keep `"autoUpdateConfig": true` for automatic migration/normalization
+  - set `"autoUpdateConfig": false` for stricter manual control (you can still run `macrowhisper --update-config` manually)
+
+Strict manual-control starter template:
+
+```json
+{
+  "configVersion": 2,
+  "defaults": {
+    "watch": "~/Documents/superwhisper",
+    "actionDelay": 0,
+    "autoUpdateConfig": false
+  },
+  "inserts": {},
+  "urls": {},
+  "shortcuts": {},
+  "scriptsShell": {},
+  "scriptsAS": {}
+}
+```
+
 ## Value semantics: defaults vs per-action overrides
 
 Use this simple model:
@@ -357,6 +398,12 @@ Use this simple model:
 - `defaults` = your normal behavior.
 - Action-level values = one action can override `defaults`.
 - Some empty values mean "use defaults again", but not all fields work the same.
+
+Defaults-level note (important):
+
+- For nullable scalar defaults fields (most bool/number toggles), `null` means "use built-in Macrowhisper default".
+- For action-level overrides, `null` means "inherit from `defaults`".
+- `activeAction` is special: starter configs set it to `autoPaste`, but explicit `null` or `""` means no fallback action.
 
 Three words used in this guide:
 
@@ -499,29 +546,35 @@ Meaning: explicit no icon for this action.
 
 These live under `defaults`.
 
+Null behavior at `defaults` level:
+
+- For nullable bool/number defaults fields, `null` means "use built-in default."
+- `actionDelay` can be omitted or set to `null`; both resolve to built-in default `0`.
+- `activeAction` is nullable, but `null`/`""` explicitly disables fallback action.
+
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `watch` | string | `~/Documents/superwhisper` | Path to Superwhisper folder (the one containing `recordings`). |
-| `noUpdates` | bool | `false` | Disable periodic update checks. |
-| `noNoti` | bool | `false` | Disable notifications. |
+| `noUpdates` | bool/null | `false` | Disable periodic update checks. `null` = built-in default (`false`). |
+| `noNoti` | bool/null | `false` | Disable notifications. `null` = built-in default (`false`). |
 | `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty/null means none. |
 | `icon` | string/null | `null` | Default icon for actions. |
 | `moveTo` | string/null | `null` | Default post-processing path (`.delete`, a path, or empty). |
-| `noEsc` | bool | `false` | Disable ESC simulation before actions. |
-| `simKeypress` | bool | `false` | Insert by typing instead of clipboard paste (insert actions). |
-| `smartInsert` | bool | `true` | Smart casing/spacing behavior for insert actions. |
-| `actionDelay` | number | `0` | Delay before action execution. |
+| `noEsc` | bool/null | `false` | Disable ESC simulation before actions. `null` = built-in default (`false`). |
+| `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
+| `smartInsert` | bool/null | `true` | Smart casing/spacing behavior for insert actions. `null` = built-in default (`true`). |
+| `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
 | `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
-| `pressReturn` | bool | `false` | Press Return after insert execution. |
-| `returnDelay` | number | `0.1` | Delay before Return press. |
-| `restoreClipboard` | bool | `true` | Restore original clipboard at end of action flow. |
-| `scheduledActionTimeout` | number | `5` | Timeout (seconds) for pending auto-return/scheduled action when no recording starts. `0` means no timeout. |
-| `clipboardStacking` | bool | `false` | Capture multiple clipboard events for `{{clipboardContext}}`. |
-| `clipboardBuffer` | number | `5.0` | Pre-recording clipboard capture window in seconds. `0` disables buffer capture. |
+| `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
+| `returnDelay` | number/null | `0.1` | Delay before Return press. `null` = built-in default (`0.1`). |
+| `restoreClipboard` | bool/null | `true` | Restore original clipboard at end of action flow. `null` = built-in default (`true`). |
+| `scheduledActionTimeout` | number/null | `5` | Timeout (seconds) for pending auto-return/scheduled action when no recording starts. `0` means no timeout. `null` = built-in default (`5`). |
+| `clipboardStacking` | bool/null | `false` | Capture multiple clipboard events for `{{clipboardContext}}`. `null` = built-in default (`false`). |
+| `clipboardBuffer` | number/null | `5.0` | Pre-recording clipboard capture window in seconds. `0` disables buffer capture. `null` = built-in default (`5.0`). |
 | `clipboardIgnore` | string/null | `null` | Regex for apps ignored in clipboard capture. |
 | `bypassModes` | string/null | `null` | Pipe-separated Superwhisper mode names that bypass Macrowhisper entirely (case-insensitive). |
-| `autoUpdateConfig` | bool | `true` | Auto-refresh config format/schema fields at startup. |
-| `redactedLogs` | bool | `true` | Redact sensitive content in logs. |
+| `autoUpdateConfig` | bool/null | `true` | Auto-refresh config format/schema fields at startup. `null` = built-in default (`true`). |
+| `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
 | `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
 
 ## Validation rules involving defaults
