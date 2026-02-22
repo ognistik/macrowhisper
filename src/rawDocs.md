@@ -385,19 +385,19 @@ Quick rules (what wins?)
 #### For all action types
 
 - `action: ".none"` applies:
-    - >> `action = ""`
-    - >> `inputCondition = ""`
-    - >> `noEsc = true`
-    - >> `restoreClipboard = false`
+    - `action = ""`
+    - `inputCondition = ""`
+    - `noEsc = true`
+    - `restoreClipboard = false`
 
 ---
 
 #### For insert actions
 
 - `action: ".autoPaste"` applies:
-    - >> `inputCondition = "!restoreClipboard|!noEsc"`
-    - >> `noEsc = true`
-    - >> `restoreClipboard = false`
+    - `inputCondition = "!restoreClipboard|!noEsc"`
+    - `noEsc = true`
+    - `restoreClipboard = false`
 
 These values simulate the exact behavior of Superwhisper's auto-paste.
 
@@ -494,7 +494,7 @@ Null behavior at `defaults` level:
 | `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
 | `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
 
-## Validation rules involving defaults
+### Validation rules involving defaults
 
 - `defaults.activeAction` must exist if not empty.
 - `defaults.nextAction` must exist if not empty.
@@ -512,9 +512,7 @@ All actions are stored by name in one of five dictionaries:
 - `scriptsShell`
 - `scriptsAS`
 
-### Cross-type rule
-
-Action names must be unique across all five dictionaries.
+**IMPORTANT: Action names must be unique across all five dictionaries.**
 
 ### Common fields across all action types
 
@@ -545,7 +543,7 @@ How to read these fields in practice:
 ### Common field examples
 
 ```json
-"icon": "🧠"
+"icon": "※"
 ```
 
 ```json
@@ -557,7 +555,7 @@ How to read these fields in practice:
 ```
 
 ```json
-"actionDelay": 0.25
+"actionDelay": 0.02
 ```
 
 ```json
@@ -581,7 +579,7 @@ Insert field reference:
 | `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
 | `noEsc` | bool/null | `true`, `false`, `null` | Skip ESC before action if `true`. |
-| `inputCondition` | string/null | `"action|smartInsert"`, `"!action|!pressReturn"` | Conditional option gating. |
+| `inputCondition` | string/null | `"action\|smartInsert"`, `"!action\|!pressReturn"` | Conditional option gating. |
 
 Example:
 
@@ -598,7 +596,7 @@ Example:
 
 Insert reminders:
 
-- `.autoPaste` = insert-only template with input-field-aware behavior (section 5.3).
+- `.autoPaste` = insert-only template with input-field-aware behavior (section 5.4).
 - `.none` = no-op template (section 5.2).
 - `""` = empty payload, not template.
 - If you need guaranteed `noEsc=true` and `restoreClipboard=false`, use `.none` (not `""`).
@@ -632,7 +630,7 @@ URL field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"https://...{{swResult}}"`, `".none"` | URL template. `""` skips URL payload. `.none` is template behavior (see section 5.2). |
+| `action` | string | `"https://...{{swResult}}"`, `".none"` | URL template. `""` skips URL payload. `.none` is template behavior (see section 5.4). |
 | `openWith` | string/null | `"Safari"`, `"/Applications/Google Chrome.app"`, `"com.google.Chrome"` | Passed to `open -a`. |
 | `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in background. `false` or `null` resolves to foreground behavior. |
 
