@@ -212,14 +212,14 @@ After action completion:
 
 ## 4) Command Reference
 
-## General commands
+### General commands
 
 ```bash
 macrowhisper --help
 macrowhisper --version
 ```
 
-## Configuration management (no running daemon required)
+### Configuration management (no running daemon required)
 
 ```bash
 macrowhisper --reveal-config
@@ -236,7 +236,7 @@ Notes:
 - If you pass a directory, Macrowhisper uses `<dir>/macrowhisper.json`.
 - `--update-config` refreshes config formatting/schema-compatible fields.
 
-## Service management
+### Service management
 
 ```bash
 macrowhisper --install-service
@@ -247,7 +247,7 @@ macrowhisper --uninstall-service
 macrowhisper --service-status
 ```
 
-## Runtime commands (require running daemon)
+### Runtime commands (require running daemon)
 
 ```bash
 macrowhisper --status
@@ -272,7 +272,7 @@ Behavior notes:
 - `--auto-return true` schedules one-time "paste result + return behavior" for the next recording.
 - `--auto-return` with no value behaves like `true`.
 
-## Action management commands
+### Action management commands
 
 ```bash
 macrowhisper --list-actions
@@ -514,29 +514,39 @@ All actions are stored by name in one of five dictionaries:
 
 **IMPORTANT: Action names must be unique across all five dictionaries.**
 
+### Quick guide: special `action` values
+
+| Value | Where it works | Simple meaning |
+| --- | --- | --- |
+| `""` | All action types | Empty payload for this action (not a template). |
+| `.none` | All action types | No-op template (`action=""`, `inputCondition=""`, `noEsc=true`, `restoreClipboard=false`). |
+| `.autoPaste` | Insert actions only | Insert template that matches Superwhisper-style auto-paste behavior. |
+| `.run` | Shortcut actions only | Run the Shortcut with no input payload. |
+
+Section 5.4 has the full behavior details.
+
 ### Common fields across all action types
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `action` | string | Main action payload (text/url/script/etc.) |
-| `icon` | string/null | Per-action icon override |
-| `moveTo` | string/null | Per-action recording folder post-processing override |
-| `noEsc` | bool/null | Per-action ESC behavior override |
-| `actionDelay` | number/null | Per-action delay override |
-| `restoreClipboard` | bool/null | Per-action clipboard restoration override |
-| `inputCondition` | string/null | Token-based conditional gating of selected action fields |
-| `nextAction` | string/null | Chain to another action |
-| `triggerVoice` | string/null | Voice trigger patterns |
-| `triggerApps` | string/null | Front app name/bundle regex trigger |
-| `triggerModes` | string/null | Superwhisper mode trigger |
-| `triggerLogic` | string/null | `or` or `and` |
+| **Field**          | **Type**    | **Meaning**                                                                     |
+| ------------------ | ----------- | ------------------------------------------------------------------------------- |
+| `action`           | string      | Main action payload (text/url/script/etc.)                                      |
+| `icon`             | string/null | Per-action icon override                                                        |
+| `moveTo`           | string/null | Per-action recording folder post-processing override. Can be `.delete` or path. |
+| `noEsc`            | bool/null   | Skip ESC before action if `true`.                                               |
+| `actionDelay`      | number/null | Per-action delay override                                                       |
+| `restoreClipboard` | bool/null   | Per-action clipboard restoration override                                       |
+| `inputCondition`   | string/null | Conditional option gating. Applies fields IF user is input field.               |
+| `nextAction`       | string/null | Chain to another action                                                         |
+| `triggerVoice`     | string/null | Voice trigger patterns                                                          |
+| `triggerApps`      | string/null | Front app name/bundle regex trigger                                             |
+| `triggerModes`     | string/null | Superwhisper mode trigger                                                       |
+| `triggerLogic`     | string/null | `or` or `and`                                                                   |
 
 How to read these fields in practice:
 
 - For bool/number override fields, `null` means fallback to `defaults`.
 - For `moveTo`, `icon`, and `nextAction`: `null` means fallback to defaults; `""` means explicit empty.
-- For `action`, empty string means empty payload for that step (not template behavior).
-- For `action`, `.none` and `.autoPaste` (insert only) are template behaviors.
+- For `action`, use the quick guide above (`""`, `.none`, `.autoPaste`, `.run`).
 - `inputCondition` can neutralize fields at runtime before execution.
 - `trigger*` fields only decide matching; they do not modify payload content.
 
@@ -547,7 +557,7 @@ How to read these fields in practice:
 ```
 
 ```json
-"icon": ""
+"icon": ".none"
 ```
 
 ```json
@@ -562,7 +572,7 @@ How to read these fields in practice:
 "restoreClipboard": null
 ```
 
-## 7.1 Insert actions
+### 7.1 Insert actions
 
 Insert-only extra fields:
 
@@ -578,30 +588,17 @@ Insert field reference:
 | `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters; slower but useful where paste is blocked. |
 | `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
-| `noEsc` | bool/null | `true`, `false`, `null` | Skip ESC before action if `true`. |
-| `inputCondition` | string/null | `"action\|smartInsert"`, `"!action\|!pressReturn"` | Conditional option gating. |
 
-Example:
+Examples:
 
 ```json
 "emailDraft": {
   "action": "Hi,\n\n{{swResult}}\n\nThanks,",
   "pressReturn": false,
-  "actionDelay": 0.1,
+  "actionDelay": 0,
   "triggerModes": "email"
 }
 ```
-
-`action` semantics for insert actions are defined in section 5.
-
-Insert reminders:
-
-- `.autoPaste` = insert-only template with input-field-aware behavior (section 5.4).
-- `.none` = no-op template (section 5.2).
-- `""` = empty payload, not template.
-- If you need guaranteed `noEsc=true` and `restoreClipboard=false`, use `.none` (not `""`).
-
-Practical `.autoPaste` use:
 
 ```json
 "autoPaste": {
@@ -610,8 +607,6 @@ Practical `.autoPaste` use:
 }
 ```
 
-Practical no-op insert use:
-
 ```json
 "showOnlyInWindow": {
   "action": ".none",
@@ -619,7 +614,7 @@ Practical no-op insert use:
 }
 ```
 
-## 7.2 URL actions
+### 7.2 URL actions
 
 URL-only extra fields:
 
@@ -630,11 +625,11 @@ URL field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"https://...{{swResult}}"`, `".none"` | URL template. `""` skips URL payload. `.none` is template behavior (see section 5.4). |
-| `openWith` | string/null | `"Safari"`, `"/Applications/Google Chrome.app"`, `"com.google.Chrome"` | Passed to `open -a`. |
+| `action` | string | `"https://...{{swResult}}"`, `".none"` | URL to open/template. |
+| `openWith` | string/null | `"Safari"`, `"com.google.Chrome"` | Passed to `open -a`. |
 | `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in background. `false` or `null` resolves to foreground behavior. |
 
-Example:
+Examples:
 
 ```json
 "searchGoogle": {
@@ -645,8 +640,6 @@ Example:
 }
 ```
 
-Another URL example with punctuation cleanup:
-
 ```json
 "searchDocs": {
   "action": "https://developer.apple.com/search/?q={{swResult||\\.$||}}",
@@ -654,13 +647,7 @@ Another URL example with punctuation cleanup:
 }
 ```
 
-`action` semantics are the same as section 5:
-
-- `.none` = no-op template.
-- `""` = empty payload (URL open is skipped).
-- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
-
-## 7.3 Shortcut actions
+### 7.3 Shortcut actions
 
 Important: the action name (the object key) is the macOS Shortcut name.
 
@@ -668,28 +655,15 @@ Shortcut field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"{{swResult}}"`, `".run"`, `".none"` | Input sent to shortcut. `.run` executes shortcut without input. `""` and `.none` are not equivalent (section 5.2). |
-| `triggerVoice` | string/null | `"task"`, `"==^todo\\\\s+(.+)$=="` | Optional trigger entry points. |
+| `action` | string | `"{{swResult}}"`, `".run"`, `".none"` | Input sent to shortcut. `.run` runs the shortcut with no input. |
 
-Example:
+Examples:
 
 ```json
 "Create Note": {
   "action": "{{swResult}}"
 }
 ```
-
-Shortcut-specific reminder:
-
-- `.run` = run shortcut with no input payload.
-
-Other `action` semantics come from section 5:
-
-- `.none` = no-op template.
-- `""` = empty payload.
-- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
-
-Shortcut examples:
 
 ```json
 "Create Task": {
@@ -705,16 +679,15 @@ Shortcut examples:
 }
 ```
 
-## 7.4 Shell actions
+### 7.4 Shell actions
 
 Shell field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string. `""` and `.none` are not equivalent (section 5.2). |
-| `triggerApps` | string/null | `"Terminal|iTerm"` | Useful to scope command actions by app. |
+| `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string or special value. |
 
-Example:
+Examples:
 
 ```json
 "copyResult": {
@@ -723,42 +696,27 @@ Example:
 }
 ```
 
-`action` semantics are the same as section 5:
-
-- `.none` = no-op template.
-- `""` = empty payload (shell execution is skipped).
-- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
-
-Shell example with metadata key:
-
 ```json
 "logMode": {
   "action": "echo 'Mode: {{modeName}} | Text: {{swResult}}' >> ~/Desktop/mw-log.txt"
 }
 ```
 
-## 7.5 AppleScript actions
+### 7.5 AppleScript actions
 
 AppleScript field reference:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"display notification ..."`, `".none"` | AppleScript source. `""` and `.none` are not equivalent (section 5.2). |
-| `triggerModes` | string/null | `"email|message"` | Good for mode-specific scripting. |
+| `action` | string | `"display notification..."`, `".none"` | AppleScript source or special value. |
 
 Example:
 
 ```json
-"showNoti": {
-  "action": "display notification \"{{swResult}}\" with title \"Macrowhisper\""
+"runMacro": {
+  "action" : "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\""
 }
 ```
-
-`action` semantics are the same as section 5:
-
-- `.none` = no-op template.
-- `""` = empty payload (AppleScript execution is skipped).
-- `noEsc` / `restoreClipboard` still follow normal resolution unless template forces values.
 
 ---
 
