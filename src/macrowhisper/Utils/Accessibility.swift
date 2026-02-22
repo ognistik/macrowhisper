@@ -39,11 +39,11 @@ func requestAccessibilityPermissionOnStartup() {
         }
     }
     
-    // Also request System Events control permission for simKeypress functionality
+    // Also request System Events control permission for features that automate System Events
     requestSystemEventsPermissionOnStartup()
 }
 
-/// Checks if System Events control permission is granted (needed for simKeypress functionality)
+/// Checks if System Events control permission is granted (used by System Events automation features)
 func checkSystemEventsPermission() -> Bool {
     let script = "tell application \"System Events\" to get name"
     let task = Process()
@@ -61,8 +61,8 @@ func checkSystemEventsPermission() -> Bool {
     }
 }
 
-/// Proactively requests System Events control permission during app startup
-/// This is needed for the simKeypress functionality which uses AppleScript to control System Events
+/// Proactively requests System Events control permission during app startup.
+/// This supports features that rely on AppleScript/System Events automation.
 func requestSystemEventsPermissionOnStartup() {
     // Check if System Events permission is already granted
     if checkSystemEventsPermission() {
@@ -71,7 +71,7 @@ func requestSystemEventsPermissionOnStartup() {
     }
     
     // If not granted, attempt to trigger the permission dialog by running a simple System Events command
-    logInfo("Requesting System Events control permission for simKeypress functionality...")
+    logInfo("Requesting System Events control permission for automation features...")
     let script = "tell application \"System Events\" to get name"
     let task = Process()
     task.launchPath = "/usr/bin/osascript"
@@ -86,9 +86,9 @@ func requestSystemEventsPermissionOnStartup() {
         if task.terminationStatus == 0 {
             logInfo("System Events control permission granted")
         } else {
-            logWarning("System Events control permission was not granted - simKeypress functionality may not work")
+            logWarning("System Events control permission was not granted - some automation features may not work")
             if !globalState.disableNotifications {
-                notify(title: "Macrowhisper", message: "System Events control permission is needed for simKeypress functionality. You may be prompted again when using this feature.")
+                notify(title: "Macrowhisper", message: "System Events control permission is needed for some automation features. You may be prompted again when using these features.")
             }
         }
     } catch {
@@ -319,13 +319,13 @@ func typeText(_ text: String) {
         return
     }
     
-    // Small delay before starting
-    Thread.sleep(forTimeInterval: 0.1)
+    // Small delay before starting to avoid dropping first characters in some apps
+    Thread.sleep(forTimeInterval: 0.03)
     
     // Type each character
     for character in text {
         typeUnicodeCharacter(character)
-        Thread.sleep(forTimeInterval: 0.01) // Small delay between characters
+        Thread.sleep(forTimeInterval: 0.005) // Small delay between characters
     }
 }
 
