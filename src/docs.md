@@ -990,12 +990,22 @@ Behavior:
 ## 11.6 Any metadata key placeholder
 
 Any key in `meta.json` can be used as `{{keyName}}`.
+Nested values can be accessed with dot notation and array indexes:
+
+- `{{promptContext.systemContext.language}}`
+- `{{promptContext.modeContext.type}}`
+- `{{segments.0.text}}`
 
 Examples:
 
 - `{{modeName}}`
 - `{{languageModelName}}`
 - `{{language}}`
+- `{{promptContext.systemContext.language}}`
+
+`{{segments}}` is rendered as a readable transcript.
+- With speaker metadata/diarization: consecutive words from the same speaker are merged into blocks, each block starts with `mm:ss Speaker N` (`N` is 1-based).
+- Without speaker metadata: all segment words are merged into a single readable paragraph.
 
 Special time keys (`duration`, `languageModelProcessingTime`, `processingTime`) are formatted into human-readable values like `350ms`, `1.2s`, or `2m 05s`.
 

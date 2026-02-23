@@ -176,6 +176,203 @@ func formatTimeValue(_ milliseconds: Double) -> String {
     }
 }
 
+/// Resolves a potentially nested key path (dot notation) from metaJson.
+/// Supports object traversal (e.g. promptContext.systemContext.language)
+/// and array indexes (e.g. segments.0.text).
+func resolveMetaJsonValue(for keyPath: String, in metaJson: [String: Any]) -> Any? {
+    let pathComponents = keyPath.split(separator: ".").map(String.init)
+    guard !pathComponents.isEmpty else { return nil }
+    
+    var current: Any = metaJson
+    for component in pathComponents {
+        if let dict = current as? [String: Any] {
+            guard let next = dict[component] else { return nil }
+            current = next
+            continue
+        }
+        
+        if let array = current as? [Any], let index = Int(component), index >= 0, index < array.count {
+            current = array[index]
+            continue
+        }
+        
+        return nil
+    }
+    
+    return current
+}
+
+/// Renders segments array in a human-readable format.
+/// Speaker labels are included only when speaker metadata indicates diarization.
+func formatSegmentsForPlaceholder(_ segmentsValue: Any, speakersValue: Any?) -> String? {
+    guard let segments = segmentsValue as? [[String: Any]], !segments.isEmpty else { return nil }
+    
+    let hasExplicitSpeakers = ((speakersValue as? [Any])?.isEmpty == false)
+    let hasSegmentSpeakerIdsBeyondZero = segments.contains { segment in
+        if let speakerInt = segment["speaker"] as? Int {
+            return speakerInt > 0
+        }
+        if let speakerNumber = segment["speaker"] as? NSNumber {
+            return speakerNumber.intValue > 0
+        }
+        return false
+    }
+    let shouldShowSpeakers = hasExplicitSpeakers || hasSegmentSpeakerIdsBeyondZero
+    
+    // Helper: avoid spaces before punctuation when reconstructing text.
+    func appendToken(_ token: String, to current: inout String) {
+        if current.isEmpty {
+            current = token
+            return
+        }
+        let noLeadingSpaceChars = CharacterSet(charactersIn: ".,!?;:)]}%\"'")
+        if let firstScalar = token.unicodeScalars.first, noLeadingSpaceChars.contains(firstScalar) {
+            current += token
+        } else {
+            current += " " + token
+        }
+    }
+    
+    func formatTimestamp(_ seconds: Double) -> String {
+        let totalSeconds = max(0, Int(floor(seconds)))
+        let minutes = totalSeconds / 60
+        let secs = totalSeconds % 60
+        return String(format: "%02d:%02d", minutes, secs)
+    }
+    
+    if shouldShowSpeakers {
+        struct SegmentBlock {
+            let speaker: Int?
+            let start: Double
+            var text: String
+        }
+        
+        let shouldShiftSpeakerNumbers = segments.contains { segment in
+            if let speakerInt = segment["speaker"] as? Int {
+                return speakerInt == 0
+            }
+            if let speakerNumber = segment["speaker"] as? NSNumber {
+                return speakerNumber.intValue == 0
+            }
+            return false
+        }
+        
+        var blocks: [SegmentBlock] = []
+        blocks.reserveCapacity(16)
+        
+        for segment in segments {
+            let token = (segment["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if token.isEmpty {
+                continue
+            }
+            
+            let speaker: Int?
+            if let speakerInt = segment["speaker"] as? Int {
+                speaker = speakerInt
+            } else if let speakerNumber = segment["speaker"] as? NSNumber {
+                speaker = speakerNumber.intValue
+            } else {
+                speaker = nil
+            }
+            
+            let start: Double
+            if let startDouble = segment["start"] as? Double {
+                start = startDouble
+            } else if let startNumber = segment["start"] as? NSNumber {
+                start = startNumber.doubleValue
+            } else {
+                start = 0
+            }
+            
+            if let lastIndex = blocks.indices.last, blocks[lastIndex].speaker == speaker {
+                var updated = blocks[lastIndex]
+                appendToken(token, to: &updated.text)
+                blocks[lastIndex] = updated
+            } else {
+                blocks.append(SegmentBlock(speaker: speaker, start: start, text: token))
+            }
+        }
+        
+        if blocks.isEmpty {
+            return nil
+        }
+        
+        let renderedBlocks = blocks.map { block -> String in
+            let header: String
+            if let speaker = block.speaker, speaker >= 0 {
+                let displaySpeaker = shouldShiftSpeakerNumbers ? (speaker + 1) : speaker
+                header = "\(formatTimestamp(block.start)) Speaker \(displaySpeaker)"
+            } else {
+                header = "\(formatTimestamp(block.start))"
+            }
+            return "\(header)\n\(block.text)"
+        }
+        
+        return renderedBlocks.joined(separator: "\n\n")
+    }
+    
+    // Non-diarized fallback: merge all segments into a single readable paragraph.
+    var mergedText = ""
+    for segment in segments {
+        let token = (segment["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if token.isEmpty {
+            continue
+        }
+        appendToken(token, to: &mergedText)
+    }
+    
+    if mergedText.isEmpty {
+        return nil
+    }
+    
+    return mergedText
+}
+
+/// Converts resolved metadata values into placeholder strings with special handling for known structures.
+func stringifyPlaceholderValue(for keyPath: String, jsonValue: Any, metaJson: [String: Any]) -> String {
+    let keyName = keyPath.split(separator: ".").last.map(String.init) ?? keyPath
+    
+    // Handle time-related placeholders: format milliseconds dynamically
+    if keyName == "duration" || keyName == "languageModelProcessingTime" || keyName == "processingTime" {
+        if let numberValue = jsonValue as? NSNumber {
+            let milliseconds = numberValue.doubleValue
+            let formatted = formatTimeValue(milliseconds)
+            logDebug("[TimePlaceholder] Converted \(keyPath) from \(milliseconds)ms to \(formatted)")
+            return formatted
+        } else if let stringValue = jsonValue as? String, let milliseconds = Double(stringValue) {
+            let formatted = formatTimeValue(milliseconds)
+            logDebug("[TimePlaceholder] Converted \(keyPath) from \(milliseconds)ms to \(formatted)")
+            return formatted
+        }
+    }
+    
+    // Render segments as a readable transcript instead of raw JSON.
+    if keyName == "segments",
+       let formattedSegments = formatSegmentsForPlaceholder(jsonValue, speakersValue: metaJson["speakers"]),
+       !formattedSegments.isEmpty {
+        return formattedSegments
+    }
+    
+    if let stringValue = jsonValue as? String {
+        return stringValue
+    }
+    if let numberValue = jsonValue as? NSNumber {
+        return numberValue.stringValue
+    }
+    if let boolValue = jsonValue as? Bool {
+        return boolValue ? "true" : "false"
+    }
+    if jsonValue is NSNull {
+        return ""
+    }
+    if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
+       let jsonString = String(data: jsonData, encoding: .utf8) {
+        return jsonString
+    }
+    
+    return String(describing: jsonValue)
+}
+
 /// Expands dynamic placeholders with context-aware escaping based on action type
 /// Supports {{key}}, {{json:key}}, {{raw:key}}, {{date:format}}, and regex replacements {{key||regex||replacement}}
 /// The json: prefix applies JSON string escaping regardless of action type, useful for embedding content in JSON strings.
@@ -186,7 +383,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
     var metaJson = metaJson // Make mutable copy
     
     // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
-    let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
+    let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     // --- BEGIN: FrontApp Placeholder Logic ---
@@ -385,46 +582,8 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
-            } else if let jsonValue = metaJson[key] {
-                var value: String
-                
-                // Handle time-related placeholders: format milliseconds dynamically
-                if (key == "duration" || key == "languageModelProcessingTime" || key == "processingTime") {
-                    if let numberValue = jsonValue as? NSNumber {
-                        let milliseconds = numberValue.doubleValue
-                        value = formatTimeValue(milliseconds)
-                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(value)")
-                    } else if let stringValue = jsonValue as? String, let milliseconds = Double(stringValue) {
-                        value = formatTimeValue(milliseconds)
-                        logDebug("[TimePlaceholder] Converted \(key) from \(milliseconds)ms to \(value)")
-                    } else {
-                        // Fallback to original value if conversion fails
-                        if let stringValue = jsonValue as? String {
-                            value = stringValue
-                        } else if let numberValue = jsonValue as? NSNumber {
-                            value = numberValue.stringValue
-                        } else {
-                            value = String(describing: jsonValue)
-                        }
-                        logDebug("[TimePlaceholder] Could not convert \(key), using original value: \(value)")
-                    }
-                } else {
-                    // Standard metaJson value processing
-                    if let stringValue = jsonValue as? String {
-                        value = stringValue
-                    } else if let numberValue = jsonValue as? NSNumber {
-                        value = numberValue.stringValue
-                    } else if let boolValue = jsonValue as? Bool {
-                        value = boolValue ? "true" : "false"
-                    } else if jsonValue is NSNull {
-                        value = ""
-                    } else if let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue),
-                              let jsonString = String(data: jsonData, encoding: .utf8) {
-                        value = jsonString
-                    } else {
-                        value = String(describing: jsonValue)
-                    }
-                }
+            } else if let jsonValue = resolveMetaJsonValue(for: key, in: metaJson) {
+                var value = stringifyPlaceholderValue(for: key, jsonValue: jsonValue, metaJson: metaJson)
                 
                 // Check if value is empty - if so, remove the placeholder entirely (including regex replacements)
                 if value.isEmpty {
