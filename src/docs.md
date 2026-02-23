@@ -721,64 +721,64 @@ Example:
 ---
 
 ## 8) Trigger System (Voice, App, Mode)
+Triggers are evaluated across all action types. Matched actions are sorted by name; only the first match executes.
 
-Triggers are evaluated across all action types.
+#### Important priority reminder:
 
-Matched actions are sorted by name; only the first match executes.
-
-Important priority reminder:
-
-- Triggered action resolution happens after one-shot runtime commands (`--auto-return`, `--schedule-action`) and before `defaults.activeAction`.
+Triggered action resolution happens after one-shot runtime commands (`--auto-return`, `--schedule-action`) and before `defaults.activeAction`. This means scheduled actions (plus one-time auto-return) have priority over triggers, but triggers have priority over the currently active action.
 
 ## 8.1 `triggerVoice`
 
-### Default behavior (plain patterns)
+#### Default behavior (plain patterns)
 
-Plain voice patterns are:
+#### Plain voice patterns are:
 
-- prefix-only (start of transcript)
-- case-insensitive
-- treated as literal text (escaped), not raw regex
+- Prefix-only (start of transcript)
+- Case-insensitive
+- Treated as literal text (escaped), not raw regex
 
-Examples:
+#### Examples:
 
 - `"search"`
 - `"search|google|ask"`
-- `"!test"` (exception)
+- `"!test"` (exception means "all except")
 
-Pipe splitting detail:
+#### Pipe splitting
 
 - `|` splits multiple voice patterns.
 - `|` inside raw regex blocks (`==...==`) is ignored as a separator.
 - That means this is one raw pattern, not two:
 
+#### Example:
+
 ```json
 "triggerVoice": "==^(search|google)\\s+(.+)$=="
 ```
 
-### Raw regex behavior
+#### Raw regex behavior
 
 Wrap in `==...==` for raw regex control.
 
-Example:
+#### Example:
 
 ```json
 "triggerVoice": "==^translate\\s+(.+)$=="
 ```
 
-Rules:
+#### Rules:
 
-- raw regex is case-insensitive by default
-- if you explicitly set `(?i)` or `(?-i)`, that explicit mode is respected
-- raw regex triggers do not use automatic prefix stripping
+- Raw regex is case-insensitive by default
+- If you explicitly set `(?i)` or `(?-i)`, that explicit mode is respected
+- Raw regex triggers do not use automatic prefix stripping
+    - You may need to remove the actual trigger with a placeholder-level regex replacement
 
-### Exception logic
+#### Exception logic
 
 Exception patterns use `!` prefix.
 
-If a trigger list has only exceptions, it matches when none of the exceptions match.
+**Important: if a trigger list has only exceptions, it matches when none of the exceptions match.** Watch out for this because you could accidentally create one action that kicks in with everything except one trigger.
 
-Example:
+#### Example:
 
 ```json
 "triggerVoice": "!test|!debug"
@@ -790,67 +790,56 @@ This will match every voice input except ones matching `test` or `debug` at the 
 
 Regex against front app name and bundle ID.
 
-Examples:
+#### Example:
 
 ```json
 "triggerApps": "Mail|com.apple.mail"
 ```
 
-```json
-"triggerApps": "^com\\.apple\\."
-```
+#### Rules:
 
-Rules:
-
-- direct regex (no `==...==` wrapper needed)
-- case-insensitive by default unless you explicitly specify mode
+- Direct regex (no `==...==` wrapper needed)
+- Case-insensitive by default
 - `!` exception patterns are supported here too
-- if only exception patterns are configured, the app trigger passes when none of those exception patterns match
+- If only exception patterns are configured, the app trigger passes when none of those exception patterns match
 
 ## 8.3 `triggerModes`
 
 Regex against Superwhisper `modeName`.
 
-Example:
+#### Example:
 
 ```json
-"triggerModes": "dictation|rewrite|email"
+"triggerModes": "dictation|Super|Custom"
 ```
 
-Rules are same style as `triggerApps`.
+#### Rules are same style as `triggerApps`.
 
 That includes:
 
-- regex patterns directly
-- supports `!` exception patterns
-- case-insensitive default behavior unless explicitly overridden
+- Regex patterns directly
+- Supports `!` exception patterns
+- Case-insensitive default behavior unless explicitly overridden
 
 ## 8.4 `triggerLogic`
 
 - `or` (default): any configured trigger type can match
 - `and`: all configured trigger types must match
 
-Important behavior:
+#### Important behavior:
 
-- only non-empty trigger fields are considered
-- if all trigger fields are empty, action does not trigger
-
-Detailed logic behavior:
-
-- `or`: at least one configured trigger type must match.
-- `and`: every configured trigger type must match.
-- "Configured" means non-empty for that action.
+- Only non-empty trigger fields are considered
+- If all trigger fields are empty, action does not trigger unless it's the `activeAction` 
 
 ## 8.5 Voice trigger stripping behavior
+#### For non-raw voice triggers that match:
 
-For non-raw voice triggers that match:
+- Matched prefix is stripped from `result`
+- In trigger-executed flows, equivalent stripping is also attempted for `llmResult`
+- Leading punctuation/whitespace after stripped prefix is removed
+- First remaining character is uppercased
 
-- matched prefix is stripped from `result`
-- in trigger-executed flows, equivalent stripping is also attempted for `llmResult`
-- leading punctuation/whitespace after stripped prefix is removed
-- first remaining character is uppercased
-
-This is why voice commands like `"google best pizza"` can trigger URL actions and still pass clean payload text.
+*This is why voice commands like `"google best pizza"` can trigger URL actions and still pass clean payload text.*
 
 ---
 
@@ -864,6 +853,7 @@ Format rules:
 - no whitespace allowed
 - `token` means apply only in input fields
 - `!token` means apply only outside input fields
+- When the condition does not apply. The action execution will use default-level values.
 
 Examples:
 
@@ -875,22 +865,7 @@ Examples:
 "inputCondition": "!restoreClipboard|!action"
 ```
 
-## 9.1 Allowed tokens by action type
-
-### Insert actions
-
-Allowed tokens:
-
-- `restoreClipboard`
-- `noEsc`
-- `nextAction`
-- `moveTo`
-- `action`
-- `actionDelay`
-
-### URL, Shortcut, Shell, AppleScript actions
-
-Allowed tokens:
+## 9.1 Allowed tokens
 
 - `restoreClipboard`
 - `noEsc`

@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "swWebView",
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 5,
