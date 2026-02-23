@@ -868,7 +868,7 @@ Format rules:
 Examples:
 
 ```json
-"inputCondition": "restoreClipboard|pressReturn|action"
+"inputCondition": "restoreClipboard|action"
 ```
 
 ```json
@@ -882,14 +882,11 @@ Examples:
 Allowed tokens:
 
 - `restoreClipboard`
-- `pressReturn`
 - `noEsc`
 - `nextAction`
 - `moveTo`
 - `action`
 - `actionDelay`
-- `simKeypress`
-- `smartInsert`
 
 ### URL, Shortcut, Shell, AppleScript actions
 
@@ -1353,7 +1350,7 @@ Example:
   "inserts": {
     "compose": {
       "action": "{{swResult}}",
-      "inputCondition": "action|smartInsert|simKeypress|restoreClipboard",
+      "inputCondition": "action|restoreClipboard",
       "nextAction": "searchDocs"
     }
   },

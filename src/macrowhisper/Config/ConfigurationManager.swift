@@ -542,14 +542,11 @@ class ConfigurationManager {
         case .insert:
             allowedTokens = [
                 "restoreClipboard",
-                "pressReturn",
                 "noEsc",
                 "nextAction",
                 "moveTo",
                 "action",
-                "actionDelay",
-                "simKeypress",
-                "smartInsert"
+                "actionDelay"
             ]
         case .url, .shell, .appleScript:
             allowedTokens = [

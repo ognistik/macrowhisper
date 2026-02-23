@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "swWebView",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 5,
@@ -20,7 +20,7 @@
     "redactedLogs" : false,
     "restoreClipboard" : true,
     "returnDelay" : 0.15,
-    "scheduledActionTimeout" : 15,
+    "scheduledActionTimeout" : 10,
     "simKeypress" : false,
     "smartInsert" : true,
     "watch" : "~/Documents/superwhisper"
@@ -44,7 +44,7 @@
       "triggerVoice" : null
     },
     "autoPaste" : {
-      "action" : "{{swResult}}",
+      "action" : "{{swResult||(?s)^thought\n(.*)$||$1}}",
       "actionDelay" : 0,
       "icon" : "•",
       "inputCondition" : "!nextAction",
@@ -92,7 +92,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
-      "triggerVoice" : null
+      "triggerVoice" : "null"
     }
   },
   "scriptsAS" : {

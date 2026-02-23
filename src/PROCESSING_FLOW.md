@@ -454,7 +454,7 @@ Action execution is coordinated through the ActionExecutor which handles all act
 - **Special Cases**:
   - `.autoPaste` hard override: `action="{{swResult}}"`, `inputCondition="!restoreClipboard|!noEsc"`, `noEsc=true`, `restoreClipboard=false`
   - `.none` hard override: `action=""`, `noEsc=true`, `restoreClipboard=false`
-- **Conditional tokens**: `restoreClipboard`, `pressReturn`, `noEsc`, `nextAction`, `moveTo`, `action`, `actionDelay`, `simKeypress` (with optional `!`)
+- **Conditional tokens**: `restoreClipboard`, `noEsc`, `nextAction`, `moveTo`, `action`, `actionDelay` (with optional `!`)
 - **Chain consistency**: Input-field state is sampled once (first insert step) and reused across the whole action chain
 
 ##### 2. URL Actions:
