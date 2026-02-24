@@ -53,6 +53,13 @@ private let appVocabularyBrowserContentRoles: Set<String> = [
     "AXGroup"
 ]
 
+private let axTraversalChildAttributes: [CFString] = [
+    kAXChildrenAttribute as CFString,
+    "AXContents" as CFString,
+    "AXVisibleChildren" as CFString,
+    "AXChildrenInNavigationOrder" as CFString
+]
+
 private enum VocabularySource {
     case appName
     case windowTitle
@@ -117,9 +124,10 @@ func getAppVocabulary() -> String {
         // When focused input content is available, avoid broad window crawling to reduce UI noise.
         if !hasDirectInputContent {
             if isBrowserApp {
-                if let webArea = findFirstElement(withRole: "AXWebArea", from: windowElement, maxDepth: 10, maxNodes: 2200) {
-                    if let parameterizedWebText = extractWebAreaParameterizedText(webArea, maxCharacters: 12000) {
-                        let cleaned = normalizeVocabularySnippet(parameterizedWebText, source: .description)
+                if let webArea = findBestWebArea(from: windowElement, maxDepth: 10, maxNodes: 2200) {
+                    let mergedWebText = buildBrowserWebContentSample(from: webArea, maxCharacters: 12000)
+                    if !mergedWebText.isEmpty {
+                        let cleaned = normalizeVocabularySnippet(mergedWebText, source: .description)
                         if !cleaned.isEmpty {
                             snippets.append(VocabularySnippet(text: cleaned, source: .description))
                         }
@@ -232,9 +240,8 @@ private func collectVocabularySnippets(
             continue
         }
 
-        var childrenValue: CFTypeRef?
-        let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
-        if childrenError == .success, let children = childrenValue as? [AXUIElement], !children.isEmpty {
+        let children = getAXTraversalChildren(of: element)
+        if !children.isEmpty {
             for child in children {
                 queue.append((child, depth + 1))
                 if queue.count >= (maxNodes * 2) {
@@ -257,9 +264,14 @@ private func getAXRole(of element: AXUIElement) -> String? {
 }
 
 func findFirstElement(withRole targetRole: String, from root: AXUIElement, maxDepth: Int, maxNodes: Int) -> AXUIElement? {
+    return findElements(withRole: targetRole, from: root, maxDepth: maxDepth, maxNodes: maxNodes, maxResults: 1).first
+}
+
+func findElements(withRole targetRole: String, from root: AXUIElement, maxDepth: Int, maxNodes: Int, maxResults: Int) -> [AXUIElement] {
     var queue: [(AXUIElement, Int)] = [(root, 0)]
     var index = 0
     var visited = 0
+    var results: [AXUIElement] = []
 
     while index < queue.count, visited < maxNodes {
         let (element, depth) = queue[index]
@@ -267,35 +279,133 @@ func findFirstElement(withRole targetRole: String, from root: AXUIElement, maxDe
         visited += 1
 
         if getAXRole(of: element) == targetRole {
-            return element
+            results.append(element)
+            if results.count >= maxResults {
+                break
+            }
         }
 
         if depth >= maxDepth {
             continue
         }
 
-        var childrenValue: CFTypeRef?
-        let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
-        if childrenError == .success, let children = childrenValue as? [AXUIElement], !children.isEmpty {
+        let children = getAXTraversalChildren(of: element)
+        if !children.isEmpty {
             for child in children {
                 queue.append((child, depth + 1))
             }
         }
     }
 
-    return nil
+    return results
+}
+
+func findBestWebArea(from root: AXUIElement, maxDepth: Int, maxNodes: Int) -> AXUIElement? {
+    let candidates = findElements(withRole: "AXWebArea", from: root, maxDepth: maxDepth, maxNodes: maxNodes, maxResults: 20)
+    guard !candidates.isEmpty else { return nil }
+
+    var bestElement: AXUIElement?
+    var bestScore = Int.min
+
+    for webArea in candidates {
+        let charCount = getAXNumberOfCharacters(webArea) ?? 0
+        var score = charCount
+
+        if score <= 0 {
+            if let parameterizedText = extractWebAreaParameterizedText(webArea, maxCharacters: 1200) {
+                score = max(score, parameterizedText.count)
+            }
+        }
+
+        if score <= 0 {
+            let snippets = collectVocabularySnippets(
+                from: webArea,
+                maxDepth: 4,
+                maxNodes: 260,
+                maxSnippets: 120
+            )
+            let snippetChars = snippets.reduce(0) { partial, snippet in
+                partial + snippet.text.count
+            }
+            score = max(score, snippetChars)
+        }
+
+        if bestElement == nil || score > bestScore {
+            bestElement = webArea
+            bestScore = score
+        }
+    }
+
+    return bestElement ?? candidates.first
+}
+
+func getAXTraversalChildren(of element: AXUIElement) -> [AXUIElement] {
+    var children: [AXUIElement] = []
+    var seen = Set<CFHashCode>()
+
+    for attribute in axTraversalChildAttributes {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
+        guard error == .success, let value = value else { continue }
+
+        if let arrayChildren = value as? [AXUIElement] {
+            for child in arrayChildren {
+                let childHash = CFHash(child)
+                if seen.insert(childHash).inserted {
+                    children.append(child)
+                }
+            }
+        } else if CFGetTypeID(value) == AXUIElementGetTypeID() {
+            let singleChild = unsafeBitCast(value, to: AXUIElement.self)
+            let childHash = CFHash(singleChild)
+            if seen.insert(childHash).inserted {
+                children.append(singleChild)
+            }
+        }
+    }
+
+    return children
 }
 
 func buildBrowserWebContentSample(from webArea: AXUIElement, maxCharacters: Int) -> String {
-    if let parameterizedText = extractWebAreaParameterizedText(webArea, maxCharacters: maxCharacters), !parameterizedText.isEmpty {
-        return parameterizedText
+    var candidateWebAreas: [AXUIElement] = [webArea]
+    let nestedCandidates = findElements(withRole: "AXWebArea", from: webArea, maxDepth: 10, maxNodes: 4000, maxResults: 40)
+    for candidate in nestedCandidates {
+        let hash = CFHash(candidate)
+        let alreadyIncluded = candidateWebAreas.contains { CFHash($0) == hash }
+        if !alreadyIncluded {
+            candidateWebAreas.append(candidate)
+        }
+    }
+    if candidateWebAreas.isEmpty {
+        candidateWebAreas = [webArea]
     }
 
+    var chunks: [String] = []
+    for candidate in candidateWebAreas {
+        if let parameterizedText = extractWebAreaParameterizedText(candidate, maxCharacters: maxCharacters * 2),
+           !parameterizedText.isEmpty {
+            chunks.append(parameterizedText)
+        }
+        if let deepText = collectWebReadableText(from: candidate, maxDepth: 14, maxNodes: 5000, maxCharacters: maxCharacters * 2),
+           !deepText.isEmpty {
+            chunks.append(deepText)
+        }
+    }
+
+    if !chunks.isEmpty {
+        let merged = mergeTextChunks(chunks, maxCharacters: maxCharacters)
+        if !merged.isEmpty {
+            return merged
+        }
+    }
+
+    let contentRoot = findBestWebArea(from: webArea, maxDepth: 8, maxNodes: 2200) ?? webArea
     let snippets = collectVocabularySnippets(
-        from: webArea,
-        maxDepth: 5,
-        maxNodes: 900,
-        maxSnippets: 700
+        from: contentRoot,
+        maxDepth: 12,
+        maxNodes: 3000,
+        maxSnippets: 1800
     )
 
     var seen = Set<String>()
@@ -319,6 +429,117 @@ func buildBrowserWebContentSample(from webArea: AXUIElement, maxCharacters: Int)
     return parts.joined(separator: "\n")
 }
 
+private func mergeTextChunks(_ chunks: [String], maxCharacters: Int) -> String {
+    let ordered = chunks.sorted { $0.count > $1.count }
+    var seen = Set<String>()
+    var parts: [String] = []
+    var currentLength = 0
+
+    for chunk in ordered {
+        let lines = chunk
+            .components(separatedBy: .newlines)
+            .map { line in
+                line
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+            }
+            .filter { !$0.isEmpty }
+
+        for line in lines {
+            guard !seen.contains(line) else { continue }
+            seen.insert(line)
+
+            let separator = parts.isEmpty ? 0 : 1
+            if currentLength + separator + line.count > maxCharacters {
+                return parts.joined(separator: "\n")
+            }
+
+            parts.append(line)
+            currentLength += separator + line.count
+        }
+    }
+
+    return parts.joined(separator: "\n")
+}
+
+private func collectWebReadableText(from root: AXUIElement, maxDepth: Int, maxNodes: Int, maxCharacters: Int) -> String? {
+    let rolePreference: Set<String> = [
+        "AXStaticText",
+        "AXLink",
+        "AXHeading",
+        "AXTextArea",
+        "AXCell",
+        "AXListItem",
+        "AXRow",
+        "AXButton"
+    ]
+    let textAttributes: [CFString] = [
+        kAXValueAttribute as CFString,
+        kAXTitleAttribute as CFString,
+        kAXDescriptionAttribute as CFString,
+        "AXLabel" as CFString
+    ]
+
+    var queue: [(AXUIElement, Int)] = [(root, 0)]
+    var index = 0
+    var visited = 0
+    var pieces: [String] = []
+    var seen = Set<String>()
+    var currentLength = 0
+
+    while index < queue.count && visited < maxNodes && currentLength < maxCharacters {
+        let (element, depth) = queue[index]
+        index += 1
+        visited += 1
+
+        let role = getAXRole(of: element)
+        let shouldExtract = role == nil || rolePreference.contains(role!)
+        if shouldExtract {
+            for attribute in textAttributes {
+                var value: CFTypeRef?
+                let error = AXUIElementCopyAttributeValue(element, attribute, &value)
+                guard error == .success, let value = value else { continue }
+
+                let texts = extractTextValuesFromAXAttribute(value)
+                for text in texts {
+                    let compact = text
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .components(separatedBy: .whitespacesAndNewlines)
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+                    guard !compact.isEmpty else { continue }
+                    guard !seen.contains(compact) else { continue }
+                    seen.insert(compact)
+
+                    let separator = pieces.isEmpty ? 0 : 1
+                    if currentLength + separator + compact.count > maxCharacters {
+                        return pieces.isEmpty ? nil : pieces.joined(separator: "\n")
+                    }
+
+                    pieces.append(compact)
+                    currentLength += separator + compact.count
+                }
+            }
+        }
+
+        if depth < maxDepth {
+            let children = getAXTraversalChildren(of: element)
+            if !children.isEmpty {
+                for child in children {
+                    queue.append((child, depth + 1))
+                    if queue.count >= (maxNodes * 2) {
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    return pieces.isEmpty ? nil : pieces.joined(separator: "\n")
+}
+
 private func extractWebAreaParameterizedText(_ webArea: AXUIElement, maxCharacters: Int) -> String? {
     if let fullRange = getWebAreaCharacterRange(webArea),
        let text = copyParameterizedText(from: webArea, range: fullRange),
@@ -336,14 +557,20 @@ private func extractWebAreaParameterizedText(_ webArea: AXUIElement, maxCharacte
 }
 
 private func getWebAreaCharacterRange(_ webArea: AXUIElement) -> CFRange? {
-    var charactersValue: CFTypeRef?
-    let countError = AXUIElementCopyAttributeValue(webArea, "AXNumberOfCharacters" as CFString, &charactersValue)
-    if countError == .success,
-       let number = charactersValue as? NSNumber {
-        let count = max(0, number.intValue)
-        return CFRange(location: 0, length: count)
+    if let count = getAXNumberOfCharacters(webArea) {
+        return CFRange(location: 0, length: max(0, count))
     }
     return nil
+}
+
+private func getAXNumberOfCharacters(_ element: AXUIElement) -> Int? {
+    var charactersValue: CFTypeRef?
+    let countError = AXUIElementCopyAttributeValue(element, "AXNumberOfCharacters" as CFString, &charactersValue)
+    guard countError == .success,
+          let number = charactersValue as? NSNumber else {
+        return nil
+    }
+    return number.intValue
 }
 
 private func getWebAreaVisibleRange(_ webArea: AXUIElement) -> CFRange? {

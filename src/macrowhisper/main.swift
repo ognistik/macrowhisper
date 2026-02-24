@@ -477,7 +477,7 @@ if args.contains("--debug-ax-tree") {
     logger.setConsoleLogLevel(.info)
     // Quick commands run before config load; force unredacted output for this diagnostic command.
     redactedLogsEnabled = false
-    debugDumpFrontAppAccessibilityTree(maxDepth: 4)
+    debugDumpFrontAppAccessibilityTree(maxDepth: 8)
     exit(0)
 }
 

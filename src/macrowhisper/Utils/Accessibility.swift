@@ -698,7 +698,7 @@ func getAppContext() -> String {
        inputContent == nil,
        focusedWindowError == .success,
        let focusedWindow = focusedWindow,
-       let webArea = findFirstElement(withRole: "AXWebArea", from: focusedWindow as! AXUIElement, maxDepth: 10, maxNodes: 2200) {
+       let webArea = findBestWebArea(from: focusedWindow as! AXUIElement, maxDepth: 10, maxNodes: 2200) {
         let webSample = buildBrowserWebContentSample(from: webArea, maxCharacters: 1500)
         if !webSample.isEmpty {
             contextParts.append("VISIBLE CONTENT SAMPLE:\n\(webSample)")
@@ -810,15 +810,10 @@ private func findArcURLRecursively(_ element: AXUIElement, depth: Int) -> String
         }
     }
     
-    // Check children elements
-    var children: CFTypeRef?
-    let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
-    
-    if childrenError == .success, let children = children, let childrenArray = children as? [AXUIElement] {
-        for child in childrenArray {
-            if let foundURL = findArcURLRecursively(child, depth: depth + 1) {
-                return foundURL
-            }
+    let children = getAXTraversalChildren(of: element)
+    for child in children {
+        if let foundURL = findArcURLRecursively(child, depth: depth + 1) {
+            return foundURL
         }
     }
     
@@ -948,13 +943,9 @@ private func findAddressBarRecursively(_ element: AXUIElement, depth: Int) -> St
         }
     }
     
-    // Check children elements (limit depth for performance)
-    var children: CFTypeRef?
-    let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
-    
-    if childrenError == .success, let children = children, let childrenArray = children as? [AXUIElement] {
-        // Prioritize likely address bar containers (toolbars, etc.)
-        for child in childrenArray {
+    let children = getAXTraversalChildren(of: element)
+    if !children.isEmpty {
+        for child in children {
             if let foundURL = findAddressBarRecursively(child, depth: depth + 1) {
                 return foundURL
             }
@@ -1188,20 +1179,15 @@ private func debugLogAllElements(_ element: AXUIElement, depth: Int, maxDepth: I
         }
     }
     
-    // Process children elements
-    var children: CFTypeRef?
-    let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
-    
-    if childrenError == .success, let children = children, let childrenArray = children as? [AXUIElement] {
-        if !childrenArray.isEmpty {
-            logInfo("\(prefix) \(indent)  Children count: \(childrenArray.count)")
-            for (index, child) in childrenArray.enumerated() {
-                if index < 50 { // Limit children to prevent too much output
-                    debugLogAllElements(child, depth: depth + 1, maxDepth: maxDepth, prefix: prefix)
-                } else {
-                    logInfo("\(prefix) \(indent)  ... (truncated remaining \(childrenArray.count - 50) children)")
-                    break
-                }
+    let children = getAXTraversalChildren(of: element)
+    if !children.isEmpty {
+        logInfo("\(prefix) \(indent)  Traversal children count: \(children.count)")
+        for (index, child) in children.enumerated() {
+            if index < 200 { // Keep logs bounded but avoid hiding large browser subtrees
+                debugLogAllElements(child, depth: depth + 1, maxDepth: maxDepth, prefix: prefix)
+            } else {
+                logInfo("\(prefix) \(indent)  ... (truncated remaining \(children.count - 200) children)")
+                break
             }
         }
     }
@@ -1209,7 +1195,7 @@ private func debugLogAllElements(_ element: AXUIElement, depth: Int, maxDepth: I
 
 /// Dumps focused window/focused element accessibility trees for frontmost app.
 /// Intended for diagnostics when appContext/appVocabulary pick the wrong browser subtree.
-func debugDumpFrontAppAccessibilityTree(maxDepth: Int = 4) {
+func debugDumpFrontAppAccessibilityTree(maxDepth: Int = 8) {
     guard AXIsProcessTrusted() else {
         print("Accessibility permissions are required to dump AX tree.")
         return
@@ -1246,7 +1232,7 @@ func debugDumpFrontAppAccessibilityTree(maxDepth: Int = 4) {
     }
 
     if focusedWindowError == .success, let focusedWindow = focusedWindow {
-        if let webArea = findFirstElement(withRole: "AXWebArea", from: focusedWindow as! AXUIElement, maxDepth: 10, maxNodes: 2200) {
+        if let webArea = findBestWebArea(from: focusedWindow as! AXUIElement, maxDepth: 10, maxNodes: 2200) {
             logInfo("[AXDump] Web area tree start (\(appName))")
             debugLogAllElements(webArea, depth: 0, maxDepth: maxDepth, prefix: "[AXDump][WebArea]")
         } else {
