@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 5,
@@ -95,7 +95,7 @@
       "triggerVoice" : "null"
     },
     "smartClip" : {
-      "action" : "{{appContext||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
+      "action" : "{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
       "actionDelay" : null,
       "icon" : "",
       "inputCondition" : null,

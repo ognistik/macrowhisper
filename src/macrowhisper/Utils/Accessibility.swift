@@ -669,6 +669,7 @@ func getAppContext() -> String {
     
     // Create accessibility element for the application
     let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+    let isBrowserApp = appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? "")
     
     // Active Window (always included)
     var windowTitle = "Unknown"
@@ -693,14 +694,27 @@ func getAppContext() -> String {
         contextParts.append("ACTIVE URL: \(url)")
     }
     
+    let inputContent = getInputFieldContent(appElement: appElement)
+
     // Active Element Content (optional - only if in input field)
-    if let inputContent = getInputFieldContent(appElement: appElement) {
+    if let inputContent = inputContent {
         contextParts.append("ACTIVE ELEMENT CONTENT:\n\(inputContent)")
     }
     
     // Active Element Info (optional - description/label of focused element)
     if let elementDescription = getFocusedElementDescription(appElement: appElement) {
         contextParts.append("ACTIVE ELEMENT INFO: \(elementDescription)")
+    }
+
+    if isBrowserApp,
+       inputContent == nil,
+       focusedWindowError == .success,
+       let focusedWindow = focusedWindow,
+       let webArea = findFirstElement(withRole: "AXWebArea", from: focusedWindow as! AXUIElement, maxDepth: 10, maxNodes: 2200) {
+        let webSample = buildBrowserWebContentSample(from: webArea, maxCharacters: 1500)
+        if !webSample.isEmpty {
+            contextParts.append("VISIBLE CONTENT SAMPLE:\n\(webSample)")
+        }
     }
     
     let result = contextParts.joined(separator: "\n")
@@ -711,7 +725,8 @@ func getAppContext() -> String {
 private let appVocabularyMaxTraversalDepth = 4 //Used in tree crawl
 private let appVocabularyMaxVisitedNodes = 360 //Hard cap on AX elements visited
 private let appVocabularyMaxSnippets = 460 //text chunks/groups
-private let appVocabularyMaxSnippetLength = 220 //snippet length outside .value (non-input fields)
+private let appVocabularyMaxSnippetLength = 320 //snippet length outside .value (non-input fields)
+private let appVocabularyMaxLongTextSnippetLength = 2600 //long descriptive text (titles/descriptions/help)
 private let appVocabularyMaxValueSnippetLength = 4000 //snippet length inside .value (input fields)
 private let appVocabularyMaxOutputTokens = 220 //total output terms after filtering and rules
 
@@ -726,7 +741,10 @@ private let appVocabularyStopWords: Set<String> = [
     "another", "avoid", "both", "but", "even", "funny", "here", "interestingly",
     "just", "keep", "letting", "related", "say", "skip", "sometimes", "subject",
     "think", "use", "what", "writing", "films", "people", "remembering",
-    "identify", "user"
+    "identify", "user",
+    "keyboard", "shortcuts", "navigation", "section", "header", "body", "message", "messages",
+    "press", "select", "group", "cursor", "arrow", "checkboxes", "cheatsheet", "invoke", "virtual",
+    "needed", "learn", "storage", "primary", "reply", "mail", "yahoo", "conversation"
 ]
 
 private let appVocabularyAllowedShortAcronyms: Set<String> = [
@@ -744,6 +762,15 @@ private let appVocabularyBrowserBundleIds: Set<String> = [
     "com.vivaldi.Vivaldi",
     "company.thebrowser.Browser",
     "org.chromium.Chromium"
+]
+
+private let appVocabularyBrowserContentRoles: Set<String> = [
+    "AXWebArea",
+    "AXStaticText",
+    "AXTextArea",
+    "AXLink",
+    "AXHeading",
+    "AXGroup"
 ]
 
 private enum VocabularySource {
@@ -809,13 +836,32 @@ func getAppVocabulary() -> String {
 
         // When focused input content is available, avoid broad window crawling to reduce UI noise.
         if !hasDirectInputContent {
-            let windowSnippets = collectVocabularySnippets(
-                from: windowElement,
-                maxDepth: isBrowserApp ? 5 : appVocabularyMaxTraversalDepth,
-                maxNodes: isBrowserApp ? 560 : appVocabularyMaxVisitedNodes,
-                maxSnippets: isBrowserApp ? 620 : appVocabularyMaxSnippets
-            )
-            snippets.append(contentsOf: windowSnippets)
+            if isBrowserApp {
+                if let webArea = findFirstElement(withRole: "AXWebArea", from: windowElement, maxDepth: 10, maxNodes: 2200) {
+                    if let parameterizedWebText = extractWebAreaParameterizedText(webArea, maxCharacters: 12000) {
+                        let cleaned = normalizeVocabularySnippet(parameterizedWebText, source: .description)
+                        if !cleaned.isEmpty {
+                            snippets.append(VocabularySnippet(text: cleaned, source: .description))
+                        }
+                    }
+
+                    let webSnippets = collectVocabularySnippets(
+                        from: webArea,
+                        maxDepth: 6,
+                        maxNodes: 900,
+                        maxSnippets: 700
+                    )
+                    snippets.append(contentsOf: webSnippets)
+                }
+            } else {
+                let windowSnippets = collectVocabularySnippets(
+                    from: windowElement,
+                    maxDepth: appVocabularyMaxTraversalDepth,
+                    maxNodes: appVocabularyMaxVisitedNodes,
+                    maxSnippets: appVocabularyMaxSnippets
+                )
+                snippets.append(contentsOf: windowSnippets)
+            }
         }
     }
 
@@ -834,16 +880,28 @@ func getAppVocabulary() -> String {
         }
     }
 
+    if let focusedRawText = getFocusedElementRawText(appElement: appElement), !focusedRawText.isEmpty {
+        let cleaned = normalizeVocabularySnippet(focusedRawText, source: .description)
+        if !cleaned.isEmpty {
+            snippets.append(VocabularySnippet(text: cleaned, source: .description))
+        }
+    }
+
     var focusedElement: CFTypeRef?
     let focusedElementError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
     if !hasDirectInputContent, focusedElementError == .success, let focusedElement = focusedElement {
-        let focusedSnippets = collectVocabularySnippets(
-            from: focusedElement as! AXUIElement,
-            maxDepth: isBrowserApp ? 3 : 2,
-            maxNodes: isBrowserApp ? 180 : 90,
-            maxSnippets: isBrowserApp ? 220 : 100
-        )
-        snippets.append(contentsOf: focusedSnippets)
+        let focusedAx = focusedElement as! AXUIElement
+        if isBrowserApp, let role = getAXRole(of: focusedAx), !appVocabularyBrowserContentRoles.contains(role) {
+            // Ignore focused browser chrome widgets when outside input fields.
+        } else {
+            let focusedSnippets = collectVocabularySnippets(
+                from: focusedAx,
+                maxDepth: isBrowserApp ? 3 : 2,
+                maxNodes: isBrowserApp ? 180 : 90,
+                maxSnippets: isBrowserApp ? 220 : 100
+            )
+            snippets.append(contentsOf: focusedSnippets)
+        }
     }
 
     let tokens = extractVocabularyTokens(
@@ -866,7 +924,8 @@ private func collectVocabularySnippets(
     from root: AXUIElement,
     maxDepth: Int,
     maxNodes: Int,
-    maxSnippets: Int
+    maxSnippets: Int,
+    excludedRoles: Set<String> = []
 ) -> [VocabularySnippet] {
     var snippets: [VocabularySnippet] = []
     var queue: [(AXUIElement, Int)] = [(root, 0)]
@@ -878,12 +937,15 @@ private func collectVocabularySnippets(
         index += 1
         visitedCount += 1
 
-        let elementSnippets = getVocabularyTextAttributes(from: element)
-        for snippet in elementSnippets {
-            if snippets.count >= maxSnippets {
-                break
+        let role = getAXRole(of: element)
+        if role == nil || !excludedRoles.contains(role!) {
+            let elementSnippets = getVocabularyTextAttributes(from: element)
+            for snippet in elementSnippets {
+                if snippets.count >= maxSnippets {
+                    break
+                }
+                snippets.append(snippet)
             }
-            snippets.append(snippet)
         }
 
         if depth >= maxDepth {
@@ -905,6 +967,188 @@ private func collectVocabularySnippets(
     return snippets
 }
 
+private func getAXRole(of element: AXUIElement) -> String? {
+    var roleValue: CFTypeRef?
+    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+    guard roleError == .success, let role = roleValue as? String, !role.isEmpty else {
+        return nil
+    }
+    return role
+}
+
+private func findFirstElement(withRole targetRole: String, from root: AXUIElement, maxDepth: Int, maxNodes: Int) -> AXUIElement? {
+    var queue: [(AXUIElement, Int)] = [(root, 0)]
+    var index = 0
+    var visited = 0
+
+    while index < queue.count, visited < maxNodes {
+        let (element, depth) = queue[index]
+        index += 1
+        visited += 1
+
+        if getAXRole(of: element) == targetRole {
+            return element
+        }
+
+        if depth >= maxDepth {
+            continue
+        }
+
+        var childrenValue: CFTypeRef?
+        let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        if childrenError == .success, let children = childrenValue as? [AXUIElement], !children.isEmpty {
+            for child in children {
+                queue.append((child, depth + 1))
+            }
+        }
+    }
+
+    return nil
+}
+
+private func buildBrowserWebContentSample(from webArea: AXUIElement, maxCharacters: Int) -> String {
+    if let parameterizedText = extractWebAreaParameterizedText(webArea, maxCharacters: maxCharacters), !parameterizedText.isEmpty {
+        return parameterizedText
+    }
+
+    let snippets = collectVocabularySnippets(
+        from: webArea,
+        maxDepth: 5,
+        maxNodes: 900,
+        maxSnippets: 700
+    )
+
+    var seen = Set<String>()
+    var parts: [String] = []
+    var currentLength = 0
+
+    for snippet in snippets {
+        let compact = snippet.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard compact.count >= 4 else { continue }
+        guard !seen.contains(compact) else { continue }
+        seen.insert(compact)
+
+        let separator = parts.isEmpty ? 0 : 1
+        if currentLength + separator + compact.count > maxCharacters {
+            break
+        }
+        parts.append(compact)
+        currentLength += separator + compact.count
+    }
+
+    return parts.joined(separator: "\n")
+}
+
+private func extractWebAreaParameterizedText(_ webArea: AXUIElement, maxCharacters: Int) -> String? {
+    if let fullRange = getWebAreaCharacterRange(webArea),
+       let text = copyParameterizedText(from: webArea, range: fullRange),
+       !text.isEmpty {
+        return trimToMaximumCharacters(text, maxCharacters: maxCharacters)
+    }
+
+    if let visibleRange = getWebAreaVisibleRange(webArea),
+       let text = copyParameterizedText(from: webArea, range: visibleRange),
+       !text.isEmpty {
+        return trimToMaximumCharacters(text, maxCharacters: maxCharacters)
+    }
+
+    return nil
+}
+
+private func getWebAreaCharacterRange(_ webArea: AXUIElement) -> CFRange? {
+    var charactersValue: CFTypeRef?
+    let countError = AXUIElementCopyAttributeValue(webArea, "AXNumberOfCharacters" as CFString, &charactersValue)
+    if countError == .success,
+       let number = charactersValue as? NSNumber {
+        let count = max(0, number.intValue)
+        return CFRange(location: 0, length: count)
+    }
+    return nil
+}
+
+private func getWebAreaVisibleRange(_ webArea: AXUIElement) -> CFRange? {
+    var visibleRangeValue: CFTypeRef?
+    let rangeError = AXUIElementCopyAttributeValue(webArea, "AXVisibleCharacterRange" as CFString, &visibleRangeValue)
+    guard rangeError == .success,
+          let visibleRangeValue = visibleRangeValue,
+          CFGetTypeID(visibleRangeValue) == AXValueGetTypeID() else {
+        return nil
+    }
+
+    let axRange = unsafeBitCast(visibleRangeValue, to: AXValue.self)
+    guard AXValueGetType(axRange) == .cfRange else { return nil }
+
+    var range = CFRange(location: 0, length: 0)
+    guard AXValueGetValue(axRange, .cfRange, &range) else {
+        return nil
+    }
+    return range
+}
+
+private func copyParameterizedText(from element: AXUIElement, range: CFRange) -> String? {
+    var mutableRange = range
+    guard let rangeValue = AXValueCreate(.cfRange, &mutableRange) else {
+        return nil
+    }
+
+    var textValue: CFTypeRef?
+    let stringError = AXUIElementCopyParameterizedAttributeValue(element, "AXStringForRange" as CFString, rangeValue, &textValue)
+    if stringError == .success, let text = textValue as? String, !text.isEmpty {
+        return text
+    }
+
+    textValue = nil
+    let attributedError = AXUIElementCopyParameterizedAttributeValue(element, "AXAttributedStringForRange" as CFString, rangeValue, &textValue)
+    if attributedError == .success, let attributed = textValue as? NSAttributedString, !attributed.string.isEmpty {
+        return attributed.string
+    }
+
+    return nil
+}
+
+private func trimToMaximumCharacters(_ text: String, maxCharacters: Int) -> String {
+    let compact = text
+        .components(separatedBy: .whitespacesAndNewlines)
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    guard compact.count > maxCharacters else { return compact }
+    return String(compact.prefix(maxCharacters))
+}
+
+private func getFocusedElementRawText(appElement: AXUIElement) -> String? {
+    var focusedElement: CFTypeRef?
+    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    guard focusedError == .success, let focusedElement = focusedElement else {
+        return nil
+    }
+
+    let element = focusedElement as! AXUIElement
+    let prioritizedAttributes: [CFString] = [
+        kAXDescriptionAttribute as CFString,
+        kAXValueAttribute as CFString,
+        kAXTitleAttribute as CFString,
+        kAXHelpAttribute as CFString
+    ]
+
+    var bestText: String?
+    for attribute in prioritizedAttributes {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
+        guard error == .success, let value = value else { continue }
+
+        let extracted = extractTextValuesFromAXAttribute(value)
+        for candidate in extracted {
+            let cleaned = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard cleaned.count >= 20 else { continue }
+            if bestText == nil || cleaned.count > bestText!.count {
+                bestText = cleaned
+            }
+        }
+    }
+
+    return bestText
+}
+
 private func getVocabularyTextAttributes(from element: AXUIElement) -> [VocabularySnippet] {
     let attributes: [(name: CFString, source: VocabularySource)] = [
         (kAXTitleAttribute as CFString, .title),
@@ -920,19 +1164,15 @@ private func getVocabularyTextAttributes(from element: AXUIElement) -> [Vocabula
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, attribute, &value)
         guard error == .success, let value = value else { continue }
+        let rawTexts = extractTextValuesFromAXAttribute(value)
+        guard !rawTexts.isEmpty else { continue }
 
-        let textValue: String?
-        if let str = value as? String {
-            textValue = str
-        } else if let attributed = value as? NSAttributedString {
-            textValue = attributed.string
-        } else {
-            textValue = nil
-        }
-
-        guard let text = textValue, !text.isEmpty else { continue }
-        let cleaned = normalizeVocabularySnippet(text, source: source)
-        if !cleaned.isEmpty {
+        var seen = Set<String>()
+        for text in rawTexts {
+            let cleaned = normalizeVocabularySnippet(text, source: source)
+            guard !cleaned.isEmpty else { continue }
+            if seen.contains(cleaned) { continue }
+            seen.insert(cleaned)
             snippets.append(VocabularySnippet(text: cleaned, source: source))
         }
     }
@@ -950,11 +1190,90 @@ private func normalizeVocabularySnippet(_ text: String, source: VocabularySource
         .joined(separator: " ")
     guard compact.count > 1 else { return "" }
 
-    let maxLength = (source == .value) ? appVocabularyMaxValueSnippetLength : appVocabularyMaxSnippetLength
+    let maxLength: Int
+    switch source {
+    case .value:
+        maxLength = appVocabularyMaxValueSnippetLength
+    case .description, .title, .help:
+        maxLength = appVocabularyMaxLongTextSnippetLength
+    default:
+        maxLength = appVocabularyMaxSnippetLength
+    }
     if compact.count > maxLength {
         return String(compact.prefix(maxLength))
     }
     return compact
+}
+
+private func extractTextValuesFromAXAttribute(_ value: Any) -> [String] {
+    var results: [String] = []
+    appendTextValues(from: value, into: &results, depth: 0, maxDepth: 4)
+
+    var deduped: [String] = []
+    var seen = Set<String>()
+    for raw in results {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { continue }
+        if seen.contains(cleaned) { continue }
+        seen.insert(cleaned)
+        deduped.append(cleaned)
+    }
+    return deduped
+}
+
+private func appendTextValues(from value: Any, into results: inout [String], depth: Int, maxDepth: Int) {
+    guard depth <= maxDepth else { return }
+
+    if let str = value as? String {
+        results.append(str)
+        return
+    }
+
+    if let attributed = value as? NSAttributedString {
+        results.append(attributed.string)
+        return
+    }
+
+    if value is NSNumber || value is NSNull || value is Bool {
+        return
+    }
+
+    if let array = value as? [Any] {
+        for item in array {
+            appendTextValues(from: item, into: &results, depth: depth + 1, maxDepth: maxDepth)
+        }
+        return
+    }
+
+    if let nsArray = value as? NSArray {
+        for item in nsArray {
+            appendTextValues(from: item, into: &results, depth: depth + 1, maxDepth: maxDepth)
+        }
+        return
+    }
+
+    if let dict = value as? [String: Any] {
+        for dictValue in dict.values {
+            appendTextValues(from: dictValue, into: &results, depth: depth + 1, maxDepth: maxDepth)
+        }
+        return
+    }
+
+    if let nsDict = value as? NSDictionary {
+        for dictValue in nsDict.allValues {
+            appendTextValues(from: dictValue, into: &results, depth: depth + 1, maxDepth: maxDepth)
+        }
+        return
+    }
+
+    if let object = value as? NSObject {
+        let candidateSelectors = ["label", "value", "title", "string", "attributedValue", "attributedString"]
+        for selectorName in candidateSelectors {
+            let selector = NSSelectorFromString(selectorName)
+            guard object.responds(to: selector), let unmanaged = object.perform(selector) else { continue }
+            appendTextValues(from: unmanaged.takeUnretainedValue(), into: &results, depth: depth + 1, maxDepth: maxDepth)
+        }
+    }
 }
 
 private func extractVocabularyTokens(
@@ -1026,7 +1345,7 @@ private func extractVocabularyTokens(
         return $0.token.localizedCaseInsensitiveCompare($1.token) == .orderedAscending
     }
 
-    let minimumScore = isInputFocused ? 3 : (isBrowserApp ? 2 : 3)
+    let minimumScore = 3
     return sorted
         .filter { $0.score >= minimumScore }
         .prefix(maxTokens)
@@ -1067,23 +1386,33 @@ private func shouldKeepVocabularyToken(_ token: String, source: VocabularySource
         return appVocabularyAllowedShortAcronyms.contains(trimmedToken.uppercased())
     }
 
-    if trimmedToken.count <= 4 && trimmedToken == trimmedToken.lowercased() && !looksIdentifierLike(trimmedToken) {
+    // Global strictness: keep only structured identifier-like tokens or title/upper-case terms.
+    if !isPreferredVocabularyToken(token: token, trimmedToken: trimmedToken) {
         return false
     }
 
-    // Lowercase words are usually generic UI prose; allow only for value/description content.
-    if trimmedToken == trimmedToken.lowercased() && !looksIdentifierLike(trimmedToken) {
-        switch source {
-        case .value, .description:
-            if trimmedToken.count < 5 {
-                return false
-            }
-        default:
-            return false
-        }
+    return true
+}
+
+private func isPreferredVocabularyToken(token: String, trimmedToken: String) -> Bool {
+    if token.hasPrefix("--") {
+        return true
     }
 
-    return true
+    if looksIdentifierLike(trimmedToken) {
+        return true
+    }
+
+    if trimmedToken.first?.isUppercase == true {
+        return true
+    }
+
+    let hasLetter = trimmedToken.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+    if hasLetter && trimmedToken == trimmedToken.uppercased() && trimmedToken.count >= 2 {
+        return true
+    }
+
+    return false
 }
 
 private func scoreVocabularyToken(
@@ -1141,6 +1470,14 @@ private func scoreVocabularyToken(
 
     if !isInputFocused && (source == .label || source == .title || source == .placeholder) {
         score -= 2
+    }
+
+    if isBrowserApp && !isInputFocused {
+        if source == .appName {
+            score -= 5
+        } else if source == .windowTitle {
+            score -= 2
+        }
     }
 
     if isBrowserApp && !looksIdentifierLike(token) {
@@ -1829,4 +2166,54 @@ private func debugLogAllElements(_ element: AXUIElement, depth: Int, maxDepth: I
             }
         }
     }
+}
+
+/// Dumps focused window/focused element accessibility trees for frontmost app.
+/// Intended for diagnostics when appContext/appVocabulary pick the wrong browser subtree.
+func debugDumpFrontAppAccessibilityTree(maxDepth: Int = 4) {
+    guard AXIsProcessTrusted() else {
+        print("Accessibility permissions are required to dump AX tree.")
+        return
+    }
+
+    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+        print("No frontmost application found.")
+        return
+    }
+
+    let appName = frontApp.localizedName ?? "Unknown"
+    let bundleId = frontApp.bundleIdentifier ?? "unknown.bundle"
+    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+    print("Dumping AX tree for: \(appName) (\(bundleId)), depth=\(maxDepth)")
+    print("Log file: ~/Library/Logs/Macrowhisper/macrowhisper.log")
+
+    var focusedWindow: CFTypeRef?
+    let focusedWindowError = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+    if focusedWindowError == .success, let focusedWindow = focusedWindow {
+        logInfo("[AXDump] Focused window tree start (\(appName))")
+        debugLogAllElements(focusedWindow as! AXUIElement, depth: 0, maxDepth: maxDepth, prefix: "[AXDump][Window]")
+    } else {
+        logWarning("[AXDump] Failed to get focused window for \(appName), error=\(focusedWindowError.rawValue)")
+    }
+
+    var focusedElement: CFTypeRef?
+    let focusedElementError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    if focusedElementError == .success, let focusedElement = focusedElement {
+        logInfo("[AXDump] Focused element tree start (\(appName))")
+        debugLogAllElements(focusedElement as! AXUIElement, depth: 0, maxDepth: maxDepth, prefix: "[AXDump][Focused]")
+    } else {
+        logWarning("[AXDump] Failed to get focused element for \(appName), error=\(focusedElementError.rawValue)")
+    }
+
+    if focusedWindowError == .success, let focusedWindow = focusedWindow {
+        if let webArea = findFirstElement(withRole: "AXWebArea", from: focusedWindow as! AXUIElement, maxDepth: 10, maxNodes: 2200) {
+            logInfo("[AXDump] Web area tree start (\(appName))")
+            debugLogAllElements(webArea, depth: 0, maxDepth: maxDepth, prefix: "[AXDump][WebArea]")
+        } else {
+            logInfo("[AXDump] No AXWebArea found in focused window (\(appName))")
+        }
+    }
+
+    print("AX dump complete. Share lines with prefix [AXDump] from the log file.")
 }

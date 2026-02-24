@@ -472,6 +472,15 @@ if args.contains("-v") || args.contains("--version") {
     exit(0)
 }
 
+if args.contains("--debug-ax-tree") {
+    suppressConsoleLogging = false
+    logger.setConsoleLogLevel(.info)
+    // Quick commands run before config load; force unredacted output for this diagnostic command.
+    redactedLogsEnabled = false
+    debugDumpFrontAppAccessibilityTree(maxDepth: 4)
+    exit(0)
+}
+
 // Config management commands (work without daemon)
 func applyConfigPathToRunningDaemonIfAvailable(_ normalizedPath: String) -> Bool {
     let socketCommunication = SocketCommunication(socketPath: socketPath)
@@ -1174,7 +1183,7 @@ if args.count > 1 {
         "--reset-config", "--get-config", "--update-config", "--schema-info",
         "--install-service", "--start-service", "--stop-service", "--restart-service", 
         "--uninstall-service", "--service-status", "--test-update-dialog", "--test-version", 
-        "--test-description", "--version-state", "--version-clear"
+        "--test-description", "--version-state", "--version-clear", "--debug-ax-tree"
     ]
     let allValidCommands = validDaemonArgs + validQuickCommands + requireDaemonCommands
     
@@ -1258,6 +1267,7 @@ func printHelp() {
     QUICK COMMANDS (work without running instance):
       -h, --help                    Show this help message
       -v, --version                 Show version information
+      --debug-ax-tree               Dump front app AX tree to logs for diagnostics
       
     CONFIG MANAGEMENT (work without running instance):
       --set-config <path>           Persist config path without starting daemon
