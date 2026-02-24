@@ -1,5 +1,6 @@
 import ApplicationServices
 import Cocoa
+import NaturalLanguage
 
 // Thread-local cache for input field detection results
 private var inputFieldDetectionCache: [String: (result: Bool, timestamp: Date)] = [:]
@@ -707,12 +708,12 @@ func getAppContext() -> String {
     return result
 }
 
-private let appVocabularyMaxTraversalDepth = 3 //Used in tree crawl
-private let appVocabularyMaxVisitedNodes = 220 //Hard cap on AX elements visited
-private let appVocabularyMaxSnippets = 280 //text chunks/groups
+private let appVocabularyMaxTraversalDepth = 4 //Used in tree crawl
+private let appVocabularyMaxVisitedNodes = 360 //Hard cap on AX elements visited
+private let appVocabularyMaxSnippets = 460 //text chunks/groups
 private let appVocabularyMaxSnippetLength = 220 //snippet length outside .value (non-input fields)
 private let appVocabularyMaxValueSnippetLength = 4000 //snippet length inside .value (input fields)
-private let appVocabularyMaxOutputTokens = 140 //total output terms after filtering and rules
+private let appVocabularyMaxOutputTokens = 220 //total output terms after filtering and rules
 
 private let appVocabularyStopWords: Set<String> = [
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "have", "if", "in", "into",
@@ -731,6 +732,18 @@ private let appVocabularyStopWords: Set<String> = [
 private let appVocabularyAllowedShortAcronyms: Set<String> = [
     "AI", "API", "CLI", "CSS", "CSV", "GPT", "HTML", "HTTP", "HTTPS", "ID", "IDS",
     "IP", "JS", "JSON", "LLM", "ML", "OCR", "QA", "SQL", "TS", "UI", "URL", "URLS", "UX", "XML"
+]
+
+private let appVocabularyBrowserBundleIds: Set<String> = [
+    "com.apple.Safari",
+    "com.google.Chrome",
+    "org.mozilla.firefox",
+    "com.microsoft.edgemac",
+    "com.operasoftware.Opera",
+    "com.brave.Browser",
+    "com.vivaldi.Vivaldi",
+    "company.thebrowser.Browser",
+    "org.chromium.Chromium"
 ]
 
 private enum VocabularySource {
@@ -772,6 +785,7 @@ func getAppVocabulary() -> String {
     var snippets: [VocabularySnippet] = []
     let directInputContent = getInputFieldContent(appElement: appElement)
     let hasDirectInputContent = !(directInputContent?.isEmpty ?? true)
+    let isBrowserApp = appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? "")
 
     if let appName = frontApp.localizedName, !appName.isEmpty {
         let cleaned = normalizeVocabularySnippet(appName, source: .appName)
@@ -797,9 +811,9 @@ func getAppVocabulary() -> String {
         if !hasDirectInputContent {
             let windowSnippets = collectVocabularySnippets(
                 from: windowElement,
-                maxDepth: appVocabularyMaxTraversalDepth,
-                maxNodes: appVocabularyMaxVisitedNodes,
-                maxSnippets: appVocabularyMaxSnippets
+                maxDepth: isBrowserApp ? 5 : appVocabularyMaxTraversalDepth,
+                maxNodes: isBrowserApp ? 560 : appVocabularyMaxVisitedNodes,
+                maxSnippets: isBrowserApp ? 620 : appVocabularyMaxSnippets
             )
             snippets.append(contentsOf: windowSnippets)
         }
@@ -825,14 +839,19 @@ func getAppVocabulary() -> String {
     if !hasDirectInputContent, focusedElementError == .success, let focusedElement = focusedElement {
         let focusedSnippets = collectVocabularySnippets(
             from: focusedElement as! AXUIElement,
-            maxDepth: 2,
-            maxNodes: 90,
-            maxSnippets: 100
+            maxDepth: isBrowserApp ? 3 : 2,
+            maxNodes: isBrowserApp ? 180 : 90,
+            maxSnippets: isBrowserApp ? 220 : 100
         )
         snippets.append(contentsOf: focusedSnippets)
     }
 
-    let tokens = extractVocabularyTokens(from: snippets, maxTokens: appVocabularyMaxOutputTokens)
+    let tokens = extractVocabularyTokens(
+        from: snippets,
+        maxTokens: appVocabularyMaxOutputTokens,
+        isInputFocused: hasDirectInputContent,
+        isBrowserApp: isBrowserApp
+    )
     if tokens.isEmpty {
         logDebug("[AppVocabulary] No vocabulary terms extracted")
         return ""
@@ -938,33 +957,65 @@ private func normalizeVocabularySnippet(_ text: String, source: VocabularySource
     return compact
 }
 
-private func extractVocabularyTokens(from snippets: [VocabularySnippet], maxTokens: Int) -> [String] {
+private func extractVocabularyTokens(
+    from snippets: [VocabularySnippet],
+    maxTokens: Int,
+    isInputFocused: Bool,
+    isBrowserApp: Bool
+) -> [String] {
     let tokenRegex = try? NSRegularExpression(pattern: "\\b[\\p{L}_][\\p{L}\\p{N}_]{1,}\\b", options: [])
+    let identifierRegex = try? NSRegularExpression(
+        pattern: "(?<![\\p{L}\\p{N}_-])(?:--)?[\\p{L}_][\\p{L}\\p{N}_-]{1,}(?:\\.[\\p{L}\\p{N}_-]+)*(?![\\p{L}\\p{N}_-])",
+        options: []
+    )
+    let nlTokenBonuses = buildNaturalLanguageTokenBonuses(from: snippets)
     var candidates: [String: VocabularyCandidate] = [:]
 
     for snippet in snippets {
-        guard let tokenRegex = tokenRegex else { break }
         let range = NSRange(snippet.text.startIndex..., in: snippet.text)
-        let matches = tokenRegex.matches(in: snippet.text, options: [], range: range)
+        var processedRanges = Set<String>()
 
-        for match in matches {
-            guard let tokenRange = Range(match.range, in: snippet.text) else { continue }
-            let token = String(snippet.text[tokenRange])
-            guard shouldKeepVocabularyToken(token, source: snippet.source) else { continue }
-            let isSentenceStart = isLikelySentenceStartToken(in: snippet.text, matchRange: match.range)
+        if let tokenRegex = tokenRegex {
+            let matches = tokenRegex.matches(in: snippet.text, options: [], range: range)
+            for match in matches {
+                let rangeKey = "\(match.range.location):\(match.range.length)"
+                if processedRanges.contains(rangeKey) { continue }
+                processedRanges.insert(rangeKey)
+                guard let tokenRange = Range(match.range, in: snippet.text) else { continue }
+                let token = String(snippet.text[tokenRange])
+                guard shouldKeepVocabularyToken(token, source: snippet.source) else { continue }
+                let isSentenceStart = isLikelySentenceStartToken(in: snippet.text, matchRange: match.range)
+                let tokenScore = scoreVocabularyToken(
+                    token,
+                    source: snippet.source,
+                    isSentenceStart: isSentenceStart,
+                    isInputFocused: isInputFocused,
+                    isBrowserApp: isBrowserApp,
+                    nlBonus: nlTokenBonuses[token.lowercased()] ?? 0
+                )
+                upsertVocabularyCandidate(token: token, score: tokenScore, candidates: &candidates)
+            }
+        }
 
-            let key = token.lowercased()
-            let tokenScore = scoreVocabularyToken(token, source: snippet.source, isSentenceStart: isSentenceStart)
-
-            if var existing = candidates[key] {
-                existing.count += 1
-                if tokenScore > existing.score {
-                    existing.score = tokenScore
-                    existing.token = token
-                }
-                candidates[key] = existing
-            } else {
-                candidates[key] = VocabularyCandidate(token: token, score: tokenScore, count: 1)
+        if let identifierRegex = identifierRegex {
+            let matches = identifierRegex.matches(in: snippet.text, options: [], range: range)
+            for match in matches {
+                let rangeKey = "\(match.range.location):\(match.range.length)"
+                if processedRanges.contains(rangeKey) { continue }
+                processedRanges.insert(rangeKey)
+                guard let tokenRange = Range(match.range, in: snippet.text) else { continue }
+                let token = String(snippet.text[tokenRange])
+                guard shouldKeepVocabularyToken(token, source: snippet.source) else { continue }
+                let isSentenceStart = isLikelySentenceStartToken(in: snippet.text, matchRange: match.range)
+                let tokenScore = scoreVocabularyToken(
+                    token,
+                    source: snippet.source,
+                    isSentenceStart: isSentenceStart,
+                    isInputFocused: isInputFocused,
+                    isBrowserApp: isBrowserApp,
+                    nlBonus: nlTokenBonuses[token.lowercased()] ?? 0
+                )
+                upsertVocabularyCandidate(token: token, score: tokenScore, candidates: &candidates)
             }
         }
     }
@@ -975,8 +1026,9 @@ private func extractVocabularyTokens(from snippets: [VocabularySnippet], maxToke
         return $0.token.localizedCaseInsensitiveCompare($1.token) == .orderedAscending
     }
 
+    let minimumScore = isInputFocused ? 3 : (isBrowserApp ? 2 : 3)
     return sorted
-        .filter { $0.score >= 3 }
+        .filter { $0.score >= minimumScore }
         .prefix(maxTokens)
         .map { $0.token }
 }
@@ -986,7 +1038,10 @@ private func shouldKeepVocabularyToken(_ token: String, source: VocabularySource
         return false
     }
 
-    let lowercase = token.lowercased()
+    let trimmedToken = token.hasPrefix("--") ? String(token.dropFirst(2)) : token
+    guard trimmedToken.count >= 2 else { return false }
+
+    let lowercase = trimmedToken.lowercased()
     if appVocabularyStopWords.contains(lowercase) {
         return false
     }
@@ -999,28 +1054,28 @@ private func shouldKeepVocabularyToken(_ token: String, source: VocabularySource
         return false
     }
 
-    if token.unicodeScalars.allSatisfy({ CharacterSet.decimalDigits.contains($0) }) {
+    if trimmedToken.unicodeScalars.allSatisfy({ CharacterSet.decimalDigits.contains($0) }) {
         return false
     }
 
-    if isLikelyInternalUIToken(token) {
+    if isLikelyInternalUIToken(trimmedToken) {
         return false
     }
 
     // Keep short tokens only when they match useful acronyms.
-    if token.count <= 2 {
-        return appVocabularyAllowedShortAcronyms.contains(token.uppercased())
+    if trimmedToken.count <= 2 {
+        return appVocabularyAllowedShortAcronyms.contains(trimmedToken.uppercased())
     }
 
-    if token.count <= 4 && token == token.lowercased() && !looksIdentifierLike(token) {
+    if trimmedToken.count <= 4 && trimmedToken == trimmedToken.lowercased() && !looksIdentifierLike(trimmedToken) {
         return false
     }
 
     // Lowercase words are usually generic UI prose; allow only for value/description content.
-    if token == token.lowercased() && !looksIdentifierLike(token) {
+    if trimmedToken == trimmedToken.lowercased() && !looksIdentifierLike(trimmedToken) {
         switch source {
         case .value, .description:
-            if token.count < 5 {
+            if trimmedToken.count < 5 {
                 return false
             }
         default:
@@ -1031,7 +1086,14 @@ private func shouldKeepVocabularyToken(_ token: String, source: VocabularySource
     return true
 }
 
-private func scoreVocabularyToken(_ token: String, source: VocabularySource, isSentenceStart: Bool) -> Int {
+private func scoreVocabularyToken(
+    _ token: String,
+    source: VocabularySource,
+    isSentenceStart: Bool,
+    isInputFocused: Bool,
+    isBrowserApp: Bool,
+    nlBonus: Int
+) -> Int {
     var score = baseScore(for: source)
 
     if token.first?.isUppercase == true {
@@ -1056,6 +1118,14 @@ private func scoreVocabularyToken(_ token: String, source: VocabularySource, isS
         score += 2
     }
 
+    if token.hasPrefix("--") {
+        score += 4
+    }
+
+    if token.contains("-") {
+        score += 2
+    }
+
     if token == token.lowercased() && token.count > 3 {
         if source == .value || source == .description {
             score -= 1
@@ -1069,24 +1139,38 @@ private func scoreVocabularyToken(_ token: String, source: VocabularySource, isS
         score -= 2
     }
 
+    if !isInputFocused && (source == .label || source == .title || source == .placeholder) {
+        score -= 2
+    }
+
+    if isBrowserApp && !looksIdentifierLike(token) {
+        score += nlBonus
+    } else {
+        score += (nlBonus / 2)
+    }
+
     return score
 }
 
 private func baseScore(for source: VocabularySource) -> Int {
     switch source {
     case .appName: return 8
-    case .windowTitle: return 7
-    case .title: return 6
-    case .label: return 6
-    case .placeholder: return 4
-    case .description: return 3
+    case .windowTitle: return 6
+    case .title: return 4
+    case .label: return 4
+    case .placeholder: return 3
+    case .description: return 4
     case .help: return 2
-    case .value: return 2
+    case .value: return 5
     }
 }
 
 private func looksIdentifierLike(_ token: String) -> Bool {
     if token.contains("_") {
+        return true
+    }
+
+    if token.contains("-") {
         return true
     }
 
@@ -1103,6 +1187,61 @@ private func looksIdentifierLike(_ token: String) -> Bool {
     }
 
     return false
+}
+
+private func upsertVocabularyCandidate(token: String, score: Int, candidates: inout [String: VocabularyCandidate]) {
+    let key = token.lowercased()
+    if var existing = candidates[key] {
+        existing.count += 1
+        if score > existing.score {
+            existing.score = score
+            existing.token = token
+        }
+        candidates[key] = existing
+    } else {
+        candidates[key] = VocabularyCandidate(token: token, score: score, count: 1)
+    }
+}
+
+private func buildNaturalLanguageTokenBonuses(from snippets: [VocabularySnippet]) -> [String: Int] {
+    var bonuses: [String: Int] = [:]
+
+    for snippet in snippets {
+        guard !snippet.text.isEmpty else { continue }
+        let text = snippet.text
+        let fullRange = text.startIndex..<text.endIndex
+
+        let lexicalTagger = NLTagger(tagSchemes: [.lexicalClass])
+        lexicalTagger.string = text
+        lexicalTagger.enumerateTags(in: fullRange, unit: .word, scheme: .lexicalClass, options: [.omitPunctuation, .omitWhitespace, .joinNames]) { tag, range in
+            guard let tag = tag else { return true }
+            if tag == .noun {
+                let token = String(text[range])
+                addNaturalLanguageBonus(for: token, amount: 2, bonuses: &bonuses)
+            }
+            return true
+        }
+
+        let nameTagger = NLTagger(tagSchemes: [.nameType])
+        nameTagger.string = text
+        nameTagger.enumerateTags(in: fullRange, unit: .word, scheme: .nameType, options: [.omitPunctuation, .omitWhitespace, .joinNames]) { tag, range in
+            guard let tag = tag else { return true }
+            if tag == .personalName || tag == .placeName || tag == .organizationName {
+                let token = String(text[range])
+                addNaturalLanguageBonus(for: token, amount: 4, bonuses: &bonuses)
+            }
+            return true
+        }
+    }
+
+    return bonuses
+}
+
+private func addNaturalLanguageBonus(for token: String, amount: Int, bonuses: inout [String: Int]) {
+    let normalized = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`.,:;!?()[]{}<>"))
+    guard normalized.count >= 2 else { return }
+    let key = normalized.lowercased()
+    bonuses[key, default: 0] += amount
 }
 
 private func hasMixedCaps(_ token: String) -> Bool {
@@ -1497,8 +1636,27 @@ private func getInputFieldContent(appElement: AXUIElement) -> String? {
     }
     
     // Check for input field roles
-    let inputRoles = ["AXTextField", "AXTextArea", "AXSearchField"]
-    guard inputRoles.contains(roleString) else {
+    let inputRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
+    var isInputLike = inputRoles.contains(roleString)
+
+    if !isInputLike {
+        var subrole: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole) == .success,
+           let subroleString = subrole as? String {
+            let inputSubroles = ["AXSearchField", "AXSecureTextField", "AXTextInput"]
+            isInputLike = inputSubroles.contains(subroleString)
+        }
+    }
+
+    if !isInputLike {
+        var editableValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, "AXEditable" as CFString, &editableValue) == .success,
+           let isEditable = editableValue as? Bool {
+            isInputLike = isEditable
+        }
+    }
+
+    guard isInputLike else {
         return nil
     }
     
