@@ -69,6 +69,7 @@ swift build
 - `{{selectedText}}` - Text selected when recording starts (early capture)
 - `{{clipboardContext}}` - Last clipboard change during recording session (supports stacking)
 - `{{appContext}}` - Structured app context (captured on-demand)
+- `{{appVocabulary}}` - Names/terms/identifiers from front app accessibility content (captured on-demand)
 
 **Usage Examples:**
 - `{{selectedText}}` - Gets selected text with action-type escaping
@@ -77,6 +78,7 @@ swift build
 - `{{selectedText||\\n||newline}}` - Gets selected text and replaces newlines
 - `{{clipboardContext}}` - Last clipboard content during recording
 - `{{appContext}}` - Structured app context (app name, window, URL, input content)
+- `{{appVocabulary}}` - Comma-separated app vocabulary terms (names, nouns, identifiers)
 
 #### Implementation Notes:
 - **selectedText**: Captured immediately when recording folder appears (if text is selected)
@@ -85,6 +87,7 @@ swift build
   - **Single change**: Returns content without XML tags (maintains current behavior)
   - **Multiple changes**: Returns all changes with XML tags (`<clipboard_context_1>`, `<clipboard_context_2>`, etc.)
 - **appContext**: Only captured when placeholder is used in action (performance optimization)
+- **appVocabulary**: Only captured when placeholder is used in action; uses bounded accessibility traversal
 
 #### Example: Adding Session-Based Placeholder
 ```swift

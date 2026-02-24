@@ -518,6 +518,23 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
+
+            // Handle appVocabulary (captured lazily at placeholder time from front app accessibility content)
+            else if key == "appVocabulary" {
+                var value = getAppVocabulary().trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+
+                    // Apply final escaping after all regex replacements are complete
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
             
             // Handle clipboardContext (from clipboard monitoring session or global history for CLI)
             else if key == "clipboardContext" {

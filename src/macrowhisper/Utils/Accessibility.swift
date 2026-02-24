@@ -707,6 +707,454 @@ func getAppContext() -> String {
     return result
 }
 
+private let appVocabularyMaxTraversalDepth = 3 //Used in tree crawl
+private let appVocabularyMaxVisitedNodes = 220 //Hard cap on AX elements visited
+private let appVocabularyMaxSnippets = 280 //text chunks/groups
+private let appVocabularyMaxSnippetLength = 220 //snippet length outside .value (non-input fields)
+private let appVocabularyMaxValueSnippetLength = 4000 //snippet length inside .value (input fields)
+private let appVocabularyMaxOutputTokens = 140 //total output terms after filtering and rules
+
+private let appVocabularyStopWords: Set<String> = [
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "have", "if", "in", "into",
+    "is", "it", "its", "of", "on", "or", "that", "the", "their", "then", "there", "these", "this", "to",
+    "was", "were", "will", "with", "you", "your", "not", "all", "any", "can", "do", "does", "done", "new",
+    "open", "close", "copy", "paste", "edit", "view", "help", "file", "window", "tab", "menu", "button",
+    "label", "title", "description", "placeholder", "search",
+    "action", "also", "formatting", "text", "notes", "lock", "zoom",
+    "day", "one", "entry", "time", "content", "filter", "side", "tags", "toggle", "progress",
+    "another", "avoid", "both", "but", "even", "funny", "here", "interestingly",
+    "just", "keep", "letting", "related", "say", "skip", "sometimes", "subject",
+    "think", "use", "what", "writing", "films", "people", "remembering",
+    "identify", "user"
+]
+
+private let appVocabularyAllowedShortAcronyms: Set<String> = [
+    "AI", "API", "CLI", "CSS", "CSV", "GPT", "HTML", "HTTP", "HTTPS", "ID", "IDS",
+    "IP", "JS", "JSON", "LLM", "ML", "OCR", "QA", "SQL", "TS", "UI", "URL", "URLS", "UX", "XML"
+]
+
+private enum VocabularySource {
+    case appName
+    case windowTitle
+    case title
+    case label
+    case placeholder
+    case description
+    case help
+    case value
+}
+
+private struct VocabularySnippet {
+    let text: String
+    let source: VocabularySource
+}
+
+private struct VocabularyCandidate {
+    var token: String
+    var score: Int
+    var count: Int
+}
+
+/// Extracts vocabulary-like terms (names, nouns, identifiers) from the frontmost app lazily at execution time.
+/// Output is a comma-separated list suitable for prompt placeholders.
+func getAppVocabulary() -> String {
+    guard AXIsProcessTrusted() else {
+        logDebug("[AppVocabulary] No accessibility permissions, cannot get app vocabulary")
+        return ""
+    }
+
+    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+        logDebug("[AppVocabulary] No frontmost application found")
+        return ""
+    }
+
+    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+    var snippets: [VocabularySnippet] = []
+    let directInputContent = getInputFieldContent(appElement: appElement)
+    let hasDirectInputContent = !(directInputContent?.isEmpty ?? true)
+
+    if let appName = frontApp.localizedName, !appName.isEmpty {
+        let cleaned = normalizeVocabularySnippet(appName, source: .appName)
+        if !cleaned.isEmpty {
+            snippets.append(VocabularySnippet(text: cleaned, source: .appName))
+        }
+    }
+
+    var focusedWindow: CFTypeRef?
+    let focusedWindowError = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+    if focusedWindowError == .success, let focusedWindow = focusedWindow {
+        let windowElement = focusedWindow as! AXUIElement
+        var windowTitleValue: CFTypeRef?
+        let windowTitleError = AXUIElementCopyAttributeValue(windowElement, kAXTitleAttribute as CFString, &windowTitleValue)
+        if windowTitleError == .success, let title = windowTitleValue as? String, !title.isEmpty {
+            let cleaned = normalizeVocabularySnippet(title, source: .windowTitle)
+            if !cleaned.isEmpty {
+                snippets.append(VocabularySnippet(text: cleaned, source: .windowTitle))
+            }
+        }
+
+        // When focused input content is available, avoid broad window crawling to reduce UI noise.
+        if !hasDirectInputContent {
+            let windowSnippets = collectVocabularySnippets(
+                from: windowElement,
+                maxDepth: appVocabularyMaxTraversalDepth,
+                maxNodes: appVocabularyMaxVisitedNodes,
+                maxSnippets: appVocabularyMaxSnippets
+            )
+            snippets.append(contentsOf: windowSnippets)
+        }
+    }
+
+    // Use the same focused-element data paths as appContext for better reliability in input-field workflows.
+    if let inputContent = directInputContent, !inputContent.isEmpty {
+        let cleaned = normalizeVocabularySnippet(inputContent, source: .value)
+        if !cleaned.isEmpty {
+            snippets.append(VocabularySnippet(text: cleaned, source: .value))
+        }
+    }
+
+    if let elementDescription = getFocusedElementDescription(appElement: appElement), !elementDescription.isEmpty {
+        let cleaned = normalizeVocabularySnippet(elementDescription, source: .description)
+        if !cleaned.isEmpty {
+            snippets.append(VocabularySnippet(text: cleaned, source: .description))
+        }
+    }
+
+    var focusedElement: CFTypeRef?
+    let focusedElementError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+    if !hasDirectInputContent, focusedElementError == .success, let focusedElement = focusedElement {
+        let focusedSnippets = collectVocabularySnippets(
+            from: focusedElement as! AXUIElement,
+            maxDepth: 2,
+            maxNodes: 90,
+            maxSnippets: 100
+        )
+        snippets.append(contentsOf: focusedSnippets)
+    }
+
+    let tokens = extractVocabularyTokens(from: snippets, maxTokens: appVocabularyMaxOutputTokens)
+    if tokens.isEmpty {
+        logDebug("[AppVocabulary] No vocabulary terms extracted")
+        return ""
+    }
+
+    let result = tokens.joined(separator: ", ")
+    logDebug("[AppVocabulary] Extracted \(tokens.count) vocabulary terms")
+    return result
+}
+
+private func collectVocabularySnippets(
+    from root: AXUIElement,
+    maxDepth: Int,
+    maxNodes: Int,
+    maxSnippets: Int
+) -> [VocabularySnippet] {
+    var snippets: [VocabularySnippet] = []
+    var queue: [(AXUIElement, Int)] = [(root, 0)]
+    var index = 0
+    var visitedCount = 0
+
+    while index < queue.count && visitedCount < maxNodes && snippets.count < maxSnippets {
+        let (element, depth) = queue[index]
+        index += 1
+        visitedCount += 1
+
+        let elementSnippets = getVocabularyTextAttributes(from: element)
+        for snippet in elementSnippets {
+            if snippets.count >= maxSnippets {
+                break
+            }
+            snippets.append(snippet)
+        }
+
+        if depth >= maxDepth {
+            continue
+        }
+
+        var childrenValue: CFTypeRef?
+        let childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        if childrenError == .success, let children = childrenValue as? [AXUIElement], !children.isEmpty {
+            for child in children {
+                queue.append((child, depth + 1))
+                if queue.count >= (maxNodes * 2) {
+                    break
+                }
+            }
+        }
+    }
+
+    return snippets
+}
+
+private func getVocabularyTextAttributes(from element: AXUIElement) -> [VocabularySnippet] {
+    let attributes: [(name: CFString, source: VocabularySource)] = [
+        (kAXTitleAttribute as CFString, .title),
+        ("AXLabel" as CFString, .label),
+        (kAXDescriptionAttribute as CFString, .description),
+        (kAXHelpAttribute as CFString, .help),
+        ("AXPlaceholderValue" as CFString, .placeholder),
+        (kAXValueAttribute as CFString, .value)
+    ]
+
+    var snippets: [VocabularySnippet] = []
+    for (attribute, source) in attributes {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
+        guard error == .success, let value = value else { continue }
+
+        let textValue: String?
+        if let str = value as? String {
+            textValue = str
+        } else if let attributed = value as? NSAttributedString {
+            textValue = attributed.string
+        } else {
+            textValue = nil
+        }
+
+        guard let text = textValue, !text.isEmpty else { continue }
+        let cleaned = normalizeVocabularySnippet(text, source: source)
+        if !cleaned.isEmpty {
+            snippets.append(VocabularySnippet(text: cleaned, source: source))
+        }
+    }
+
+    return snippets
+}
+
+private func normalizeVocabularySnippet(_ text: String, source: VocabularySource) -> String {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "" }
+
+    let compact = trimmed
+        .components(separatedBy: .whitespacesAndNewlines)
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    guard compact.count > 1 else { return "" }
+
+    let maxLength = (source == .value) ? appVocabularyMaxValueSnippetLength : appVocabularyMaxSnippetLength
+    if compact.count > maxLength {
+        return String(compact.prefix(maxLength))
+    }
+    return compact
+}
+
+private func extractVocabularyTokens(from snippets: [VocabularySnippet], maxTokens: Int) -> [String] {
+    let tokenRegex = try? NSRegularExpression(pattern: "\\b[\\p{L}_][\\p{L}\\p{N}_]{1,}\\b", options: [])
+    var candidates: [String: VocabularyCandidate] = [:]
+
+    for snippet in snippets {
+        guard let tokenRegex = tokenRegex else { break }
+        let range = NSRange(snippet.text.startIndex..., in: snippet.text)
+        let matches = tokenRegex.matches(in: snippet.text, options: [], range: range)
+
+        for match in matches {
+            guard let tokenRange = Range(match.range, in: snippet.text) else { continue }
+            let token = String(snippet.text[tokenRange])
+            guard shouldKeepVocabularyToken(token, source: snippet.source) else { continue }
+            let isSentenceStart = isLikelySentenceStartToken(in: snippet.text, matchRange: match.range)
+
+            let key = token.lowercased()
+            let tokenScore = scoreVocabularyToken(token, source: snippet.source, isSentenceStart: isSentenceStart)
+
+            if var existing = candidates[key] {
+                existing.count += 1
+                if tokenScore > existing.score {
+                    existing.score = tokenScore
+                    existing.token = token
+                }
+                candidates[key] = existing
+            } else {
+                candidates[key] = VocabularyCandidate(token: token, score: tokenScore, count: 1)
+            }
+        }
+    }
+
+    let sorted = candidates.values.sorted {
+        if $0.score != $1.score { return $0.score > $1.score }
+        if $0.count != $1.count { return $0.count > $1.count }
+        return $0.token.localizedCaseInsensitiveCompare($1.token) == .orderedAscending
+    }
+
+    return sorted
+        .filter { $0.score >= 3 }
+        .prefix(maxTokens)
+        .map { $0.token }
+}
+
+private func shouldKeepVocabularyToken(_ token: String, source: VocabularySource) -> Bool {
+    if token.count < 2 {
+        return false
+    }
+
+    let lowercase = token.lowercased()
+    if appVocabularyStopWords.contains(lowercase) {
+        return false
+    }
+
+    if lowercase.hasPrefix("ax") {
+        return false
+    }
+
+    if lowercase.hasPrefix("http") || lowercase.hasPrefix("www") {
+        return false
+    }
+
+    if token.unicodeScalars.allSatisfy({ CharacterSet.decimalDigits.contains($0) }) {
+        return false
+    }
+
+    if isLikelyInternalUIToken(token) {
+        return false
+    }
+
+    // Keep short tokens only when they match useful acronyms.
+    if token.count <= 2 {
+        return appVocabularyAllowedShortAcronyms.contains(token.uppercased())
+    }
+
+    if token.count <= 4 && token == token.lowercased() && !looksIdentifierLike(token) {
+        return false
+    }
+
+    // Lowercase words are usually generic UI prose; allow only for value/description content.
+    if token == token.lowercased() && !looksIdentifierLike(token) {
+        switch source {
+        case .value, .description:
+            if token.count < 5 {
+                return false
+            }
+        default:
+            return false
+        }
+    }
+
+    return true
+}
+
+private func scoreVocabularyToken(_ token: String, source: VocabularySource, isSentenceStart: Bool) -> Int {
+    var score = baseScore(for: source)
+
+    if token.first?.isUppercase == true {
+        score += 2
+    } else {
+        if source == .value || source == .description {
+            score += 0
+        } else {
+            score -= 2
+        }
+    }
+
+    if looksIdentifierLike(token) {
+        score += 5
+    }
+
+    if hasMixedCaps(token) {
+        score += 3
+    }
+
+    if token == token.uppercased(), token.count <= 8 {
+        score += 2
+    }
+
+    if token == token.lowercased() && token.count > 3 {
+        if source == .value || source == .description {
+            score -= 1
+        } else {
+            score -= 3
+        }
+    }
+
+    // Strongly suppress sentence-initial prose words from focused field content.
+    if source == .value && isSentenceStart && !looksIdentifierLike(token) {
+        score -= 2
+    }
+
+    return score
+}
+
+private func baseScore(for source: VocabularySource) -> Int {
+    switch source {
+    case .appName: return 8
+    case .windowTitle: return 7
+    case .title: return 6
+    case .label: return 6
+    case .placeholder: return 4
+    case .description: return 3
+    case .help: return 2
+    case .value: return 2
+    }
+}
+
+private func looksIdentifierLike(_ token: String) -> Bool {
+    if token.contains("_") {
+        return true
+    }
+
+    let hasUppercase = token.contains { $0.isUppercase }
+    let hasLowercase = token.contains { $0.isLowercase }
+    if hasUppercase && hasLowercase {
+        return true // camelCase / PascalCase
+    }
+
+    let hasLetter = token.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+    let hasDigit = token.unicodeScalars.contains { CharacterSet.decimalDigits.contains($0) }
+    if hasLetter && hasDigit {
+        return true
+    }
+
+    return false
+}
+
+private func hasMixedCaps(_ token: String) -> Bool {
+    let hasUppercase = token.contains { $0.isUppercase }
+    let hasLowercase = token.contains { $0.isLowercase }
+    return hasUppercase && hasLowercase
+}
+
+private func isLikelySentenceStartToken(in text: String, matchRange: NSRange) -> Bool {
+    if matchRange.location == 0 {
+        return true
+    }
+
+    let nsText = text as NSString
+    var index = matchRange.location - 1
+
+    while index >= 0 {
+        let previous = nsText.substring(with: NSRange(location: index, length: 1))
+        if previous.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            index -= 1
+            continue
+        }
+
+        return previous == "." || previous == "!" || previous == "?" || previous == "\n" || previous == ":" || previous == ";"
+    }
+
+    return true
+}
+
+private func isLikelyInternalUIToken(_ token: String) -> Bool {
+    if token.hasPrefix("_") {
+        return true
+    }
+
+    let internalPrefixes = ["NS", "SF", "AX", "UI", "WK", "CG", "CF", "MTK"]
+    for prefix in internalPrefixes where token.hasPrefix(prefix) && token.count > prefix.count + 3 {
+        if token.contains(where: { $0.isUppercase }) {
+            return true
+        }
+    }
+
+    let internalSuffixes = [
+        "View", "Window", "Controller", "Editor", "Split", "Scroll", "Cell",
+        "Button", "Field", "Toolbar", "Outline", "Table", "Collection", "Detached"
+    ]
+    for suffix in internalSuffixes where token.hasSuffix(suffix) {
+        return true
+    }
+
+    return false
+}
+
 /// Gets the current URL from browser applications
 private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplication) -> String? {
     // Check if this is a known browser application

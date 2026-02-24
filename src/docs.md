@@ -969,6 +969,7 @@ For each action payload:
 - `{{selectedText}}`
 - `{{clipboardContext}}`
 - `{{appContext}}`
+- `{{appVocabulary}}`
 
 Detailed timing is covered in Section 12.
 
@@ -1067,12 +1068,18 @@ Stacking output format for multiple items:
 - captured at action execution time
 - captures richer app/window/text-field context
 
-## 12.4 `{{frontApp}}`
+## 12.4 `{{appVocabulary}}`
+
+- captured at action execution time (lazy, only when placeholder is present)
+- extracts comma-separated terms from front app accessibility text (window/focused elements)
+- tuned for names/identifiers/noun-like tokens with bounded traversal for low overhead
+
+## 12.5 `{{frontApp}}`
 
 - sourced from pre-captured front app state during processing when that value is present
 - fallback fetch at placeholder time if missing
 
-## 12.5 Capture protections
+## 12.6 Capture protections
 
 Clipboard system includes protections to reduce contamination between runs:
 
