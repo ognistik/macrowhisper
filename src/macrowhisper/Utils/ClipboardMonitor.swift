@@ -45,10 +45,13 @@ class ClipboardMonitor {
     
     private var globalClipboardHistory: [ClipboardChange] = []
     private let globalHistoryQueue = DispatchQueue(label: "ClipboardMonitor.globalHistory", attributes: .concurrent)
+    private let cliSuppressionQueue = DispatchQueue(label: "ClipboardMonitor.cliSuppression")
     private var globalMonitoringTimer: Timer?
     private var isFirstGlobalCheck = true // Track if this is the first clipboard check
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
     private var lastSeenChangeCount: Int = 0 // Track NSPasteboard changeCount for more reliable detection
+    private var suppressedCliClipboardContent: String?
+    private var suppressedCliClipboardUntil: Date = .distantPast
     
     // Early monitoring state for recording sessions - made thread-safe with bounds management
     private var earlyMonitoringSessions: [String: EarlyMonitoringSession] = [:]
@@ -350,6 +353,77 @@ class ClipboardMonitor {
             return result.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
+
+    /// Gets selected text from the most recent active recording session for CLI usage.
+    /// Returns empty string when no active session exists or no selection was captured.
+    func getActiveSessionSelectedText() -> String {
+        var selectedText = ""
+        sessionsQueue.sync {
+            let activeSession = earlyMonitoringSessions.values
+                .filter { $0.isActive }
+                .max(by: { $0.startTime < $1.startTime })
+            selectedText = activeSession?.selectedText ?? ""
+        }
+        return selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Gets clipboard context from the most recent active recording session for CLI usage.
+    /// This intentionally does not depend on meta.json and reflects session state at call-time.
+    func getActiveSessionClipboardContentWithStacking(enableStacking: Bool) -> String {
+        var session: EarlyMonitoringSession?
+        sessionsQueue.sync {
+            session = earlyMonitoringSessions.values
+                .filter { $0.isActive }
+                .max(by: { $0.startTime < $1.startTime })
+        }
+
+        guard let activeSession = session else {
+            return ""
+        }
+
+        if !enableStacking {
+            if let lastChange = activeSession.clipboardChanges.last,
+               let content = lastChange.content,
+               !content.isEmpty {
+                return content.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            if let preRecording = activeSession.preRecordingClipboard,
+               !preRecording.isEmpty {
+                return preRecording.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            return ""
+        }
+
+        var allClipboardChanges: [String] = []
+
+        for preRecording in activeSession.preRecordingClipboardStack where !preRecording.isEmpty {
+            allClipboardChanges.append(preRecording)
+        }
+
+        for change in activeSession.clipboardChanges {
+            if let content = change.content, !content.isEmpty {
+                allClipboardChanges.append(content)
+            }
+        }
+
+        if allClipboardChanges.isEmpty {
+            return ""
+        }
+
+        if allClipboardChanges.count == 1 {
+            return allClipboardChanges[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var result = ""
+        for (index, content) in allClipboardChanges.enumerated() {
+            let tagNumber = index + 1
+            let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            result += "<clipboard-context-\(tagNumber)>\n\(trimmedContent)\n</clipboard-context-\(tagNumber)>\n\n"
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     
     /// Gets the most recent clipboard content from global history for CLI execution context
     /// This is used when --exec-action is called and there's no recording session
@@ -532,6 +606,22 @@ class ClipboardMonitor {
         // Use changeCount for more reliable change detection
         if currentChangeCount != sessionData.lastSeenChangeCount {
             let now = Date()
+
+            if shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
+                sessionsQueue.async(flags: .barrier) { [weak self] in
+                    guard let self = self,
+                          var session = self.earlyMonitoringSessions[recordingPath],
+                          session.isActive else {
+                        return
+                    }
+
+                    session.lastSeenChangeCount = currentChangeCount
+                    session.lastCapturedClipboardContent = currentClipboard
+                    self.earlyMonitoringSessions[recordingPath] = session
+                }
+                logDebug("[ClipboardMonitor] Session monitoring skipped Macrowhisper copy-action clipboard write")
+                return
+            }
             
             // CRITICAL: Capture frontmost app info IMMEDIATELY when detecting clipboard change
             // This prevents race conditions where the user switches apps before we can check
@@ -1350,6 +1440,34 @@ class ClipboardMonitor {
             }
         }
     }
+
+    /// Suppresses capture of the next CLI-origin clipboard write for a short window.
+    /// This keeps clipboard content visible to other apps while preventing Macrowhisper self-capture.
+    func suppressNextClipboardCapture(for content: String, duration: TimeInterval = 1.0) {
+        let expiresAt = Date().addingTimeInterval(max(0.1, duration))
+        cliSuppressionQueue.sync {
+            suppressedCliClipboardContent = content
+            suppressedCliClipboardUntil = expiresAt
+        }
+    }
+
+    private func shouldSuppressClipboardCapture(content: String?, now: Date) -> Bool {
+        var shouldSuppress = false
+        cliSuppressionQueue.sync {
+            guard let suppressedContent = suppressedCliClipboardContent else { return }
+
+            if now > suppressedCliClipboardUntil {
+                suppressedCliClipboardContent = nil
+                suppressedCliClipboardUntil = .distantPast
+                return
+            }
+
+            if content == suppressedContent {
+                shouldSuppress = true
+            }
+        }
+        return shouldSuppress
+    }
     
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
     private func checkGlobalClipboardChange() {
@@ -1378,6 +1496,13 @@ class ClipboardMonitor {
             
             // Use changeCount for more reliable change detection - track ANY clipboard operation
             if currentChangeCount != self.lastSeenChangeCount {
+                if self.shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
+                    self.lastSeenClipboardContent = currentClipboard
+                    self.lastSeenChangeCount = currentChangeCount
+                    logDebug("[ClipboardMonitor] Global monitoring skipped Macrowhisper copy-action clipboard write")
+                    return
+                }
+
                 // Check if the captured app should be ignored (using the app info we captured atomically)
                 let shouldIgnoreAppFlag = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
                 let containsSensitiveMarkers = self.containsIgnoredMarkerType(pasteboard: pasteboard) // NEW LINE

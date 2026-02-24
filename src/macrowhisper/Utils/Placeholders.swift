@@ -477,15 +477,21 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 continue
             }
             
-            // Handle selectedText (from metaJson if available, or capture at execution time for CLI)
+            // Handle selectedText
             else if key == "selectedText" {
-                var value = (metaJson["selectedText"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // If no selectedText in metaJson, capture it now (CLI execution context)
+                var value = ""
+
+                if let watcher = recordingsWatcher, watcher.hasActiveRecordingSessions() {
+                    value = watcher.getClipboardMonitor().getActiveSessionSelectedText()
+                    if !value.isEmpty {
+                        logDebug("[SelectedTextPlaceholder] Using selected text from active recording session")
+                    }
+                }
+
                 if value.isEmpty {
                     value = getSelectedText().trimmingCharacters(in: .whitespacesAndNewlines)
                     if !value.isEmpty {
-                        logDebug("[SelectedTextPlaceholder] Captured selected text at execution time for CLI context")
+                        logDebug("[SelectedTextPlaceholder] Captured selected text at placeholder execution time")
                     }
                 }
                 
@@ -536,29 +542,33 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 }
             }
             
-            // Handle clipboardContext (from clipboard monitoring session or global history for CLI)
+            // Handle clipboardContext
             else if key == "clipboardContext" {
-                var value = (metaJson["clipboardContext"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // If no clipboardContext in metaJson, get recent clipboard content (CLI execution context)
-                if value.isEmpty {
-                    // Access the existing ClipboardMonitor from RecordingsFolderWatcher if available
-                    if recordingsWatcher != nil {
-                        // Check if this is CLI execution and get stacking setting
-                        let isCLIExecution = metaJson["isCLIExecution"] as? Bool ?? false
-                        let enableStacking = metaJson["clipboardStacking"] as? Bool ?? false
-                        
-                        if isCLIExecution && enableStacking {
-                            // Use stacking method for CLI execution
-                            value = getRecentClipboardContentForCLIWithStacking(enableStacking: enableStacking).trimmingCharacters(in: .whitespacesAndNewlines)
+                var value = ""
+                let enableStacking = (metaJson["clipboardStacking"] as? Bool)
+                    ?? globalConfigManager?.config.defaults.clipboardStacking
+                    ?? false
+
+                if let watcher = recordingsWatcher {
+                    let clipboardMonitor = watcher.getClipboardMonitor()
+
+                    if watcher.hasActiveRecordingSessions() {
+                        value = clipboardMonitor.getActiveSessionClipboardContentWithStacking(enableStacking: enableStacking)
+                        if !value.isEmpty {
+                            logDebug("[ClipboardContextPlaceholder] Using clipboard context from active recording session")
+                        }
+                    }
+
+                    if value.isEmpty {
+                        if enableStacking {
+                            value = getRecentClipboardContentForCLIWithStacking(enableStacking: true).trimmingCharacters(in: .whitespacesAndNewlines)
                             if !value.isEmpty {
-                                logDebug("[ClipboardContextPlaceholder] Using recent clipboard content with stacking from global history for CLI context")
+                                logDebug("[ClipboardContextPlaceholder] Using recent clipboard content with stacking from global history")
                             }
                         } else {
-                            // Use original method for non-stacking or non-CLI execution
                             value = getRecentClipboardContentForCLI().trimmingCharacters(in: .whitespacesAndNewlines)
                             if !value.isEmpty {
-                                logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history for CLI context")
+                                logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history")
                             }
                         }
                     }

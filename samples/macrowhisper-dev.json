@@ -93,6 +93,23 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerVoice" : "null"
+    },
+    "smartClip" : {
+      "action" : "{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
+      "actionDelay" : null,
+      "icon" : "",
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "noEsc" : null,
+      "pressReturn" : null,
+      "restoreClipboard" : null,
+      "simKeypress" : null,
+      "smartInsert" : null,
+      "triggerApps" : null,
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerVoice" : null
     }
   },
   "scriptsAS" : {

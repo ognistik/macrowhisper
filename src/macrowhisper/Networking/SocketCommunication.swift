@@ -74,6 +74,7 @@ class SocketCommunication {
         case listAppleScript
         case execAction
         case getAction
+        case copyAction
         case removeAction
     }
     
@@ -353,6 +354,43 @@ class SocketCommunication {
         // (newline conversion is handled within processAllPlaceholders for Insert actions)
         let result = processAllPlaceholders(action: action, metaJson: metaJson, actionType: .insert)
         return (result, false)
+    }
+
+    /// Returns processed action content for a concrete action/type pair.
+    private func processedActionContent(actionType: ActionType, action: Any, actionName: String, metaJson: [String: Any]) -> String? {
+        switch actionType {
+        case .insert:
+            if let insert = action as? AppConfiguration.Insert {
+                let (processedAction, _) = processInsertAction(insert.action, metaJson: metaJson)
+                return processedAction
+            }
+        case .url:
+            if let url = action as? AppConfiguration.Url {
+                return processAllPlaceholders(action: url.action, metaJson: metaJson, actionType: .url)
+            }
+        case .shortcut:
+            if let shortcut = action as? AppConfiguration.Shortcut {
+                return processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
+            }
+        case .shell:
+            if let shell = action as? AppConfiguration.ScriptShell {
+                return processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+            }
+        case .appleScript:
+            if let script = action as? AppConfiguration.ScriptAppleScript {
+                return processAllPlaceholders(action: script.action, metaJson: metaJson, actionType: .appleScript)
+            }
+        }
+
+        logError("Failed to process action content for '\(actionName)' due to type cast mismatch.")
+        return nil
+    }
+
+    /// Writes plain clipboard text for user-visible copy operations.
+    private func writeClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     private typealias ParsedInputCondition = [String: Bool]
@@ -1961,11 +1999,14 @@ class SocketCommunication {
                     
                     if let action = action {
                         if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
-                            globalState.autoReturnEnabled = false
-                            globalState.scheduledActionName = nil
-                            // Cancel timeouts
-                            cancelAutoReturnTimeout()
-                            cancelScheduledActionTimeout()
+                            let recordingSessionIsActive = recordingsWatcher?.hasActiveRecordingSessions() ?? false
+                            if !recordingSessionIsActive {
+                                globalState.autoReturnEnabled = false
+                                globalState.scheduledActionName = nil
+                                // Cancel timeouts only when no recording session is active.
+                                cancelAutoReturnTimeout()
+                                cancelScheduledActionTimeout()
+                            }
                             
                             // Enhance metaJson with CLI-specific data
                             let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
@@ -2033,39 +2074,15 @@ class SocketCommunication {
                         if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
                             // Enhance metaJson with CLI-specific data
                             let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
-                            
-                            // Return processed action content based on type
-                            switch actionType {
-                            case .insert:
-                                if let insert = action as? AppConfiguration.Insert {
-                                    let (processedAction, _) = processInsertAction(insert.action, metaJson: enhancedMetaJson)
-                                    response = processedAction
-                                    logInfo("Returning processed action for \(actionType) '\(actionName)'.")
-                                }
-                            case .url:
-                                if let url = action as? AppConfiguration.Url {
-                                    let processedAction = processAllPlaceholders(action: url.action, metaJson: enhancedMetaJson, actionType: .url)
-                                    response = processedAction
-                                    logInfo("Returning processed action for URL '\(actionName)'.")
-                                }
-                            case .shortcut:
-                                if let shortcut = action as? AppConfiguration.Shortcut {
-                                    let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: enhancedMetaJson, actionType: .shortcut)
-                                    response = processedAction
-                                    logInfo("Returning processed action for shortcut '\(actionName)'.")
-                                }
-                            case .shell:
-                                if let shell = action as? AppConfiguration.ScriptShell {
-                                    let processedAction = processAllPlaceholders(action: shell.action, metaJson: enhancedMetaJson, actionType: .shell)
-                                    response = processedAction
-                                    logInfo("Returning processed action for shell script '\(actionName)'.")
-                                }
-                            case .appleScript:
-                                if let script = action as? AppConfiguration.ScriptAppleScript {
-                                    let processedAction = processAllPlaceholders(action: script.action, metaJson: enhancedMetaJson, actionType: .appleScript)
-                                    response = processedAction
-                                    logInfo("Returning processed action for AppleScript '\(actionName)'.")
-                                }
+
+                            if let processedAction = processedActionContent(
+                                actionType: actionType,
+                                action: action,
+                                actionName: actionName,
+                                metaJson: enhancedMetaJson
+                            ) {
+                                response = processedAction
+                                logInfo("Returning processed action for \(actionType) '\(actionName)'.")
                             }
                         } else {
                             response = "No valid JSON file found with results"
@@ -2088,6 +2105,43 @@ class SocketCommunication {
                 }
                 _ = sendResponse(response, to: clientSocket)
                 
+            case .copyAction:
+                if let actionName = commandMessage.arguments?["name"], !actionName.isEmpty {
+                    let (actionType, action) = findActionByName(actionName, configManager: configMgr)
+
+                    if let action = action {
+                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
+                            if let processedAction = processedActionContent(
+                                actionType: actionType,
+                                action: action,
+                                actionName: actionName,
+                                metaJson: enhancedMetaJson
+                            ) {
+                                // Suppress Macrowhisper's own capture for this specific clipboard write,
+                                // while keeping the clipboard content plain/visible to other apps.
+                                clipboardMonitorRef?.suppressNextClipboardCapture(for: processedAction)
+                                writeClipboard(processedAction)
+                                response = "Copied processed action '\(actionName)' to clipboard"
+                                logInfo("Copied processed action for \(actionType) '\(actionName)' to clipboard")
+                            } else {
+                                response = "Failed to process action: \(actionName)"
+                                logError(response)
+                            }
+                        } else {
+                            response = "No valid JSON file found with results"
+                            logError("No valid JSON file found for copy-action")
+                        }
+                    } else {
+                        response = "Action not found: \(actionName)"
+                        logError("Action not found for copy-action: \(actionName)")
+                    }
+                } else {
+                    response = "Action name missing"
+                    logError(response)
+                }
+                _ = sendResponse(response, to: clientSocket)
+
             case .quit:
                 logInfo("Received quit command, shutting down.")
                 let response = "Quitting macrowhisper..."

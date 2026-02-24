@@ -801,7 +801,7 @@ let requireDaemonCommands = [
     "--remove-action",
     // New unified action commands
     "--list-actions", "--list-urls", "--list-shortcuts", "--list-shell", 
-    "--list-as", "--exec-action", "--get-action", "--action"
+    "--list-as", "--exec-action", "--get-action", "--copy-action", "--action"
 ]
 
 // Check if any of the commands that require a daemon are present
@@ -1064,6 +1064,21 @@ if hasDaemonCommand {
         exit(0)
     }
 
+    if args.contains("--copy-action") {
+        let copyActionIndex = args.firstIndex(where: { $0 == "--copy-action" })
+        if let index = copyActionIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+            let arguments: [String: String] = ["name": args[index + 1]]
+            if let response = socketCommunication.sendCommand(.copyAction, arguments: arguments) {
+                print(response)
+            } else {
+                print("Failed to copy action.")
+            }
+        } else {
+            print("Missing action name after --copy-action")
+        }
+        exit(0)
+    }
+
     
     // Handle configuration update commands (require daemon)
     var arguments: [String: String] = [:]
@@ -1177,7 +1192,8 @@ if args.count > 1 {
                      args[i-1] == "--add-insert" || args[i-1] == "--remove-action" || 
                      args[i-1] == "--auto-return" || 
                      args[i-1] == "--schedule-action" || args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
-                     args[i-1] == "--exec-action" || args[i-1] == "--get-action" || 
+                     args[i-1] == "--exec-action" || args[i-1] == "--get-action" ||
+                     args[i-1] == "--copy-action" ||
                      args[i-1] == "--action") {
             continue
         }
@@ -1274,6 +1290,8 @@ func printHelp() {
       --get-icon                    Get the icon of the active action
       --get-action [<name>]         Get name of active action (if run without <name>)
                                     If a name is provided, returns the action content
+      --copy-action <name>          Process action content and copy it to clipboard
+                                    using concealed marker types (ignored by Macrowhisper capture)
       --list-actions                List all configured actions (all types)
       --list-inserts                List all configured insert actions  
       --list-urls                   List all configured URL actions
@@ -1308,6 +1326,10 @@ func printHelp() {
 
       macrowhisper --get-action pasteResult
         # Gets the processed action content for 'pasteResult'
+
+      macrowhisper --copy-action pasteResult
+        # Copies the processed action content for 'pasteResult' to clipboard
+        # without polluting Macrowhisper clipboard context capture
         
       macrowhisper --exec-action myURLAction
         # Executes 'myURLAction' (works for any action type)
