@@ -253,6 +253,7 @@ macrowhisper --service-status
 macrowhisper --status
 macrowhisper --action [<name>]
 macrowhisper --get-action [<name>]
+macrowhisper --copy-action <name>
 macrowhisper --exec-action <name>
 macrowhisper --schedule-action [<name>]
 macrowhisper --auto-return <true/false>
@@ -266,6 +267,7 @@ Behavior notes:
 - `--action` with no name clears active action.
 - `--get-action` with no name returns active action name.
 - `--get-action <name>` returns the processed action content using the latest valid result.
+- `--copy-action <name>` processes action content and copies it to clipboard (using concealed marker types so it does not pollute `clipboardContext` capture).
 - `--exec-action <name>` runs the action once using latest valid result.
 - `--schedule-action <name>` schedules one action for the next recording.
 - `--schedule-action` (no name) cancels scheduled action.
@@ -1044,7 +1046,7 @@ Filtering behavior:
 - Empty clipboard entries are ignored.
 - Ignored apps (from `clipboardIgnore`) do not contribute entries.
 
-CLI execution flow (`--exec-action` etc):
+CLI execution flow (`--exec-action`, `--copy-action`, `--get-action <name>`):
 
 - no recording session context exists
 - Macrowhisper uses global clipboard history within `clipboardBuffer`

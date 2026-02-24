@@ -146,7 +146,7 @@
     },
     "inserts": {
       "type": "object",
-      "description": "Text insertion actions with placeholder support. Manage via CLI: --add-insert <name>, --list-inserts, --remove-action <name>",
+      "description": "Text insertion actions with placeholder support (for example {{swResult}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). Manage via CLI: --add-insert <name>, --list-inserts, --remove-action <name>",
       "patternProperties": {
         ".*": {
           "title": "Insert Action",
@@ -280,10 +280,11 @@
             "action": {
               "type": "string",
               "title": "Insert Action Content",
-              "description": "Text to insert with placeholder support. Use '.autoPaste' for smart paste behavior. Use empty string for empty payload. Use '.none' for no-op template behavior (different from empty string).",
+              "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). Use '.autoPaste' for smart paste behavior. Use empty string for empty payload. Use '.none' for no-op template behavior (different from empty string).",
               "examples": [
                 "{{swResult}}",
                 "{{result}}",
+                "{{appVocabulary}}",
                 "{{date:short}}\nDictation: {{result}}",
                 ".autoPaste",
                 ".none",
@@ -329,9 +330,10 @@
             "action": {
               "type": "string",
               "title": "URL to Open",
-              "description": "URL with placeholder support. Empty string skips URL payload. '.none' applies no-op template behavior (different from empty string).",
+              "description": "URL with placeholder support (including {{appVocabulary}} and other dynamic placeholders). Empty string skips URL payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": [
                 "https://google.com/search?q={{result}}",
+                "https://www.google.com/search?q={{appVocabulary}}",
                 "https://www.perplexity.ai/?q={{result||\\.$||}}",
                 ".none",
                 ""
@@ -372,8 +374,8 @@
           "properties": {
             "action": {
               "type": "string",
-              "description": "Input to pass to the shortcut with placeholder support. Use '.run' to execute the shortcut without input. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
-              "examples": ["{{swResult}}", "Process this: {{result}}", ".run", ".none", ""]
+              "description": "Input to pass to the shortcut with placeholder support (including {{appVocabulary}}). Use '.run' to execute the shortcut without input. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
+              "examples": ["{{swResult}}", "Process this: {{result}}", "App terms: {{appVocabulary}}", ".run", ".none", ""]
             },
             "inputCondition": {
               "type": ["string", "null"],
@@ -400,9 +402,10 @@
             "action": {
               "type": "string",
               "title": "Shell Command",
-              "description": "Shell command with placeholder support and proper escaping. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
+              "description": "Shell command with placeholder support (including {{appVocabulary}}) and proper escaping. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": [
                 "echo '{{swResult}}' | pbcopy",
+                "echo '{{appVocabulary}}'",
                 "curl -X POST 'https://api.example.com' -d '{{json:swResult}}'",
                 "osascript -e 'display notification \"{{result}}\"'",
                 ".none",
@@ -434,10 +437,11 @@
             "action": {
               "type": "string",
               "title": "AppleScript Code",
-              "description": "AppleScript code with placeholder support and proper quote escaping. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
+              "description": "AppleScript code with placeholder support (including {{appVocabulary}}) and proper quote escaping. Empty string skips payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": [
                 "tell application \"TextEdit\" to make new document with properties {text:\"{{json:swResult}}\"}",
                 "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\"",
+                "tell application \"Notes\" to activate -- {{appVocabulary}}",
                 "{{raw:swResult}}",
                 ".none",
                 ""
