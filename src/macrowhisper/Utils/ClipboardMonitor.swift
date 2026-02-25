@@ -69,7 +69,7 @@ class ClipboardMonitor {
         var preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (mutable for cleanup)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
-        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (2.5s blackout period)
+        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (5s blackout period)
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
     }
     
@@ -120,7 +120,7 @@ class ClipboardMonitor {
         let preRecordingClipboardStack = capturePreRecordingClipboardStack(beforeTime: sessionStartTime)
         
         let currentChangeCount = pasteboard.changeCount
-        let ignoreUntil = sessionStartTime.addingTimeInterval(2.5) // Ignore clipboard for 2.5 seconds
+        let ignoreUntil = sessionStartTime.addingTimeInterval(5) // Ignore clipboard duplicates for 5 seconds
         let session = EarlyMonitoringSession(
             userOriginalClipboard: userOriginal,
             startTime: sessionStartTime,
@@ -139,7 +139,7 @@ class ClipboardMonitor {
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
         logDebug("[ClipboardMonitor] Captured user original clipboard content")
-        logDebug("[ClipboardMonitor] Ignoring duplicate clipboard captures for 2.5 seconds")
+        logDebug("[ClipboardMonitor] Ignoring duplicate clipboard captures for 5 seconds")
         if !selectedText.isEmpty {
             logDebug("[ClipboardMonitor] Captured selected text at recording start")
         }
@@ -629,7 +629,7 @@ class ClipboardMonitor {
             let appName = frontApp?.localizedName ?? ""
             let bundleId = frontApp?.bundleIdentifier ?? ""
             
-            // Check if we're still in the 2.5-second ignore window
+            // Check if we're still in the 5-second ignore window
             let isInIgnoreWindow = now < sessionData.ignoreClipboardUntil
             
             // Check if the captured app should be ignored (using the app info we captured atomically)
@@ -710,7 +710,7 @@ class ClipboardMonitor {
                         self.earlyMonitoringSessions[recordingPath] = session
 
                         if session.isExecutingAction {
-                            logDebug("[ClipboardMonitor] Detected unique clipboard change during 2.5s blackout window (changeCount: \(currentChangeCount))")
+                            logDebug("[ClipboardMonitor] Detected unique clipboard change during 5s blackout window (changeCount: \(currentChangeCount))")
                         }
                     }
                 } else {
@@ -727,7 +727,7 @@ class ClipboardMonitor {
                     }
 
                     let timeRemaining = sessionData.ignoreClipboardUntil.timeIntervalSince(now)
-                    logDebug("[ClipboardMonitor] Ignoring duplicate clipboard change during 2.5s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
+                    logDebug("[ClipboardMonitor] Ignoring duplicate clipboard change during 5s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
                 }
             } else if shouldIgnoreAppFlag || containsSensitiveMarkers { // MODIFIED LINE
                 if containsSensitiveMarkers { // NEW LOGIC
