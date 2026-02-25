@@ -913,18 +913,30 @@ class ActionExecutor {
     private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String) -> [String: Any] {
         var enhanced = metaJson
         
-        // Get selected text that was captured when recording session started
-        let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: recordingPath)
-        if !sessionSelectedText.isEmpty {
-            enhanced["selectedText"] = sessionSelectedText
+        let existingSelectedText = (metaJson["selectedText"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if existingSelectedText.isEmpty {
+            // Get selected text that was captured when recording session started
+            let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: recordingPath)
+            if !sessionSelectedText.isEmpty {
+                enhanced["selectedText"] = sessionSelectedText
+            }
         }
         
-        // Get clipboard content for the clipboardContext placeholder with stacking support
-        let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-        let enableStacking = configManager.config.defaults.clipboardStacking
-        let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(for: recordingPath, swResult: swResult, enableStacking: enableStacking)
-        if !sessionClipboardContent.isEmpty {
-            enhanced["clipboardContext"] = sessionClipboardContent
+        let existingClipboardContext = (metaJson["clipboardContext"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if existingClipboardContext.isEmpty {
+            // Get clipboard content for the clipboardContext placeholder with stacking support
+            let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
+            let enableStacking = configManager.config.defaults.clipboardStacking
+            let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(
+                for: recordingPath,
+                swResult: swResult,
+                enableStacking: enableStacking
+            )
+            if !sessionClipboardContent.isEmpty {
+                enhanced["clipboardContext"] = sessionClipboardContent
+            }
         }
         
         return enhanced

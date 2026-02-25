@@ -958,7 +958,7 @@ For each action payload:
 - `{{llmResult}}`
 - `{{frontApp}}`
 
-`{{frontApp}}` is sourced from pre-captured front app when available, otherwise fetched at placeholder time.
+`{{frontApp}}` is resolved lazily at placeholder execution time from the current frontmost app.
 
 ### 11.3 Date placeholders
 
@@ -1077,8 +1077,8 @@ Stacking output format for multiple items:
 
 ### 12.5 `{{frontApp}}`
 
-- sourced from pre-captured front app state during processing when that value is present
-- fallback fetch at placeholder time if missing
+- captured at action execution time (lazy, only when placeholder is present)
+- resolves to the current frontmost app name at the moment each action step is processed
 
 ## 12.6 Capture protections
 

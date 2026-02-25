@@ -380,43 +380,10 @@ func stringifyPlaceholderValue(for keyPath: String, jsonValue: Any, metaJson: [S
 /// For URL actions, URL encoding is deferred until after all regex replacements to prevent double encoding.
 func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
     var result = action
-    var metaJson = metaJson // Make mutable copy
     
     // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
     let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
-    
-    // --- BEGIN: FrontApp Placeholder Logic ---
-    // Only fetch the front app if the placeholder is present and not already in metaJson
-    if action.contains("{{frontApp}}") && metaJson["frontApp"] == nil {
-        // Use frontAppName from metaJson if present (set by trigger evaluation)
-        var appName: String? = nil
-        if let fromTrigger = metaJson["frontAppName"] as? String, !fromTrigger.isEmpty {
-            appName = fromTrigger
-        } else if let app = globalState.lastDetectedFrontApp {
-            appName = app.localizedName
-        } else {
-            // Fetch the frontmost application (synchronously, main thread safe)
-            if Thread.isMainThread {
-                let frontApp = NSWorkspace.shared.frontmostApplication
-                globalState.lastDetectedFrontApp = frontApp
-                appName = frontApp?.localizedName
-            } else {
-                var fetchedApp: NSRunningApplication?
-                let semaphore = DispatchSemaphore(value: 0)
-                DispatchQueue.main.async {
-                    fetchedApp = NSWorkspace.shared.frontmostApplication
-                    globalState.lastDetectedFrontApp = fetchedApp
-                    semaphore.signal()
-                }
-                _ = semaphore.wait(timeout: .now() + 0.1)
-                appName = fetchedApp?.localizedName
-            }
-        }
-        metaJson["frontApp"] = appName ?? ""
-        logDebug("[FrontAppPlaceholder] Set frontApp in metaJson: \(appName ?? "<none>")")
-    }
-    // --- END: FrontApp Placeholder Logic ---
     
     if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
         for match in matches.reversed() {
@@ -479,9 +446,13 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             
             // Handle selectedText
             else if key == "selectedText" {
-                var value = ""
+                var value = (metaJson["selectedText"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-                if let watcher = recordingsWatcher, watcher.hasActiveRecordingSessions() {
+                if !value.isEmpty {
+                    logDebug("[SelectedTextPlaceholder] Using selected text from metaJson session snapshot")
+                }
+
+                if value.isEmpty, let watcher = recordingsWatcher, watcher.hasActiveRecordingSessions() {
                     value = watcher.getClipboardMonitor().getActiveSessionSelectedText()
                     if !value.isEmpty {
                         logDebug("[SelectedTextPlaceholder] Using selected text from active recording session")
@@ -541,15 +512,36 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
+
+            // Handle frontApp (captured lazily at placeholder execution time)
+            else if key == "frontApp" {
+                var value = getCurrentFrontAppName().trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Check if value is empty - if so, remove the placeholder entirely
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    // Apply regex replacements only if value is not empty
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+
+                    // Apply final escaping after all regex replacements are complete
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
             
             // Handle clipboardContext
             else if key == "clipboardContext" {
-                var value = ""
+                var value = (metaJson["clipboardContext"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let enableStacking = (metaJson["clipboardStacking"] as? Bool)
                     ?? globalConfigManager?.config.defaults.clipboardStacking
                     ?? false
 
-                if let watcher = recordingsWatcher {
+                if !value.isEmpty {
+                    logDebug("[ClipboardContextPlaceholder] Using clipboard context from metaJson session snapshot")
+                }
+
+                if value.isEmpty, let watcher = recordingsWatcher {
                     let clipboardMonitor = watcher.getClipboardMonitor()
 
                     if watcher.hasActiveRecordingSessions() {
@@ -630,6 +622,24 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
         }
     }
     return result
+}
+
+private func getCurrentFrontAppName() -> String {
+    if Thread.isMainThread {
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        globalState.lastDetectedFrontApp = frontApp
+        return frontApp?.localizedName ?? ""
+    }
+
+    var fetchedApp: NSRunningApplication?
+    let semaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async {
+        fetchedApp = NSWorkspace.shared.frontmostApplication
+        globalState.lastDetectedFrontApp = fetchedApp
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 0.1)
+    return fetchedApp?.localizedName ?? ""
 }
 
 // MARK: - URL-Specific Escaping Helper

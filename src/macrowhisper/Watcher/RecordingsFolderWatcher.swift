@@ -738,14 +738,13 @@ class RecordingsFolderWatcher {
             }
             globalState.lastDetectedFrontApp = frontApp
             
-            // Get front app info for app triggers and add to metaJson to optimize placeholder processing
+            // Get front app info for app triggers
             let frontAppName = frontApp?.localizedName
             let frontAppBundleId = frontApp?.bundleIdentifier
             
-            // Create enhanced metaJson with front app info to optimize {{frontApp}} placeholder processing
+            // Create enhanced metaJson with app metadata captured at processing time
             var enhancedMetaJson = metaJson
             enhancedMetaJson["frontAppName"] = frontAppName
-            enhancedMetaJson["frontApp"] = frontAppName  // Add frontApp directly to avoid semaphore delay
             enhancedMetaJson["frontAppBundleId"] = frontAppBundleId
             
             // Add session data from clipboard monitor for placeholder processing

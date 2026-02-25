@@ -51,6 +51,9 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 * **Improvement.** Use the `segments` key from the `meta.json` file as placeholder, and the speaker-separated transcript will be automatically formatted correctly.
   * It is now also possible to use `meta.json` keys from the API, keys, or arrays. For example, `{{promptContext.systemContext.language}}` is possible.
 * **Improvement.** Raised blackout window for clipboard duplication up to 5 seconds to accommodate to Superwhisper. I'm convinced this is a Superwhisper bug by now and Macrowhisper is just trying to work around it.
+* **Improvements to context placeholders for performance.**
+  * `frontApp` placeholder is now captured lazily, only when placeholder is found in action, and at action execution. This is same behavior as `appContext` and `clipboardContext` placeholders.
+  * `selectedText` and `clipboardContext` are captured only during recording session and their values are used again in chained actions.
 
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13
