@@ -6,7 +6,7 @@
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
-    "clipboardBuffer" : 5,
+    "clipboardBuffer" : 3,
     "clipboardIgnore" : "Alter",
     "clipboardStacking" : true,
     "history" : 8,
@@ -74,7 +74,7 @@
       "smartInsert" : null,
       "triggerApps" : null,
       "triggerLogic" : "or",
-      "triggerModes" : "Context Chat",
+      "triggerModes" : "",
       "triggerVoice" : null
     },
     "pasteResult" : {
@@ -95,7 +95,7 @@
       "triggerVoice" : "null"
     },
     "smartClip" : {
-      "action" : "{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>\n}}{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
+      "action" : "{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>\n\n}}{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
       "actionDelay" : null,
       "icon" : "",
       "inputCondition" : null,

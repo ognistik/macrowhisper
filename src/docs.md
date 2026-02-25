@@ -267,7 +267,7 @@ Behavior notes:
 - `--action` with no name clears active action.
 - `--get-action` with no name returns active action name.
 - `--get-action <name>` returns the processed action content using the latest valid result.
-- `--copy-action <name>` processes action content and copies it to clipboard (using concealed marker types so it does not pollute `clipboardContext` capture).
+- `--copy-action <name>` processes action content and copies it to clipboard (without polluting `clipboardContext` capture).
 - `--exec-action <name>` runs the action once using latest valid result.
 - `--schedule-action <name>` schedules one action for the next recording.
 - `--schedule-action` (no name) cancels scheduled action.
@@ -729,7 +729,7 @@ Triggers are evaluated across all action types. Matched actions are sorted by na
 
 Triggered action resolution happens after one-shot runtime commands (`--auto-return`, `--schedule-action`) and before `defaults.activeAction`. This means scheduled actions (plus one-time auto-return) have priority over triggers, but triggers have priority over the currently active action.
 
-## 8.1 `triggerVoice`
+### 8.1 `triggerVoice`
 
 #### Default behavior (plain patterns)
 
@@ -788,7 +788,7 @@ Exception patterns use `!` prefix.
 
 This will match every voice input except ones matching `test` or `debug` at the start.
 
-## 8.2 `triggerApps`
+### 8.2 `triggerApps`
 
 Regex against front app name and bundle ID.
 
@@ -805,7 +805,7 @@ Regex against front app name and bundle ID.
 - `!` exception patterns are supported here too
 - If only exception patterns are configured, the app trigger passes when none of those exception patterns match
 
-## 8.3 `triggerModes`
+### 8.3 `triggerModes`
 
 Regex against Superwhisper `modeName`.
 
@@ -823,7 +823,7 @@ That includes:
 - Supports `!` exception patterns
 - Case-insensitive default behavior unless explicitly overridden
 
-## 8.4 `triggerLogic`
+### 8.4 `triggerLogic`
 
 - `or` (default): any configured trigger type can match
 - `and`: all configured trigger types must match
@@ -833,7 +833,7 @@ That includes:
 - Only non-empty trigger fields are considered
 - If all trigger fields are empty, action does not trigger unless it's the `activeAction` 
 
-## 8.5 Voice trigger stripping behavior
+### 8.5 Voice trigger stripping behavior
 #### For non-raw voice triggers that match:
 
 - Matched prefix is stripped from `result`
@@ -867,7 +867,7 @@ Examples:
 "inputCondition": "!restoreClipboard|!action"
 ```
 
-## 9.1 Allowed tokens
+### 9.1 Allowed tokens
 
 - `restoreClipboard`
 - `noEsc`
@@ -876,7 +876,7 @@ Examples:
 - `action`
 - `actionDelay`
 
-## 9.2 Validation rules
+### 9.2 Validation rules
 
 `inputCondition` is rejected if:
 
@@ -887,7 +887,7 @@ Examples:
 
 When config validation fails, Macrowhisper reports a configuration error and falls back to defaults in memory until fixed.
 
-## 9.3 How inputCondition is applied internally
+### 9.3 How inputCondition is applied internally
 
 When a token does not apply in current context, the related field is neutralized:
 
@@ -906,7 +906,7 @@ It can be set:
 - per action (`action.nextAction`)
 - globally (`defaults.nextAction`)
 
-## 10.1 Precedence
+### 10.1 Precedence
 
 For first step only:
 
@@ -917,7 +917,7 @@ For subsequent steps:
 
 - only action-level `nextAction` is considered
 
-## 10.2 Safety checks
+### 10.2 Safety checks
 
 Macrowhisper validates and blocks:
 
@@ -925,11 +925,11 @@ Macrowhisper validates and blocks:
 - chain cycles (`A -> B -> A`)
 - more than one insert action in the same chain
 
-## 10.3 Name uniqueness requirement
+### 10.3 Name uniqueness requirement
 
 Because chains resolve by name across all types, duplicate names across types are rejected by config validation.
 
-## 10.4 Execution behavior
+### 10.4 Execution behavior
 
 - Actions execute step-by-step.
 - If one step fails, chain continues to remaining steps and reports partial failure.
@@ -942,7 +942,7 @@ Because chains resolve by name across all types, duplicate names across types ar
 
 Placeholders are available in every action type via `action` strings.
 
-## 11.1 Processing order
+### 11.1 Processing order
 
 For each action payload:
 
@@ -951,7 +951,7 @@ For each action payload:
 3. Dynamic placeholder expansion (`{{key}}`, `{{json:key}}`, `{{raw:key}}`, dates, regex transforms).
 4. Contextual escaping based on action type.
 
-## 11.2 Basic placeholders
+### 11.2 Basic placeholders
 
 - `{{swResult}}` - prefers `llmResult`, falls back to `result`
 - `{{result}}`
@@ -960,28 +960,30 @@ For each action payload:
 
 `{{frontApp}}` is sourced from pre-captured front app when available, otherwise fetched at placeholder time.
 
-## 11.3 Date placeholders
+### 11.3 Date placeholders
 
 - `{{date:short}}`
 - `{{date:long}}`
 - `{{date:yyyy-MM-dd}}` (UTS-35 style custom format)
 
-## 11.4 Context placeholders
+### 11.4 Context placeholders
 
 - `{{selectedText}}`
 - `{{clipboardContext}}`
 - `{{appContext}}`
 - `{{appVocabulary}}`
 
-Detailed timing is covered in Section 12.
+*Detailed timing is covered in Section 12.*
 
-## 11.5 XML placeholders
+### 11.5 XML placeholders
 
 Supported formats:
 
 - `{{xml:tagName}}`
 - `{{json:xml:tagName}}`
 - `{{raw:xml:tagName}}`
+  
+*Note: contextual prefixes like `json:` and `raw:` are covered in [Section 14](craftdocs://open?blockId=3cac03d4-186d-06d6-06b7-3cdaa1b189bd&spaceId=dbf93b0b-3c55-5ab0-745b-9fa6a60fc3d2)*
 
 Behavior:
 
@@ -990,7 +992,7 @@ Behavior:
 - if tag content is missing/empty, placeholder is removed
 - extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized (when applicable)
 
-## 11.6 Any metadata key placeholder
+### 11.6 Any metadata key placeholder
 
 Any key in `meta.json` can be used as `{{keyName}}`.
 Nested values can be accessed with dot notation and array indexes:
@@ -1018,9 +1020,7 @@ If a placeholder key does not exist, it resolves to empty string.
 
 ## 12) Context Capture Timing
 
-This section explains exactly when each context placeholder is captured.
-
-## 12.1 `{{selectedText}}`
+### 12.1 `{{selectedText}}`
 
 Primary capture timing:
 
@@ -1028,9 +1028,9 @@ Primary capture timing:
 
 Fallback behavior:
 
-- in CLI execution context, if missing in metadata, Macrowhisper attempts capture at action execution time
+- in CLI execution context (with `--exec-action` , `--get-action` or `copy-action`), Macrowhisper attempts capture at action execution time
 
-## 12.2 `{{clipboardContext}}`
+### 12.2 `{{clipboardContext}}`
 
 Session execution flow:
 
@@ -1048,10 +1048,9 @@ Filtering behavior:
 
 CLI execution flow (`--exec-action`, `--copy-action`, `--get-action <name>`):
 
-- no recording session context exists
-- Macrowhisper uses global clipboard history within `clipboardBuffer`
-- with stacking off: most recent clipboard item in window
-- with stacking on: all clipboard items in window
+- With stacking off: most recent clipboard item in window
+- With stacking on: all clipboard items in window
+- Important: With `--copy-action` , you can pass stacked clipboards to Superwhisper for processing, if the selected mode includes clipboard capture.
 
 Stacking output format for multiple items:
 
@@ -1065,18 +1064,18 @@ Stacking output format for multiple items:
 </clipboard-context-2>
 ```
 
-## 12.3 `{{appContext}}`
+### 12.3 `{{appContext}}`
 
 - captured at action execution time
 - captures richer app/window/text-field context
 
-## 12.4 `{{appVocabulary}}`
+### 12.4 `{{appVocabulary}}`
 
 - captured at action execution time (lazy, only when placeholder is present)
 - extracts comma-separated terms from front app accessibility text (window/focused elements)
-- tuned for names/identifiers/noun-like tokens with bounded traversal for low overhead
+- tuned for names/identifiers/noun-like tokens
 
-## 12.5 `{{frontApp}}`
+### 12.5 `{{frontApp}}`
 
 - sourced from pre-captured front app state during processing when that value is present
 - fallback fetch at placeholder time if missing
