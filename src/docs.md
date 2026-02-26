@@ -166,7 +166,7 @@ When a recording folder appears, Macrowhisper starts early monitoring and captur
 
 Macrowhisper waits until `meta.json` has valid result fields:
 
-- If `languageModelName` exists and is non-empty, it requires `llmResult` and `result`
+- If `languageModelName` exists and is non-empty, it requires `llmResult` (voice trigger matching still uses `result` when present)
 - Otherwise, it requires `result`
 
 *This allows MacroWhisper to be triggered with correct timing for both voice-only modes or modes with AI processing.*
