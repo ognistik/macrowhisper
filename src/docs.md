@@ -42,6 +42,8 @@ Macrowhisper is an automation helper for [Superwhisper](https://superwhisper.com
   - Shell actions
   - AppleScript actions
 
+> You can also set triggers per action (phrases, active app, used Superwhisper mode) or chain multiple actions one after another one.
+
 ### Macrowhisper
 
   - Removes repetitive post-dictation steps.
@@ -80,7 +82,7 @@ Macrowhisper is an automation helper for [Superwhisper](https://superwhisper.com
 
   #### Example 2: Dictation -> structured writing template
     - You dictate in a cleanup Superwhisper mode.
-    - Insert action pastes a consistent structure: opening text, your dictation (`{{swResult}}`), and closing/signature text.
+    - Insert action pastes a consistent structure: opening text/heading, your dictation (`{{swResult}}`), and closing/signature text.
     - Result: consistent output format every time in a specific app, mode, or with a voice trigger.
 
   #### Example 3: Dictation -> shortcut pipeline
@@ -119,7 +121,7 @@ curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/ins
 - Restore Clipboard After Paste: OFF
 - Simulate Key Presses: OFF
 
-*Why: Macrowhisper should be the single source of truth for paste/clipboard/key behavior.*
+*Macrowhisper should be the single source of truth for paste/clipboard/key behavior.*
 
 ### Open or create config
 
@@ -144,7 +146,7 @@ macrowhisper --service-status
 
 ### First test
 
-Dictate once in a normal text field. By default, Macrowhisper creates `autoPaste` and sets it as `defaults.activeAction`.
+Dictate once in a normal text field. By default, Macrowhisper creates `autoPaste` and sets it as `defaults.activeAction`. Paste behavior will be exactly as Superwhisper out of the box.
 
 ---
 
@@ -156,26 +158,26 @@ This section is the most important mental model.
 
 When a recording folder appears, Macrowhisper starts early monitoring and captures context:
 
-- selected text at session start
-- clipboard state at session start
-- clipboard history from the pre-recording buffer window (`clipboardBuffer` seconds before session)
+- Selected text at session start
+- Clipboard state at session start (to optionally restore later)
+- Clipboard captured in the pre-recording buffer window for use in `{{clipboardContext}}` (`clipboardBuffer` seconds before session)
 
 ### Step B: Wait for valid result data
 
 Macrowhisper waits until `meta.json` has valid result fields:
 
-- if `languageModelName` exists and is non-empty, it requires `llmResult` and `result`
-- otherwise, it requires `result`
+- If `languageModelName` exists and is non-empty, it requires `llmResult` and `result`
+- Otherwise, it requires `result`
 
 *This allows MacroWhisper to be triggered with correct timing for both voice-only modes or modes with AI processing.*
 
 ### Step C: Add runtime context
 
 Before action evaluation/execution, Macrowhisper enriches metadata with:
-
-- front app name / bundle ID
-- session selected text
-- session clipboard context
+- Front app name / bundle ID
+- Session selected text
+- Session clipboard context
+- If `{{appContext}}`  or `{{appVocabylary}}` are used, gather context data via accessibility APIs
 
 ### Step D: Optional bypass by mode
 
@@ -224,7 +226,7 @@ macrowhisper --version
 ```bash
 macrowhisper --reveal-config
 macrowhisper --get-config
-macrowhisper --set-config /path/to/folder-or-file
+macrowhisper --set-config "/path/to/folder-or-file"
 macrowhisper --reset-config
 macrowhisper --update-config
 macrowhisper --schema-info
@@ -292,8 +294,6 @@ macrowhisper --add-as <name>
 
 macrowhisper --remove-action <name>
 ```
-
-Important: action names must be unique across all action types.
 
 ---
 
@@ -406,7 +406,7 @@ These values simulate the exact behavior of Superwhisper's auto-paste.
 - Outside input fields: Esc-press is not simulated, clipboard is not restored.
 - Inside input fields: those values are cleared and fall back to defaults.
 
-`.autoPaste` and `.none` are not just labels. They apply both template values and conditional fallback behavior. Knowing how this works, can allow you to customize.
+`.autoPaste` and `.none` are not just labels. They apply both template values and conditional fallback behavior. Knowing how this works can allow you to customize the behavior.
 
 ---
 
@@ -495,6 +495,8 @@ Null behavior at `defaults` level:
 | `autoUpdateConfig` | bool/null | `true` | Auto-refresh config format/schema fields at startup. `null` = built-in default (`true`). |
 | `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
 | `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
+
+*By default, `actionDelay` is set to 0, but some actions (like triggering URLs or scripts) can happen faster than Superwhisper's popup appears with the result. **If you notice Superwhisper's recording window isn't closing correctly, you might need to adjust this value.** I personally prefer setting `actionDelay` to 0 for insert actions since it makes things very responsive. Though, at the default level, I have it with 0.02 for all other action types.*
 
 ### Validation rules involving defaults
 
@@ -720,6 +722,8 @@ Example:
 }
 ```
 
+*Context placeholders are escaped depending on their action type. More information in Section 14.*
+
 ---
 
 ## 8) Trigger System (Voice, App, Mode)
@@ -727,6 +731,9 @@ Triggers are evaluated across all action types. Matched actions are sorted by na
 
 #### Important priority reminder:
 
+Triggers are evaluated across all action types. Matched actions are sorted by name; only the first match executes.
+
+#### Important priority reminder:
 Triggered action resolution happens after one-shot runtime commands (`--auto-return`, `--schedule-action`) and before `defaults.activeAction`. This means scheduled actions (plus one-time auto-return) have priority over triggers, but triggers have priority over the currently active action.
 
 ### 8.1 `triggerVoice`
@@ -738,41 +745,31 @@ Triggered action resolution happens after one-shot runtime commands (`--auto-ret
 - Prefix-only (start of transcript)
 - Case-insensitive
 - Treated as literal text (escaped), not raw regex
+- `|` splits multiple voice patterns.
 
 #### Examples:
 
 - `"search"`
 - `"search|google|ask"`
-- `"!test"` (exception means "all except")
-
-#### Pipe splitting
-
-- `|` splits multiple voice patterns.
-- `|` inside raw regex blocks (`==...==`) is ignored as a separator.
-- That means this is one raw pattern, not two:
-
-#### Example:
-
-```json
-"triggerVoice": "==^(search|google)\\s+(.+)$=="
-```
+- `"!test"` (exception means "match all except")
 
 #### Raw regex behavior
 
-Wrap in `==...==` for raw regex control.
+- Wrap in `==...==` for raw regex control.
+- `|` inside raw regex blocks (`==...==`) is ignored as a separator.
+- Raw regex triggers **do not** have automatic prefix stripping
+    - *You can remove the actual trigger with a placeholder-level regex replacement*
 
-#### Example:
+
+#### Examples:
 
 ```json
 "triggerVoice": "==^translate\\s+(.+)$=="
 ```
 
-#### Rules:
-
-- Raw regex is case-insensitive by default
-- If you explicitly set `(?i)` or `(?-i)`, that explicit mode is respected
-- Raw regex triggers do not use automatic prefix stripping
-    - You may need to remove the actual trigger with a placeholder-level regex replacement
+```json
+"triggerVoice": "==^(search|google)\\s+(.+)$=="
+```
 
 #### Exception logic
 
@@ -807,7 +804,7 @@ Regex against front app name and bundle ID.
 
 ### 8.3 `triggerModes`
 
-Regex against Superwhisper `modeName`.
+Regex against Superwhisper `modeName`. Rules are same as triggerApps.
 
 #### Example:
 
@@ -815,23 +812,12 @@ Regex against Superwhisper `modeName`.
 "triggerModes": "dictation|Super|Custom"
 ```
 
-#### Rules are same style as `triggerApps`.
-
-That includes:
-
-- Regex patterns directly
-- Supports `!` exception patterns
-- Case-insensitive default behavior unless explicitly overridden
-
 ### 8.4 `triggerLogic`
 
 - `or` (default): any configured trigger type can match
 - `and`: all configured trigger types must match
 
-#### Important behavior:
-
-- Only non-empty trigger fields are considered
-- If all trigger fields are empty, action does not trigger unless it's the `activeAction` 
+If all trigger fields are empty, action does not trigger unless it's set as the activeAction or scheduled with --schedule-action
 
 ### 8.5 Voice trigger stripping behavior
 #### For non-raw voice triggers that match:
@@ -967,6 +953,7 @@ For each action payload:
 - `{{date:yyyy-MM-dd}}` (UTS-35 style custom format)
 
 ### 11.4 Context placeholders
+Context placeholders use content captured by Macrowhisper, not Superwhisper. This means that they also work on voice-only modes without LLM. This is particularly useful if you want to use Macrowhisper actions to send your dictation results to other apps. 
 
 - `{{selectedText}}`
 - `{{clipboardContext}}`
@@ -1080,21 +1067,11 @@ Stacking output format for multiple items:
 - captured at action execution time (lazy, only when placeholder is present)
 - resolves to the current frontmost app name at the moment each action step is processed
 
-## 12.6 Capture protections
+### 12.6 On CLI Execution
 
-Clipboard system includes protections to reduce contamination between runs:
+In CLI execution context (with `--exec-action` , `--get-action` or `copy-action` ), Macrowhisper attempts capture of context placeholders at action execution time.
 
-- short blackout/ignore window at recording start
-- app ignore filtering (`clipboardIgnore`)
-- marker-type filtering for transient/concealed pasteboard types
-- cleanup after action execution
-
-Current internal windows used by monitoring logic:
-
-- startup duplicate-ignore blackout: `2.5s`
-- retroactive cleanup window for ignored-app activation race cases: `0.5s`
-- non-insert/insert clipboard synchronization wait ceiling: `0.1s`
-- clipboard polling interval: `0.01s`
+***Powerful Use-Case**: With `--copy-action` , you can pass stacked clipboards to Superwhisper for processing if the selected mode in Superwhisper includes clipboard capture.*
 
 ---
 
