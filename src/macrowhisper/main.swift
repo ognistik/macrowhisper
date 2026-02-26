@@ -1397,6 +1397,9 @@ while i < args.count {
 if verboseLogging {
     logger.setConsoleLogLevel(.debug)
     logInfo("Verbose logging enabled - debug messages will be shown in console")
+    // Treat --verbose as explicit operator intent to see full diagnostic output.
+    redactedLogsEnabled = false
+    logInfo("Verbose mode override: log redaction disabled for this run")
 }
 
 // Initialize configuration manager with the specified path
@@ -1429,7 +1432,7 @@ historyManager = HistoryManager(configManager: configManager)
 let config = configManager.config
 globalState.disableUpdates = config.defaults.noUpdates
 globalState.disableNotifications = config.defaults.noNoti
-redactedLogsEnabled = config.defaults.redactedLogs
+redactedLogsEnabled = verboseLogging ? false : config.defaults.redactedLogs
 
 // Request accessibility permissions upfront for better user experience
 // This ensures users grant permissions at startup rather than being surprised later
@@ -1523,7 +1526,7 @@ configManager.onConfigChanged = { reason in
     // Update global state variables using thread-safe operations
     globalState.disableUpdates = configManager.config.defaults.noUpdates
     globalState.disableNotifications = configManager.config.defaults.noNoti
-    redactedLogsEnabled = configManager.config.defaults.redactedLogs
+    redactedLogsEnabled = verboseLogging ? false : configManager.config.defaults.redactedLogs
     
     // Apply clipboard buffer changes live to the global ClipboardMonitor
     if let watcher = recordingsWatcher {

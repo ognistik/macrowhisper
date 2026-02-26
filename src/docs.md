@@ -1376,7 +1376,7 @@ Log directory:
 
 `~/Library/Logs/Macrowhisper/`
 
-Use verbose mode for deep debugging:
+You can also use verbose mode for deep debugging:
 
 ```bash
 macrowhisper --verbose
