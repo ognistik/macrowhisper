@@ -633,18 +633,18 @@ func getSelectedText() -> String {
     return ""
 }
 
-/// Gets structured app context information from the frontmost application
+/// Gets structured app context information from a target app (or frontmost app when target is unavailable).
 /// Returns formatted context with app name, window title, names, URL, and input field content
-func getAppContext() -> String {
+func getAppContext(targetPid: Int32? = nil, fallbackAppName: String? = nil) -> String {
     // Check if we have accessibility permissions
     guard AXIsProcessTrusted() else {
         logDebug("[AppContext] No accessibility permissions, cannot get app context")
         return ""
     }
     
-    // Get the frontmost application
-    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
-        logDebug("[AppContext] No frontmost application found")
+    // Use frozen app when available, otherwise current frontmost app.
+    guard let targetApp = resolveTargetApp(targetPid: targetPid) else {
+        logDebug("[AppContext] No target application found")
         return ""
     }
     
@@ -652,11 +652,11 @@ func getAppContext() -> String {
     var contextParts: [String] = []
     
     // Active App (always included)
-    let appName = (frontApp.localizedName ?? "Unknown").trimmingCharacters(in: .whitespacesAndNewlines)
+    let appName = (targetApp.localizedName ?? fallbackAppName ?? "Unknown").trimmingCharacters(in: .whitespacesAndNewlines)
     contextParts.append("ACTIVE APP: \(appName)")
     
     // Create accessibility element for the application
-    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+    let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
     // Active Window (always included)
     var windowTitle = "Unknown"
     var focusedWindow: CFTypeRef?
@@ -676,7 +676,7 @@ func getAppContext() -> String {
     // Names and usernames removed for performance optimization
     
     // Active URL (optional - only for browsers)
-    if let url = getBrowserURL(appElement: appElement, frontApp: frontApp) {
+    if let url = getBrowserURL(appElement: appElement, frontApp: targetApp) {
         contextParts.append("ACTIVE URL: \(url)")
     }
     
@@ -695,6 +695,15 @@ func getAppContext() -> String {
     let result = contextParts.joined(separator: "\n")
     logDebug("[AppContext] Generated app context with \(contextParts.count) sections")
     return result
+}
+
+private func resolveTargetApp(targetPid: Int32?) -> NSRunningApplication? {
+    if let targetPid {
+        if let app = NSRunningApplication(processIdentifier: targetPid), !app.isTerminated {
+            return app
+        }
+    }
+    return NSWorkspace.shared.frontmostApplication
 }
 
 

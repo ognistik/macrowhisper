@@ -7,6 +7,8 @@ class ActionExecutor {
     private let socketCommunication: SocketCommunication
     private let configManager: ConfigurationManager
     private let clipboardMonitor: ClipboardMonitor
+    private let chainContextQueue = DispatchQueue(label: "com.macrowhisper.actionexecutor.chaincontext")
+    private var chainContextByRecordingPath: [String: ChainContextSnapshot] = [:]
     
     init(logger: Logger, socketCommunication: SocketCommunication, configManager: ConfigurationManager, clipboardMonitor: ClipboardMonitor) {
         self.logger = logger
@@ -32,6 +34,16 @@ class ActionExecutor {
     private struct StepExecutionOptions {
         let isFirstInChain: Bool
         let isLastInChain: Bool
+    }
+
+    private struct ChainContextSnapshot {
+        var frontAppName: String
+        var frontAppBundleId: String
+        var frontAppPid: Int32?
+        var didResolveAppContext: Bool
+        var appContext: String
+        var didResolveAppVocabulary: Bool
+        var appVocabulary: String
     }
 
     private struct ChainRuntimeState {
@@ -75,6 +87,7 @@ class ActionExecutor {
         isTriggeredAction: Bool = true,
         onCompletion: ((ChainExecutionResult) -> Void)? = nil
     ) {
+        initializeChainContextSnapshot(recordingPath: recordingPath, metaJson: metaJson)
         let initialStep = ResolvedActionStep(action: initialAction, name: name, type: type)
         let initialState = ChainRuntimeState(
             currentStep: initialStep,
@@ -163,6 +176,7 @@ class ActionExecutor {
                     let errorMessage = didFullySucceed
                         ? nil
                         : "Action chain completed with failures in: \(nextFailedSteps.joined(separator: ", "))"
+                    self.clearChainContextSnapshot(recordingPath: recordingPath)
                     onCompletion?(ChainExecutionResult(success: didFullySucceed, finalActionName: executionStep.name, finalActionType: executionStep.type, finalAction: executionStep.action, errorMessage: errorMessage))
                     return
                 }
@@ -187,6 +201,7 @@ class ActionExecutor {
         } catch {
             let message = error.localizedDescription
             logError("[ActionChain] \(message)")
+            clearChainContextSnapshot(recordingPath: recordingPath)
             clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
             onCompletion?(ChainExecutionResult(success: false, finalActionName: state.currentStep.name, finalActionType: state.currentStep.type, finalAction: state.currentStep.action, errorMessage: message))
         }
@@ -621,7 +636,7 @@ class ActionExecutor {
         onCompletion: ((Bool) -> Void)? = nil
     ) {
         // Enhance metaJson with session data from clipboard monitor
-        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: insert.action)
         
         let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: enhancedMetaJson)
         let baseShouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
@@ -676,7 +691,7 @@ class ActionExecutor {
         onCompletion: ((Bool) -> Void)? = nil
     ) {
         // Enhance metaJson with session data from clipboard monitor
-        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: url.action)
         
         let baseShouldEsc = !(url.noEsc ?? configManager.config.defaults.noEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
@@ -709,7 +724,7 @@ class ActionExecutor {
         onCompletion: ((Bool) -> Void)? = nil
     ) {
         // Enhance metaJson with session data from clipboard monitor
-        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: shortcut.action)
         
         let baseShouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
@@ -741,7 +756,7 @@ class ActionExecutor {
         onCompletion: ((Bool) -> Void)? = nil
     ) {
         // Enhance metaJson with session data from clipboard monitor
-        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: shell.action)
         
         let baseShouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
@@ -773,7 +788,7 @@ class ActionExecutor {
         onCompletion: ((Bool) -> Void)? = nil
     ) {
         // Enhance metaJson with session data from clipboard monitor
-        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath)
+        let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: ascript.action)
         
         let baseShouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
@@ -909,8 +924,8 @@ class ActionExecutor {
         return matches.first
     }
     
-    /// Enhances metaJson with session data from clipboard monitor (selectedText, clipboardContext)
-    private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String) -> [String: Any] {
+    /// Enhances metaJson with session data from clipboard monitor and chain-frozen app context placeholders.
+    private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String, actionTemplate: String) -> [String: Any] {
         var enhanced = metaJson
         
         let existingSelectedText = (metaJson["selectedText"] as? String)?
@@ -938,8 +953,115 @@ class ActionExecutor {
                 enhanced["clipboardContext"] = sessionClipboardContent
             }
         }
+
+        var snapshot = getChainContextSnapshot(recordingPath: recordingPath)
+        if snapshot.frontAppName.isEmpty {
+            snapshot.frontAppName = (metaJson["frontAppName"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        if snapshot.frontAppBundleId.isEmpty {
+            snapshot.frontAppBundleId = (metaJson["frontAppBundleId"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        if snapshot.frontAppPid == nil {
+            snapshot.frontAppPid = extractFrontAppPid(from: metaJson)
+        }
+
+        enhanced["frontAppName"] = snapshot.frontAppName
+        enhanced["frontAppBundleId"] = snapshot.frontAppBundleId
+        enhanced["frontApp"] = snapshot.frontAppName
+        if let frontAppPid = snapshot.frontAppPid {
+            enhanced["frontAppPid"] = Int(frontAppPid)
+        }
+
+        if actionUsesPlaceholder(actionTemplate, key: "appContext") {
+            if !snapshot.didResolveAppContext {
+                snapshot.appContext = getAppContext(
+                    targetPid: snapshot.frontAppPid,
+                    fallbackAppName: snapshot.frontAppName
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+                snapshot.didResolveAppContext = true
+            }
+            enhanced["appContext"] = snapshot.appContext
+        }
+
+        if actionUsesPlaceholder(actionTemplate, key: "appVocabulary") {
+            if !snapshot.didResolveAppVocabulary {
+                snapshot.appVocabulary = getAppVocabulary(
+                    targetPid: snapshot.frontAppPid,
+                    fallbackAppName: snapshot.frontAppName,
+                    fallbackBundleId: snapshot.frontAppBundleId
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+                snapshot.didResolveAppVocabulary = true
+            }
+            enhanced["appVocabulary"] = snapshot.appVocabulary
+        }
+
+        setChainContextSnapshot(snapshot, recordingPath: recordingPath)
         
         return enhanced
+    }
+
+    private func initializeChainContextSnapshot(recordingPath: String, metaJson: [String: Any]) {
+        let snapshot = ChainContextSnapshot(
+            frontAppName: (metaJson["frontAppName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            frontAppBundleId: (metaJson["frontAppBundleId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            frontAppPid: extractFrontAppPid(from: metaJson),
+            didResolveAppContext: false,
+            appContext: "",
+            didResolveAppVocabulary: false,
+            appVocabulary: ""
+        )
+        setChainContextSnapshot(snapshot, recordingPath: recordingPath)
+    }
+
+    private func clearChainContextSnapshot(recordingPath: String) {
+        chainContextQueue.sync {
+            _ = chainContextByRecordingPath.removeValue(forKey: recordingPath)
+        }
+    }
+
+    private func getChainContextSnapshot(recordingPath: String) -> ChainContextSnapshot {
+        chainContextQueue.sync {
+            chainContextByRecordingPath[recordingPath] ?? ChainContextSnapshot(
+                frontAppName: "",
+                frontAppBundleId: "",
+                frontAppPid: nil,
+                didResolveAppContext: false,
+                appContext: "",
+                didResolveAppVocabulary: false,
+                appVocabulary: ""
+            )
+        }
+    }
+
+    private func setChainContextSnapshot(_ snapshot: ChainContextSnapshot, recordingPath: String) {
+        chainContextQueue.sync {
+            chainContextByRecordingPath[recordingPath] = snapshot
+        }
+    }
+
+    private func extractFrontAppPid(from metaJson: [String: Any]) -> Int32? {
+        if let value = metaJson["frontAppPid"] as? Int32 {
+            return value
+        }
+        if let value = metaJson["frontAppPid"] as? Int {
+            return Int32(value)
+        }
+        if let value = metaJson["frontAppPid"] as? NSNumber {
+            return Int32(value.intValue)
+        }
+        if let value = metaJson["frontAppPid"] as? String, let parsed = Int(value) {
+            return Int32(parsed)
+        }
+        return nil
+    }
+
+    private func actionUsesPlaceholder(_ actionTemplate: String, key: String) -> Bool {
+        guard actionTemplate.contains("{{"), actionTemplate.contains(key) else {
+            return false
+        }
+        return true
     }
     
     // MARK: - Action Processing Methods

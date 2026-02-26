@@ -481,7 +481,13 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
             
             // Handle appContext (captured during placeholder processing if placeholder is present)
             else if key == "appContext" {
-                var value = getAppContext().trimmingCharacters(in: .whitespacesAndNewlines)
+                var value = (metaJson["appContext"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if value.isEmpty {
+                    value = getAppContext(
+                        targetPid: extractFrontAppPid(from: metaJson),
+                        fallbackAppName: (metaJson["frontAppName"] as? String) ?? (metaJson["frontApp"] as? String)
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
                 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -498,7 +504,14 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
 
             // Handle appVocabulary (captured lazily at placeholder time from front app accessibility content)
             else if key == "appVocabulary" {
-                var value = getAppVocabulary().trimmingCharacters(in: .whitespacesAndNewlines)
+                var value = (metaJson["appVocabulary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if value.isEmpty {
+                    value = getAppVocabulary(
+                        targetPid: extractFrontAppPid(from: metaJson),
+                        fallbackAppName: (metaJson["frontAppName"] as? String) ?? (metaJson["frontApp"] as? String),
+                        fallbackBundleId: metaJson["frontAppBundleId"] as? String
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -515,7 +528,11 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
 
             // Handle frontApp (captured lazily at placeholder execution time)
             else if key == "frontApp" {
-                var value = getCurrentFrontAppName().trimmingCharacters(in: .whitespacesAndNewlines)
+                var value = ((metaJson["frontApp"] as? String) ?? (metaJson["frontAppName"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if value.isEmpty {
+                    value = getCurrentFrontAppName().trimmingCharacters(in: .whitespacesAndNewlines)
+                }
 
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
@@ -640,6 +657,22 @@ private func getCurrentFrontAppName() -> String {
     }
     _ = semaphore.wait(timeout: .now() + 0.1)
     return fetchedApp?.localizedName ?? ""
+}
+
+private func extractFrontAppPid(from metaJson: [String: Any]) -> Int32? {
+    if let value = metaJson["frontAppPid"] as? Int32 {
+        return value
+    }
+    if let value = metaJson["frontAppPid"] as? Int {
+        return Int32(value)
+    }
+    if let value = metaJson["frontAppPid"] as? NSNumber {
+        return Int32(value.intValue)
+    }
+    if let value = metaJson["frontAppPid"] as? String, let parsed = Int(value) {
+        return Int32(parsed)
+    }
+    return nil
 }
 
 // MARK: - URL-Specific Escaping Helper

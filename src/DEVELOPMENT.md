@@ -68,8 +68,8 @@ swift build
 **Session-Based Placeholders** (captured during recording):
 - `{{selectedText}}` - Text selected when recording starts (early capture)
 - `{{clipboardContext}}` - Last clipboard change during recording session (supports stacking)
-- `{{appContext}}` - Structured app context (captured on-demand)
-- `{{appVocabulary}}` - Names/terms/identifiers from front app accessibility content (captured on-demand)
+- `{{appContext}}` - Structured app context (captured on-demand, anchored to chain app snapshot)
+- `{{appVocabulary}}` - Names/terms/identifiers from app accessibility content (captured on-demand, anchored to chain app snapshot)
 
 **Usage Examples:**
 - `{{selectedText}}` - Gets selected text with action-type escaping
@@ -88,6 +88,8 @@ swift build
   - **Multiple changes**: Returns all changes with XML tags (`<clipboard_context_1>`, `<clipboard_context_2>`, etc.)
 - **appContext**: Only captured when placeholder is used in action (performance optimization)
 - **appVocabulary**: Only captured when placeholder is used in action; uses bounded accessibility traversal
+- **frontApp/appContext/appVocabulary consistency**: In watcher flow, app identity is frozen once before first action step (`frontAppName`/`frontAppBundleId`/`frontAppPid`). `appContext` and `appVocabulary` resolve lazily on first use, then are reused for the full chain.
+- **CLI behavior**: Context placeholders are resolved live at CLI execution time.
 
 #### Example: Adding Session-Based Placeholder
 ```swift

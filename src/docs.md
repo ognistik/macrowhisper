@@ -177,7 +177,8 @@ Before action evaluation/execution, Macrowhisper enriches metadata with:
 - Front app name / bundle ID
 - Session selected text
 - Session clipboard context
-- If `{{appContext}}`  or `{{appVocabylary}}` are used, gather context data via accessibility APIs
+- Front app PID (used to keep context placeholders anchored to the same app during chains)
+- If `{{appContext}}` or `{{appVocabulary}}` are used, gather accessibility context lazily on first use and reuse it for the rest of the chain
 
 ### Step D: Optional bypass by mode
 
@@ -1060,23 +1061,25 @@ Stacking output format for multiple items:
 
 ### 12.3 `{{appContext}}`
 
-- captured at action execution time
+- watcher flow: anchored to the app that was frontmost when recording finished (before first action step)
+- computed lazily only when used, then cached for the whole chain
 - captures richer app/window/text-field context
 
 ### 12.4 `{{appVocabulary}}`
 
-- captured at action execution time (lazy, only when placeholder is present)
-- extracts comma-separated terms from front app accessibility text (window/focused elements)
+- watcher flow: anchored to the app that was frontmost when recording finished (before first action step)
+- computed lazily only when used, then cached for the whole chain
+- extracts comma-separated terms from app accessibility text (window/focused elements)
 - tuned for names/identifiers/noun-like tokens
 
 ### 12.5 `{{frontApp}}`
 
-- captured at action execution time (lazy, only when placeholder is present)
-- resolves to the current frontmost app name at the moment each action step is processed
+- watcher flow: resolved from the same anchored app snapshot used for triggers/chains
+- stays stable across all steps in a chain, even if user focus changes mid-chain
 
 ### 12.6 On CLI Execution
 
-In CLI execution context (with `--exec-action` , `--get-action` or `copy-action` ), Macrowhisper attempts capture of context placeholders at action execution time.
+In CLI execution context (with `--exec-action` , `--get-action` or `copy-action` ), Macrowhisper captures context placeholders at CLI execution time (live context).
 
 ***Powerful Use-Case**: With `--copy-action` , you can pass stacked clipboards to Superwhisper for processing if the selected mode in Superwhisper includes clipboard capture.*
 

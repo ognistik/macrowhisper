@@ -44,9 +44,10 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
    ↓
 5. Context Gathering & Session Data Enhancement
    ├── Front App context
+   ├── Freeze app snapshot for chain consistency (name, bundle ID, PID)
    ├── Add selectedText to metaJson
    ├── Add clipboardContext to metaJson (session priority, pre-recording fallback)
-   └── Add appContext (if placeholder used)
+   └── Add appContext/appVocabulary lazily on first placeholder use; reuse for chain
    ↓
 6. Action Priority Evaluation
    ├── Auto-Return (Highest Priority)

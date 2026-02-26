@@ -56,7 +56,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * It is now also possible to use `meta.json` subkeys or arrays. For example, `{{promptContext.systemContext.language}}` is possible.
 * **Improvement.** Raised blackout window for clipboard duplication up to 5 seconds to accommodate to Superwhisper. I'm convinced this is a Superwhisper bug by now and Macrowhisper is just trying to work around it.
 * **Improvements to context placeholders for performance.**
-  * `frontApp` placeholder is now captured lazily, only when placeholder is found in action, and at action execution. This is same behavior as `appContext` and `clipboardContext` placeholders.
+  * `appContext`, `frontApp` and `appVocabulary` placeholders are  captured lazily, only when placeholder is found in action, and at action execution.
   * `selectedText` and `clipboardContext` are captured only during recording session and their values are used again in chained actions.
 * **Improvement** to trigger evaluation for Front App. Prior to this update, trigger matching would  require both name & bundle ID to exist. Now, it works with one value. 
 * **Improvement.**  `moveTo` behavior runs `--exec-action` for consistency.

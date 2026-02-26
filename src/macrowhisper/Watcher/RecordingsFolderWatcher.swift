@@ -724,11 +724,15 @@ class RecordingsFolderWatcher {
             // Get front app info for app triggers
             let frontAppName = frontApp?.localizedName
             let frontAppBundleId = frontApp?.bundleIdentifier
+            let frontAppPid = frontApp?.processIdentifier
             
             // Create enhanced metaJson with app metadata captured at processing time
             var enhancedMetaJson = metaJson
             enhancedMetaJson["frontAppName"] = frontAppName
             enhancedMetaJson["frontAppBundleId"] = frontAppBundleId
+            if let frontAppPid {
+                enhancedMetaJson["frontAppPid"] = Int(frontAppPid)
+            }
             
             // Add session data from clipboard monitor for placeholder processing
             let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: recordingPath)

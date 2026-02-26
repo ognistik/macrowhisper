@@ -84,24 +84,26 @@ private struct VocabularyCandidate {
 
 /// Extracts vocabulary-like terms (names, nouns, identifiers) from the frontmost app lazily at execution time.
 /// Output is a comma-separated list suitable for prompt placeholders.
-func getAppVocabulary() -> String {
+func getAppVocabulary(targetPid: Int32? = nil, fallbackAppName: String? = nil, fallbackBundleId: String? = nil) -> String {
     guard AXIsProcessTrusted() else {
         logDebug("[AppVocabulary] No accessibility permissions, cannot get app vocabulary")
         return ""
     }
 
-    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
-        logDebug("[AppVocabulary] No frontmost application found")
+    guard let targetApp = resolveVocabularyTargetApp(targetPid: targetPid) else {
+        logDebug("[AppVocabulary] No target application found")
         return ""
     }
 
-    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+    let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
     var snippets: [VocabularySnippet] = []
     let directInputContent = getInputFieldContent(appElement: appElement)
     let hasDirectInputContent = !(directInputContent?.isEmpty ?? true)
-    let isBrowserApp = appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? "")
+    let appBundleId = targetApp.bundleIdentifier ?? fallbackBundleId ?? ""
+    let isBrowserApp = appVocabularyBrowserBundleIds.contains(appBundleId)
 
-    if let appName = frontApp.localizedName, !appName.isEmpty {
+    let appName = targetApp.localizedName ?? fallbackAppName ?? ""
+    if !appName.isEmpty {
         let cleaned = normalizeVocabularySnippet(appName, source: .appName)
         if !cleaned.isEmpty {
             snippets.append(VocabularySnippet(text: cleaned, source: .appName))
@@ -206,6 +208,15 @@ func getAppVocabulary() -> String {
     let result = tokens.joined(separator: ", ")
     logDebug("[AppVocabulary] Extracted \(tokens.count) vocabulary terms")
     return result
+}
+
+private func resolveVocabularyTargetApp(targetPid: Int32?) -> NSRunningApplication? {
+    if let targetPid {
+        if let app = NSRunningApplication(processIdentifier: targetPid), !app.isTerminated {
+            return app
+        }
+    }
+    return NSWorkspace.shared.frontmostApplication
 }
 
 private func collectVocabularySnippets(
