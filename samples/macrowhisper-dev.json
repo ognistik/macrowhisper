@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 3,

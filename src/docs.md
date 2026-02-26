@@ -1235,7 +1235,9 @@ Supported values:
 - `0`: keep only most recent recording folder
 - positive integer: keep last N days
 
-Cleanup runs with a 24-hour check interval.
+Cleanup uses a 24-hour in-memory check interval:
+- It runs at most once every 24 hours while Macrowhisper stays running.
+- The timer is not persisted across app restarts, so after restarting, cleanup can run again on the next processed recording.
 
 ---
 
