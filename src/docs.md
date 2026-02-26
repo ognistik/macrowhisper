@@ -885,9 +885,7 @@ When a token does not apply in current context, the related field is neutralized
 
 ## 10) Chaining Actions (`nextAction`) Deep Dive
 
-`nextAction` lets one action call another.
-
-It can be set:
+`nextAction` lets one action call another. It can be set:
 
 - per action (`action.nextAction`)
 - globally (`defaults.nextAction`)
@@ -921,6 +919,7 @@ Because chains resolve by name across all types, duplicate names across types ar
 - If one step fails, chain continues to remaining steps and reports partial failure.
 - Clipboard restoration decision is controlled by the last step.
 - `moveTo` post-processing is based on final executed action context.
+- `noEsc` is controlled at the first action-level (if set) else defaults.nextAction.
 
 ---
 
@@ -942,9 +941,8 @@ For each action payload:
 - `{{swResult}}` - prefers `llmResult`, falls back to `result`
 - `{{result}}`
 - `{{llmResult}}`
-- `{{frontApp}}`
 
-`{{frontApp}}` is resolved lazily at placeholder execution time from the current frontmost app.
+*For most users, `{{swResult}}` will be the default placeholder to use, as it dynamically includes expected Superwhisper's result.*
 
 ### 11.3 Date placeholders
 
@@ -959,6 +957,7 @@ Context placeholders use content captured by Macrowhisper, not Superwhisper. Thi
 - `{{clipboardContext}}`
 - `{{appContext}}`
 - `{{appVocabulary}}`
+- `{{frontApp}}`
 
 *Detailed timing is covered in Section 12.*
 
@@ -970,37 +969,42 @@ Supported formats:
 - `{{json:xml:tagName}}`
 - `{{raw:xml:tagName}}`
   
-*Note: contextual prefixes like `json:` and `raw:` are covered in [Section 14](craftdocs://open?blockId=3cac03d4-186d-06d6-06b7-3cdaa1b189bd&spaceId=dbf93b0b-3c55-5ab0-745b-9fa6a60fc3d2)*
+*Note: contextual prefixes like `json:` and `raw:` are covered in Section 14*
 
 Behavior:
 
-- looks for `<tagName>...</tagName>` in `llmResult` first, else in `result`
-- inserts extracted content where placeholder appears
-- if tag content is missing/empty, placeholder is removed
-- extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized (when applicable)
-
+- Looks for `<tagName>...</tagName>` in `llmResult` first, else in `result`
+- Inserts extracted content where placeholder appears
+- If tag content is missing/empty, placeholder is removed
+- Extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized (when applicable)
+  
 ### 11.6 Any metadata key placeholder
 
 Any key in `meta.json` can be used as `{{keyName}}`.
+
+#### Examples:
+
+- `{{modeName}}`
+- `{{languageModelName}}`
+- `{{language}}`
+
+
+#### Nested Values
+
 Nested values can be accessed with dot notation and array indexes:
 
 - `{{promptContext.systemContext.language}}`
 - `{{promptContext.modeContext.type}}`
 - `{{segments.0.text}}`
 
-Examples:
 
-- `{{modeName}}`
-- `{{languageModelName}}`
-- `{{language}}`
-- `{{promptContext.systemContext.language}}`
+#### Segments & Special Values
 
 `{{segments}}` is rendered as a readable transcript.
+
 - With speaker metadata/diarization: consecutive words from the same speaker are merged into blocks, each block starts with `mm:ss Speaker N` (`N` is 1-based).
-- Without speaker metadata: all segment words are merged into a single readable paragraph.
-
-Special time keys (`duration`, `languageModelProcessingTime`, `processingTime`) are formatted into human-readable values like `350ms`, `1.2s`, or `2m 05s`.
-
+- Special time keys (`duration`, `languageModelProcessingTime`, `processingTime`) are formatted into human-readable values like `350ms`, `1.2s`, or `2m 05s`.
+  
 If a placeholder key does not exist, it resolves to empty string.
 
 ---
@@ -1009,13 +1013,7 @@ If a placeholder key does not exist, it resolves to empty string.
 
 ### 12.1 `{{selectedText}}`
 
-Primary capture timing:
-
-- captured at recording session start (when recording folder appears)
-
-Fallback behavior:
-
-- in CLI execution context (with `--exec-action` , `--get-action` or `copy-action`), Macrowhisper attempts capture at action execution time
+Captured at recording session start (when recording folder appears)
 
 ### 12.2 `{{clipboardContext}}`
 
@@ -1032,12 +1030,6 @@ Filtering behavior:
 - Superwhisper result text is filtered out from stacked clipboard context entries.
 - Empty clipboard entries are ignored.
 - Ignored apps (from `clipboardIgnore`) do not contribute entries.
-
-CLI execution flow (`--exec-action`, `--copy-action`, `--get-action <name>`):
-
-- With stacking off: most recent clipboard item in window
-- With stacking on: all clipboard items in window
-- Important: With `--copy-action` , you can pass stacked clipboards to Superwhisper for processing, if the selected mode includes clipboard capture.
 
 Stacking output format for multiple items:
 
@@ -1088,7 +1080,7 @@ Examples:
 Remove filler words:
 
 ```text
-{{swResult||\b(uh|um|like)\b||}}
+{{swResult||(uh|um|like)||}}
 ```
 
 Remove trailing period (common for URL query cleanup):
@@ -1100,7 +1092,7 @@ Remove trailing period (common for URL query cleanup):
 Replace line breaks with HTML `<br>`:
 
 ```text
-{{swResult||\n||<br>}}
+{{swResult||\\n||<br>}}
 ```
 
 Behavior details:
@@ -1115,7 +1107,7 @@ Behavior details:
 
 Macrowhisper applies escaping based on action type unless overridden.
 
-## 14.1 Default escaping by action type
+### 14.1 Default escaping by action type
 
 - Insert: no escaping
 - Shortcut: no escaping
@@ -1123,7 +1115,7 @@ Macrowhisper applies escaping based on action type unless overridden.
 - Shell: shell-safe escaping
 - AppleScript: AppleScript-safe escaping
 
-## 14.2 Prefix overrides
+### 14.2 Prefix overrides
 
 Use `raw:` to disable escaping:
 
@@ -1131,13 +1123,17 @@ Use `raw:` to disable escaping:
 {{raw:swResult}}
 ```
 
+*This is useful if, for example, Superwhisper is giving you AppleScript that's meant for direct execution.*
+
 Use `json:` to force JSON string escaping:
 
 ```text
 {{json:swResult}}
 ```
 
-Example (embedding inside JSON string payload):
+*This is useful for Shortcut actions, for example. Shortcut actions don’t escape placeholders for you, but sometimes you need your value to be JSON-safe.*
+
+Example
 
 ```json
 "action": "{\"input\":\"{{json:swResult}}\"}"
@@ -1149,19 +1145,18 @@ Example (embedding inside JSON string payload):
 
 Most users can skip this section. It is for precision debugging and advanced setups.
 
-## 15.1 Why this exists
+### 15.1 Why this exists
 
 Superwhisper and Macrowhisper can touch clipboard near the same time. The clipboard subsystem exists to avoid race conditions and stale clipboard reuse.
 
-## 15.2 Key timing values used internally
+### 15.2 Key timing values used internally
 
-- short wait window for Superwhisper clipboard sync before insert (`0.1s`)
-- fast polling interval for clipboard changes (`0.01s`)
-- recent-activity window to skip unnecessary waiting (`0.5s`)
-- startup duplicate-ignore blackout window (`2.5s`)
-- pre-recording capture window from `clipboardBuffer` (user-configurable, default `5s`)
+- Short wait window for Superwhisper clipboard sync before insert actions (`0.1s`)
+- Recent-activity window to skip unnecessary waiting (`0.5s`)
+- Startup duplicate-ignore window (`5s`). For some reason Superwhisper performs a clipboard operation if the user is not in an input field. This 5 sec window prevents clipboard contamination for context placeholders
+- Pre-recording capture window from `clipboardBuffer` (user-configurable, default `5s`)
 
-## 15.3 Important settings
+### 15.3 Important settings
 
 - `restoreClipboard`
 - `clipboardBuffer`
@@ -1175,18 +1170,18 @@ How these combine:
 - `clipboardStacking = true` can return multiple ordered snippets tagged as `<clipboard-context-N>`.
 - `restoreClipboard = true` restores the original clipboard at the end of the action flow (chain-aware: final step governs restoration).
 
-## 15.4 `clipboardIgnore` examples
+### 15.4 `clipboardIgnore` example
 
 ```json
 "clipboardIgnore": "Arc|Bitwarden|com.apple.passwords"
 ```
 
-This prevents clipboard captures from ignored apps from polluting `{{clipboardContext}}`.
+This prevents clipboard captures from ignored apps from polluting `{{clipboardContext}}`. Macrowhisper also respects clipboard items marked as concealed.
 
-## 15.5 Best practices
+### 15.5 Best practices
 
 1. Keep Superwhisper clipboard restoration disabled.
-2. Start with `clipboardBuffer: 5`.
+2. Start with `clipboardBuffer`: 5, this setting comes into effect for actions where `{{clipboardContext}}` is used.
 3. Enable `clipboardStacking` only when you actually need multi-copy context.
 4. Use `clipboardIgnore` for password managers / browsers that produce noisy clipboard events.
 5. If you see intermittent clipboard race behavior, add a small `actionDelay` (for example `0.05` to `0.2`).
@@ -1195,7 +1190,7 @@ This prevents clipboard captures from ignored apps from polluting `{{clipboardCo
 
 ## 16) Recording File Handling (`moveTo`, `history`)
 
-## 16.1 `moveTo`
+### 16.1 `moveTo`
 
 Supported values:
 
@@ -1204,34 +1199,32 @@ Supported values:
 - `""`: explicitly do nothing
 - `null` on action-level: fallback to defaults
 
-## 16.2 `history`
+### 16.2 `history`
 
 `defaults.history` controls retention cleanup.
 
 - `null`: disabled (keep all)
 - `0`: keep only most recent recording folder
 - positive integer: keep last N days
-
-Cleanup uses a 24-hour in-memory check interval:
-- It runs at most once every 24 hours while Macrowhisper stays running.
-- The timer is not persisted across app restarts, so after restarting, cleanup can run again on the next processed recording.
+- Cleanup runs with a 24-hour check.
 
 ---
 
 ## 17) Advanced Runtime Behavior Notes
 
-## 17.1 `--schedule-action` and `--auto-return` are one-shot
+### 17.1 `--schedule-action` and `--auto-return` are one-shot
 
 After use (or cancellation), they are cleared.
 
-## 17.2 Timeout behavior
+### 17.2 Timeout behavior
 
 `scheduledActionTimeout` controls how long one-shot runtime modes remain pending when there is no active recording session.
 
 - `0` means no timeout
 - default is `5` seconds
+- If there is an active recording session, the scheduledAction will apply to that without timeout.
 
-## 17.3 `bypassModes`
+### 17.3 `bypassModes`
 
 If mode is bypassed:
 
@@ -1247,9 +1240,9 @@ Example:
 
 ---
 
-## 18) Full Config Examples
+## 18) Config Examples
 
-## 18.1 Beginner-friendly everyday config
+### 18.1 Beginner-friendly everyday config
 
 ```json
 {
@@ -1307,7 +1300,9 @@ Example:
 }
 ```
 
-## 18.2 Advanced chained workflow example
+### 18.2 Advanced chained workflow example
+
+*In this example the user will directly dictate into the compose action, pasting (since the first is an insert action), opening a url, and showing a notification.*
 
 ```json
 {
@@ -1347,7 +1342,7 @@ Example:
 
 ## 19) Troubleshooting
 
-## 19.1 First checks
+### 19.1 First checks
 
 1. Is service running?
 
@@ -1373,7 +1368,9 @@ macrowhisper --list-actions
 macrowhisper --reveal-config
 ```
 
-## 19.2 Logs
+### 19.2 Logs
+
+#### To correctly diagnose issues, set `defaults.redactedLogs` to `false` 
 
 Log directory:
 
@@ -1385,35 +1382,40 @@ Use verbose mode for deep debugging:
 macrowhisper --verbose
 ```
 
-## 19.3 Common problems
+### 19.3 Common problems
 
-### Nothing pastes
+#### Nothing pastes
 
 - Check macOS Accessibility permissions.
 - Restart service.
 - Confirm active action is not empty.
 - Confirm no bypass mode is currently active.
 
-### Trigger does not fire
+#### Double paste
+
+- Confirm you've set Superwhiper `Paste result text` to OFF
+
+#### Trigger does not fire
 
 - Verify `triggerLogic` and trigger fields are actually non-empty.
 - For `triggerVoice`, remember plain pattern is prefix-only literal matching.
 - Check for another action name that sorts earlier and matches first.
+- Logs will always reveal which action or trigger was used
 
-### `inputCondition` suddenly not working
+#### `inputCondition` suddenly not working
 
 - Ensure no spaces in string.
 - Ensure token names are valid for that action type.
 - Avoid empty segments like `||`.
 
-### Clipboard context feels stale/noisy
+#### Clipboard context feels stale/noisy
 
 - Tune `clipboardBuffer`.
 - Add `clipboardIgnore` patterns.
 - Disable conflicting clipboard manager features.
 - Keep Superwhisper clipboard restore off.
 
-### Config edits not applying
+#### Config edits not applying
 
 - Save valid JSON.
 - Check for semantic validation errors (missing action refs, invalid inputCondition tokens, duplicate action names).
@@ -1434,7 +1436,7 @@ macrowhisper --restart-service
 ### Script update
 
 ```bash
-curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sh
+curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 macrowhisper --restart-service
 ```
 
@@ -1448,40 +1450,47 @@ macrowhisper --check-updates
 
 ## 21) Full Uninstall
 
-If installed with Homebrew:
+#### Macrowhisper consists of three main components:
+
+**The service** (background process)
+    *Installed over at `~/Library/LaunchAgents/com.aft.macrowhisper.plist`* 
+
+**The binary** (the application itself)
+    *Installed at brew path or `/usr/local/bin/macrowhisper`* 
+
+**Configuration files** (your settings and preferences)
+    *By default at `~/.config/macrowhisper`* 
+
+#### First, stop the service
+
+```bash
+macrowhisper --stop-service
+```
+
+#### Second, uninstall the service and remove binary
+
+**If installed with Homebrew**
 
 ```bash
 macrowhisper --uninstall-service
 brew uninstall macrowhisper
 ```
-
-If installed with script:
+**If installed with script**
 
 ```bash
 macrowhisper --uninstall-service
 sudo rm -f /usr/local/bin/macrowhisper
 ```
 
-Optional cleanup:
+#### Optional cleanup for config and logs
 
-- remove config folder: `~/.config/macrowhisper`
-- remove logs: `~/Library/Logs/Macrowhisper`
+```shell
+# Remove Config Folder
+rm -rf ~/.config/macrowhisper
 
----
-
-## 22) Final Learning Path (Recommended)
-
-If you want to become advanced quickly, follow this order:
-
-1. Master `activeAction` and simple insert actions.
-2. Add one trigger type at a time (`triggerVoice`, then app/mode).
-3. Learn `inputCondition` with 1-2 tokens first.
-4. Learn placeholders (`swResult`, `selectedText`, `clipboardContext`).
-5. Add regex replacements for cleanup.
-6. Add chained workflows with `nextAction`.
-7. Tune clipboard settings only when needed.
-
-This progression keeps setup stable while you gain power.
+# Remove Logs
+rm -rf ~/Library/Logs/Macrowhisper
+```
 
 ---
 

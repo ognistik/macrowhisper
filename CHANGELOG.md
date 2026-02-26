@@ -2,10 +2,12 @@
 
 ## UNRELEASED
 
+The [documentation](https://by.afadingthought.com/macrowhisper) has be fully updated for more clarity.
+
 ## Big Config semantics update (clearer and more predictable)
 This release introduces `configVersion: 2` with clearer rules for the configuration file.
 
-### New rule at action level
+### New behaviors at action level
 - `null` = inherit default
 - `""` = explicit empty value
 - Action payload templates stay explicit:
@@ -13,15 +15,16 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   - `.autoPaste` (insert only)
   - `.run` (shortcuts only)
 
-### Important behavior
+### Important difference
 - `action: ""` and `action: ".none"` are **not the same**.
 - `action: ""` = empty payload.
-- `action: ".none"` = template behavior (also affects options like `noEsc` / `restoreClipboard`).
+- `action: ".none"` = template behavior (sets `noEsc` & `restoreClipboard` to false).
 
 ### Migration
+- Auto migration should allow you to continue using your config without any new manuale edits.
 - A backup is created once: `macrowhisper.json.backup.pre-v2`.
 - If `defaults.autoUpdateConfig` is `false`, migration is not automatic.  
-  - You can migrate by running `--update-config`.
+  - In that case, you can migrate by running `--update-config`.
 
 ### Non-action `.none`
 - In v2, `.none` is no longer valid for fields like `icon` or `moveTo`.
@@ -30,8 +33,9 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   - `""` for explicit empty
 
 ## Other
+* **Breaking.** `--insert, --get-insert, --exec-insert, getInsert, execInsert` flags have been deprecated for quite some time, and now they've been cleaned up from the code.
 * **New** `smartInsert` set to true by default
-  * I have covered a lot of edge cases. Most minor remaining issues are with those apps that do not have good accessibility integrations.
+  * Lots of edge cases covered. Most minor remaining issues are with those apps that do not have good accessibility integrations.
 * **New** `bypassModes` setting in defaults of the config, where the user can set modes where Macrowhisper should not kick in at all.
   * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
   * It is still suggested that users set Superwhisper's autopaste off in the advanced configuration tab. However, if they do want to use SuperWhisper for pasting with a specific mode, now they can bypass that specifically with Macrowhisper. No actions will trigger when using that mode.
@@ -47,7 +51,6 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * Now the only required key is the watch folder. This allows for minimal configuration files if users set `autoUpdateConfig` to `false`.
   * It is still suggested to set `autoUpdateConfig` to `true` so users don't miss out on future new features.
 * **Improvement.** Better guard protection when multiple recordings appear in burst (none will process).
-* **Improvement.** `--insert, --get-insert, --exec-insert, getInsert, execInsert` flags have been deprecated for quite some time, and now they've been cleaned up from the code.
 * **Improvement.** Better handling of `meta.json` values.
   * Use the `segments` key from the `meta.json` file as placeholder, and it will be formatted correctly. You can now send your speaker-separated transcripts to automations.
   * It is now also possible to use `meta.json` subkeys or arrays. For example, `{{promptContext.systemContext.language}}` is possible.

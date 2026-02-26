@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 3,
@@ -95,8 +95,8 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>\n\n}}{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>\n\n}}{{appContext||(?s)^(.*)$||<appContext>\n$1\n</appContext>}}",
-      "actionDelay" : null,
+      "action" : "{{frontApp||(?s)^(.*)$||\n\n<active-app>\n$1\n</active-app>\n\n}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>\n\n}}{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
+      "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,
       "moveTo" : null,
@@ -115,7 +115,7 @@
   "scriptsAS" : {
     "swWebDebug" : {
       "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"DURATION: {{duration}}\nV PRCS: {{processingTime}}{{languageModelProcessingTime||^(.*)$||\nLLM PRCS: $1}}\n\nMODE: {{modeName}}\n{{modelName}}{{languageModelName||^(.*)$|| | $1}}\n\nVOICE RESULT:\n{{result}}{{llmResult||\\n\\n\\n||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\nLLM RESULT:\n$1||\\s+$||}}{{prompt||\\n\\s*\\n\\s*\\n(\\s*\\n)*||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n$1}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
-      "actionDelay" : null,
+      "actionDelay" : 0,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,

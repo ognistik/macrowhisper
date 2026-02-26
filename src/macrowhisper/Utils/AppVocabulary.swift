@@ -1094,25 +1094,26 @@ private func hasMixedCaps(_ token: String) -> Bool {
     return hasUppercase && hasLowercase
 }
 
-private func isLikelySentenceStartToken(in text: String, matchRange: NSRange) -> Bool {
-    if matchRange.location == 0 {
-        return true
-    }
+// treat newline, or a period followed by whitespace (space/return/tab etc.) as sentence start
+func isLikelySentenceStartToken(in text: String, matchRange: NSRange) -> Bool {
+    guard matchRange.location != 0 else { return true }
 
     let nsText = text as NSString
-    var index = matchRange.location - 1
+    var idx = matchRange.location - 1
 
-    while index >= 0 {
-        let previous = nsText.substring(with: NSRange(location: index, length: 1))
-        if previous.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            index -= 1
+    // back-skip whitespace to find the *true* preceding character
+    while idx >= 0 {
+        let char = nsText.substring(with: NSRange(location: idx, length: 1)).utf16.first!
+        if CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(char)!) {
+            idx -= 1
             continue
         }
-
-        return previous == "." || previous == "!" || previous == "?" || previous == "\n" || previous == ":" || previous == ";"
+        break
     }
-
-    return true
+    guard idx >= 0 else { return true } // nothing but whitespace
+    let prev = nsText.substring(with: NSRange(location: idx, length: 1))
+    return ([".", "!", "?", ":", ";"].contains(prev)) ||
+           prev.rangeOfCharacter(from: CharacterSet.newlines) != nil
 }
 
 private func isLikelyInternalUIToken(_ token: String) -> Bool {

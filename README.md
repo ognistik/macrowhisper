@@ -8,7 +8,7 @@ Macrowhisper watches Superwhisper recordings and runs configured actions based o
 [![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
 
 ## Learn More
-- Full docs and use cases: [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)
+- Full docs and examples: [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)
 - Alfred workflow: [github.com/ognistik/macrowhisper/tree/main/alfred](https://github.com/ognistik/macrowhisper/tree/main/alfred)
 - Codebase map: [github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
 - Processing flow: [github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
@@ -48,7 +48,7 @@ To avoid conflicts, in Superwhisper set:
 - OFF: `Paste Result Text`, `Restore Clipboard After Paste`, `Simulate Key Presses`
 - ON: `Recording Window`
 
-If the recording window does not close reliably, increase `defaults.actionDelay` in Macrowhisper config.
+If the recording window does not close reliably, you can increase `defaults.actionDelay` in Macrowhisper config.
 
 ## Core CLI Commands
 
@@ -105,6 +105,7 @@ Processing priority is strict:
 ```json
 {
   "$schema": "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
+  "configVersion" : 2,
   "defaults": {
     "watch": "~/Documents/superwhisper",
     "activeAction": "autoPaste",
@@ -112,7 +113,7 @@ Processing priority is strict:
     "restoreClipboard": true,
     "scheduledActionTimeout": 5,
     "clipboardBuffer": 5,
-    "redactedLogs": true
+    "redactedLogs": false
   },
   "inserts": {
     "autoPaste": {
@@ -166,7 +167,6 @@ This README is intentionally concise. For complete reference, automation example
 - [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)
 
 ## Support
-If Macrowhisper is useful in your workflow:
-- [Buy me a coffee](https://buymeacoffee.com/afadingthought/)
+If Macrowhisper is useful in your workflow, I'd be grateful if you [Buy me a coffee](https://buymeacoffee.com/afadingthought/)
 
 Macrowhisper is an independent project and is not affiliated with Superwhisper.
