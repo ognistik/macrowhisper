@@ -37,6 +37,37 @@ class SocketCommunication {
     private let queue = DispatchQueue(label: "com.macrowhisper.socket", qos: .utility)
     private var configManagerRef: ConfigurationManager?
     private var clipboardMonitorRef: ClipboardMonitor?
+
+    private struct LatestValidRecording {
+        let metaJson: [String: Any]
+        let recordingPath: String
+    }
+
+    private struct CLIResolvedActionStep {
+        let name: String
+        let type: ActionType
+        let action: Any
+    }
+
+    private enum CLIActionChainError: LocalizedError {
+        case duplicateActionName(String)
+        case missingAction(String)
+        case cycleDetected(String)
+        case multipleInsertActions(first: String, second: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .duplicateActionName(let name):
+                return "Duplicate action name '\(name)' exists across multiple action types. Names must be unique."
+            case .missingAction(let name):
+                return "Chained nextAction '\(name)' was not found."
+            case .cycleDetected(let name):
+                return "Action chain cycle detected at '\(name)'. Chained actions cannot repeat."
+            case .multipleInsertActions(let first, let second):
+                return "Action chain contains multiple insert actions ('\(first)' and '\(second)'). Only one insert action is allowed per chain."
+            }
+        }
+    }
     
     enum Command: String, Codable {
         case reloadConfig
@@ -228,7 +259,7 @@ class SocketCommunication {
         server = nil
     }
 
-    private func findLastValidJsonFile(configManager: ConfigurationManager) -> [String: Any]? {
+    private func findLastValidRecording(configManager: ConfigurationManager) -> LatestValidRecording? {
         let expandedWatchPath = (configManager.config.defaults.watch as NSString).expandingTildeInPath
         let recordingsPath = expandedWatchPath + "/recordings"
         guard let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: recordingsPath), includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey], options: .skipsHiddenFiles) else { return nil }
@@ -266,11 +297,15 @@ class SocketCommunication {
                 }
 
                 if isValid {
-                    return json
+                    return LatestValidRecording(metaJson: json, recordingPath: directory.path)
                 }
             }
         }
         return nil
+    }
+
+    private func findLastValidJsonFile(configManager: ConfigurationManager) -> [String: Any]? {
+        findLastValidRecording(configManager: configManager)?.metaJson
     }
     
     /// Enhances metaJson with CLI-specific data for placeholder processing
@@ -313,6 +348,202 @@ class SocketCommunication {
         }
         
         return (.insert, nil) // Default type for not found
+    }
+
+    private func findUniqueActionByName(_ name: String, configManager: ConfigurationManager) throws -> (type: ActionType, action: Any)? {
+        let config = configManager.config
+        var matches: [(type: ActionType, action: Any)] = []
+        if let insert = config.inserts[name] { matches.append((type: .insert, action: insert)) }
+        if let url = config.urls[name] { matches.append((type: .url, action: url)) }
+        if let shortcut = config.shortcuts[name] { matches.append((type: .shortcut, action: shortcut)) }
+        if let shell = config.scriptsShell[name] { matches.append((type: .shell, action: shell)) }
+        if let script = config.scriptsAS[name] { matches.append((type: .appleScript, action: script)) }
+        if matches.count > 1 {
+            throw CLIActionChainError.duplicateActionName(name)
+        }
+        return matches.first
+    }
+
+    private func getEffectiveNextActionNameForCLI(
+        action: Any,
+        actionName: String,
+        type: ActionType,
+        isFirstStep: Bool,
+        configManager: ConfigurationManager
+    ) -> String? {
+        let actionLevel: String?
+        switch type {
+        case .insert:
+            actionLevel = (action as? AppConfiguration.Insert)?.nextAction
+        case .url:
+            actionLevel = (action as? AppConfiguration.Url)?.nextAction
+        case .shortcut:
+            actionLevel = (action as? AppConfiguration.Shortcut)?.nextAction
+        case .shell:
+            actionLevel = (action as? AppConfiguration.ScriptShell)?.nextAction
+        case .appleScript:
+            actionLevel = (action as? AppConfiguration.ScriptAppleScript)?.nextAction
+        }
+        let normalizedActionLevel = actionLevel?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if isFirstStep {
+            if let normalizedActionLevel {
+                return normalizedActionLevel.isEmpty ? nil : normalizedActionLevel
+            }
+            let defaultsNext = configManager.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return defaultsNext.isEmpty ? nil : defaultsNext
+        }
+
+        // Never re-apply defaults.nextAction after first action.
+        return (normalizedActionLevel ?? "").isEmpty ? nil : normalizedActionLevel
+    }
+
+    private func executeActionChainForCLI(
+        initialAction: Any,
+        initialActionName: String,
+        initialActionType: ActionType,
+        metaJson: [String: Any],
+        configManager: ConfigurationManager
+    ) throws -> CLIResolvedActionStep {
+        var currentName = initialActionName
+        var currentType = initialActionType
+        var currentAction: Any = initialAction
+        var isFirstStep = true
+        var visited: Set<String> = []
+        var firstInsertActionName: String?
+        var finalStep: CLIResolvedActionStep?
+
+        while true {
+            if visited.contains(currentName) {
+                throw CLIActionChainError.cycleDetected(currentName)
+            }
+            visited.insert(currentName)
+
+            switch currentType {
+            case .insert:
+                if let first = firstInsertActionName, first != currentName {
+                    throw CLIActionChainError.multipleInsertActions(first: first, second: currentName)
+                }
+                firstInsertActionName = currentName
+            case .url, .shortcut, .shell, .appleScript:
+                break
+            }
+
+            let resolvedStep: CLIResolvedActionStep
+            switch currentType {
+            case .insert:
+                guard let insert = currentAction as? AppConfiguration.Insert else {
+                    throw CLIActionChainError.missingAction(currentName)
+                }
+                let (resolvedInsert, isAutoPasteTemplate) = resolveInsertForCLIExecution(insert)
+                let (processedAction, isAutoPasteResult) = processInsertAction(resolvedInsert.action, metaJson: metaJson)
+                applyInsertForExec(
+                    processedAction,
+                    activeInsert: resolvedInsert,
+                    isAutoPaste: isAutoPasteTemplate || isAutoPasteResult
+                )
+                resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedInsert)
+            case .url:
+                guard let url = currentAction as? AppConfiguration.Url else {
+                    throw CLIActionChainError.missingAction(currentName)
+                }
+                let resolvedUrl = resolveUrlForCLIExecution(url)
+                executeUrlForCLI(resolvedUrl, metaJson: metaJson)
+                resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedUrl)
+            case .shortcut:
+                guard let shortcut = currentAction as? AppConfiguration.Shortcut else {
+                    throw CLIActionChainError.missingAction(currentName)
+                }
+                let resolvedShortcut = resolveShortcutForCLIExecution(shortcut)
+                executeShortcutForCLI(resolvedShortcut, shortcutName: currentName, metaJson: metaJson)
+                resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedShortcut)
+            case .shell:
+                guard let shell = currentAction as? AppConfiguration.ScriptShell else {
+                    throw CLIActionChainError.missingAction(currentName)
+                }
+                let resolvedShell = resolveShellForCLIExecution(shell)
+                executeShellForCLI(resolvedShell, metaJson: metaJson)
+                resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedShell)
+            case .appleScript:
+                guard let ascript = currentAction as? AppConfiguration.ScriptAppleScript else {
+                    throw CLIActionChainError.missingAction(currentName)
+                }
+                let resolvedAppleScript = resolveAppleScriptForCLIExecution(ascript)
+                executeAppleScriptForCLI(resolvedAppleScript, metaJson: metaJson)
+                resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedAppleScript)
+            }
+
+            finalStep = resolvedStep
+            let nextActionName = getEffectiveNextActionNameForCLI(
+                action: resolvedStep.action,
+                actionName: resolvedStep.name,
+                type: resolvedStep.type,
+                isFirstStep: isFirstStep,
+                configManager: configManager
+            )
+
+            guard let nextActionName, !nextActionName.isEmpty else {
+                break
+            }
+
+            guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
+                throw CLIActionChainError.missingAction(nextActionName)
+            }
+
+            currentName = nextActionName
+            currentType = next.type
+            currentAction = next.action
+            isFirstStep = false
+        }
+
+        guard let finalStep else {
+            throw CLIActionChainError.missingAction(initialActionName)
+        }
+        return finalStep
+    }
+
+    private func applyMoveToForCLI(
+        recordingPath: String,
+        finalActionType: ActionType,
+        finalAction: Any,
+        configManager: ConfigurationManager
+    ) {
+        var actionMoveTo: String?
+        switch finalActionType {
+        case .insert:
+            actionMoveTo = (finalAction as? AppConfiguration.Insert)?.moveTo
+        case .url:
+            actionMoveTo = (finalAction as? AppConfiguration.Url)?.moveTo
+        case .shortcut:
+            actionMoveTo = (finalAction as? AppConfiguration.Shortcut)?.moveTo
+        case .shell:
+            actionMoveTo = (finalAction as? AppConfiguration.ScriptShell)?.moveTo
+        case .appleScript:
+            actionMoveTo = (finalAction as? AppConfiguration.ScriptAppleScript)?.moveTo
+        }
+
+        var moveTo: String?
+        if let actionMoveTo = actionMoveTo, !actionMoveTo.isEmpty {
+            moveTo = actionMoveTo
+        } else {
+            moveTo = configManager.config.defaults.moveTo
+        }
+
+        guard let path = moveTo, !path.isEmpty else {
+            return
+        }
+
+        if path == ".delete" {
+            logInfo("Deleting processed recording folder after CLI exec-action: \(recordingPath)")
+            try? FileManager.default.removeItem(atPath: recordingPath)
+        } else if path == ".none" {
+            logInfo("Keeping recording folder in place after CLI exec-action as requested by .none setting")
+        } else {
+            let expandedPath = (path as NSString).expandingTildeInPath
+            let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((recordingPath as NSString).lastPathComponent)
+            logInfo("Moving processed recording folder after CLI exec-action to: \(destinationUrl.path)")
+            try? FileManager.default.moveItem(atPath: recordingPath, toPath: destinationUrl.path)
+        }
     }
     
     // Helper to validate any action exists
@@ -1995,10 +2226,16 @@ class SocketCommunication {
                 
             case .execAction:
                 if let actionName = commandMessage.arguments?["name"] {
-                    let (actionType, action) = findActionByName(actionName, configManager: configMgr)
-                    
-                    if let action = action {
-                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
+                    do {
+                        guard let (actionType, action) = try findUniqueActionByName(actionName, configManager: configMgr) else {
+                            response = "Action not found: \(actionName)"
+                            logError(response)
+                            notify(title: "Macrowhisper", message: "Action not found: \(actionName)")
+                            _ = sendResponse(response, to: clientSocket)
+                            break
+                        }
+
+                        if let latestRecording = findLastValidRecording(configManager: configMgr) {
                             let recordingSessionIsActive = recordingsWatcher?.hasActiveRecordingSessions() ?? false
                             if !recordingSessionIsActive {
                                 globalState.autoReturnEnabled = false
@@ -2009,41 +2246,21 @@ class SocketCommunication {
                             }
                             
                             // Enhance metaJson with CLI-specific data
-                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
-                            
-                            // Execute based on action type using CLI-specific methods
-                            switch actionType {
-                            case .insert:
-                                if let insert = action as? AppConfiguration.Insert {
-                                    let (resolvedInsert, isAutoPasteTemplate) = resolveInsertForCLIExecution(insert)
-                                    let (processedAction, isAutoPasteResult) = processInsertAction(resolvedInsert.action, metaJson: enhancedMetaJson)
-                                    applyInsertForExec(
-                                        processedAction,
-                                        activeInsert: resolvedInsert,
-                                        isAutoPaste: isAutoPasteTemplate || isAutoPasteResult
-                                    )
-                                }
-                            case .url:
-                                if let url = action as? AppConfiguration.Url {
-                                    let resolvedUrl = resolveUrlForCLIExecution(url)
-                                    executeUrlForCLI(resolvedUrl, metaJson: enhancedMetaJson)
-                                }
-                            case .shortcut:
-                                if let shortcut = action as? AppConfiguration.Shortcut {
-                                    let resolvedShortcut = resolveShortcutForCLIExecution(shortcut)
-                                    executeShortcutForCLI(resolvedShortcut, shortcutName: actionName, metaJson: enhancedMetaJson)
-                                }
-                            case .shell:
-                                if let shell = action as? AppConfiguration.ScriptShell {
-                                    let resolvedShell = resolveShellForCLIExecution(shell)
-                                    executeShellForCLI(resolvedShell, metaJson: enhancedMetaJson)
-                                }
-                            case .appleScript:
-                                if let script = action as? AppConfiguration.ScriptAppleScript {
-                                    let resolvedAppleScript = resolveAppleScriptForCLIExecution(script)
-                                    executeAppleScriptForCLI(resolvedAppleScript, metaJson: enhancedMetaJson)
-                                }
-                            }
+                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: latestRecording.metaJson, configManager: configMgr)
+
+                            let finalStep = try executeActionChainForCLI(
+                                initialAction: action,
+                                initialActionName: actionName,
+                                initialActionType: actionType,
+                                metaJson: enhancedMetaJson,
+                                configManager: configMgr
+                            )
+                            applyMoveToForCLI(
+                                recordingPath: latestRecording.recordingPath,
+                                finalActionType: finalStep.type,
+                                finalAction: finalStep.action,
+                                configManager: configMgr
+                            )
                             
                             // Trigger clipboard cleanup for CLI actions to prevent contamination
                             clipboardMonitorRef?.triggerClipboardCleanupForCLI()
@@ -2055,10 +2272,9 @@ class SocketCommunication {
                             logError("No valid JSON file found for exec-action")
                             notify(title: "Macrowhisper", message: "No valid result found for action: \(actionName). Please check Superwhisper recordings.")
                         }
-                    } else {
-                        response = "Action not found: \(actionName)"
+                    } catch {
+                        response = error.localizedDescription
                         logError(response)
-                        notify(title: "Macrowhisper", message: "Action not found: \(actionName)")
                     }
                 } else {
                     response = "Action name missing"

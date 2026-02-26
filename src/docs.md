@@ -276,6 +276,21 @@ Behavior notes:
 - `--auto-return true` schedules one-time "paste result + return behavior" for the next recording.
 - `--auto-return` with no value behaves like `true`.
 
+### CLI action behavior matrix
+
+| Behavior | `--exec-action <name>` | `--get-action <name>` | `--copy-action <name>` |
+|---|---|---|---|
+| Processes placeholders (`{{...}}`) | Yes | Yes | Yes |
+| Uses latest valid recording result | Yes | Yes | Yes |
+| Evaluates `inputCondition` | Yes | No | No |
+| Executes action side effects (open URL/run shortcut/shell/AppleScript/paste) | Yes | No | No |
+| Applies `actionDelay` | Yes | No | No |
+| Applies `nextAction` chain | Yes | No | No |
+| Applies `moveTo` post-processing | Yes (based on final executed action; also applies for single-step execution) | No | No |
+| Handles ESC behavior (`noEsc`) | CLI exec path never simulates ESC; `noEsc` has no practical effect here | N/A | N/A |
+| Clipboard restore behavior (`restoreClipboard`) | Insert actions only | No | No |
+| Writes to clipboard | Insert action behavior only (when action itself pastes) | No | Yes (writes processed content) |
+
 ### Action management commands
 
 ```bash
