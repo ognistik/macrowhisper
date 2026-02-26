@@ -54,7 +54,8 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 * **Improvements to context placeholders for performance.**
   * `frontApp` placeholder is now captured lazily, only when placeholder is found in action, and at action execution. This is same behavior as `appContext` and `clipboardContext` placeholders.
   * `selectedText` and `clipboardContext` are captured only during recording session and their values are used again in chained actions.
-
+* **Improvement** to trigger evaluation for Front App. Prior to this update, trigger matching would  require both name & bundle ID to exist. Now, it works with one value. 
+  
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13
 ### Breaking

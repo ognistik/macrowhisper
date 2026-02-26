@@ -279,7 +279,12 @@ class TriggerEvaluator {
         
         // App trigger
         if let triggerApps = triggerApps, !triggerApps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if let appName = frontAppName, let bundleId = frontAppBundleId {
+            if frontAppName == nil && frontAppBundleId == nil {
+                logDebug("[TriggerEval] App trigger set for action '\(actionName)' but both appName and bundleId are nil. Not matching.")
+                appMatched = false
+            } else {
+                let appName = frontAppName ?? ""
+                let bundleId = frontAppBundleId ?? ""
                 let patterns = triggerApps.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
                 var matched = false
                 var exceptionMatched = false
@@ -300,10 +305,21 @@ class TriggerEvaluator {
                     }
                     
                     if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
-                        let nameRange = NSRange(location: 0, length: appName.utf16.count)
-                        let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
-                        let found = regex.firstMatch(in: appName, options: [], range: nameRange) != nil || 
-                                   regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
+                        let foundInName: Bool
+                        if frontAppName != nil {
+                            let nameRange = NSRange(location: 0, length: appName.utf16.count)
+                            foundInName = regex.firstMatch(in: appName, options: [], range: nameRange) != nil
+                        } else {
+                            foundInName = false
+                        }
+                        let foundInBundle: Bool
+                        if frontAppBundleId != nil {
+                            let bundleRange = NSRange(location: 0, length: bundleId.utf16.count)
+                            foundInBundle = regex.firstMatch(in: bundleId, options: [], range: bundleRange) != nil
+                        } else {
+                            foundInBundle = false
+                        }
+                        let found = foundInName || foundInBundle
                         logDebug("[TriggerEval] Pattern \(redactForLogs(pattern)) found=\(found) in appName=\(redactForLogs(appName)), bundleId=\(redactForLogs(bundleId))")
                         
                         if isException && found { exceptionMatched = true }
@@ -325,9 +341,6 @@ class TriggerEvaluator {
                     appMatched = true
                 }
                 logDebug("[TriggerEval] App trigger result for action '\(actionName)': matched=\(appMatched)")
-            } else {
-                logDebug("[TriggerEval] App trigger set for action '\(actionName)' but appName or bundleId is nil. Not matching.")
-                appMatched = false
             }
         } else {
             // No app trigger set, will be handled in final logic determination

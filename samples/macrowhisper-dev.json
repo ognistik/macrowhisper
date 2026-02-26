@@ -78,7 +78,7 @@
       "triggerVoice" : null
     },
     "pasteResult" : {
-      "action" : "{{swResult}}",
+      "action" : "{{swResult||(?s)^thought\n(.*)$||$1}}",
       "actionDelay" : 0,
       "icon" : "⏎",
       "inputCondition" : null,
@@ -92,7 +92,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
-      "triggerVoice" : "null"
+      "triggerVoice" : null
     },
     "smartClip" : {
       "action" : "{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>\n\n}}{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
