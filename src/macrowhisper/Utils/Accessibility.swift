@@ -657,8 +657,6 @@ func getAppContext() -> String {
     
     // Create accessibility element for the application
     let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
-    let isBrowserApp = appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? "")
-    
     // Active Window (always included)
     var windowTitle = "Unknown"
     var focusedWindow: CFTypeRef?
@@ -694,17 +692,6 @@ func getAppContext() -> String {
         contextParts.append("ACTIVE ELEMENT INFO: \(elementDescription)")
     }
 
-    if isBrowserApp,
-       inputContent == nil,
-       focusedWindowError == .success,
-       let focusedWindow = focusedWindow,
-       let webArea = findBestWebArea(from: focusedWindow as! AXUIElement, maxDepth: 10, maxNodes: 2200) {
-        let webSample = buildBrowserWebContentSample(from: webArea, maxCharacters: 1500)
-        if !webSample.isEmpty {
-            contextParts.append("VISIBLE CONTENT SAMPLE:\n\(webSample)")
-        }
-    }
-    
     let result = contextParts.joined(separator: "\n")
     logDebug("[AppContext] Generated app context with \(contextParts.count) sections")
     return result

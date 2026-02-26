@@ -8,7 +8,7 @@ private let appVocabularyMaxSnippets = 460 //text chunks/groups
 private let appVocabularyMaxSnippetLength = 320 //snippet length outside .value (non-input fields)
 private let appVocabularyMaxLongTextSnippetLength = 2600 //long descriptive text (titles/descriptions/help)
 private let appVocabularyMaxValueSnippetLength = 4000 //snippet length inside .value (input fields)
-private let appVocabularyMaxOutputTokens = 220 //total output terms after filtering and rules
+private let appVocabularyMaxOutputTokens = 400 //total output terms after filtering and rules
 
 // Intentionally small stopword set for high-frequency noise that still passes case/shape scoring.
 private let appVocabularyCoreStopWords: Set<String> = [
@@ -387,7 +387,7 @@ func buildBrowserWebContentSample(from webArea: AXUIElement, maxCharacters: Int)
            !parameterizedText.isEmpty {
             chunks.append(parameterizedText)
         }
-        if let deepText = collectWebReadableText(from: candidate, maxDepth: 14, maxNodes: 5000, maxCharacters: maxCharacters * 2),
+        if let deepText = collectWebReadableText(from: candidate, maxDepth: 40, maxNodes: 5000, maxCharacters: maxCharacters * 2),
            !deepText.isEmpty {
             chunks.append(deepText)
         }
