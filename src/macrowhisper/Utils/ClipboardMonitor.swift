@@ -1468,6 +1468,21 @@ class ClipboardMonitor {
         }
         return shouldSuppress
     }
+
+    /// Prevents global history contamination when duplicate clipboard writes happen
+    /// inside an active session's 5-second blackout window.
+    private func shouldSkipGlobalCaptureDuringSessionBlackout(content: String?, now: Date) -> Bool {
+        guard let content = content else { return false }
+        var shouldSkip = false
+        sessionsQueue.sync {
+            shouldSkip = earlyMonitoringSessions.values.contains { session in
+                session.isActive &&
+                now < session.ignoreClipboardUntil &&
+                session.lastCapturedClipboardContent == content
+            }
+        }
+        return shouldSkip
+    }
     
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
     private func checkGlobalClipboardChange() {
@@ -1500,6 +1515,13 @@ class ClipboardMonitor {
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount
                     logDebug("[ClipboardMonitor] Global monitoring skipped Macrowhisper copy-action clipboard write")
+                    return
+                }
+
+                if self.shouldSkipGlobalCaptureDuringSessionBlackout(content: currentClipboard, now: now) {
+                    self.lastSeenClipboardContent = currentClipboard
+                    self.lastSeenChangeCount = currentChangeCount
+                    logDebug("[ClipboardMonitor] Global monitoring skipped duplicate clipboard change during active session blackout window")
                     return
                 }
 
