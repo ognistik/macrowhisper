@@ -1992,7 +1992,7 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.urls[name] = AppConfiguration.Url(action: "", icon: "", openBackground: false)
+                        configMgr.config.urls[name] = AppConfiguration.Url(action: "")
                         do {
                             try configMgr.saveConfig()
                             configMgr.onConfigChanged?(nil)
@@ -2010,7 +2010,7 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.shortcuts[name] = AppConfiguration.Shortcut(action: "", icon: "")
+                        configMgr.config.shortcuts[name] = AppConfiguration.Shortcut(action: "")
                         do {
                             try configMgr.saveConfig()
                             configMgr.onConfigChanged?(nil)
@@ -2028,7 +2028,7 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.scriptsShell[name] = AppConfiguration.ScriptShell(action: "", icon: "")
+                        configMgr.config.scriptsShell[name] = AppConfiguration.ScriptShell(action: "")
                         do {
                             try configMgr.saveConfig()
                             configMgr.onConfigChanged?(nil)
@@ -2046,7 +2046,7 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "", icon: "")
+                        configMgr.config.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "")
                         do {
                             try configMgr.saveConfig()
                             configMgr.onConfigChanged?(nil)
@@ -2064,7 +2064,7 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        let newInsert = AppConfiguration.Insert(action: "", icon: "")
+                        let newInsert = AppConfiguration.Insert(action: "")
                         configMgr.config.inserts[name] = newInsert
                         do {
                             try configMgr.saveConfig()

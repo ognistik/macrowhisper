@@ -357,7 +357,7 @@
             },
             "openBackground": {
               "type": ["boolean", "null"],
-              "description": "Open URL in background without focusing the application. null = use global default, true/false = explicit override.",
+              "description": "Open URL in background without focusing the application. true = background; false/null/omitted = foreground.",
               "default": null
             }
           },

@@ -44,7 +44,7 @@
       "triggerVoice" : null
     },
     "autoPaste" : {
-      "action" : "{{swResult||(?s)^thought\n(.*)$||$1}}",
+      "action" : "{{swResult||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
       "actionDelay" : 0,
       "icon" : "•",
       "inputCondition" : "!nextAction",
@@ -78,7 +78,7 @@
       "triggerVoice" : null
     },
     "pasteResult" : {
-      "action" : "{{swResult||(?s)^thought\n(.*)$||$1}}",
+      "action" : "{{swResult||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
       "actionDelay" : 0,
       "icon" : "⏎",
       "inputCondition" : null,

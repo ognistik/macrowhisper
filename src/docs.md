@@ -647,7 +647,7 @@ URL field reference:
 | --- | --- | --- | --- |
 | `action` | string | `"https://...{{swResult}}"`, `".none"` | URL to open/template. |
 | `openWith` | string/null | `"Safari"`, `"com.google.Chrome"` | Passed to `open -a`. |
-| `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in background. `false` or `null` resolves to foreground behavior. |
+| `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in background. `false`, `null`, or omitted resolves to foreground behavior. |
 
 Examples:
 
