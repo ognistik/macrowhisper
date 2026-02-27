@@ -380,6 +380,7 @@ func stringifyPlaceholderValue(for keyPath: String, jsonValue: Any, metaJson: [S
 /// For URL actions, URL encoding is deferred until after all regex replacements to prevent double encoding.
 func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
     var result = action
+    var resolvedFolderPathCache: [Int: String?] = [:]
     
     // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
     let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
@@ -442,6 +443,48 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 let escapedReplacement = applyFinalEscaping(value: replacement, prefixType: prefixType, actionType: actionType)
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
+            }
+
+            // Handle folder placeholders with optional index (e.g. {{folderName}}, {{folderPath:1}})
+            else if key == "folderName" || key == "folderPath" {
+                var index = 0
+                if match.numberOfRanges > 3,
+                   match.range(at: 3).location != NSNotFound,
+                   let indexRange = Range(match.range(at: 3), in: action) {
+                    let rawIndex = String(action[indexRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard let parsedIndex = Int(rawIndex), parsedIndex >= 0 else {
+                        result.replaceSubrange(fullMatchRange, with: "")
+                        continue
+                    }
+                    index = parsedIndex
+                }
+
+                let cachedResolvedPath: String?
+                if let cached = resolvedFolderPathCache[index] {
+                    cachedResolvedPath = cached
+                } else {
+                    let computed = resolveRecordingFolderPath(
+                        configManager: globalConfigManager,
+                        recordingsWatcher: recordingsWatcher,
+                        index: index
+                    )
+                    resolvedFolderPathCache[index] = computed
+                    cachedResolvedPath = computed
+                }
+                var value = ""
+                if let path = cachedResolvedPath {
+                    value = key == "folderName"
+                        ? (path as NSString).lastPathComponent
+                        : path
+                }
+
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
             }
             
             // Handle selectedText

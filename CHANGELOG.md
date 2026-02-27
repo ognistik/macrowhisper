@@ -40,6 +40,9 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
   * It is still suggested that users set Superwhisper's autopaste off in the advanced configuration tab. However, if they do want to use SuperWhisper for pasting with a specific mode, now they can bypass that specifically with Macrowhisper. No actions will trigger when using that mode.
 * **New** `{{appVocabulary}}` which captures names, usernames, and special terms from the active window.
+* **New** `{{folderName}}`, `{{folderName:<index>}}`, `{{folderPath}}`, `{{folderPath:<index>}}` placeholders which return current recording folder information (and indexed folder lookup (0 newest/current, 1 previous, etc.))
+  * Info also available via CLI `--folder-name [<index>]` and `--folder-path [<index>]`
+  * Useful for automations/scripts where user may need to do something with current or previous recording paths.
 * **Improvement.** `inputCondition` has been expanded to all action types
   * You can now have any action behave differently depending on user being in an input field or not.
 * **Improvement.** Streamlined the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This improves responsiveness.

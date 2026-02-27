@@ -70,6 +70,8 @@ swift build
 - `{{clipboardContext}}` - Last clipboard change during recording session (supports stacking)
 - `{{appContext}}` - Structured app context (captured on-demand, anchored to chain app snapshot)
 - `{{appVocabulary}}` - Names/terms/identifiers from app accessibility content (captured on-demand, anchored to chain app snapshot)
+- `{{folderName}}` / `{{folderPath}}` - Most recent active folder (or latest valid completed folder)
+- `{{folderName:<index>}}` / `{{folderPath:<index>}}` - Indexed folder lookup by recency (`0`, `1`, `2`, ...)
 
 **Usage Examples:**
 - `{{selectedText}}` - Gets selected text with action-type escaping
@@ -79,6 +81,8 @@ swift build
 - `{{clipboardContext}}` - Last clipboard content during recording
 - `{{appContext}}` - Structured app context (app name, window, URL, input content)
 - `{{appVocabulary}}` - Comma-separated app vocabulary terms (names, nouns, identifiers)
+- `{{folderName:1}}` - Previous recording folder name
+- `{{folderPath:0}}` - Current/latest recording folder path
 
 #### Implementation Notes:
 - **selectedText**: Captured immediately when recording folder appears (if text is selected)

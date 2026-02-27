@@ -1110,6 +1110,11 @@ class RecordingsFolderWatcher {
     func getClipboardMonitor() -> ClipboardMonitor {
         return clipboardMonitor
     }
+
+    /// Gets the path for the most recent active recording session, if any.
+    func getMostRecentActiveRecordingPath() -> String? {
+        return clipboardMonitor.getMostRecentActiveRecordingPath()
+    }
     
     /// Checks if there are any active recording sessions (pending meta.json files or audio watchers)
     func hasActiveRecordingSessions() -> Bool {

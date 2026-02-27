@@ -367,6 +367,19 @@ class ClipboardMonitor {
         return selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Gets the recording path for the most recent active recording session.
+    /// Returns nil when no active session exists.
+    func getMostRecentActiveRecordingPath() -> String? {
+        var resolvedPath: String?
+        sessionsQueue.sync {
+            resolvedPath = earlyMonitoringSessions
+                .filter { $0.value.isActive }
+                .max(by: { $0.value.startTime < $1.value.startTime })?
+                .key
+        }
+        return resolvedPath
+    }
+
     /// Gets clipboard context from the most recent active recording session for CLI usage.
     /// This intentionally does not depend on meta.json and reflects session state at call-time.
     func getActiveSessionClipboardContentWithStacking(enableStacking: Bool) -> String {

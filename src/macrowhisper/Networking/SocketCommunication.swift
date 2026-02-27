@@ -107,6 +107,8 @@ class SocketCommunication {
         case getAction
         case copyAction
         case removeAction
+        case folderName
+        case folderPath
     }
     
     struct CommandMessage: Codable {
@@ -260,48 +262,10 @@ class SocketCommunication {
     }
 
     private func findLastValidRecording(configManager: ConfigurationManager) -> LatestValidRecording? {
-        let expandedWatchPath = (configManager.config.defaults.watch as NSString).expandingTildeInPath
-        let recordingsPath = expandedWatchPath + "/recordings"
-        guard let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: recordingsPath), includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey], options: .skipsHiddenFiles) else { return nil }
-        let directories = contents.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false }.sorted {
-            let date1 = try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate
-            let date2 = try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate
-            return (date1 ?? .distantPast) > (date2 ?? .distantPast)
+        guard let firstReference = getLatestValidRecordingReference(configManager: configManager) else {
+            return nil
         }
-        for directory in directories {
-            let metaJsonPath = directory.appendingPathComponent("meta.json").path
-            if FileManager.default.fileExists(atPath: metaJsonPath),
-               let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-
-                // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
-                var isValid = false
-
-                // First, check if languageModelName exists and is not empty
-                if let languageModelName = json["languageModelName"] as? String, !languageModelName.isEmpty {
-                    // languageModelName is not empty, check for llmResult
-                    if let llmResult = json["llmResult"], !(llmResult is NSNull) {
-                        // llmResult must be a non-empty string
-                        if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
-                            isValid = true
-                        }
-                    }
-                } else {
-                    // languageModelName is empty or missing, check for result
-                    if let result = json["result"], !(result is NSNull) {
-                        // result must be a non-empty string
-                        if let resultString = result as? String, !resultString.isEmpty {
-                            isValid = true
-                        }
-                    }
-                }
-
-                if isValid {
-                    return LatestValidRecording(metaJson: json, recordingPath: directory.path)
-                }
-            }
-        }
-        return nil
+        return LatestValidRecording(metaJson: firstReference.metaJson, recordingPath: firstReference.path)
     }
 
     private func findLastValidJsonFile(configManager: ConfigurationManager) -> [String: Any]? {
@@ -2356,6 +2320,37 @@ class SocketCommunication {
                     response = "Action name missing"
                     logError(response)
                 }
+                _ = sendResponse(response, to: clientSocket)
+
+            case .folderName:
+                let rawIndex = commandMessage.arguments?["index"] ?? "0"
+                guard let index = Int(rawIndex), index >= 0 else {
+                    response = "Invalid index '\(rawIndex)'. Index must be a non-negative integer."
+                    _ = sendResponse(response, to: clientSocket)
+                    break
+                }
+
+                let resolvedPath = resolveRecordingFolderPath(
+                    configManager: configMgr,
+                    recordingsWatcher: recordingsWatcher,
+                    index: index
+                ) ?? ""
+                response = resolvedPath.isEmpty ? "" : (resolvedPath as NSString).lastPathComponent
+                _ = sendResponse(response, to: clientSocket)
+
+            case .folderPath:
+                let rawIndex = commandMessage.arguments?["index"] ?? "0"
+                guard let index = Int(rawIndex), index >= 0 else {
+                    response = "Invalid index '\(rawIndex)'. Index must be a non-negative integer."
+                    _ = sendResponse(response, to: clientSocket)
+                    break
+                }
+
+                response = resolveRecordingFolderPath(
+                    configManager: configMgr,
+                    recordingsWatcher: recordingsWatcher,
+                    index: index
+                ) ?? ""
                 _ = sendResponse(response, to: clientSocket)
 
             case .quit:

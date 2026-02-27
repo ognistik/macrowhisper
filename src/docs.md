@@ -258,6 +258,8 @@ macrowhisper --action [<name>]
 macrowhisper --get-action [<name>]
 macrowhisper --copy-action <name>
 macrowhisper --exec-action <name>
+macrowhisper --folder-name [<index>]
+macrowhisper --folder-path [<index>]
 macrowhisper --schedule-action [<name>]
 macrowhisper --auto-return <true/false>
 macrowhisper --get-icon
@@ -272,6 +274,8 @@ Behavior notes:
 - `--get-action <name>` returns the processed action content using the latest valid result.
 - `--copy-action <name>` processes action content and copies it to clipboard (without polluting `clipboardContext` capture).
 - `--exec-action <name>` runs the action once using latest valid result.
+- `--folder-name [<index>]` returns recording folder name by recency (`0` = current active recording if any, otherwise latest valid completed).
+- `--folder-path [<index>]` returns recording folder path by recency (`0` = current active recording if any, otherwise latest valid completed).
 - `--schedule-action <name>` schedules one action for the next recording.
 - `--schedule-action` (no name) cancels scheduled action.
 - `--auto-return true` schedules one-time "paste result + return behavior" for the next recording.
@@ -957,6 +961,8 @@ For each action payload:
 - `{{swResult}}` - prefers `llmResult`, falls back to `result`
 - `{{result}}`
 - `{{llmResult}}`
+- `{{folderName}}` / `{{folderPath}}` - current active recording folder (if any), otherwise latest valid completed folder
+- `{{folderName:<index>}}` / `{{folderPath:<index>}}` - indexed folder lookup (`0` newest/current, `1` previous, etc.)
 
 *For most users, `{{swResult}}` will be the default placeholder to use, as it dynamically includes expected Superwhisper's result.*
 

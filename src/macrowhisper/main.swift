@@ -810,7 +810,8 @@ let requireDaemonCommands = [
     "--remove-action",
     // New unified action commands
     "--list-actions", "--list-urls", "--list-shortcuts", "--list-shell", 
-    "--list-as", "--exec-action", "--get-action", "--copy-action", "--action"
+    "--list-as", "--exec-action", "--get-action", "--copy-action", "--action",
+    "--folder-name", "--folder-path"
 ]
 
 // Check if any of the commands that require a daemon are present
@@ -1088,6 +1089,46 @@ if hasDaemonCommand {
         exit(0)
     }
 
+    if args.contains("--folder-name") {
+        let folderNameIndex = args.firstIndex(where: { $0 == "--folder-name" })
+        var resolvedIndex = 0
+        if let index = folderNameIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+            guard let parsedIndex = Int(args[index + 1]), parsedIndex >= 0 else {
+                print("Invalid index '\(args[index + 1])'. Index must be a non-negative integer.")
+                exit(1)
+            }
+            resolvedIndex = parsedIndex
+        }
+
+        let arguments: [String: String] = ["index": "\(resolvedIndex)"]
+        if let response = socketCommunication.sendCommand(.folderName, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to get folder name.")
+        }
+        exit(0)
+    }
+
+    if args.contains("--folder-path") {
+        let folderPathIndex = args.firstIndex(where: { $0 == "--folder-path" })
+        var resolvedIndex = 0
+        if let index = folderPathIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+            guard let parsedIndex = Int(args[index + 1]), parsedIndex >= 0 else {
+                print("Invalid index '\(args[index + 1])'. Index must be a non-negative integer.")
+                exit(1)
+            }
+            resolvedIndex = parsedIndex
+        }
+
+        let arguments: [String: String] = ["index": "\(resolvedIndex)"]
+        if let response = socketCommunication.sendCommand(.folderPath, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to get folder path.")
+        }
+        exit(0)
+    }
+
     
     // Handle configuration update commands (require daemon)
     var arguments: [String: String] = [:]
@@ -1203,6 +1244,7 @@ if args.count > 1 {
                      args[i-1] == "--schedule-action" || args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
                      args[i-1] == "--exec-action" || args[i-1] == "--get-action" ||
                      args[i-1] == "--copy-action" ||
+                     args[i-1] == "--folder-name" || args[i-1] == "--folder-path" ||
                      args[i-1] == "--action") {
             continue
         }
@@ -1302,6 +1344,8 @@ func printHelp() {
                                     If a name is provided, returns the action content
       --copy-action <name>          Process action content and copy it to clipboard
                                     using concealed marker types (ignored by Macrowhisper capture)
+      --folder-name [<index>]       Get recording folder name by recency (0 = current/latest)
+      --folder-path [<index>]       Get recording folder path by recency (0 = current/latest)
       --list-actions                List all configured actions (all types)
       --list-inserts                List all configured insert actions  
       --list-urls                   List all configured URL actions
@@ -1352,6 +1396,9 @@ func printHelp() {
         
       macrowhisper --list-actions
         # Lists all actions with their types (INSERT: name, URL: name, etc.)
+
+      macrowhisper --folder-name 1
+        # Gets the previous recording folder name (index 1)
 
       macrowhisper --reveal-config
         # Opens the configuration file in Finder (creates it if missing)
