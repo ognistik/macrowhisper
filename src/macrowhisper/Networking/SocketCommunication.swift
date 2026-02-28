@@ -966,6 +966,13 @@ class SocketCommunication {
         }
 
         let original = resolved
+        let isIntraWordInsertion = (context.leftCharacter.map { isWordCharacter($0) } ?? false) &&
+            (context.rightCharacter.map { isWordCharacter($0) } ?? false)
+
+        if isIntraWordInsertion {
+            logDebug("[SmartInsert] Intra-word insertion boundary detected, skipping smart spacing/casing/punctuation transforms")
+            return resolved
+        }
 
         if shouldApplySmartCasing {
             resolved = applySmartCasing(
@@ -1140,6 +1147,7 @@ class SocketCommunication {
         var updated = text
 
         if let first = updated.first {
+            let hasImmediateRightWhitespace = rightCharacter?.isWhitespace ?? false
             let shouldInsertLeadingSpaceForMarkdownList =
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
                 !(leftCharacter?.isWhitespace ?? false)
@@ -1149,7 +1157,8 @@ class SocketCommunication {
             let startsWithBoundaryNeedingLeadingSpace = isWordCharacter(first) || isOpeningWrapperCharacter(first)
             let shouldInsertLeadingSpaceBeforeOpeningWrapper = (leftCharacter.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
 
-            if startsWithBoundaryNeedingLeadingSpace &&
+            if !hasImmediateRightWhitespace &&
+                startsWithBoundaryNeedingLeadingSpace &&
                 (shouldInsertLeadingSpaceForMarkdownList ||
                  shouldInsertLeadingSpaceAfterWord ||
                  shouldInsertLeadingSpaceAfterPunctuation ||
