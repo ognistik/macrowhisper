@@ -948,6 +948,8 @@ class SocketCommunication {
         case uppercaseFirst
         case lowercaseFirst
         case titleCase
+        case titleCaseEn = "titleCase:en"
+        case titleCaseEs = "titleCase:es"
         case titleCaseAll = "titleCase:all"
     }
 
@@ -995,7 +997,11 @@ class SocketCommunication {
         case .lowercaseFirst:
             return lowercasingFirstLetter(in: text)
         case .titleCase:
+            return applyAutoDetectedTitleCase(in: text, locale: locale)
+        case .titleCaseEn:
             return applyEnglishTitleCase(in: text, locale: locale)
+        case .titleCaseEs:
+            return applySpanishTitleCase(in: text, locale: locale)
         case .titleCaseAll:
             return applyTitleCaseAll(in: text)
         }
@@ -1359,7 +1365,88 @@ class SocketCommunication {
     }
 
     private func applyEnglishTitleCase(in text: String, locale: Locale) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"(?=[[:alnum:]]*[[:alpha:]])[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
+        applyTitleCaseWithRules(
+            in: text,
+            locale: locale,
+            minorWords: englishMinorTitleCaseWords(),
+            forceUppercasePredicate: shouldForceUppercaseInEnglishTitleCase
+        )
+    }
+
+    private func applySpanishTitleCase(in text: String, locale: Locale) -> String {
+        applyTitleCaseWithRules(
+            in: text,
+            locale: locale,
+            minorWords: spanishMinorTitleCaseWords()
+        )
+    }
+
+    private func applyAutoDetectedTitleCase(in text: String, locale: Locale) -> String {
+        switch detectTitleCaseLanguage(in: text, locale: locale) {
+        case .english:
+            return applyEnglishTitleCase(in: text, locale: locale)
+        case .spanish:
+            return applySpanishTitleCase(in: text, locale: locale)
+        }
+    }
+
+    private enum TitleCaseLanguage {
+        case english
+        case spanish
+    }
+
+    private func detectTitleCaseLanguage(in text: String, locale: Locale) -> TitleCaseLanguage {
+        guard let regex = titleCaseWordRegex else {
+            return .english
+        }
+
+        let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+        if matches.isEmpty {
+            return .english
+        }
+
+        let englishWords = englishMinorTitleCaseWords()
+        let spanishWords = spanishMinorTitleCaseWords()
+        var englishScore: Double = 0
+        var spanishScore: Double = 0
+
+        for match in matches {
+            guard let range = Range(match.range, in: text) else { continue }
+            let token = String(text[range])
+            let normalized = token.lowercased(with: locale)
+
+            if englishWords.contains(normalized) {
+                englishScore += 2.0
+            }
+            if spanishWords.contains(normalized) {
+                spanishScore += 2.0
+            }
+            if hasSpanishCharacterCue(normalized) {
+                spanishScore += 1.5
+            }
+            if hasEnglishContractionCue(normalized) {
+                englishScore += 1.5
+            }
+        }
+
+        if englishScore == 0 && spanishScore == 0 {
+            return .english
+        }
+
+        // Ambiguous/mixed content defaults to English.
+        if spanishScore > englishScore && (spanishScore - englishScore) >= 1.0 {
+            return .spanish
+        }
+        return .english
+    }
+
+    private func applyTitleCaseWithRules(
+        in text: String,
+        locale: Locale,
+        minorWords: Set<String>,
+        forceUppercasePredicate: (String) -> Bool = { _ in false }
+    ) -> String {
+        guard let regex = titleCaseWordRegex else {
             return text
         }
 
@@ -1367,12 +1454,6 @@ class SocketCommunication {
         if matches.isEmpty {
             return text
         }
-
-        let forceLowercaseWords: Set<String> = [
-            "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet",
-            "as", "at", "by", "in", "of", "on", "per", "to", "via",
-            "from", "into", "onto", "over", "with", "than", "upon"
-        ]
 
         var output = text
         for (index, match) in matches.enumerated().reversed() {
@@ -1386,10 +1467,10 @@ class SocketCommunication {
             let replacement: String
             if shouldPreserveOriginalWordCase(token) {
                 replacement = token
-            } else if isFirst || isLast || followsTitleBoundary || shouldForceUppercaseInTitleCase(normalized) {
+            } else if isFirst || isLast || followsTitleBoundary || forceUppercasePredicate(normalized) {
                 replacement = uppercasingFirstLetter(in: token)
-            } else if forceLowercaseWords.contains(normalized) {
-                replacement = token.lowercased(with: locale)
+            } else if minorWords.contains(normalized) {
+                replacement = lowercasingFirstLetter(in: token)
             } else {
                 replacement = uppercasingFirstLetter(in: token)
             }
@@ -1400,7 +1481,35 @@ class SocketCommunication {
         return output
     }
 
-    private func shouldForceUppercaseInTitleCase(_ normalizedToken: String) -> Bool {
+    private func englishMinorTitleCaseWords() -> Set<String> {
+        [
+            "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet",
+            "as", "at", "by", "in", "of", "on", "per", "to", "via",
+            "from", "into", "onto", "over", "with", "than", "upon"
+        ]
+    }
+
+    private func spanishMinorTitleCaseWords() -> Set<String> {
+        [
+            "a", "al", "de", "del", "el", "la", "los", "las", "un", "una", "unos", "unas",
+            "y", "e", "o", "u", "en", "con", "por", "para", "sin", "sobre", "tras",
+            "entre", "hacia", "hasta", "desde", "contra", "segun", "según", "que"
+        ]
+    }
+
+    private func hasSpanishCharacterCue(_ normalizedToken: String) -> Bool {
+        normalizedToken.unicodeScalars.contains { scalar in
+            CharacterSet(charactersIn: "ñÑáéíóúüÁÉÍÓÚÜ").contains(scalar)
+        }
+    }
+
+    private func hasEnglishContractionCue(_ normalizedToken: String) -> Bool {
+        let normalizedApostrophes = normalizedToken.replacingOccurrences(of: "’", with: "'")
+        let cues = ["'m", "'re", "'ve", "'ll", "'d", "n't", "'s"]
+        return cues.contains { normalizedApostrophes.contains($0) }
+    }
+
+    private func shouldForceUppercaseInEnglishTitleCase(_ normalizedToken: String) -> Bool {
         if normalizedToken == "i" {
             return true
         }
@@ -1433,7 +1542,7 @@ class SocketCommunication {
     }
 
     private func applyTitleCaseAll(in text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"(?=[[:alnum:]]*[[:alpha:]])[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
+        guard let regex = titleCaseWordRegex else {
             return text
         }
 
@@ -1451,6 +1560,10 @@ class SocketCommunication {
         }
 
         return output
+    }
+
+    private var titleCaseWordRegex: NSRegularExpression? {
+        try? NSRegularExpression(pattern: #"(?=[[:alnum:]]*[[:alpha:]])[[:alnum:]]+(?:['’][[:alnum:]]+)*"#)
     }
 
     private func shouldPreserveOriginalWordCase(_ token: String) -> Bool {

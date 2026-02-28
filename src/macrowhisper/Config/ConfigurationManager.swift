@@ -341,7 +341,10 @@ class ConfigurationManager {
             "lowercase",
             "uppercaseFirst",
             "lowercaseFirst",
-            "titleCase"
+            "titleCase",
+            "titleCase:en",
+            "titleCase:es",
+            "titleCase:all"
         ]
 
         // Build unique action name set (duplicate-name check is performed separately).

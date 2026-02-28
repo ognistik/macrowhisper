@@ -539,7 +539,7 @@ Determines where to move or how to handle the processed recording folder:
 - `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
 - `pressReturn: Bool` - Auto-press return after actions (default: false)
-- `transform: String?` - Default insert text transform (`uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`)
+- `transform: String?` - Default insert text transform (`uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase` [auto EN/ES], `titleCase:en`, `titleCase:es`, `titleCase:all`)
 - `returnDelay: Double` - Delay before pressing return (default: 0.1)
 - `scheduledActionTimeout: Double` - Timeout for auto-return and scheduled actions (default: 5, 0 = no timeout)
 

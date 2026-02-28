@@ -69,8 +69,8 @@
         },
         "transform": {
           "type": ["string", "null"],
-          "description": "Default text transform for insert actions only. null, omitted, or empty string means no default transform. titleCase uses English title style with minor-word exceptions (first/last and post-boundary words are capitalized); titleCase:all capitalizes each word.",
-          "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "titleCase:all", "", null],
+          "description": "Default text transform for insert actions only. null, omitted, or empty string means no default transform. titleCase auto-detects English/Spanish title style (ambiguous input falls back to English). titleCase:en and titleCase:es force language-specific minor-word rules; titleCase:all capitalizes each word.",
+          "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "titleCase:en", "titleCase:es", "titleCase:all", "", null],
           "default": null
         },
         "actionDelay": {
@@ -309,8 +309,8 @@
             },
             "transform": {
               "type": ["string", "null"],
-              "description": "Text transform for this insert. null = inherit defaults.transform. Empty string = explicit no transform override. Allowed values: uppercase, lowercase, uppercaseFirst, lowercaseFirst, titleCase, titleCase:all.",
-              "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "titleCase:all", "", null],
+              "description": "Text transform for this insert. null = inherit defaults.transform. Empty string = explicit no transform override. Allowed values: uppercase, lowercase, uppercaseFirst, lowercaseFirst, titleCase (auto language), titleCase:en, titleCase:es, titleCase:all.",
+              "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "titleCase:en", "titleCase:es", "titleCase:all", "", null],
               "default": null
             },
             "pressReturn": {

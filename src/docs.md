@@ -502,7 +502,7 @@ Null behavior at `defaults` level:
 | `noEsc` | bool/null | `false` | Disable ESC simulation before actions. `null` = built-in default (`false`). |
 | `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
 | `smartInsert` | bool/null | `true` | Smart casing/spacing behavior for insert actions. `null` = built-in default (`true`). |
-| `transform` | string/null | `null` | Default insert text transform. Allowed: `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`. `null` = no transform. |
+| `transform` | string/null | `null` | Default insert text transform. Allowed: `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:en`, `titleCase:es`, `titleCase:all`. `null` = no transform. |
 | `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
 | `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
 | `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
@@ -613,7 +613,7 @@ Insert field reference:
 | `action` | string | `"{{swResult}}"`, `".autoPaste"`, `".none"` | Main inserted content/template. |
 | `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters; slower but useful where paste is blocked. |
 | `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
-| `transform` | string/null | `"uppercase"`, `"lowercase"`, `"uppercaseFirst"`, `"lowercaseFirst"`, `"titleCase"`, `"titleCase:all"`, `null` | Per-insert text transform. `null` inherits `defaults.transform`. |
+| `transform` | string/null | `"uppercase"`, `"lowercase"`, `"uppercaseFirst"`, `"lowercaseFirst"`, `"titleCase"`, `"titleCase:en"`, `"titleCase:es"`, `"titleCase:all"`, `null` | Per-insert text transform. `null` inherits `defaults.transform`. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
 
 `transform` behavior (friendly summary):
@@ -622,7 +622,9 @@ Insert field reference:
 - `lowercase`: changes the whole text to lowercase.
 - `uppercaseFirst`: changes only the first detected letter to uppercase.
 - `lowercaseFirst`: changes only the first detected letter to lowercase.
-- `titleCase`: English title style with minor-word exceptions. Articles/conjunctions/prepositions are usually lowercased, while first/last words (and words after `: ; ? !`) are capitalized.
+- `titleCase`: auto-detects English or Spanish title style. Ambiguous/mixed input falls back to English. Minor words are usually lowercased, while first/last words (and words after `: ; ? !`) are capitalized.
+- `titleCase:en`: English title style with English minor-word exceptions.
+- `titleCase:es`: Spanish title style with Spanish minor-word exceptions.
 - `titleCase:all`: capitalizes the first letter of every word.
 
 Insert text execution order:
