@@ -202,6 +202,9 @@ Priority order:
 
 If an action runs, Macrowhisper can chain to next actions with `nextAction` rules.
 
+Important runtime note:
+- Action flows are designed to stay responsive. For script-like actions (Shell/AppleScript), Macrowhisper launches them and continues; it does not wait for script completion before moving on.
+
 ### Step G: Post-processing
 
 After action completion:
@@ -727,6 +730,9 @@ Shell field reference:
 | --- | --- | --- | --- |
 | `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string or special value. |
 
+Execution model (simple):
+- Shell actions are started asynchronously. Macrowhisper starts the command and immediately continues the action flow without waiting for the shell process to finish.
+
 Examples:
 
 ```json
@@ -749,6 +755,9 @@ AppleScript field reference:
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
 | `action` | string | `"display notification..."`, `".none"` | AppleScript source or special value. |
+
+Execution model (simple):
+- AppleScript actions are started asynchronously. Macrowhisper launches `osascript` and continues immediately instead of waiting for script completion.
 
 Example:
 
@@ -953,6 +962,8 @@ Because chains resolve by name across all types, duplicate names across types ar
 
 - Actions execute step-by-step.
 - If one step fails, chain continues to remaining steps and reports partial failure.
+- Shell and AppleScript steps are launch-and-continue: they are considered successful once launched, not when script work fully finishes.
+- This async behavior is intentional to keep dictation workflows instant and prevent backlog/race issues when users dictate repeatedly in quick succession.
 - Clipboard restoration decision is controlled by the last step.
 - `moveTo` post-processing is based on final executed action context.
 - `noEsc` is controlled at the first action-level (if set) else defaults.nextAction.
@@ -1250,6 +1261,23 @@ This prevents clipboard captures from ignored apps from polluting `{{clipboardCo
 3. Enable `clipboardStacking` only when you actually need multi-copy context.
 4. Use `clipboardIgnore` for password managers / browsers that produce noisy clipboard events.
 5. If you see intermittent clipboard race behavior, add a small `actionDelay` (for example `0.05` to `0.2`).
+
+### 15.6 Async execution and clipboard expectations (important)
+
+In simple terms:
+- Macrowhisper prioritizes speed. It launches actions quickly so users can dictate again right away.
+- For Shell and AppleScript actions, Macrowhisper does not wait for script completion.
+- Clipboard restore is part of Macrowhisper's own action flow timing, not a "wait for script to fully finish" guarantee.
+- Because of that, clipboard state may still change after launch if external tools/scripts keep writing to clipboard.
+- Clipboard restoration mainly cleans up what Macrowhisper/Superwhisper touched during execution windows.
+
+Why this design exists:
+- Even small blocking waits (1-2 seconds) can disrupt chained actions and rapid back-to-back dictations.
+- Async launch reduces those edge cases and keeps action handling predictable under heavy/fast usage.
+
+Superwhisper note:
+- Superwhisper may still interact with clipboard as part of its own flow.
+- At the moment, users cannot fully disable Superwhisper clipboard usage, so occasional clipboard timing interactions can still happen.
 
 ---
 
