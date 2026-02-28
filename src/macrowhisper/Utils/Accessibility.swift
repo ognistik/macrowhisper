@@ -376,6 +376,46 @@ private func isIgnorableBoundaryCharacterForSmartInsert(_ character: Character?)
     }
 }
 
+private func getFrontmostApplicationForAccessibility(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
+    if Thread.isMainThread {
+        return NSWorkspace.shared.frontmostApplication
+    }
+
+    var frontApp: NSRunningApplication?
+    let semaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async {
+        frontApp = NSWorkspace.shared.frontmostApplication
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + timeout)
+    return frontApp
+}
+
+private func isInputLikeElementForSmartInsert(_ element: AXUIElement, roleHint: String?) -> Bool {
+    let inputRoles = Set(["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"])
+    if let roleHint, inputRoles.contains(roleHint) {
+        return true
+    }
+
+    var subroleValue: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleValue) == .success,
+       let subrole = subroleValue as? String {
+        let inputSubroles = Set(["AXSearchField", "AXSecureTextField", "AXTextInput"])
+        if inputSubroles.contains(subrole) {
+            return true
+        }
+    }
+
+    var editableValue: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, "AXEditable" as CFString, &editableValue) == .success,
+       let isEditable = editableValue as? Bool,
+       isEditable {
+        return true
+    }
+
+    return false
+}
+
 /// Returns insertion boundary characters around the current cursor/selection in a focused input field.
 /// The left character is immediately before selection start, and the right character is immediately after selection end.
 /// Returns nil when context is unavailable or unreliable.
@@ -385,7 +425,7 @@ func getInputInsertionContext() -> InputInsertionContext? {
         return nil
     }
 
-    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+    guard let frontApp = getFrontmostApplicationForAccessibility() else {
         logDebug("[SmartInsert] No frontmost application found")
         return nil
     }
@@ -408,8 +448,7 @@ func getInputInsertionContext() -> InputInsertionContext? {
         return nil
     }
 
-    let inputRoles = Set(["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"])
-    guard inputRoles.contains(role) else {
+    guard isInputLikeElementForSmartInsert(element, roleHint: role) else {
         logDebug("[SmartInsert] Focused element role is not an input field: \(role)")
         return nil
     }

@@ -960,20 +960,39 @@ class SocketCommunication {
             return resolved
         }
 
-        guard let context = getInputInsertionContext() else {
+        guard let initialContext = getInputInsertionContext() else {
             logDebug("[SmartInsert] Input insertion context unavailable, skipping smart insertion")
             return resolved
         }
 
         let original = resolved
+        var context = initialContext
+        var lowConfidenceContext = false
+
+        if shouldRetryInsertionContextRead(initialContext, insertionText: resolved) {
+            if let retryContext = getInputInsertionContext() {
+                if contextsDifferForSmartInsert(initialContext, retryContext) {
+                    lowConfidenceContext = true
+                    context = retryContext
+                    logDebug("[SmartInsert] Context changed between consecutive AX reads; entering low-confidence mode")
+                }
+            } else {
+                lowConfidenceContext = true
+                logDebug("[SmartInsert] AX context retry failed after suspicious boundary; entering low-confidence mode")
+            }
+        }
+
         let isIntraWordInsertion = (context.leftCharacter.map { isWordCharacter($0) } ?? false) &&
             (context.rightCharacter.map { isWordCharacter($0) } ?? false)
 
         if isIntraWordInsertion {
-            logDebug("[SmartInsert] Intra-word insertion boundary detected, preserving text casing while still applying punctuation/spacing rules")
+            logDebug("[SmartInsert] Intra-word insertion boundary detected, applying mid-sentence casing and punctuation/spacing rules")
+        }
+        if lowConfidenceContext {
+            logDebug("[SmartInsert] Low-confidence context: skipping risky smart transforms (casing and punctuation stripping)")
         }
 
-        if shouldApplySmartCasing && !isIntraWordInsertion {
+        if shouldApplySmartCasing && !lowConfidenceContext {
             resolved = applySmartCasing(
                 to: resolved,
                 leftCharacter: context.leftCharacter,
@@ -981,14 +1000,16 @@ class SocketCommunication {
                 leftLinePrefix: context.leftLinePrefix
             )
         }
-        resolved = applySmartTrailingPunctuation(
-            to: resolved,
-            leftCharacter: context.leftCharacter,
-            leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
-            rightCharacter: context.rightCharacter,
-            rightNonWhitespaceCharacter: context.rightNonWhitespaceCharacter,
-            rightHasLineBreakBeforeNextNonWhitespace: context.rightHasLineBreakBeforeNextNonWhitespace
-        )
+        if !lowConfidenceContext {
+            resolved = applySmartTrailingPunctuation(
+                to: resolved,
+                leftCharacter: context.leftCharacter,
+                leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
+                rightCharacter: context.rightCharacter,
+                rightNonWhitespaceCharacter: context.rightNonWhitespaceCharacter,
+                rightHasLineBreakBeforeNextNonWhitespace: context.rightHasLineBreakBeforeNextNonWhitespace
+            )
+        }
         resolved = applySmartBoundarySpacing(
             to: resolved,
             leftCharacter: context.leftCharacter,
@@ -1027,6 +1048,36 @@ class SocketCommunication {
             .replacingOccurrences(of: " ", with: "␠")
             .replacingOccurrences(of: "\n", with: "⏎")
             .replacingOccurrences(of: "\t", with: "⇥")
+    }
+
+    private func shouldRetryInsertionContextRead(_ context: InputInsertionContext, insertionText: String) -> Bool {
+        guard isSentenceLikeInsertionText(insertionText) else {
+            return false
+        }
+
+        let leftIsWord = context.leftCharacter.map { isWordCharacter($0) } ?? false
+        let rightIsWord = context.rightCharacter.map { isWordCharacter($0) } ?? false
+        let rightIsPunctuation = context.rightCharacter.map { ".,;:!?".contains($0) } ?? false
+        return (leftIsWord && rightIsWord) || (leftIsWord && rightIsPunctuation)
+    }
+
+    private func contextsDifferForSmartInsert(_ lhs: InputInsertionContext, _ rhs: InputInsertionContext) -> Bool {
+        if lhs.leftCharacter != rhs.leftCharacter { return true }
+        if lhs.leftNonWhitespaceCharacter != rhs.leftNonWhitespaceCharacter { return true }
+        if lhs.rightCharacter != rhs.rightCharacter { return true }
+        if lhs.rightNonWhitespaceCharacter != rhs.rightNonWhitespaceCharacter { return true }
+        if lhs.rightHasLineBreakBeforeNextNonWhitespace != rhs.rightHasLineBreakBeforeNextNonWhitespace { return true }
+        return lhs.leftLinePrefix != rhs.leftLinePrefix
+    }
+
+    private func isSentenceLikeInsertionText(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard trimmed.contains(where: { $0.isWhitespace }) else { return false }
+        guard let firstLetter = trimmed.first(where: { String($0).rangeOfCharacter(from: .letters) != nil }) else {
+            return false
+        }
+        return String(firstLetter).rangeOfCharacter(from: .uppercaseLetters) != nil
     }
 
     private func applySmartCasing(
