@@ -1197,7 +1197,9 @@ class SocketCommunication {
         var updated = text
 
         if let first = updated.first {
-            let hasImmediateRightWhitespace = rightCharacter?.isWhitespace ?? false
+            let hasImmediateRightWhitespace = rightCharacter.map {
+                $0.isWhitespace && !$0.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) })
+            } ?? false
             let shouldInsertLeadingSpaceForMarkdownList =
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
                 !(leftCharacter?.isWhitespace ?? false)
