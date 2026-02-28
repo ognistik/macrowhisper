@@ -622,7 +622,7 @@ Insert field reference:
 - `lowercase`: changes the whole text to lowercase.
 - `uppercaseFirst`: changes only the first detected letter to uppercase.
 - `lowercaseFirst`: changes only the first detected letter to lowercase.
-- `titleCase`: length-first title style with English exceptions. Small words are usually lowercased, first/last words are capitalized.
+- `titleCase`: English title style with minor-word exceptions. Articles/conjunctions/prepositions are usually lowercased, while first/last words (and words after `: ; ? !`) are capitalized.
 - `titleCase:all`: capitalizes the first letter of every word.
 
 Insert text execution order:

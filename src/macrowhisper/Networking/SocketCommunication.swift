@@ -1359,7 +1359,7 @@ class SocketCommunication {
     }
 
     private func applyEnglishTitleCase(in text: String, locale: Locale) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
+        guard let regex = try? NSRegularExpression(pattern: #"(?=[[:alnum:]]*[[:alpha:]])[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
             return text
         }
 
@@ -1379,16 +1379,16 @@ class SocketCommunication {
             guard let range = Range(match.range, in: text) else { continue }
             let token = String(text[range])
             let normalized = token.lowercased(with: locale)
-            let letterCount = token.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
             let isFirst = index == 0
             let isLast = index == matches.count - 1
+            let followsTitleBoundary = isWordAfterTitleBoundary(text: text, wordRange: range)
 
             let replacement: String
             if shouldPreserveOriginalWordCase(token) {
                 replacement = token
-            } else if isFirst || isLast || normalized == "i" {
+            } else if isFirst || isLast || followsTitleBoundary || shouldForceUppercaseInTitleCase(normalized) {
                 replacement = uppercasingFirstLetter(in: token)
-            } else if forceLowercaseWords.contains(normalized) || letterCount <= 3 {
+            } else if forceLowercaseWords.contains(normalized) {
                 replacement = token.lowercased(with: locale)
             } else {
                 replacement = uppercasingFirstLetter(in: token)
@@ -1400,8 +1400,40 @@ class SocketCommunication {
         return output
     }
 
+    private func shouldForceUppercaseInTitleCase(_ normalizedToken: String) -> Bool {
+        if normalizedToken == "i" {
+            return true
+        }
+        if normalizedToken.hasPrefix("i'") || normalizedToken.hasPrefix("i’") {
+            return true
+        }
+        return false
+    }
+
+    private func isWordAfterTitleBoundary(text: String, wordRange: Range<String.Index>) -> Bool {
+        guard wordRange.lowerBound > text.startIndex else {
+            return false
+        }
+
+        let ignoredPrefixCharacters = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'’`([{"))
+        let boundaryCharacters = CharacterSet(charactersIn: ":;!?")
+
+        var index = text.index(before: wordRange.lowerBound)
+        while true {
+            let scalarView = String(text[index]).unicodeScalars
+            if scalarView.allSatisfy({ ignoredPrefixCharacters.contains($0) }) {
+                if index == text.startIndex {
+                    return false
+                }
+                index = text.index(before: index)
+                continue
+            }
+            return scalarView.allSatisfy { boundaryCharacters.contains($0) }
+        }
+    }
+
     private func applyTitleCaseAll(in text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
+        guard let regex = try? NSRegularExpression(pattern: #"(?=[[:alnum:]]*[[:alpha:]])[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
             return text
         }
 
