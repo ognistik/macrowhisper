@@ -1,6 +1,31 @@
 import Foundation
 import Cocoa
 
+private let contextIgnorableScalarValues: Set<UInt32> = [
+    0xFFFC, // object replacement character
+    0x200B, // zero-width space
+    0x200C, // zero-width non-joiner
+    0x200D, // zero-width joiner
+    0x2060, // word joiner
+    0xFEFF  // zero-width no-break space / BOM
+]
+
+func sanitizeContextPlaceholderValue(_ value: String) -> String {
+    let filteredScalars = value.unicodeScalars.filter { scalar in
+        if contextIgnorableScalarValues.contains(scalar.value) {
+            return false
+        }
+        if CharacterSet.controlCharacters.contains(scalar),
+           !CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            return false
+        }
+        return true
+    }
+
+    return String(String.UnicodeScalarView(filteredScalars))
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 struct DeferredRegexSegment {
     let id: Int
     let replacements: [(regex: String, replacement: String)]
@@ -573,7 +598,7 @@ func processDynamicPlaceholders(
             
             // Handle selectedText
             else if key == "selectedText" {
-                var value = (metaJson["selectedText"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                var value = sanitizeContextPlaceholderValue(metaJson["selectedText"] as? String ?? "")
 
                 if !value.isEmpty {
                     logDebug("[SelectedTextPlaceholder] Using selected text from metaJson session snapshot")
@@ -587,7 +612,7 @@ func processDynamicPlaceholders(
                 }
 
                 if value.isEmpty {
-                    value = getSelectedText().trimmingCharacters(in: .whitespacesAndNewlines)
+                    value = sanitizeContextPlaceholderValue(getSelectedText())
                     if !value.isEmpty {
                         logDebug("[SelectedTextPlaceholder] Captured selected text at placeholder execution time")
                     }
@@ -604,12 +629,12 @@ func processDynamicPlaceholders(
             
             // Handle appContext (captured during placeholder processing if placeholder is present)
             else if key == "appContext" {
-                var value = (metaJson["appContext"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                var value = sanitizeContextPlaceholderValue(metaJson["appContext"] as? String ?? "")
                 if value.isEmpty {
-                    value = getAppContext(
+                    value = sanitizeContextPlaceholderValue(getAppContext(
                         targetPid: extractFrontAppPid(from: metaJson),
                         fallbackAppName: (metaJson["frontAppName"] as? String) ?? (metaJson["frontApp"] as? String)
-                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                    ))
                 }
                 
                 // Check if value is empty - if so, remove the placeholder entirely
@@ -623,13 +648,13 @@ func processDynamicPlaceholders(
 
             // Handle appVocabulary (captured lazily at placeholder time from front app accessibility content)
             else if key == "appVocabulary" {
-                var value = (metaJson["appVocabulary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                var value = sanitizeContextPlaceholderValue(metaJson["appVocabulary"] as? String ?? "")
                 if value.isEmpty {
-                    value = getAppVocabulary(
+                    value = sanitizeContextPlaceholderValue(getAppVocabulary(
                         targetPid: extractFrontAppPid(from: metaJson),
                         fallbackAppName: (metaJson["frontAppName"] as? String) ?? (metaJson["frontApp"] as? String),
                         fallbackBundleId: metaJson["frontAppBundleId"] as? String
-                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                    ))
                 }
 
                 // Check if value is empty - if so, remove the placeholder entirely
@@ -643,10 +668,11 @@ func processDynamicPlaceholders(
 
             // Handle frontApp (captured lazily at placeholder execution time)
             else if key == "frontApp" {
-                var value = ((metaJson["frontApp"] as? String) ?? (metaJson["frontAppName"] as? String) ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                var value = sanitizeContextPlaceholderValue(
+                    (metaJson["frontApp"] as? String) ?? (metaJson["frontAppName"] as? String) ?? ""
+                )
                 if value.isEmpty {
-                    value = getCurrentFrontAppName().trimmingCharacters(in: .whitespacesAndNewlines)
+                    value = sanitizeContextPlaceholderValue(getCurrentFrontAppName())
                 }
 
                 // Check if value is empty - if so, remove the placeholder entirely
@@ -660,7 +686,7 @@ func processDynamicPlaceholders(
             
             // Handle clipboardContext
             else if key == "clipboardContext" {
-                var value = (metaJson["clipboardContext"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                var value = sanitizeContextPlaceholderValue(metaJson["clipboardContext"] as? String ?? "")
                 let enableStacking = (metaJson["clipboardStacking"] as? Bool)
                     ?? globalConfigManager?.config.defaults.clipboardStacking
                     ?? false
@@ -681,12 +707,12 @@ func processDynamicPlaceholders(
 
                     if value.isEmpty {
                         if enableStacking {
-                            value = getRecentClipboardContentForCLIWithStacking(enableStacking: true).trimmingCharacters(in: .whitespacesAndNewlines)
+                            value = sanitizeContextPlaceholderValue(getRecentClipboardContentForCLIWithStacking(enableStacking: true))
                             if !value.isEmpty {
                                 logDebug("[ClipboardContextPlaceholder] Using recent clipboard content with stacking from global history")
                             }
                         } else {
-                            value = getRecentClipboardContentForCLI().trimmingCharacters(in: .whitespacesAndNewlines)
+                            value = sanitizeContextPlaceholderValue(getRecentClipboardContentForCLI())
                             if !value.isEmpty {
                                 logDebug("[ClipboardContextPlaceholder] Using recent clipboard content from global history")
                             }
@@ -722,7 +748,7 @@ func processDynamicPlaceholders(
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             } else if let jsonValue = resolveMetaJsonValue(for: key, in: metaJson) {
-                var value = stringifyPlaceholderValue(for: key, jsonValue: jsonValue, metaJson: metaJson)
+                let value = stringifyPlaceholderValue(for: key, jsonValue: jsonValue, metaJson: metaJson)
                 
                 // Check if value is empty - if so, remove the placeholder entirely (including regex replacements)
                 if value.isEmpty {

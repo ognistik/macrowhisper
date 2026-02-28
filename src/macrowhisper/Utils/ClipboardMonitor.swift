@@ -269,7 +269,7 @@ class ClipboardMonitor {
         sessionsQueue.sync {
             selectedText = earlyMonitoringSessions[recordingPath]?.selectedText ?? ""
         }
-        return selectedText
+        return sanitizeContextPlaceholderValue(selectedText)
     }
     
     /// Gets the last clipboard content that was captured during the monitoring session
@@ -277,18 +277,25 @@ class ClipboardMonitor {
     /// Returns empty string if no relevant clipboard changes occurred
     func getSessionClipboardContent(for recordingPath: String, swResult: String) -> String {
         var clipboardContent = ""
+        let normalizedSwResult = sanitizeContextPlaceholderValue(swResult)
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
             
             // Priority 1: Return the last clipboard change during the session (maintains current behavior)
             if let lastChange = session.clipboardChanges.last {
-                clipboardContent = lastChange.content ?? ""
+                clipboardContent = sanitizeContextPlaceholderValue(lastChange.content ?? "")
+                if clipboardContent == normalizedSwResult {
+                    clipboardContent = ""
+                }
                 return
             }
             
             // Priority 2: If no changes during session, use pre-recording clipboard if available
             if let preRecording = session.preRecordingClipboard, !preRecording.isEmpty {
-                clipboardContent = preRecording
+                clipboardContent = sanitizeContextPlaceholderValue(preRecording)
+                if clipboardContent == normalizedSwResult {
+                    clipboardContent = ""
+                }
                 logDebug("[ClipboardMonitor] Using pre-recording clipboard content (within buffer window before recording)")
                 return
             }
@@ -296,7 +303,7 @@ class ClipboardMonitor {
             // If we reach here, no clipboard content found (will return empty string)
             logDebug("[ClipboardMonitor] No clipboard content found (no session changes, no pre-recording content within buffer window)")
         }
-        return clipboardContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitizeContextPlaceholderValue(clipboardContent)
     }
     
     /// Gets clipboard content with stacking support - returns all clipboard changes when stacking is enabled
@@ -310,15 +317,17 @@ class ClipboardMonitor {
         if !enableStacking {
             return getSessionClipboardContent(for: recordingPath, swResult: swResult)
         }
-        
+
         var allClipboardChanges: [String] = []
+        let normalizedSwResult = sanitizeContextPlaceholderValue(swResult)
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
             
             // First, add all pre-recording clipboard content if available (these should be the first entries)
             for preRecording in session.preRecordingClipboardStack {
-                if !preRecording.isEmpty && preRecording != swResult {
-                    allClipboardChanges.append(preRecording)
+                let normalized = sanitizeContextPlaceholderValue(preRecording)
+                if !normalized.isEmpty && normalized != normalizedSwResult {
+                    allClipboardChanges.append(normalized)
                 }
             }
             if !session.preRecordingClipboardStack.isEmpty {
@@ -327,8 +336,11 @@ class ClipboardMonitor {
             
             // Then collect all clipboard changes during the session (excluding swResult)
             for change in session.clipboardChanges {
-                if let content = change.content, content != swResult, !content.isEmpty {
-                    allClipboardChanges.append(content)
+                if let content = change.content {
+                    let normalized = sanitizeContextPlaceholderValue(content)
+                    if !normalized.isEmpty && normalized != normalizedSwResult {
+                        allClipboardChanges.append(normalized)
+                    }
                 }
             }
         }
@@ -340,14 +352,13 @@ class ClipboardMonitor {
         } else if allClipboardChanges.count == 1 {
             // Single clipboard change - return without XML tags (maintains current behavior)
             logDebug("[ClipboardMonitor] Single clipboard change for stacking - returning without XML tags")
-            return allClipboardChanges[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            return allClipboardChanges[0]
         } else {
             // Multiple clipboard changes - format with XML tags
             var result = ""
             for (index, content) in allClipboardChanges.enumerated() {
                 let tagNumber = index + 1
-                let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                result += "<clipboard-context-\(tagNumber)>\n\(trimmedContent)\n</clipboard-context-\(tagNumber)>\n\n"
+                result += "<clipboard-context-\(tagNumber)>\n\(content)\n</clipboard-context-\(tagNumber)>\n\n"
             }
             logDebug("[ClipboardMonitor] Multiple clipboard changes for stacking - formatted with \(allClipboardChanges.count) XML tags")
             return result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -364,7 +375,7 @@ class ClipboardMonitor {
                 .max(by: { $0.startTime < $1.startTime })
             selectedText = activeSession?.selectedText ?? ""
         }
-        return selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitizeContextPlaceholderValue(selectedText)
     }
 
     /// Gets the recording path for the most recent active recording session.
@@ -396,14 +407,19 @@ class ClipboardMonitor {
 
         if !enableStacking {
             if let lastChange = activeSession.clipboardChanges.last,
-               let content = lastChange.content,
-               !content.isEmpty {
-                return content.trimmingCharacters(in: .whitespacesAndNewlines)
+               let content = lastChange.content {
+                let normalized = sanitizeContextPlaceholderValue(content)
+                if !normalized.isEmpty {
+                    return normalized
+                }
             }
 
             if let preRecording = activeSession.preRecordingClipboard,
                !preRecording.isEmpty {
-                return preRecording.trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalized = sanitizeContextPlaceholderValue(preRecording)
+                if !normalized.isEmpty {
+                    return normalized
+                }
             }
 
             return ""
@@ -411,13 +427,19 @@ class ClipboardMonitor {
 
         var allClipboardChanges: [String] = []
 
-        for preRecording in activeSession.preRecordingClipboardStack where !preRecording.isEmpty {
-            allClipboardChanges.append(preRecording)
+        for preRecording in activeSession.preRecordingClipboardStack {
+            let normalized = sanitizeContextPlaceholderValue(preRecording)
+            if !normalized.isEmpty {
+                allClipboardChanges.append(normalized)
+            }
         }
 
         for change in activeSession.clipboardChanges {
-            if let content = change.content, !content.isEmpty {
-                allClipboardChanges.append(content)
+            if let content = change.content {
+                let normalized = sanitizeContextPlaceholderValue(content)
+                if !normalized.isEmpty {
+                    allClipboardChanges.append(normalized)
+                }
             }
         }
 
@@ -426,14 +448,13 @@ class ClipboardMonitor {
         }
 
         if allClipboardChanges.count == 1 {
-            return allClipboardChanges[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            return allClipboardChanges[0]
         }
 
         var result = ""
         for (index, content) in allClipboardChanges.enumerated() {
             let tagNumber = index + 1
-            let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            result += "<clipboard-context-\(tagNumber)>\n\(trimmedContent)\n</clipboard-context-\(tagNumber)>\n\n"
+            result += "<clipboard-context-\(tagNumber)>\n\(content)\n</clipboard-context-\(tagNumber)>\n\n"
         }
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -465,7 +486,7 @@ class ClipboardMonitor {
             }
         }
         
-        return recentContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitizeContextPlaceholderValue(recentContent)
     }
     
     /// Gets clipboard content from global history for CLI execution context with stacking support
@@ -497,8 +518,11 @@ class ClipboardMonitor {
             
             // Add all recent changes (excluding empty content)
             for change in recentChanges {
-                if let content = change.content, !content.isEmpty {
-                    allClipboardChanges.append(content)
+                if let content = change.content {
+                    let normalized = sanitizeContextPlaceholderValue(content)
+                    if !normalized.isEmpty {
+                        allClipboardChanges.append(normalized)
+                    }
                 }
             }
         }
@@ -510,14 +534,13 @@ class ClipboardMonitor {
         } else if allClipboardChanges.count == 1 {
             // Single clipboard change - return without XML tags (maintains current behavior)
             logDebug("[ClipboardMonitor] Single clipboard change for CLI stacking - returning without XML tags")
-            return allClipboardChanges[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            return allClipboardChanges[0]
         } else {
             // Multiple clipboard changes - format with XML tags
             var result = ""
             for (index, content) in allClipboardChanges.enumerated() {
                 let tagNumber = index + 1
-                let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                result += "<clipboard-context-\(tagNumber)>\n\(trimmedContent)\n</clipboard-context-\(tagNumber)>\n\n"
+                result += "<clipboard-context-\(tagNumber)>\n\(content)\n</clipboard-context-\(tagNumber)>\n\n"
             }
             logDebug("[ClipboardMonitor] Multiple clipboard changes for CLI stacking - formatted with \(allClipboardChanges.count) XML tags")
             return result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -575,8 +598,11 @@ class ClipboardMonitor {
             
             // Add all changes from the buffer window (excluding empty content)
             for change in preRecordingChanges {
-                if let content = change.content, !content.isEmpty {
-                    clipboardStack.append(content)
+                if let content = change.content {
+                    let normalized = sanitizeContextPlaceholderValue(content)
+                    if !normalized.isEmpty {
+                        clipboardStack.append(normalized)
+                    }
                 }
             }
             

@@ -570,13 +570,15 @@ func getSelectedText() -> String {
     let selectedTextError = AXUIElementCopyAttributeValue(axElement, "AXSelectedText" as CFString, &selectedTextValue)
     
     if selectedTextError == .success, let selectedTextValue = selectedTextValue {
-        if let selectedText = selectedTextValue as? String, !selectedText.isEmpty {
-            logDebug("[SelectedText] Found selected text.")
-            return selectedText
-        } else {
-            logDebug("[SelectedText] No text selected or selected text is empty")
-            return ""
+        if let selectedText = selectedTextValue as? String {
+            let normalized = sanitizeContextPlaceholderValue(selectedText)
+            if !normalized.isEmpty {
+                logDebug("[SelectedText] Found selected text.")
+                return normalized
+            }
         }
+        logDebug("[SelectedText] No text selected or selected text is empty")
+        return ""
     }
     
     // Second try: AXSelectedTextRangeAttribute to get selection range and slice content
@@ -609,7 +611,7 @@ func getSelectedText() -> String {
                         let start = utf16.index(utf16.startIndex, offsetBy: Int(cfRange.location))
                         let end = utf16.index(start, offsetBy: Int(cfRange.length))
                         if let s = String.Index(start, within: fullText), let e = String.Index(end, within: fullText) {
-                            let selected = String(fullText[s..<e]).trimmingCharacters(in: .whitespacesAndNewlines)
+                            let selected = sanitizeContextPlaceholderValue(String(fullText[s..<e]))
                             if !selected.isEmpty {
                                 logDebug("[SelectedText] Extracted selected text via range.")
                                 return selected
