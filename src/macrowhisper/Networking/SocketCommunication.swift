@@ -49,6 +49,12 @@ class SocketCommunication {
         let action: Any
     }
 
+    struct ProcessedInsertAction {
+        let text: String
+        let isAutoPaste: Bool
+        let deferredRegexSegments: [DeferredRegexSegment]
+    }
+
     private enum CLIActionChainError: LocalizedError {
         case duplicateActionName(String)
         case missingAction(String)
@@ -400,11 +406,16 @@ class SocketCommunication {
                     throw CLIActionChainError.missingAction(currentName)
                 }
                 let (resolvedInsert, isAutoPasteTemplate) = resolveInsertForCLIExecution(insert)
-                let (processedAction, isAutoPasteResult) = processInsertAction(resolvedInsert.action, metaJson: metaJson)
+                let processedInsert = processInsertAction(
+                    resolvedInsert.action,
+                    metaJson: metaJson,
+                    activeInsert: resolvedInsert
+                )
                 applyInsertForExec(
-                    processedAction,
+                    processedInsert.text,
                     activeInsert: resolvedInsert,
-                    isAutoPaste: isAutoPasteTemplate || isAutoPasteResult
+                    isAutoPaste: isAutoPasteTemplate || processedInsert.isAutoPaste,
+                    deferredRegexSegments: processedInsert.deferredRegexSegments
                 )
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedInsert)
             case .url:
@@ -539,16 +550,30 @@ class SocketCommunication {
         return (type, action, activeActionName)
     }
 
-    func processInsertAction(_ action: String, metaJson: [String: Any]) -> (String, Bool) {
-        if action == ".none" { return ("", false) }
+    func processInsertAction(
+        _ action: String,
+        metaJson: [String: Any],
+        activeInsert: AppConfiguration.Insert? = nil
+    ) -> ProcessedInsertAction {
+        if action == ".none" {
+            return ProcessedInsertAction(text: "", isAutoPaste: false, deferredRegexSegments: [])
+        }
         if action == ".autoPaste" {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            return (swResult, true)
+            return ProcessedInsertAction(text: swResult, isAutoPaste: true, deferredRegexSegments: [])
         }
-        // Use the unified placeholder processing function for consistency across all action types
-        // (newline conversion is handled within processAllPlaceholders for Insert actions)
+        let shouldDeferRegex = resolveInsertTransform(activeInsert) != nil
+        if shouldDeferRegex {
+            let result = processAllInsertPlaceholdersWithDeferredRegex(action: action, metaJson: metaJson)
+            return ProcessedInsertAction(
+                text: result.text,
+                isAutoPaste: false,
+                deferredRegexSegments: result.deferredSegments
+            )
+        }
+
         let result = processAllPlaceholders(action: action, metaJson: metaJson, actionType: .insert)
-        return (result, false)
+        return ProcessedInsertAction(text: result, isAutoPaste: false, deferredRegexSegments: [])
     }
 
     /// Returns processed action content for a concrete action/type pair.
@@ -556,8 +581,7 @@ class SocketCommunication {
         switch actionType {
         case .insert:
             if let insert = action as? AppConfiguration.Insert {
-                let (processedAction, _) = processInsertAction(insert.action, metaJson: metaJson)
-                return processedAction
+                return processInsertAction(insert.action, metaJson: metaJson, activeInsert: insert).text
             }
         case .url:
             if let url = action as? AppConfiguration.Url {
@@ -924,6 +948,7 @@ class SocketCommunication {
         case uppercaseFirst
         case lowercaseFirst
         case titleCase
+        case titleCaseAll = "titleCase:all"
     }
 
     private func resolveInsertTransform(_ activeInsert: AppConfiguration.Insert?) -> InsertTransform? {
@@ -970,11 +995,17 @@ class SocketCommunication {
         case .lowercaseFirst:
             return lowercasingFirstLetter(in: text)
         case .titleCase:
-            return text.lowercased(with: locale).capitalized(with: locale)
+            return applyEnglishTitleCase(in: text, locale: locale)
+        case .titleCaseAll:
+            return applyTitleCaseAll(in: text)
         }
     }
 
-    private func resolveSmartInsertTextIfNeeded(_ text: String, activeInsert: AppConfiguration.Insert?) -> String {
+    private func resolveSmartInsertTextIfNeeded(
+        _ text: String,
+        activeInsert: AppConfiguration.Insert?,
+        deferredRegexSegments: [DeferredRegexSegment] = []
+    ) -> String {
         let smartInsertEnabled = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
         let resolvedTransform = resolveInsertTransform(activeInsert)
 
@@ -983,6 +1014,9 @@ class SocketCommunication {
         }
 
         var resolved = applyInsertTransform(text, transform: resolvedTransform)
+        if resolvedTransform != nil && !deferredRegexSegments.isEmpty {
+            resolved = applyDeferredRegexSegments(to: resolved, segments: deferredRegexSegments)
+        }
 
         guard smartInsertEnabled else {
             return resolved
@@ -1324,6 +1358,91 @@ class SocketCommunication {
         return false
     }
 
+    private func applyEnglishTitleCase(in text: String, locale: Locale) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
+            return text
+        }
+
+        let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+        if matches.isEmpty {
+            return text
+        }
+
+        let forceLowercaseWords: Set<String> = [
+            "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet",
+            "as", "at", "by", "in", "of", "on", "per", "to", "via",
+            "from", "into", "onto", "over", "with", "than", "upon"
+        ]
+
+        var output = text
+        for (index, match) in matches.enumerated().reversed() {
+            guard let range = Range(match.range, in: text) else { continue }
+            let token = String(text[range])
+            let normalized = token.lowercased(with: locale)
+            let letterCount = token.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
+            let isFirst = index == 0
+            let isLast = index == matches.count - 1
+
+            let replacement: String
+            if shouldPreserveOriginalWordCase(token) {
+                replacement = token
+            } else if isFirst || isLast || normalized == "i" {
+                replacement = uppercasingFirstLetter(in: token)
+            } else if forceLowercaseWords.contains(normalized) || letterCount <= 3 {
+                replacement = token.lowercased(with: locale)
+            } else {
+                replacement = uppercasingFirstLetter(in: token)
+            }
+
+            output.replaceSubrange(range, with: replacement)
+        }
+
+        return output
+    }
+
+    private func applyTitleCaseAll(in text: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"[[:alnum:]]+(?:['’][[:alnum:]]+)*"#) else {
+            return text
+        }
+
+        let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+        if matches.isEmpty {
+            return text
+        }
+
+        var output = text
+        for match in matches.reversed() {
+            guard let range = Range(match.range, in: text) else { continue }
+            let token = String(text[range])
+            let replacement = shouldPreserveOriginalWordCase(token) ? token : uppercasingFirstLetter(in: token)
+            output.replaceSubrange(range, with: replacement)
+        }
+
+        return output
+    }
+
+    private func shouldPreserveOriginalWordCase(_ token: String) -> Bool {
+        let letters = token.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        if letters.count > 1 && letters.allSatisfy({ CharacterSet.uppercaseLetters.contains($0) }) {
+            return true
+        }
+
+        var seenFirstLetter = false
+        for scalar in token.unicodeScalars {
+            if CharacterSet.letters.contains(scalar) {
+                if !seenFirstLetter {
+                    seenFirstLetter = true
+                    continue
+                }
+                if CharacterSet.uppercaseLetters.contains(scalar) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
     private func lowercasingFirstLetter(in text: String) -> String {
         var result = text
         for index in result.indices {
@@ -1392,8 +1511,17 @@ class SocketCommunication {
     }
 
     // This version is for the main watcher flow and respects the 'noEsc' setting
-    func applyInsert(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
-        let resolvedText = resolveSmartInsertTextIfNeeded(text, activeInsert: activeInsert)
+    func applyInsert(
+        _ text: String,
+        activeInsert: AppConfiguration.Insert?,
+        isAutoPaste: Bool = false,
+        deferredRegexSegments: [DeferredRegexSegment] = []
+    ) {
+        let resolvedText = resolveSmartInsertTextIfNeeded(
+            text,
+            activeInsert: activeInsert,
+            deferredRegexSegments: deferredRegexSegments
+        )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
             // For empty or .none actions, apply actionDelay but don't press ESC, paste, or do any clipboard operations
@@ -1418,8 +1546,17 @@ class SocketCommunication {
     }
     
     // This version is for CLI action execution and does NOT press ESC.
-    func applyInsertForExec(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) {
-        let resolvedText = resolveSmartInsertTextIfNeeded(text, activeInsert: activeInsert)
+    func applyInsertForExec(
+        _ text: String,
+        activeInsert: AppConfiguration.Insert?,
+        isAutoPaste: Bool = false,
+        deferredRegexSegments: [DeferredRegexSegment] = []
+    ) {
+        let resolvedText = resolveSmartInsertTextIfNeeded(
+            text,
+            activeInsert: activeInsert,
+            deferredRegexSegments: deferredRegexSegments
+        )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
             // For empty or .none actions, apply actionDelay but don't paste or do any clipboard operations
@@ -1453,8 +1590,17 @@ class SocketCommunication {
     
     // This version is for clipboard-monitored insert actions and does NOT press ESC or apply actionDelay
     // (ESC and delay are handled by ClipboardMonitor)
-    func applyInsertWithoutEsc(_ text: String, activeInsert: AppConfiguration.Insert?, isAutoPaste: Bool = false) -> Bool {
-        let resolvedText = resolveSmartInsertTextIfNeeded(text, activeInsert: activeInsert)
+    func applyInsertWithoutEsc(
+        _ text: String,
+        activeInsert: AppConfiguration.Insert?,
+        isAutoPaste: Bool = false,
+        deferredRegexSegments: [DeferredRegexSegment] = []
+    ) -> Bool {
+        let resolvedText = resolveSmartInsertTextIfNeeded(
+            text,
+            activeInsert: activeInsert,
+            deferredRegexSegments: deferredRegexSegments
+        )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
             // For empty or .none actions, do nothing since delay is handled by ClipboardMonitor

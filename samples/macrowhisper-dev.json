@@ -57,7 +57,7 @@
       "restoreClipboard" : null,
       "simKeypress" : null,
       "smartInsert" : null,
-      "transform" : "titleCase",
+      "transform" : null,
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,

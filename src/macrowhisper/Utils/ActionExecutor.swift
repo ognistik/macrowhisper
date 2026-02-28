@@ -632,13 +632,17 @@ class ActionExecutor {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: insert.action)
         
-        let (processedAction, isAutoPasteResult) = socketCommunication.processInsertAction(insert.action, metaJson: enhancedMetaJson)
+        let processedInsert = socketCommunication.processInsertAction(
+            insert.action,
+            metaJson: enhancedMetaJson,
+            activeInsert: insert
+        )
         let baseShouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
         var shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
 
-        let isAutoPaste = isAutoPasteResult || insert.action == ".autoPaste"
-        let isEmptyOrNoneInsert = processedAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isAutoPaste = processedInsert.isAutoPaste || insert.action == ".autoPaste"
+        let isEmptyOrNoneInsert = processedInsert.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         // Respect noEsc=true strictly. Forced ESC only applies when ESC is otherwise allowed.
         let forceEscForAutoPasteWhenNotInInputField = !options.isLastInChain && baseShouldEsc && isAutoPaste
@@ -656,9 +660,10 @@ class ActionExecutor {
             insertAction: { [weak self] in
                 // Execute the insert action without ESC (already handled by clipboard monitor)
                 return self?.socketCommunication.applyInsertWithoutEsc(
-                    processedAction,
+                    processedInsert.text,
                     activeInsert: insert,
-                    isAutoPaste: isAutoPaste
+                    isAutoPaste: isAutoPaste,
+                    deferredRegexSegments: processedInsert.deferredRegexSegments
                 ) ?? false
             },
             actionDelay: actionDelay,

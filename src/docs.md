@@ -502,7 +502,7 @@ Null behavior at `defaults` level:
 | `noEsc` | bool/null | `false` | Disable ESC simulation before actions. `null` = built-in default (`false`). |
 | `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
 | `smartInsert` | bool/null | `true` | Smart casing/spacing behavior for insert actions. `null` = built-in default (`true`). |
-| `transform` | string/null | `null` | Default insert text transform. Allowed: `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`. `null` = no transform. |
+| `transform` | string/null | `null` | Default insert text transform. Allowed: `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`. `null` = no transform. |
 | `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
 | `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
 | `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
@@ -613,15 +613,25 @@ Insert field reference:
 | `action` | string | `"{{swResult}}"`, `".autoPaste"`, `".none"` | Main inserted content/template. |
 | `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters; slower but useful where paste is blocked. |
 | `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
-| `transform` | string/null | `"uppercase"`, `"lowercase"`, `"uppercaseFirst"`, `"lowercaseFirst"`, `"titleCase"`, `null` | Per-insert text transform. `null` inherits `defaults.transform`. |
+| `transform` | string/null | `"uppercase"`, `"lowercase"`, `"uppercaseFirst"`, `"lowercaseFirst"`, `"titleCase"`, `"titleCase:all"`, `null` | Per-insert text transform. `null` inherits `defaults.transform`. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
+
+`transform` behavior (friendly summary):
+
+- `uppercase`: changes the whole text to uppercase.
+- `lowercase`: changes the whole text to lowercase.
+- `uppercaseFirst`: changes only the first detected letter to uppercase.
+- `lowercaseFirst`: changes only the first detected letter to lowercase.
+- `titleCase`: length-first title style with English exceptions. Small words are usually lowercased, first/last words are capitalized.
+- `titleCase:all`: capitalizes the first letter of every word.
 
 Insert text execution order:
 
 1. Placeholder expansion.
 2. Insert `transform` (if resolved from action/defaults).
-3. Smart insert adjustments (spacing/punctuation always when enabled; smart casing is skipped when a case-changing transform is active).
-4. Paste/type output.
+3. If the placeholder used regex replacements and a transform is active, those regex replacements are re-applied only to the original placeholder segments.
+4. Smart insert adjustments (spacing/punctuation always when enabled; smart casing is skipped when a case-changing transform is active).
+5. Paste/type output.
 
 Examples:
 
@@ -647,6 +657,15 @@ Examples:
   "triggerModes": "assistant"
 }
 ```
+
+```json
+"titleWithException": {
+  "action": "{{swResult||\\bapi\\b||API}}",
+  "transform": "titleCase"
+}
+```
+
+In the example above, `API` stays `API` even with `titleCase`.
 
 ### 7.2 URL actions
 

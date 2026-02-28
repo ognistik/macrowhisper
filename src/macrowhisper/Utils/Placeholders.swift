@@ -1,6 +1,67 @@
 import Foundation
 import Cocoa
 
+struct DeferredRegexSegment {
+    let id: Int
+    let replacements: [(regex: String, replacement: String)]
+}
+
+struct InsertPlaceholderProcessingResult {
+    let text: String
+    let deferredSegments: [DeferredRegexSegment]
+}
+
+private func deferredRegexStartMarker(for id: Int) -> String {
+    return "⟦⟦\(id)⟧⟧"
+}
+
+private func deferredRegexEndMarker(for id: Int) -> String {
+    return "⟬⟬\(id)⟭⟭"
+}
+
+private func wrapDeferredRegexSegment(_ text: String, id: Int) -> String {
+    return deferredRegexStartMarker(for: id) + text + deferredRegexEndMarker(for: id)
+}
+
+func applyDeferredRegexSegments(to text: String, segments: [DeferredRegexSegment]) -> String {
+    guard !segments.isEmpty else { return text }
+
+    var output = text
+    var failed = false
+
+    for segment in segments {
+        let startMarker = deferredRegexStartMarker(for: segment.id)
+        let endMarker = deferredRegexEndMarker(for: segment.id)
+
+        guard let startRange = output.range(of: startMarker) else {
+            failed = true
+            continue
+        }
+
+        guard let endRange = output.range(of: endMarker, range: startRange.upperBound..<output.endIndex) else {
+            failed = true
+            continue
+        }
+
+        let segmentRange = startRange.upperBound..<endRange.lowerBound
+        let segmentText = String(output[segmentRange])
+        let replaced = applyRegexReplacements(to: segmentText, replacements: segment.replacements)
+        let wrappedReplacement = wrapDeferredRegexSegment(replaced, id: segment.id)
+        output.replaceSubrange(startRange.lowerBound..<endRange.upperBound, with: wrappedReplacement)
+    }
+
+    let allMarkers = segments.flatMap { [deferredRegexStartMarker(for: $0.id), deferredRegexEndMarker(for: $0.id)] }
+    for marker in allMarkers {
+        output = output.replacingOccurrences(of: marker, with: "")
+    }
+
+    if failed {
+        logWarning("[DeferredRegex] Failed to parse one or more deferred regex segments. Returning fail-open text.")
+    }
+
+    return output
+}
+
 // Function to process LLM result based on XML placeholders in the action
 // Supports both {{xml:tagName}} and {{json:xml:tagName}} formats
 func processXmlPlaceholders(action: String, llmResult: String) -> (String, [String: String]) {
@@ -378,9 +439,16 @@ func stringifyPlaceholderValue(for keyPath: String, jsonValue: Any, metaJson: [S
 /// The json: prefix applies JSON string escaping regardless of action type, useful for embedding content in JSON strings.
 /// The raw: prefix applies no escaping regardless of action type, useful for AppleScript and other contexts where escaping breaks functionality.
 /// For URL actions, URL encoding is deferred until after all regex replacements to prevent double encoding.
-func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
+func processDynamicPlaceholders(
+    action: String,
+    metaJson: [String: Any],
+    actionType: ActionType,
+    deferRegexReplacements: Bool = false,
+    deferredSegments: inout [DeferredRegexSegment]
+) -> String {
     var result = action
     var resolvedFolderPathCache: [Int: String?] = [:]
+    var nextDeferredSegmentId = deferredSegments.count
     
     // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
     let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
@@ -414,6 +482,27 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 }
             }
             
+            func finalizePlaceholderValue(_ rawValue: String) -> String {
+                let shouldDefer = deferRegexReplacements && actionType == .insert && !regexReplacements.isEmpty
+                var value = rawValue
+
+                if shouldDefer {
+                    let segmentId = nextDeferredSegmentId
+                    nextDeferredSegmentId += 1
+                    deferredSegments.append(
+                        DeferredRegexSegment(
+                            id: segmentId,
+                            replacements: regexReplacements
+                        )
+                    )
+                    value = wrapDeferredRegexSegment(value, id: segmentId)
+                } else {
+                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                }
+
+                return applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+            }
+
             // Check for date placeholder
             if key == "date", match.numberOfRanges > 3, let formatRange = Range(match.range(at: 3), in: action) {
                 let format = String(action[formatRange])
@@ -436,11 +525,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                     replacement = formatter.string(from: Date())
                 }
                 
-                // Apply regex replacements if any
-                replacement = applyRegexReplacements(to: replacement, replacements: regexReplacements)
-                
-                // Apply final escaping after all regex replacements are complete
-                let escapedReplacement = applyFinalEscaping(value: replacement, prefixType: prefixType, actionType: actionType)
+                let escapedReplacement = finalizePlaceholderValue(replacement)
                 result.replaceSubrange(fullMatchRange, with: escapedReplacement)
                 continue
             }
@@ -481,8 +566,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -513,11 +597,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    // Apply regex replacements only if value is not empty
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                    
-                    // Apply final escaping after all regex replacements are complete
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -536,11 +616,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    // Apply regex replacements only if value is not empty
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                    
-                    // Apply final escaping after all regex replacements are complete
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -560,11 +636,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    // Apply regex replacements only if value is not empty
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-
-                    // Apply final escaping after all regex replacements are complete
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -581,11 +653,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    // Apply regex replacements only if value is not empty
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-
-                    // Apply final escaping after all regex replacements are complete
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -630,11 +698,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    // Apply regex replacements only if value is not empty
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                    
-                    // Apply final escaping after all regex replacements are complete
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
@@ -654,11 +718,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    // Apply regex replacements only if value is not empty
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                    
-                    // Apply final escaping after all regex replacements are complete
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             } else if let jsonValue = resolveMetaJsonValue(for: key, in: metaJson) {
@@ -668,11 +728,7 @@ func processDynamicPlaceholders(action: String, metaJson: [String: Any], actionT
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")
                 } else {
-                    // Apply regex replacements only if value is not empty
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
-                    
-                    // Apply final escaping after all regex replacements are complete
-                    let escapedValue = applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
+                    let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             } else {
@@ -812,10 +868,42 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     }
     
     // Then process dynamic placeholders with appropriate escaping based on action type
-    result = processDynamicPlaceholders(action: result, metaJson: updatedMetaJson, actionType: actionType)
+    var deferredSegments: [DeferredRegexSegment] = []
+    result = processDynamicPlaceholders(
+        action: result,
+        metaJson: updatedMetaJson,
+        actionType: actionType,
+        deferredSegments: &deferredSegments
+    )
     
     // logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
     return result
+}
+
+func processAllInsertPlaceholdersWithDeferredRegex(action: String, metaJson: [String: Any]) -> InsertPlaceholderProcessingResult {
+    var result = action
+    var updatedMetaJson = metaJson
+
+    if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
+        let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
+        updatedMetaJson["llmResult"] = cleaned
+        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: .insert)
+    } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
+        let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
+        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: .insert)
+    }
+
+    var deferredSegments: [DeferredRegexSegment] = []
+    result = result.replacingOccurrences(of: "\\n", with: "\n")
+    result = processDynamicPlaceholders(
+        action: result,
+        metaJson: updatedMetaJson,
+        actionType: .insert,
+        deferRegexReplacements: true,
+        deferredSegments: &deferredSegments
+    )
+
+    return InsertPlaceholderProcessingResult(text: result, deferredSegments: deferredSegments)
 }
 
 // MARK: - CLI Clipboard Helper

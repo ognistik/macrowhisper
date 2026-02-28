@@ -69,8 +69,8 @@
         },
         "transform": {
           "type": ["string", "null"],
-          "description": "Default text transform for insert actions only. null, omitted, or empty string means no default transform.",
-          "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "", null],
+          "description": "Default text transform for insert actions only. null, omitted, or empty string means no default transform. titleCase uses a length-first title style with English exceptions; titleCase:all capitalizes each word.",
+          "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "titleCase:all", "", null],
           "default": null
         },
         "actionDelay": {
@@ -309,8 +309,8 @@
             },
             "transform": {
               "type": ["string", "null"],
-              "description": "Text transform for this insert. null = inherit defaults.transform. Empty string = explicit no transform override. Allowed values: uppercase, lowercase, uppercaseFirst, lowercaseFirst, titleCase.",
-              "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "", null],
+              "description": "Text transform for this insert. null = inherit defaults.transform. Empty string = explicit no transform override. Allowed values: uppercase, lowercase, uppercaseFirst, lowercaseFirst, titleCase, titleCase:all.",
+              "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "titleCase:all", "", null],
               "default": null
             },
             "pressReturn": {
