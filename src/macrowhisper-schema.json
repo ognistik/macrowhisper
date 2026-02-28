@@ -67,6 +67,12 @@
           "description": "Enable smart casing and spacing for insert actions in reliable input-field contexts. Applies only to insert actions. null or omitted = use built-in default (true).",
           "default": true
         },
+        "transform": {
+          "type": ["string", "null"],
+          "description": "Default text transform for insert actions only. null, omitted, or empty string means no default transform.",
+          "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "", null],
+          "default": null
+        },
         "actionDelay": {
           "type": ["number", "null"],
           "description": "Default delay in seconds before executing actions. null or omitted = use built-in default (0).",
@@ -299,6 +305,12 @@
             "smartInsert": {
               "type": ["boolean", "null"],
               "description": "Enable smart casing and spacing for this insert. null = use global default, true/false = explicit override.",
+              "default": null
+            },
+            "transform": {
+              "type": ["string", "null"],
+              "description": "Text transform for this insert. null = inherit defaults.transform. Empty string = explicit no transform override. Allowed values: uppercase, lowercase, uppercaseFirst, lowercaseFirst, titleCase.",
+              "enum": ["uppercase", "lowercase", "uppercaseFirst", "lowercaseFirst", "titleCase", "", null],
               "default": null
             },
             "pressReturn": {

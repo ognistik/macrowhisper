@@ -450,7 +450,7 @@ Action execution is coordinated through the ActionExecutor which handles all act
 #### Action Types:
 
 ##### 1. Insert Actions:
-- **Processing**: Placeholder replacement plus insert runtime conditioning via `inputCondition`
+- **Processing**: Placeholder replacement, optional insert `transform`, and insert runtime conditioning via `inputCondition`
 - **Execution**: Text insertion via clipboard or keystroke simulation
 - **Special Cases**:
   - `.autoPaste` hard override: `action="{{swResult}}"`, `inputCondition="!restoreClipboard|!noEsc"`, `noEsc=true`, `restoreClipboard=false`
@@ -539,6 +539,7 @@ Determines where to move or how to handle the processed recording folder:
 - `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
 - `pressReturn: Bool` - Auto-press return after actions (default: false)
+- `transform: String?` - Default insert text transform (`uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`)
 - `returnDelay: Double` - Delay before pressing return (default: 0.1)
 - `scheduledActionTimeout: Double` - Timeout for auto-return and scheduled actions (default: 5, 0 = no timeout)
 
@@ -553,7 +554,7 @@ All action types support:
 - `triggerLogic: String?` - Trigger combination logic ("and"/"or")
 
 Insert-only settings:
-- `inputCondition: String?` - Pipe-separated conditional gate for selected insert sibling options (`!` inverts condition)
+- `inputCondition: String?` - Pipe-separated conditional gate for selected insert sibling options (`!` inverts condition). Allowed tokens: `restoreClipboard`, `noEsc`, `nextAction`, `moveTo`, `action`, `actionDelay`
 
 ### Runtime Variables:
 

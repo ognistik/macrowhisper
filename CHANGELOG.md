@@ -43,6 +43,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 * **New** `{{folderName}}`, `{{folderName:<index>}}`, `{{folderPath}}`, `{{folderPath:<index>}}` placeholders which return current recording folder information (and indexed folder lookup (0 newest/current, 1 previous, etc.))
   * Info also available via CLI `--folder-name [<index>]` and `--folder-path [<index>]`
   * Useful for automations/scripts where user may need to do something with current or previous recording paths.
+* **New** `transform` option for insert actions (also at the defaults level). For now it supports `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase` . This is for transformations beyond what regex allow. 
 * **Improvement.** `inputCondition` has been expanded to all action types
   * You can now have any action behave differently depending on user being in an input field or not.
 * **Improvement.** Streamlined the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This improves responsiveness.

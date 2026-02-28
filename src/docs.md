@@ -394,7 +394,7 @@ Quick rules (what wins?)
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
-| Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
+| Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) `transform` | Use `defaults.<sameField>` | Action value wins |
 | `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
 | `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
 | `nextAction` | `null` -> use `defaults.nextAction` (first chain step only) | Action value wins (`""` = explicit no next action) |
@@ -502,6 +502,7 @@ Null behavior at `defaults` level:
 | `noEsc` | bool/null | `false` | Disable ESC simulation before actions. `null` = built-in default (`false`). |
 | `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
 | `smartInsert` | bool/null | `true` | Smart casing/spacing behavior for insert actions. `null` = built-in default (`true`). |
+| `transform` | string/null | `null` | Default insert text transform. Allowed: `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`. `null` = no transform. |
 | `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
 | `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
 | `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
@@ -602,6 +603,7 @@ Insert-only extra fields:
 
 - `simKeypress` (bool/null)
 - `smartInsert` (bool/null)
+- `transform` (string/null)
 - `pressReturn` (bool/null)
 
 Insert field reference:
@@ -611,7 +613,15 @@ Insert field reference:
 | `action` | string | `"{{swResult}}"`, `".autoPaste"`, `".none"` | Main inserted content/template. |
 | `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters; slower but useful where paste is blocked. |
 | `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
+| `transform` | string/null | `"uppercase"`, `"lowercase"`, `"uppercaseFirst"`, `"lowercaseFirst"`, `"titleCase"`, `null` | Per-insert text transform. `null` inherits `defaults.transform`. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
+
+Insert text execution order:
+
+1. Placeholder expansion.
+2. Insert `transform` (if resolved from action/defaults).
+3. Smart insert adjustments (spacing/punctuation always when enabled; smart casing is skipped when a case-changing transform is active).
+4. Paste/type output.
 
 Examples:
 

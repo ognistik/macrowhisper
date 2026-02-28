@@ -786,12 +786,6 @@ class SocketCommunication {
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
         }
-        if !shouldApplyToken("simKeypress", tokens: tokens, isInInputField: isInInputField) {
-            resolved.simKeypress = nil
-        }
-        if !shouldApplyToken("smartInsert", tokens: tokens, isInInputField: isInInputField) {
-            resolved.smartInsert = nil
-        }
 
         return resolved
     }
@@ -924,35 +918,103 @@ class SocketCommunication {
         return resolved
     }
 
+    private enum InsertTransform: String {
+        case uppercase
+        case lowercase
+        case uppercaseFirst
+        case lowercaseFirst
+        case titleCase
+    }
+
+    private func resolveInsertTransform(_ activeInsert: AppConfiguration.Insert?) -> InsertTransform? {
+        // Action-level empty string is an explicit "no transform" override.
+        if let actionRawValue = activeInsert?.transform {
+            if actionRawValue.isEmpty {
+                return nil
+            }
+            guard let transform = InsertTransform(rawValue: actionRawValue) else {
+                logWarning("[InsertTransform] Unsupported transform '\(actionRawValue)' - skipping")
+                return nil
+            }
+            return transform
+        }
+
+        // Defaults-level empty string is treated the same as null (no default transform).
+        guard let defaultsRawValue = globalConfigManager?.config.defaults.transform, !defaultsRawValue.isEmpty else {
+            return nil
+        }
+        guard let transform = InsertTransform(rawValue: defaultsRawValue) else {
+            let rawValue = defaultsRawValue
+            logWarning("[InsertTransform] Unsupported transform '\(rawValue)' - skipping")
+            return nil
+        }
+        return transform
+    }
+
+    private func isCaseChangingTransform(_ transform: InsertTransform?) -> Bool {
+        guard transform != nil else { return false }
+        return true
+    }
+
+    private func applyInsertTransform(_ text: String, transform: InsertTransform?) -> String {
+        guard let transform else { return text }
+
+        let locale = Locale.current
+        switch transform {
+        case .uppercase:
+            return text.uppercased(with: locale)
+        case .lowercase:
+            return text.lowercased(with: locale)
+        case .uppercaseFirst:
+            return uppercasingFirstLetter(in: text)
+        case .lowercaseFirst:
+            return lowercasingFirstLetter(in: text)
+        case .titleCase:
+            return text.lowercased(with: locale).capitalized(with: locale)
+        }
+    }
+
     private func resolveSmartInsertTextIfNeeded(_ text: String, activeInsert: AppConfiguration.Insert?) -> String {
         let smartInsertEnabled = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
-        guard smartInsertEnabled else {
+        let resolvedTransform = resolveInsertTransform(activeInsert)
+
+        if !smartInsertEnabled && resolvedTransform == nil {
             return text
+        }
+
+        var resolved = applyInsertTransform(text, transform: resolvedTransform)
+
+        guard smartInsertEnabled else {
+            return resolved
+        }
+
+        let shouldApplySmartCasing = !isCaseChangingTransform(resolvedTransform)
+
+        resolved = resolved.trimmingCharacters(in: .whitespacesAndNewlines)
+        if resolved.isEmpty || resolved == ".none" {
+            return resolved
         }
 
         guard requestAccessibilityPermission() else {
             logDebug("[SmartInsert] Accessibility permission unavailable, skipping smart insertion")
-            return text
+            return resolved
         }
 
         guard let context = getInputInsertionContext() else {
             logDebug("[SmartInsert] Input insertion context unavailable, skipping smart insertion")
-            return text
-        }
-
-        var resolved = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if resolved.isEmpty || resolved == ".none" {
             return resolved
         }
 
         let original = resolved
 
-        resolved = applySmartCasing(
-            to: resolved,
-            leftCharacter: context.leftCharacter,
-            leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
-            leftLinePrefix: context.leftLinePrefix
-        )
+        if shouldApplySmartCasing {
+            resolved = applySmartCasing(
+                to: resolved,
+                leftCharacter: context.leftCharacter,
+                leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
+                leftLinePrefix: context.leftLinePrefix
+            )
+        }
         resolved = applySmartTrailingPunctuation(
             to: resolved,
             leftCharacter: context.leftCharacter,
@@ -983,6 +1045,9 @@ class SocketCommunication {
             "[SmartInsert] After stats: len=\(resolved.count) leadingSpaces=\(countLeadingSpaces(resolved)) " +
             "visible=\(redactForLogs(visibleWhitespace(resolved)))"
         )
+        if let resolvedTransform {
+            logDebug("[InsertTransform] Applied transform: \(resolvedTransform.rawValue)")
+        }
 
         return resolved
     }
@@ -1266,6 +1331,20 @@ class SocketCommunication {
             let charString = String(character)
             if charString.rangeOfCharacter(from: .letters) != nil {
                 result.replaceSubrange(index...index, with: charString.lowercased())
+                break
+            }
+        }
+
+        return result
+    }
+
+    private func uppercasingFirstLetter(in text: String) -> String {
+        var result = text
+        for index in result.indices {
+            let character = result[index]
+            let charString = String(character)
+            if charString.rangeOfCharacter(from: .letters) != nil {
+                result.replaceSubrange(index...index, with: charString.uppercased())
                 break
             }
         }

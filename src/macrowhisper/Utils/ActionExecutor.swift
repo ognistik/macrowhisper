@@ -440,12 +440,6 @@ class ActionExecutor {
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
         }
-        if !shouldApplyToken("simKeypress", tokens: tokens, isInInputField: isInInputField) {
-            resolved.simKeypress = nil
-        }
-        if !shouldApplyToken("smartInsert", tokens: tokens, isInInputField: isInInputField) {
-            resolved.smartInsert = nil
-        }
 
         return resolved
     }
