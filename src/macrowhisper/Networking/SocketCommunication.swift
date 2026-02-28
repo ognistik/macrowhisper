@@ -970,11 +970,10 @@ class SocketCommunication {
             (context.rightCharacter.map { isWordCharacter($0) } ?? false)
 
         if isIntraWordInsertion {
-            logDebug("[SmartInsert] Intra-word insertion boundary detected, skipping smart spacing/casing/punctuation transforms")
-            return resolved
+            logDebug("[SmartInsert] Intra-word insertion boundary detected, preserving text casing while still applying punctuation/spacing rules")
         }
 
-        if shouldApplySmartCasing {
+        if shouldApplySmartCasing && !isIntraWordInsertion {
             resolved = applySmartCasing(
                 to: resolved,
                 leftCharacter: context.leftCharacter,
