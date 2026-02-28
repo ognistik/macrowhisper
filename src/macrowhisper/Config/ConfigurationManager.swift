@@ -336,16 +336,6 @@ class ConfigurationManager {
 
     private static func collectConfigurationValidationErrors(in config: AppConfiguration) -> [String] {
         var errors: [String] = []
-        let allowedInsertTransforms: Set<String> = [
-            "uppercase",
-            "lowercase",
-            "uppercaseFirst",
-            "lowercaseFirst",
-            "titleCase",
-            "titleCase:en",
-            "titleCase:es",
-            "titleCase:all"
-        ]
 
         // Build unique action name set (duplicate-name check is performed separately).
         var actionNames: Set<String> = []
@@ -366,10 +356,6 @@ class ConfigurationManager {
         }
         if !activeAction.isEmpty && !defaultsNextAction.isEmpty && activeAction == defaultsNextAction {
             errors.append("defaults.activeAction and defaults.nextAction cannot be the same ('\(activeAction)')")
-        }
-
-        if let transform = config.defaults.transform, !transform.isEmpty, !allowedInsertTransforms.contains(transform) {
-            errors.append("defaults.transform has invalid value '\(transform)'")
         }
 
         struct NextActionSetting {
@@ -402,9 +388,6 @@ class ConfigurationManager {
         for (name, script) in config.scriptsAS { appendNextAction(name, script.nextAction) }
 
         for (name, insert) in config.inserts {
-            if let transform = insert.transform, !transform.isEmpty, !allowedInsertTransforms.contains(transform) {
-                errors.append("Action '\(name)' has invalid transform '\(transform)'")
-            }
             errors.append(contentsOf: validateInputCondition(insert.inputCondition, actionName: name, actionType: .insert))
         }
         for (name, url) in config.urls {
@@ -1076,7 +1059,6 @@ class ConfigurationManager {
         normalize(&config.defaults.icon)
         normalize(&config.defaults.moveTo)
         normalizeInputLike(&config.defaults.nextAction)
-        normalizeInputLike(&config.defaults.transform)
         normalizeInputLike(&config.defaults.clipboardIgnore)
         normalizeInputLike(&config.defaults.bypassModes)
 
@@ -1086,7 +1068,6 @@ class ConfigurationManager {
             normalize(&insert.moveTo)
             normalizeInputLike(&insert.nextAction)
             normalizeInputLike(&insert.inputCondition)
-            normalizeInputLike(&insert.transform)
             normalizeInputLike(&insert.triggerVoice)
             normalizeInputLike(&insert.triggerApps)
             normalizeInputLike(&insert.triggerModes)

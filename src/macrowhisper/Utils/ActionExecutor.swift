@@ -663,7 +663,7 @@ class ActionExecutor {
                     processedInsert.text,
                     activeInsert: insert,
                     isAutoPaste: isAutoPaste,
-                    deferredRegexSegments: processedInsert.deferredRegexSegments
+                    hadPlaceholderTransform: processedInsert.hadPlaceholderTransform
                 ) ?? false
             },
             actionDelay: actionDelay,
@@ -1068,7 +1068,7 @@ class ActionExecutor {
     private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) -> Bool {
         // Process the URL action with both XML and dynamic placeholders
         // Placeholders are now URL-encoded individually during processing
-        let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
+        let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url).text
 
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
@@ -1136,7 +1136,7 @@ class ActionExecutor {
     }
     
     private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) -> Bool {
-        let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
+        let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut).text
         
         logDebug("[ShortcutAction] Processed action before sending to shortcuts: \(redactForLogs(processedAction))")
         
@@ -1203,7 +1203,7 @@ class ActionExecutor {
     }
     
     private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) -> Bool {
-        let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+        let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[ShellAction] Action is empty or '.none' - skipping shell execution")
@@ -1227,7 +1227,7 @@ class ActionExecutor {
     }
     
     private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) -> Bool {
-        let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
+        let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[AppleScriptAction] Action is empty or '.none' - skipping AppleScript execution")

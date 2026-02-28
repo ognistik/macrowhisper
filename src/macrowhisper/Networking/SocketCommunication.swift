@@ -52,7 +52,7 @@ class SocketCommunication {
     struct ProcessedInsertAction {
         let text: String
         let isAutoPaste: Bool
-        let deferredRegexSegments: [DeferredRegexSegment]
+        let hadPlaceholderTransform: Bool
     }
 
     private enum CLIActionChainError: LocalizedError {
@@ -415,7 +415,7 @@ class SocketCommunication {
                     processedInsert.text,
                     activeInsert: resolvedInsert,
                     isAutoPaste: isAutoPasteTemplate || processedInsert.isAutoPaste,
-                    deferredRegexSegments: processedInsert.deferredRegexSegments
+                    hadPlaceholderTransform: processedInsert.hadPlaceholderTransform
                 )
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedInsert)
             case .url:
@@ -555,25 +555,20 @@ class SocketCommunication {
         metaJson: [String: Any],
         activeInsert: AppConfiguration.Insert? = nil
     ) -> ProcessedInsertAction {
+        _ = activeInsert
         if action == ".none" {
-            return ProcessedInsertAction(text: "", isAutoPaste: false, deferredRegexSegments: [])
+            return ProcessedInsertAction(text: "", isAutoPaste: false, hadPlaceholderTransform: false)
         }
         if action == ".autoPaste" {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            return ProcessedInsertAction(text: swResult, isAutoPaste: true, deferredRegexSegments: [])
+            return ProcessedInsertAction(text: swResult, isAutoPaste: true, hadPlaceholderTransform: false)
         }
-        let shouldDeferRegex = resolveInsertTransform(activeInsert) != nil
-        if shouldDeferRegex {
-            let result = processAllInsertPlaceholdersWithDeferredRegex(action: action, metaJson: metaJson)
-            return ProcessedInsertAction(
-                text: result.text,
-                isAutoPaste: false,
-                deferredRegexSegments: result.deferredSegments
-            )
-        }
-
         let result = processAllPlaceholders(action: action, metaJson: metaJson, actionType: .insert)
-        return ProcessedInsertAction(text: result, isAutoPaste: false, deferredRegexSegments: [])
+        return ProcessedInsertAction(
+            text: result.text,
+            isAutoPaste: false,
+            hadPlaceholderTransform: result.hadPlaceholderTransform
+        )
     }
 
     /// Returns processed action content for a concrete action/type pair.
@@ -585,19 +580,19 @@ class SocketCommunication {
             }
         case .url:
             if let url = action as? AppConfiguration.Url {
-                return processAllPlaceholders(action: url.action, metaJson: metaJson, actionType: .url)
+                return processAllPlaceholders(action: url.action, metaJson: metaJson, actionType: .url).text
             }
         case .shortcut:
             if let shortcut = action as? AppConfiguration.Shortcut {
-                return processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
+                return processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut).text
             }
         case .shell:
             if let shell = action as? AppConfiguration.ScriptShell {
-                return processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+                return processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell).text
             }
         case .appleScript:
             if let script = action as? AppConfiguration.ScriptAppleScript {
-                return processAllPlaceholders(action: script.action, metaJson: metaJson, actionType: .appleScript)
+                return processAllPlaceholders(action: script.action, metaJson: metaJson, actionType: .appleScript).text
             }
         }
 
@@ -942,93 +937,18 @@ class SocketCommunication {
         return resolved
     }
 
-    private enum InsertTransform: String {
-        case uppercase
-        case lowercase
-        case uppercaseFirst
-        case lowercaseFirst
-        case titleCase
-        case titleCaseEn = "titleCase:en"
-        case titleCaseEs = "titleCase:es"
-        case titleCaseAll = "titleCase:all"
-    }
-
-    private func resolveInsertTransform(_ activeInsert: AppConfiguration.Insert?) -> InsertTransform? {
-        // Action-level empty string is an explicit "no transform" override.
-        if let actionRawValue = activeInsert?.transform {
-            if actionRawValue.isEmpty {
-                return nil
-            }
-            guard let transform = InsertTransform(rawValue: actionRawValue) else {
-                logWarning("[InsertTransform] Unsupported transform '\(actionRawValue)' - skipping")
-                return nil
-            }
-            return transform
-        }
-
-        // Defaults-level empty string is treated the same as null (no default transform).
-        guard let defaultsRawValue = globalConfigManager?.config.defaults.transform, !defaultsRawValue.isEmpty else {
-            return nil
-        }
-        guard let transform = InsertTransform(rawValue: defaultsRawValue) else {
-            let rawValue = defaultsRawValue
-            logWarning("[InsertTransform] Unsupported transform '\(rawValue)' - skipping")
-            return nil
-        }
-        return transform
-    }
-
-    private func isCaseChangingTransform(_ transform: InsertTransform?) -> Bool {
-        guard transform != nil else { return false }
-        return true
-    }
-
-    private func applyInsertTransform(_ text: String, transform: InsertTransform?) -> String {
-        guard let transform else { return text }
-
-        let locale = Locale.current
-        switch transform {
-        case .uppercase:
-            return text.uppercased(with: locale)
-        case .lowercase:
-            return text.lowercased(with: locale)
-        case .uppercaseFirst:
-            return uppercasingFirstLetter(in: text)
-        case .lowercaseFirst:
-            return lowercasingFirstLetter(in: text)
-        case .titleCase:
-            return applyAutoDetectedTitleCase(in: text, locale: locale)
-        case .titleCaseEn:
-            return applyEnglishTitleCase(in: text, locale: locale)
-        case .titleCaseEs:
-            return applySpanishTitleCase(in: text, locale: locale)
-        case .titleCaseAll:
-            return applyTitleCaseAll(in: text)
-        }
-    }
-
     private func resolveSmartInsertTextIfNeeded(
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
-        deferredRegexSegments: [DeferredRegexSegment] = []
+        hadPlaceholderTransform: Bool = false
     ) -> String {
         let smartInsertEnabled = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
-        let resolvedTransform = resolveInsertTransform(activeInsert)
-
-        if !smartInsertEnabled && resolvedTransform == nil {
+        if !smartInsertEnabled {
             return text
         }
 
-        var resolved = applyInsertTransform(text, transform: resolvedTransform)
-        if resolvedTransform != nil && !deferredRegexSegments.isEmpty {
-            resolved = applyDeferredRegexSegments(to: resolved, segments: deferredRegexSegments)
-        }
-
-        guard smartInsertEnabled else {
-            return resolved
-        }
-
-        let shouldApplySmartCasing = !isCaseChangingTransform(resolvedTransform)
+        let shouldApplySmartCasing = !hadPlaceholderTransform
+        var resolved = text
 
         resolved = resolved.trimmingCharacters(in: .whitespacesAndNewlines)
         if resolved.isEmpty || resolved == ".none" {
@@ -1085,8 +1005,8 @@ class SocketCommunication {
             "[SmartInsert] After stats: len=\(resolved.count) leadingSpaces=\(countLeadingSpaces(resolved)) " +
             "visible=\(redactForLogs(visibleWhitespace(resolved)))"
         )
-        if let resolvedTransform {
-            logDebug("[InsertTransform] Applied transform: \(resolvedTransform.rawValue)")
+        if hadPlaceholderTransform {
+            logDebug("[SmartInsert] Smart casing disabled because placeholder transform was detected")
         }
 
         return resolved
@@ -1660,12 +1580,12 @@ class SocketCommunication {
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
         isAutoPaste: Bool = false,
-        deferredRegexSegments: [DeferredRegexSegment] = []
+        hadPlaceholderTransform: Bool = false
     ) {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
             activeInsert: activeInsert,
-            deferredRegexSegments: deferredRegexSegments
+            hadPlaceholderTransform: hadPlaceholderTransform
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -1695,12 +1615,12 @@ class SocketCommunication {
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
         isAutoPaste: Bool = false,
-        deferredRegexSegments: [DeferredRegexSegment] = []
+        hadPlaceholderTransform: Bool = false
     ) {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
             activeInsert: activeInsert,
-            deferredRegexSegments: deferredRegexSegments
+            hadPlaceholderTransform: hadPlaceholderTransform
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -1739,12 +1659,12 @@ class SocketCommunication {
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
         isAutoPaste: Bool = false,
-        deferredRegexSegments: [DeferredRegexSegment] = []
+        hadPlaceholderTransform: Bool = false
     ) -> Bool {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
             activeInsert: activeInsert,
-            deferredRegexSegments: deferredRegexSegments
+            hadPlaceholderTransform: hadPlaceholderTransform
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -1775,7 +1695,7 @@ class SocketCommunication {
         let actionDelay = urlAction.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
-        let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url)
+        let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[URL-CLI] Action is empty or '.none' - skipping URL execution")
@@ -1838,7 +1758,7 @@ class SocketCommunication {
         let actionDelay = shortcut.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
-        let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut)
+        let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if normalized == ".run" {
@@ -1889,7 +1809,7 @@ class SocketCommunication {
         let actionDelay = shell.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
-        let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell)
+        let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[Shell-CLI] Action is empty or '.none' - skipping shell execution")
@@ -1913,7 +1833,7 @@ class SocketCommunication {
         let actionDelay = ascript.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
-        let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript)
+        let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[AppleScript-CLI] Action is empty or '.none' - skipping AppleScript execution")

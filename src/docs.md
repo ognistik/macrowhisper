@@ -394,7 +394,7 @@ Quick rules (what wins?)
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
-| Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) `transform` | Use `defaults.<sameField>` | Action value wins |
+| Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
 | `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
 | `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
 | `nextAction` | `null` -> use `defaults.nextAction` (first chain step only) | Action value wins (`""` = explicit no next action) |
@@ -502,7 +502,6 @@ Null behavior at `defaults` level:
 | `noEsc` | bool/null | `false` | Disable ESC simulation before actions. `null` = built-in default (`false`). |
 | `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
 | `smartInsert` | bool/null | `true` | Smart casing/spacing behavior for insert actions. `null` = built-in default (`true`). |
-| `transform` | string/null | `null` | Default insert text transform. Allowed: `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:en`, `titleCase:es`, `titleCase:all`. `null` = no transform. |
 | `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
 | `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
 | `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
@@ -603,7 +602,6 @@ Insert-only extra fields:
 
 - `simKeypress` (bool/null)
 - `smartInsert` (bool/null)
-- `transform` (string/null)
 - `pressReturn` (bool/null)
 
 Insert field reference:
@@ -613,26 +611,14 @@ Insert field reference:
 | `action` | string | `"{{swResult}}"`, `".autoPaste"`, `".none"` | Main inserted content/template. |
 | `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters; slower but useful where paste is blocked. |
 | `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
-| `transform` | string/null | `"uppercase"`, `"lowercase"`, `"uppercaseFirst"`, `"lowercaseFirst"`, `"titleCase"`, `"titleCase:en"`, `"titleCase:es"`, `"titleCase:all"`, `null` | Per-insert text transform. `null` inherits `defaults.transform`. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
-
-`transform` behavior (friendly summary):
-
-- `uppercase`: changes the whole text to uppercase.
-- `lowercase`: changes the whole text to lowercase.
-- `uppercaseFirst`: changes only the first detected letter to uppercase.
-- `lowercaseFirst`: changes only the first detected letter to lowercase.
-- `titleCase`: auto-detects English or Spanish title style. Ambiguous/mixed input falls back to English. Minor words are usually lowercased, while first/last words (and words after `: ; ? !`) are capitalized.
-- `titleCase:en`: English title style with English minor-word exceptions.
-- `titleCase:es`: Spanish title style with Spanish minor-word exceptions.
-- `titleCase:all`: capitalizes the first letter of every word.
 
 Insert text execution order:
 
 1. Placeholder expansion.
-2. Insert `transform` (if resolved from action/defaults).
-3. If the placeholder used regex replacements and a transform is active, those regex replacements are re-applied only to the original placeholder segments.
-4. Smart insert adjustments (spacing/punctuation always when enabled; smart casing is skipped when a case-changing transform is active).
+2. Placeholder-level transform (if `::transform` is present).
+3. Placeholder regex replacements (`||regex||replacement`) in order.
+4. Smart insert adjustments (spacing/punctuation always when enabled; smart casing is skipped when any placeholder transform is used).
 5. Paste/type output.
 
 Examples:
@@ -662,8 +648,7 @@ Examples:
 
 ```json
 "titleWithException": {
-  "action": "{{swResult||\\bapi\\b||API}}",
-  "transform": "titleCase"
+  "action": "{{swResult::titleCase||\\bapi\\b||API}}"
 }
 ```
 
@@ -984,7 +969,7 @@ For each action payload:
 
 1. Insert actions only: convert literal `\n` to real line breaks.
 2. XML extraction pass (if `llmResult` or `result` exists and XML placeholders are requested).
-3. Dynamic placeholder expansion (`{{key}}`, `{{json:key}}`, `{{raw:key}}`, dates, regex transforms).
+3. Dynamic placeholder expansion (`{{key}}`, `{{json:key}}`, `{{raw:key}}`, dates, placeholder-level transforms, regex replacements).
 4. Contextual escaping based on action type.
 
 ### 11.2 Basic placeholders
@@ -1041,7 +1026,6 @@ Any key in `meta.json` can be used as `{{keyName}}`.
 - `{{languageModelName}}`
 - `{{language}}`
 
-
 #### Nested Values
 
 Nested values can be accessed with dot notation and array indexes:
@@ -1059,6 +1043,27 @@ Nested values can be accessed with dot notation and array indexes:
 - Special time keys (`duration`, `languageModelProcessingTime`, `processingTime`) are formatted into human-readable values like `350ms`, `1.2s`, or `2m 05s`.
   
 If a placeholder key does not exist, it resolves to empty string.
+
+#### 11.7 Placeholder transforms (`::`)
+
+Transforms are placeholder-scoped and work for all placeholder types/values:
+
+- `{{swResult::uppercase}}`
+- `{{json:swResult::lowercase}}`
+- `{{raw:swResult::uppercaseFirst}}`
+- `{{date:short::uppercase}}`
+- `{{folderName:1::lowercase}}`
+
+Supported transform names:
+
+- `uppercase`
+- `lowercase`
+- `uppercaseFirst`
+- `lowercaseFirst`
+- `titleCase`
+- `titleCase:en`
+- `titleCase:es`
+- `titleCase:all`
 
 ---
 
@@ -1124,10 +1129,14 @@ In CLI execution context (with `--exec-action` , `--get-action` or `copy-action`
 
 ## 13) Regex Replacements
 
-Regex replacements work inside placeholder syntax:
+Regex replacements work inside placeholder syntax and run after placeholder-level transforms:
 
 ```text
 {{placeholder||find_regex||replace||find_regex2||replace2}}
+```
+
+```text
+{{placeholder::titleCase||find_regex||replace}}
 ```
 
 Examples:
@@ -1154,7 +1163,8 @@ Behavior details:
 
 - multiple replacements execute in order
 - invalid regex patterns are logged and skipped
-- placeholder value is only transformed if non-empty
+- placeholder transform (`::...`) is optional and applies before regex replacements
+- unknown transforms are logged and ignored (fail-open)
 
 ---
 

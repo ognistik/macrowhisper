@@ -26,65 +26,286 @@ func sanitizeContextPlaceholderValue(_ value: String) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-struct DeferredRegexSegment {
-    let id: Int
-    let replacements: [(regex: String, replacement: String)]
-}
-
-struct InsertPlaceholderProcessingResult {
+struct PlaceholderProcessingResult {
     let text: String
-    let deferredSegments: [DeferredRegexSegment]
+    let hadPlaceholderTransform: Bool
 }
 
-private func deferredRegexStartMarker(for id: Int) -> String {
-    return "⟦⟦\(id)⟧⟧"
+private enum PlaceholderTransform: String {
+    case uppercase
+    case lowercase
+    case uppercaseFirst
+    case lowercaseFirst
+    case titleCase
+    case titleCaseEn = "titleCase:en"
+    case titleCaseEs = "titleCase:es"
+    case titleCaseAll = "titleCase:all"
 }
 
-private func deferredRegexEndMarker(for id: Int) -> String {
-    return "⟬⟬\(id)⟭⟭"
+private func lowercasingFirstLetterForPlaceholder(_ text: String) -> String {
+    var result = text
+    for index in result.indices {
+        let character = result[index]
+        let charString = String(character)
+        if charString.rangeOfCharacter(from: .letters) != nil {
+            result.replaceSubrange(index...index, with: charString.lowercased())
+            break
+        }
+    }
+    return result
 }
 
-private func wrapDeferredRegexSegment(_ text: String, id: Int) -> String {
-    return deferredRegexStartMarker(for: id) + text + deferredRegexEndMarker(for: id)
+private func uppercasingFirstLetterForPlaceholder(_ text: String) -> String {
+    var result = text
+    for index in result.indices {
+        let character = result[index]
+        let charString = String(character)
+        if charString.rangeOfCharacter(from: .letters) != nil {
+            result.replaceSubrange(index...index, with: charString.uppercased())
+            break
+        }
+    }
+    return result
 }
 
-func applyDeferredRegexSegments(to text: String, segments: [DeferredRegexSegment]) -> String {
-    guard !segments.isEmpty else { return text }
+private func applyPlaceholderTransform(_ value: String, transformName: String, placeholderKey: String) -> (String, Bool) {
+    guard !value.isEmpty else {
+        return (value, false)
+    }
+
+    guard let transform = PlaceholderTransform(rawValue: transformName) else {
+        logWarning("[PlaceholderTransform] Unsupported transform '\(transformName)' for placeholder '\(placeholderKey)' - skipping")
+        return (value, false)
+    }
+
+    let locale = Locale.current
+    switch transform {
+    case .uppercase:
+        return (value.uppercased(with: locale), true)
+    case .lowercase:
+        return (value.lowercased(with: locale), true)
+    case .uppercaseFirst:
+        return (uppercasingFirstLetterForPlaceholder(value), true)
+    case .lowercaseFirst:
+        return (lowercasingFirstLetterForPlaceholder(value), true)
+    case .titleCase:
+        return (applyAutoDetectedTitleCaseForPlaceholder(in: value, locale: locale), true)
+    case .titleCaseEn:
+        return (applyEnglishTitleCaseForPlaceholder(in: value, locale: locale), true)
+    case .titleCaseEs:
+        return (applySpanishTitleCaseForPlaceholder(in: value, locale: locale), true)
+    case .titleCaseAll:
+        return (applyTitleCaseAllForPlaceholder(in: value), true)
+    }
+}
+
+private enum PlaceholderTitleCaseLanguage {
+    case english
+    case spanish
+}
+
+private func applyEnglishTitleCaseForPlaceholder(in text: String, locale: Locale) -> String {
+    applyTitleCaseWithRulesForPlaceholder(
+        in: text,
+        locale: locale,
+        minorWords: englishMinorTitleCaseWordsForPlaceholder(),
+        forceUppercasePredicate: shouldForceUppercaseInEnglishTitleCaseForPlaceholder
+    )
+}
+
+private func applySpanishTitleCaseForPlaceholder(in text: String, locale: Locale) -> String {
+    applyTitleCaseWithRulesForPlaceholder(
+        in: text,
+        locale: locale,
+        minorWords: spanishMinorTitleCaseWordsForPlaceholder()
+    )
+}
+
+private func applyAutoDetectedTitleCaseForPlaceholder(in text: String, locale: Locale) -> String {
+    switch detectTitleCaseLanguageForPlaceholder(in: text, locale: locale) {
+    case .english:
+        return applyEnglishTitleCaseForPlaceholder(in: text, locale: locale)
+    case .spanish:
+        return applySpanishTitleCaseForPlaceholder(in: text, locale: locale)
+    }
+}
+
+private func detectTitleCaseLanguageForPlaceholder(in text: String, locale: Locale) -> PlaceholderTitleCaseLanguage {
+    guard let regex = titleCaseWordRegexForPlaceholder else {
+        return .english
+    }
+    let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+    if matches.isEmpty {
+        return .english
+    }
+
+    let englishWords = englishMinorTitleCaseWordsForPlaceholder()
+    let spanishWords = spanishMinorTitleCaseWordsForPlaceholder()
+    var englishScore: Double = 0
+    var spanishScore: Double = 0
+
+    for match in matches {
+        guard let range = Range(match.range, in: text) else { continue }
+        let token = String(text[range])
+        let normalized = token.lowercased(with: locale)
+        if englishWords.contains(normalized) { englishScore += 2.0 }
+        if spanishWords.contains(normalized) { spanishScore += 2.0 }
+        if hasSpanishCharacterCueForPlaceholder(normalized) { spanishScore += 1.5 }
+        if hasEnglishContractionCueForPlaceholder(normalized) { englishScore += 1.5 }
+    }
+
+    if englishScore == 0 && spanishScore == 0 {
+        return .english
+    }
+    if spanishScore > englishScore && (spanishScore - englishScore) >= 1.0 {
+        return .spanish
+    }
+    return .english
+}
+
+private func applyTitleCaseWithRulesForPlaceholder(
+    in text: String,
+    locale: Locale,
+    minorWords: Set<String>,
+    forceUppercasePredicate: (String) -> Bool = { _ in false }
+) -> String {
+    guard let regex = titleCaseWordRegexForPlaceholder else {
+        return text
+    }
+    let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+    if matches.isEmpty {
+        return text
+    }
 
     var output = text
-    var failed = false
+    for (index, match) in matches.enumerated().reversed() {
+        guard let range = Range(match.range, in: text) else { continue }
+        let token = String(text[range])
+        let normalized = token.lowercased(with: locale)
+        let isFirst = index == 0
+        let isLast = index == matches.count - 1
+        let followsBoundary = isWordAfterTitleBoundaryForPlaceholder(text: text, wordRange: range)
 
-    for segment in segments {
-        let startMarker = deferredRegexStartMarker(for: segment.id)
-        let endMarker = deferredRegexEndMarker(for: segment.id)
-
-        guard let startRange = output.range(of: startMarker) else {
-            failed = true
-            continue
+        let replacement: String
+        if shouldPreserveOriginalWordCaseForPlaceholder(token) {
+            replacement = token
+        } else if isFirst || isLast || followsBoundary || forceUppercasePredicate(normalized) {
+            replacement = uppercasingFirstLetterForPlaceholder(token)
+        } else if minorWords.contains(normalized) {
+            replacement = lowercasingFirstLetterForPlaceholder(token)
+        } else {
+            replacement = uppercasingFirstLetterForPlaceholder(token)
         }
-
-        guard let endRange = output.range(of: endMarker, range: startRange.upperBound..<output.endIndex) else {
-            failed = true
-            continue
-        }
-
-        let segmentRange = startRange.upperBound..<endRange.lowerBound
-        let segmentText = String(output[segmentRange])
-        let replaced = applyRegexReplacements(to: segmentText, replacements: segment.replacements)
-        let wrappedReplacement = wrapDeferredRegexSegment(replaced, id: segment.id)
-        output.replaceSubrange(startRange.lowerBound..<endRange.upperBound, with: wrappedReplacement)
-    }
-
-    let allMarkers = segments.flatMap { [deferredRegexStartMarker(for: $0.id), deferredRegexEndMarker(for: $0.id)] }
-    for marker in allMarkers {
-        output = output.replacingOccurrences(of: marker, with: "")
-    }
-
-    if failed {
-        logWarning("[DeferredRegex] Failed to parse one or more deferred regex segments. Returning fail-open text.")
+        output.replaceSubrange(range, with: replacement)
     }
 
     return output
+}
+
+private func applyTitleCaseAllForPlaceholder(in text: String) -> String {
+    guard let regex = titleCaseWordRegexForPlaceholder else {
+        return text
+    }
+    let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+    if matches.isEmpty {
+        return text
+    }
+
+    var output = text
+    for match in matches.reversed() {
+        guard let range = Range(match.range, in: text) else { continue }
+        let token = String(text[range])
+        let replacement = shouldPreserveOriginalWordCaseForPlaceholder(token)
+            ? token
+            : uppercasingFirstLetterForPlaceholder(token)
+        output.replaceSubrange(range, with: replacement)
+    }
+    return output
+}
+
+private func englishMinorTitleCaseWordsForPlaceholder() -> Set<String> {
+    [
+        "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet",
+        "as", "at", "by", "in", "of", "on", "per", "to", "via",
+        "from", "into", "onto", "over", "with", "than", "upon"
+    ]
+}
+
+private func spanishMinorTitleCaseWordsForPlaceholder() -> Set<String> {
+    [
+        "a", "al", "de", "del", "el", "la", "los", "las", "un", "una", "unos", "unas",
+        "y", "e", "o", "u", "en", "con", "por", "para", "sin", "sobre", "tras",
+        "entre", "hacia", "hasta", "desde", "contra", "segun", "según", "que"
+    ]
+}
+
+private func hasSpanishCharacterCueForPlaceholder(_ normalizedToken: String) -> Bool {
+    normalizedToken.unicodeScalars.contains { scalar in
+        CharacterSet(charactersIn: "ñÑáéíóúüÁÉÍÓÚÜ").contains(scalar)
+    }
+}
+
+private func hasEnglishContractionCueForPlaceholder(_ normalizedToken: String) -> Bool {
+    let normalizedApostrophes = normalizedToken.replacingOccurrences(of: "’", with: "'")
+    let cues = ["'m", "'re", "'ve", "'ll", "'d", "n't", "'s"]
+    return cues.contains { normalizedApostrophes.contains($0) }
+}
+
+private func shouldForceUppercaseInEnglishTitleCaseForPlaceholder(_ normalizedToken: String) -> Bool {
+    if normalizedToken == "i" {
+        return true
+    }
+    if normalizedToken.hasPrefix("i'") || normalizedToken.hasPrefix("i’") {
+        return true
+    }
+    return false
+}
+
+private func isWordAfterTitleBoundaryForPlaceholder(text: String, wordRange: Range<String.Index>) -> Bool {
+    guard wordRange.lowerBound > text.startIndex else {
+        return false
+    }
+
+    let ignoredPrefixCharacters = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'’`([{"))
+    let boundaryCharacters = CharacterSet(charactersIn: ":;!?")
+
+    var index = text.index(before: wordRange.lowerBound)
+    while true {
+        let scalarView = String(text[index]).unicodeScalars
+        if scalarView.allSatisfy({ ignoredPrefixCharacters.contains($0) }) {
+            if index == text.startIndex {
+                return false
+            }
+            index = text.index(before: index)
+            continue
+        }
+        return scalarView.allSatisfy { boundaryCharacters.contains($0) }
+    }
+}
+
+private var titleCaseWordRegexForPlaceholder: NSRegularExpression? {
+    try? NSRegularExpression(pattern: #"(?=[[:alnum:]]*[[:alpha:]])[[:alnum:]]+(?:['’][[:alnum:]]+)*"#)
+}
+
+private func shouldPreserveOriginalWordCaseForPlaceholder(_ token: String) -> Bool {
+    let letters = token.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+    if letters.count > 1 && letters.allSatisfy({ CharacterSet.uppercaseLetters.contains($0) }) {
+        return true
+    }
+
+    var seenFirstLetter = false
+    for scalar in token.unicodeScalars {
+        if CharacterSet.letters.contains(scalar) {
+            if !seenFirstLetter {
+                seenFirstLetter = true
+                continue
+            }
+            if CharacterSet.uppercaseLetters.contains(scalar) {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 // Function to process LLM result based on XML placeholders in the action
@@ -467,16 +688,14 @@ func stringifyPlaceholderValue(for keyPath: String, jsonValue: Any, metaJson: [S
 func processDynamicPlaceholders(
     action: String,
     metaJson: [String: Any],
-    actionType: ActionType,
-    deferRegexReplacements: Bool = false,
-    deferredSegments: inout [DeferredRegexSegment]
-) -> String {
+    actionType: ActionType
+) -> PlaceholderProcessingResult {
     var result = action
     var resolvedFolderPathCache: [Int: String?] = [:]
-    var nextDeferredSegmentId = deferredSegments.count
+    var hadPlaceholderTransform = false
     
-    // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key||regex||replacement}} with multiple replacements
-    let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
+    // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key::transform||regex||replacement}}
+    let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^:|}]+))?(?:::(?!\\|)([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
     let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
     
     if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
@@ -494,7 +713,7 @@ func processDynamicPlaceholders(
             
             // Extract regex replacements if present
             var regexReplacements: [(regex: String, replacement: String)] = []
-            if match.numberOfRanges > 4, let replacementRange = Range(match.range(at: 4), in: action) {
+            if match.numberOfRanges > 5, let replacementRange = Range(match.range(at: 5), in: action) {
                 let replacementString = String(action[replacementRange])
                 let parts = replacementString.components(separatedBy: "||")
                 // Process pairs of regex and replacement
@@ -506,22 +725,29 @@ func processDynamicPlaceholders(
                     }
                 }
             }
+
+            var transformName: String? = nil
+            if match.numberOfRanges > 4,
+               match.range(at: 4).location != NSNotFound,
+               let transformRange = Range(match.range(at: 4), in: action) {
+                let rawTransform = String(action[transformRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !rawTransform.isEmpty {
+                    transformName = rawTransform
+                }
+            }
             
             func finalizePlaceholderValue(_ rawValue: String) -> String {
-                let shouldDefer = deferRegexReplacements && actionType == .insert && !regexReplacements.isEmpty
                 var value = rawValue
 
-                if shouldDefer {
-                    let segmentId = nextDeferredSegmentId
-                    nextDeferredSegmentId += 1
-                    deferredSegments.append(
-                        DeferredRegexSegment(
-                            id: segmentId,
-                            replacements: regexReplacements
-                        )
-                    )
-                    value = wrapDeferredRegexSegment(value, id: segmentId)
-                } else {
+                if let transformName {
+                    let transformed = applyPlaceholderTransform(value, transformName: transformName, placeholderKey: key)
+                    value = transformed.0
+                    if transformed.1 {
+                        hadPlaceholderTransform = true
+                    }
+                }
+
+                if !regexReplacements.isEmpty {
                     value = applyRegexReplacements(to: value, replacements: regexReplacements)
                 }
 
@@ -763,7 +989,7 @@ func processDynamicPlaceholders(
             }
         }
     }
-    return result
+    return PlaceholderProcessingResult(text: result, hadPlaceholderTransform: hadPlaceholderTransform)
 }
 
 private func getCurrentFrontAppName() -> String {
@@ -859,7 +1085,7 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
 
 /// Processes both XML and dynamic placeholders for any action type
 /// This ensures XML placeholders work consistently across all action types (Insert, URL, Shortcut, Shell, AppleScript)
-func processAllPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> String {
+func processAllPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> PlaceholderProcessingResult {
     logDebug("[UnifiedPlaceholders] Processing placeholders for \(actionType) action")
     var result = action
     var updatedMetaJson = metaJson
@@ -894,42 +1120,15 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     }
     
     // Then process dynamic placeholders with appropriate escaping based on action type
-    var deferredSegments: [DeferredRegexSegment] = []
-    result = processDynamicPlaceholders(
+    let dynamicResult = processDynamicPlaceholders(
         action: result,
         metaJson: updatedMetaJson,
-        actionType: actionType,
-        deferredSegments: &deferredSegments
+        actionType: actionType
     )
+    result = dynamicResult.text
     
     // logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
-    return result
-}
-
-func processAllInsertPlaceholdersWithDeferredRegex(action: String, metaJson: [String: Any]) -> InsertPlaceholderProcessingResult {
-    var result = action
-    var updatedMetaJson = metaJson
-
-    if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
-        let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
-        updatedMetaJson["llmResult"] = cleaned
-        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: .insert)
-    } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
-        let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
-        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: .insert)
-    }
-
-    var deferredSegments: [DeferredRegexSegment] = []
-    result = result.replacingOccurrences(of: "\\n", with: "\n")
-    result = processDynamicPlaceholders(
-        action: result,
-        metaJson: updatedMetaJson,
-        actionType: .insert,
-        deferRegexReplacements: true,
-        deferredSegments: &deferredSegments
-    )
-
-    return InsertPlaceholderProcessingResult(text: result, deferredSegments: deferredSegments)
+    return PlaceholderProcessingResult(text: result, hadPlaceholderTransform: dynamicResult.hadPlaceholderTransform)
 }
 
 // MARK: - CLI Clipboard Helper
