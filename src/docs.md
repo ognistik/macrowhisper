@@ -730,7 +730,7 @@ Shell field reference:
 | --- | --- | --- | --- |
 | `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string or special value. |
 
-Execution model (simple):
+Execution model:
 - Shell actions are started asynchronously. Macrowhisper starts the command and immediately continues the action flow without waiting for the shell process to finish.
 
 Examples:
@@ -756,7 +756,7 @@ AppleScript field reference:
 | --- | --- | --- | --- |
 | `action` | string | `"display notification..."`, `".none"` | AppleScript source or special value. |
 
-Execution model (simple):
+Execution model:
 - AppleScript actions are started asynchronously. Macrowhisper launches `osascript` and continues immediately instead of waiting for script completion.
 
 Example:
@@ -1267,17 +1267,13 @@ This prevents clipboard captures from ignored apps from polluting `{{clipboardCo
 In simple terms:
 - Macrowhisper prioritizes speed. It launches actions quickly so users can dictate again right away.
 - For Shell and AppleScript actions, Macrowhisper does not wait for script completion.
-- Clipboard restore is part of Macrowhisper's own action flow timing, not a "wait for script to fully finish" guarantee.
+- Clipboard restore is part of Macrowhisper's own action flow timing, not a "wait for script to fully finish."
 - Because of that, clipboard state may still change after launch if external tools/scripts keep writing to clipboard.
 - Clipboard restoration mainly cleans up what Macrowhisper/Superwhisper touched during execution windows.
 
 Why this design exists:
 - Even small blocking waits (1-2 seconds) can disrupt chained actions and rapid back-to-back dictations.
 - Async launch reduces those edge cases and keeps action handling predictable under heavy/fast usage.
-
-Superwhisper note:
-- Superwhisper may still interact with clipboard as part of its own flow.
-- At the moment, users cannot fully disable Superwhisper clipboard usage, so occasional clipboard timing interactions can still happen.
 
 ---
 
