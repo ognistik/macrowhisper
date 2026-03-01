@@ -253,52 +253,6 @@ macrowhisper --uninstall-service
 macrowhisper --service-status
 ```
 
-### Runtime commands (require running daemon)
-
-```bash
-macrowhisper --status
-macrowhisper --action [<name>]
-macrowhisper --get-action [<name>]
-macrowhisper --copy-action <name>
-macrowhisper --exec-action <name>
-macrowhisper --folder-name [<index>]
-macrowhisper --folder-path [<index>]
-macrowhisper --schedule-action [<name>]
-macrowhisper --auto-return <true/false>
-macrowhisper --get-icon
-macrowhisper --check-updates
-```
-
-Behavior notes:
-
-- `--action <name>` sets `defaults.activeAction`.
-- `--action` with no name clears active action.
-- `--get-action` with no name returns active action name.
-- `--get-action <name>` returns the processed action content using the latest valid result.
-- `--copy-action <name>` processes action content and copies it to clipboard (without polluting `clipboardContext` capture).
-- `--exec-action <name>` runs the action once using latest valid result.
-- `--folder-name [<index>]` returns recording folder name by recency (`0` = current active recording if any, otherwise latest valid completed).
-- `--folder-path [<index>]` returns recording folder path by recency (`0` = current active recording if any, otherwise latest valid completed).
-- `--schedule-action <name>` schedules one action for the next recording.
-- `--schedule-action` (no name) cancels scheduled action.
-- `--auto-return true` schedules one-time "paste result + return behavior" for the next recording.
-- `--auto-return` with no value behaves like `true`.
-
-### CLI action behavior matrix
-
-| Behavior | `--exec-action <name>` | `--get-action <name>` | `--copy-action <name>` |
-|---|---|---|---|
-| Processes placeholders (`{{...}}`) | Yes | Yes | Yes |
-| Uses latest valid recording result | Yes | Yes | Yes |
-| Evaluates `inputCondition` | Yes | No | No |
-| Executes action side effects (open URL/run shortcut/shell/AppleScript/paste) | Yes | No | No |
-| Applies `actionDelay` | Yes | No | No |
-| Applies `nextAction` chain | Yes | No | No |
-| Applies `moveTo` post-processing | Yes (based on final executed action; also applies for single-step execution) | No | No |
-| Handles ESC behavior (`noEsc`) | CLI exec path never simulates ESC; `noEsc` has no practical effect here | N/A | N/A |
-| Clipboard restore behavior (`restoreClipboard`) | Insert actions only | No | No |
-| Writes to clipboard | Insert action behavior only (when action itself pastes) | No | Yes (writes processed content) |
-
 ### Action management commands
 
 ```bash
@@ -317,6 +271,107 @@ macrowhisper --add-as <name>
 
 macrowhisper --remove-action <name>
 ```
+
+### Runtime commands (require running daemon)
+
+```bash
+macrowhisper --status
+macrowhisper --action [<name>]
+macrowhisper --get-action [<name>] [--meta <value>]
+macrowhisper --copy-action <name> [--meta <value>]
+macrowhisper --exec-action <name> [--meta <value>]
+macrowhisper --folder-name [<index>]
+macrowhisper --folder-path [<index>]
+macrowhisper --schedule-action [<name>]
+macrowhisper --auto-return <true/false>
+macrowhisper --get-icon
+macrowhisper --check-updates
+```
+
+Behavior notes:
+
+- `--action <name>` sets `defaults.activeAction`.
+- `--action` with no name clears active action.
+- `--get-action` with no name returns active action name.
+- `--get-action <name>` returns the processed action content using the latest valid result (or the source passed with `--meta`).
+- `--get-action --meta ...` without `<name>` returns an error, because `--meta` needs a specific action to process.
+- `--copy-action <name>` processes action content and copies it to clipboard (without polluting `clipboardContext` capture), using latest valid result by default (or `--meta`).
+- `--exec-action <name>` runs the action once using latest valid result by default (or `--meta`).
+- `--folder-name [<index>]` returns recording folder name by recency (`0` = current active recording if any, otherwise latest valid completed).
+- `--folder-path [<index>]` returns recording folder path by recency (`0` = current active recording if any, otherwise latest valid completed).
+- `--schedule-action <name>` schedules one action for the next recording.
+- `--schedule-action` (no name) cancels scheduled action.
+- `--auto-return true` schedules one-time "paste result + return behavior" for the next recording.
+- `--auto-return` with no value behaves like `true`.
+
+### `--meta` (choose a different `meta.json` source)
+
+By default, action commands use the latest valid Superwhisper result.  
+Use `--meta` when you want to target a different recording or a custom metadata file.
+
+You can pass:
+
+- A recording folder name (inside your Superwhisper `recordings` folder)
+- A folder path (Macrowhisper looks for `meta.json` inside that folder)
+- A direct JSON file path (must have compatible `meta.json` content)
+
+Path handling notes:
+
+- `~` is supported.
+- If the value looks like a path (`/`, `~`, `.`, or contains `/`), Macrowhisper treats it as a path.
+- Otherwise, it is treated as a recording folder name.
+
+Examples:
+
+```bash
+# 1) Folder name inside recordings
+macrowhisper --get-action summarizeEmail --meta 2026-03-01_10-00-00
+```
+
+```bash
+# 2) Folder path (meta.json inside the folder)
+macrowhisper --copy-action summarizeEmail --meta ~/Documents/superwhisper/recordings/2026-03-01_10-00-00
+```
+
+```bash
+# 3) Direct JSON file
+macrowhisper --exec-action summarizeEmail --meta ~/tmp/custom-meta.json
+```
+
+```bash
+# 4) Use active action name retrieval (no meta allowed here)
+macrowhisper --get-action
+```
+
+```bash
+# 5) This returns an error (meta requires a specific action name)
+macrowhisper --get-action --meta 2026-03-01_10-00-00
+```
+
+### `moveTo` behavior when using `--meta`
+
+For `--exec-action`, `moveTo` works like this:
+
+- If `--meta` points to a recording folder name or a recording folder path:
+  Macrowhisper can identify the recording folder, so `moveTo` still applies normally.
+- If `--meta` points to a direct JSON file:
+  Macrowhisper skips `moveTo` (there is no recording folder to move/delete) and logs that it was skipped.
+
+### CLI action behavior matrix
+
+| Behavior | `--exec-action <name> [--meta <value>]` | `--get-action <name> [--meta <value>]` | `--copy-action <name> [--meta <value>]` |
+|---|---|---|---|
+| Processes placeholders (`{{...}}`) | Yes | Yes | Yes |
+| Uses latest valid recording result (default) | Yes | Yes | Yes |
+| Can use custom metadata source via `--meta` | Yes | Yes | Yes |
+| Evaluates `inputCondition` | Yes | No | No |
+| Executes action side effects (open URL/run shortcut/shell/AppleScript/paste) | Yes | No | No |
+| Applies `actionDelay` | Yes | No | No |
+| Applies `nextAction` chain | Yes | No | No |
+| Applies `moveTo` post-processing | Yes for latest/default or folder-based `--meta`; skipped for direct JSON file `--meta` | No | No |
+| Handles ESC behavior (`noEsc`) | CLI exec path never simulates ESC; `noEsc` has no practical effect here | N/A | N/A |
+| Clipboard restore behavior (`restoreClipboard`) | Insert actions only | No | No |
+| Writes to clipboard | Insert action behavior only (when action itself pastes) | No | Yes (writes processed content) |
 
 ---
 

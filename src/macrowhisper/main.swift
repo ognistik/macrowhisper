@@ -824,6 +824,21 @@ if hasDaemonCommand {
     }
     
     let socketCommunication = SocketCommunication(socketPath: socketPath)
+    var metaOverrideValue: String? = nil
+
+    if let metaIndex = args.firstIndex(where: { $0 == "--meta" }) {
+        guard metaIndex + 1 < args.count, !args[metaIndex + 1].starts(with: "--") else {
+            print("Missing value after --meta")
+            exit(1)
+        }
+        var rawMetaValue = args[metaIndex + 1]
+        let shouldTreatAsPath = rawMetaValue.contains("/") || rawMetaValue.hasPrefix("~") || rawMetaValue.hasPrefix(".")
+        if shouldTreatAsPath && !rawMetaValue.hasPrefix("/") && !rawMetaValue.hasPrefix("~") {
+            let currentDirectory = FileManager.default.currentDirectoryPath
+            rawMetaValue = URL(fileURLWithPath: currentDirectory).appendingPathComponent(rawMetaValue).standardizedFileURL.path
+        }
+        metaOverrideValue = rawMetaValue
+    }
     
     // Check for status command first (has different error message)
     if args.contains("-s") || args.contains("--status") {
@@ -1048,7 +1063,10 @@ if hasDaemonCommand {
         let execActionIndex = args.firstIndex(where: { $0 == "--exec-action" })
         if let index = execActionIndex, index + 1 < args.count {
             let actionName = args[index + 1]
-            let arguments: [String: String] = ["name": actionName]
+            var arguments: [String: String] = ["name": actionName]
+            if let metaOverrideValue {
+                arguments["meta"] = metaOverrideValue
+            }
             if let response = socketCommunication.sendCommand(.execAction, arguments: arguments) {
                 print(response)
             } else {
@@ -1063,9 +1081,23 @@ if hasDaemonCommand {
     if args.contains("--get-action") {
         let getActionIndex = args.firstIndex(where: { $0 == "--get-action" })
         var arguments: [String: String]? = nil
+        var actionName: String? = nil
         if let index = getActionIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
-            arguments = ["name": args[index + 1]]
+            actionName = args[index + 1]
         }
+        if metaOverrideValue != nil && actionName == nil {
+            print("--meta requires an action name for --get-action")
+            exit(1)
+        }
+
+        if let actionName {
+            var mappedArguments: [String: String] = ["name": actionName]
+            if let metaOverrideValue {
+                mappedArguments["meta"] = metaOverrideValue
+            }
+            arguments = mappedArguments
+        }
+
         if let response = socketCommunication.sendCommand(.getAction, arguments: arguments) {
             print(response)
         } else {
@@ -1077,7 +1109,10 @@ if hasDaemonCommand {
     if args.contains("--copy-action") {
         let copyActionIndex = args.firstIndex(where: { $0 == "--copy-action" })
         if let index = copyActionIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
-            let arguments: [String: String] = ["name": args[index + 1]]
+            var arguments: [String: String] = ["name": args[index + 1]]
+            if let metaOverrideValue {
+                arguments["meta"] = metaOverrideValue
+            }
             if let response = socketCommunication.sendCommand(.copyAction, arguments: arguments) {
                 print(response)
             } else {
@@ -1218,7 +1253,7 @@ if args.contains("--version-state") || args.contains("--version-clear") {
 // Only perform validation if there are arguments (allow no-args daemon startup)
 if args.count > 1 {
     // Define all valid arguments
-    let validDaemonArgs = ["--config", "--verbose"]
+    let validDaemonArgs = ["--config", "--verbose", "--meta"]
     let validQuickCommands = [
         "-h", "--help", "-v", "--version", "--reveal-config", "--set-config", 
         "--reset-config", "--get-config", "--update-config", "--schema-info",
@@ -1245,7 +1280,7 @@ if args.count > 1 {
                      args[i-1] == "--exec-action" || args[i-1] == "--get-action" ||
                      args[i-1] == "--copy-action" ||
                      args[i-1] == "--folder-name" || args[i-1] == "--folder-path" ||
-                     args[i-1] == "--action") {
+                     args[i-1] == "--action" || args[i-1] == "--meta") {
             continue
         }
         
@@ -1339,11 +1374,14 @@ func printHelp() {
     ACTION MANAGEMENT (require running instance):
       --action [<name>]             Sets active action (if name provided) or clears it (if no name)
       --exec-action <name>          Execute any action using the last valid result
+                                    (optionally: --meta <folderName|folderPath|jsonPath>)
       --get-icon                    Get the icon of the active action
       --get-action [<name>]         Get name of active action (if run without <name>)
                                     If a name is provided, returns the action content
+                                    (optionally: --meta <folderName|folderPath|jsonPath>)
       --copy-action <name>          Process action content and copy it to clipboard
-                                    using concealed marker types (ignored by Macrowhisper capture)
+                                    (ignored by Macrowhisper clipboard capture)
+                                    (optionally: --meta <folderName|folderPath|jsonPath>)
       --folder-name [<index>]       Get recording folder name by recency (0 = current/latest)
       --folder-path [<index>]       Get recording folder path by recency (0 = current/latest)
       --list-actions                List all configured actions (all types)
@@ -1380,13 +1418,22 @@ func printHelp() {
 
       macrowhisper --get-action pasteResult
         # Gets the processed action content for 'pasteResult'
+        # (use --meta to override which meta.json source is used)
 
       macrowhisper --copy-action pasteResult
         # Copies the processed action content for 'pasteResult' to clipboard
         # without polluting Macrowhisper clipboard context capture
+        # (use --meta to override which meta.json source is used)
         
       macrowhisper --exec-action myURLAction
         # Executes 'myURLAction' (works for any action type)
+        # (use --meta to override which meta.json source is used)
+
+      macrowhisper --exec-action myURLAction --meta 2026-03-01_10-00-00
+        # Uses ~/Documents/superwhisper/recordings/2026-03-01_10-00-00/meta.json
+
+      macrowhisper --copy-action pasteResult --meta ~/tmp/custom-meta.json
+        # Uses a direct JSON file as placeholder source (moveTo is skipped for exec-action)
         
       macrowhisper --schedule-action myURLAction
         # Schedules 'myURLAction' for the next recording session

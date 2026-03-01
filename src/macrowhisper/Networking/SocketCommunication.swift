@@ -43,6 +43,20 @@ class SocketCommunication {
         let recordingPath: String
     }
 
+    private enum CLIActionMetaSourceKind {
+        case latestValid
+        case recordingsFolderName
+        case folderPath
+        case jsonFilePath
+    }
+
+    private struct CLIActionMetaSource {
+        let metaJson: [String: Any]
+        let recordingPath: String?
+        let description: String
+        let kind: CLIActionMetaSourceKind
+    }
+
     private struct CLIResolvedActionStep {
         let name: String
         let type: ActionType
@@ -71,6 +85,38 @@ class SocketCommunication {
                 return "Action chain cycle detected at '\(name)'. Chained actions cannot repeat."
             case .multipleInsertActions(let first, let second):
                 return "Action chain contains multiple insert actions ('\(first)' and '\(second)'). Only one insert action is allowed per chain."
+            }
+        }
+    }
+
+    private enum CLIActionMetaSourceError: LocalizedError {
+        case latestValidNotFound
+        case recordingFolderNotFound(String)
+        case metaSourcePathNotFound(String)
+        case metaSourceDirectoryMissingMetaJson(String)
+        case metaSourceFileReadFailed(String)
+        case metaSourceJsonInvalid(String)
+        case metaSourceJsonNotDictionary(String)
+        case metaSourceJsonInvalidContent(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .latestValidNotFound:
+                return "No valid JSON file found with results"
+            case .recordingFolderNotFound(let folderName):
+                return "Recording folder not found for --meta: \(folderName)"
+            case .metaSourcePathNotFound(let path):
+                return "Meta source path not found: \(path)"
+            case .metaSourceDirectoryMissingMetaJson(let path):
+                return "meta.json not found in folder: \(path)"
+            case .metaSourceFileReadFailed(let path):
+                return "Failed to read meta source file: \(path)"
+            case .metaSourceJsonInvalid(let path):
+                return "Invalid JSON in meta source file: \(path)"
+            case .metaSourceJsonNotDictionary(let path):
+                return "Meta source JSON must be an object: \(path)"
+            case .metaSourceJsonInvalidContent(let path):
+                return "Meta source JSON does not contain a valid result: \(path)"
             }
         }
     }
@@ -274,8 +320,100 @@ class SocketCommunication {
         return LatestValidRecording(metaJson: firstReference.metaJson, recordingPath: firstReference.path)
     }
 
-    private func findLastValidJsonFile(configManager: ConfigurationManager) -> [String: Any]? {
-        findLastValidRecording(configManager: configManager)?.metaJson
+    private func shouldTreatMetaValueAsPath(_ value: String) -> Bool {
+        value.contains("/") || value.hasPrefix("~") || value.hasPrefix(".")
+    }
+
+    private func loadMetaJsonFile(path: String) throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw CLIActionMetaSourceError.metaSourcePathNotFound(path)
+        }
+
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            throw CLIActionMetaSourceError.metaSourceFileReadFailed(path)
+        }
+
+        guard let jsonObject = try? JSONSerialization.jsonObject(with: data) else {
+            throw CLIActionMetaSourceError.metaSourceJsonInvalid(path)
+        }
+
+        guard let json = jsonObject as? [String: Any] else {
+            throw CLIActionMetaSourceError.metaSourceJsonNotDictionary(path)
+        }
+
+        guard isValidRecordingMetaJson(json) else {
+            throw CLIActionMetaSourceError.metaSourceJsonInvalidContent(path)
+        }
+
+        return json
+    }
+
+    private func resolveCLIActionMetaSource(metaValue: String?, configManager: ConfigurationManager) throws -> CLIActionMetaSource {
+        guard let metaValue, !metaValue.isEmpty else {
+            guard let latestRecording = findLastValidRecording(configManager: configManager) else {
+                throw CLIActionMetaSourceError.latestValidNotFound
+            }
+
+            return CLIActionMetaSource(
+                metaJson: latestRecording.metaJson,
+                recordingPath: latestRecording.recordingPath,
+                description: "latest valid recording '\(latestRecording.recordingPath)'",
+                kind: .latestValid
+            )
+        }
+
+        if shouldTreatMetaValueAsPath(metaValue) {
+            let expandedPath = (metaValue as NSString).expandingTildeInPath
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: expandedPath, isDirectory: &isDirectory) else {
+                throw CLIActionMetaSourceError.metaSourcePathNotFound(expandedPath)
+            }
+
+            if isDirectory.boolValue {
+                let metaJsonPath = URL(fileURLWithPath: expandedPath).appendingPathComponent("meta.json").path
+                guard FileManager.default.fileExists(atPath: metaJsonPath) else {
+                    throw CLIActionMetaSourceError.metaSourceDirectoryMissingMetaJson(expandedPath)
+                }
+
+                let json = try loadMetaJsonFile(path: metaJsonPath)
+                return CLIActionMetaSource(
+                    metaJson: json,
+                    recordingPath: expandedPath,
+                    description: "folder path '\(expandedPath)'",
+                    kind: .folderPath
+                )
+            }
+
+            let json = try loadMetaJsonFile(path: expandedPath)
+            return CLIActionMetaSource(
+                metaJson: json,
+                recordingPath: nil,
+                description: "json file '\(expandedPath)'",
+                kind: .jsonFilePath
+            )
+        }
+
+        let expandedWatchPath = (configManager.config.defaults.watch as NSString).expandingTildeInPath
+        let recordingsPath = URL(fileURLWithPath: expandedWatchPath).appendingPathComponent("recordings").path
+        let recordingFolderPath = URL(fileURLWithPath: recordingsPath).appendingPathComponent(metaValue).path
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: recordingFolderPath, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw CLIActionMetaSourceError.recordingFolderNotFound(metaValue)
+        }
+
+        let metaJsonPath = URL(fileURLWithPath: recordingFolderPath).appendingPathComponent("meta.json").path
+        guard FileManager.default.fileExists(atPath: metaJsonPath) else {
+            throw CLIActionMetaSourceError.metaSourceDirectoryMissingMetaJson(recordingFolderPath)
+        }
+
+        let json = try loadMetaJsonFile(path: metaJsonPath)
+        return CLIActionMetaSource(
+            metaJson: json,
+            recordingPath: recordingFolderPath,
+            description: "recordings folder '\(metaValue)' at '\(recordingFolderPath)'",
+            kind: .recordingsFolderName
+        )
     }
     
     /// Enhances metaJson with CLI-specific data for placeholder processing
@@ -2550,46 +2688,53 @@ class SocketCommunication {
                             break
                         }
 
-                        if let latestRecording = findLastValidRecording(configManager: configMgr) {
-                            let recordingSessionIsActive = recordingsWatcher?.hasActiveRecordingSessions() ?? false
-                            if !recordingSessionIsActive {
-                                globalState.autoReturnEnabled = false
-                                globalState.scheduledActionName = nil
-                                // Cancel timeouts only when no recording session is active.
-                                cancelAutoReturnTimeout()
-                                cancelScheduledActionTimeout()
-                            }
-                            
-                            // Enhance metaJson with CLI-specific data
-                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: latestRecording.metaJson, configManager: configMgr)
+                        let resolvedMetaSource = try resolveCLIActionMetaSource(
+                            metaValue: commandMessage.arguments?["meta"],
+                            configManager: configMgr
+                        )
+                        logInfo("Using meta source for exec-action '\(actionName)': \(resolvedMetaSource.description)")
 
-                            let finalStep = try executeActionChainForCLI(
-                                initialAction: action,
-                                initialActionName: actionName,
-                                initialActionType: actionType,
-                                metaJson: enhancedMetaJson,
-                                configManager: configMgr
-                            )
+                        let recordingSessionIsActive = recordingsWatcher?.hasActiveRecordingSessions() ?? false
+                        if !recordingSessionIsActive {
+                            globalState.autoReturnEnabled = false
+                            globalState.scheduledActionName = nil
+                            // Cancel timeouts only when no recording session is active.
+                            cancelAutoReturnTimeout()
+                            cancelScheduledActionTimeout()
+                        }
+                        
+                        // Enhance metaJson with CLI-specific data
+                        let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+
+                        let finalStep = try executeActionChainForCLI(
+                            initialAction: action,
+                            initialActionName: actionName,
+                            initialActionType: actionType,
+                            metaJson: enhancedMetaJson,
+                            configManager: configMgr
+                        )
+                        if let recordingPath = resolvedMetaSource.recordingPath {
                             applyMoveToForCLI(
-                                recordingPath: latestRecording.recordingPath,
+                                recordingPath: recordingPath,
                                 finalActionType: finalStep.type,
                                 finalAction: finalStep.action,
                                 configManager: configMgr
                             )
-                            
-                            // Trigger clipboard cleanup for CLI actions to prevent contamination
-                            clipboardMonitorRef?.triggerClipboardCleanupForCLI()
-                            
-                            response = "Executed \(actionType) action '\(actionName)'"
-                            logInfo("Successfully executed \(actionType) action: \(actionName)")
-                        } else {
-                            response = "No valid JSON file found with results"
-                            logError("No valid JSON file found for exec-action")
-                            notify(title: "Macrowhisper", message: "No valid result found for action: \(actionName). Please check Superwhisper recordings.")
+                        } else if resolvedMetaSource.kind == .jsonFilePath {
+                            logInfo("Skipping moveTo for exec-action '\(actionName)' because --meta points to a direct JSON file")
                         }
+                        
+                        // Trigger clipboard cleanup for CLI actions to prevent contamination
+                        clipboardMonitorRef?.triggerClipboardCleanupForCLI()
+                        
+                        response = "Executed \(actionType) action '\(actionName)'"
+                        logInfo("Successfully executed \(actionType) action: \(actionName)")
                     } catch {
                         response = error.localizedDescription
                         logError(response)
+                        if commandMessage.arguments?["meta"] == nil && response == "No valid JSON file found with results" {
+                            notify(title: "Macrowhisper", message: "No valid result found for action: \(actionName). Please check Superwhisper recordings.")
+                        }
                     }
                 } else {
                     response = "Action name missing"
@@ -2599,29 +2744,38 @@ class SocketCommunication {
                 
             case .getAction:
                 if let actionName = commandMessage.arguments?["name"], !actionName.isEmpty {
-                    let (actionType, action) = findActionByName(actionName, configManager: configMgr)
-                    
-                    if let action = action {
-                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
-                            // Enhance metaJson with CLI-specific data
-                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
-
-                            if let processedAction = processedActionContent(
-                                actionType: actionType,
-                                action: action,
-                                actionName: actionName,
-                                metaJson: enhancedMetaJson
-                            ) {
-                                response = processedAction
-                                logInfo("Returning processed action for \(actionType) '\(actionName)'.")
-                            }
-                        } else {
-                            response = "No valid JSON file found with results"
-                            logError("No valid JSON file found for get-action <name>")
+                    do {
+                        guard let (actionType, action) = try findUniqueActionByName(actionName, configManager: configMgr) else {
+                            response = "Action not found: \(actionName)"
+                            logError("Action not found for get-action: \(actionName)")
+                            _ = sendResponse(response, to: clientSocket)
+                            break
                         }
-                    } else {
-                        response = "Action not found: \(actionName)"
-                        logError("Action not found for get-action: \(actionName)")
+
+                        let resolvedMetaSource = try resolveCLIActionMetaSource(
+                            metaValue: commandMessage.arguments?["meta"],
+                            configManager: configMgr
+                        )
+                        logInfo("Using meta source for get-action '\(actionName)': \(resolvedMetaSource.description)")
+
+                        // Enhance metaJson with CLI-specific data
+                        let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+
+                        if let processedAction = processedActionContent(
+                            actionType: actionType,
+                            action: action,
+                            actionName: actionName,
+                            metaJson: enhancedMetaJson
+                        ) {
+                            response = processedAction
+                            logInfo("Returning processed action for \(actionType) '\(actionName)'.")
+                        } else {
+                            response = "Failed to process action: \(actionName)"
+                            logError(response)
+                        }
+                    } catch {
+                        response = error.localizedDescription
+                        logError(response)
                     }
                 } else {
                     // No action name provided, return the active action name
@@ -2638,34 +2792,40 @@ class SocketCommunication {
                 
             case .copyAction:
                 if let actionName = commandMessage.arguments?["name"], !actionName.isEmpty {
-                    let (actionType, action) = findActionByName(actionName, configManager: configMgr)
-
-                    if let action = action {
-                        if let lastValidJson = findLastValidJsonFile(configManager: configMgr) {
-                            let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: lastValidJson, configManager: configMgr)
-                            if let processedAction = processedActionContent(
-                                actionType: actionType,
-                                action: action,
-                                actionName: actionName,
-                                metaJson: enhancedMetaJson
-                            ) {
-                                // Suppress Macrowhisper's own capture for this specific clipboard write,
-                                // while keeping the clipboard content plain/visible to other apps.
-                                clipboardMonitorRef?.suppressNextClipboardCapture(for: processedAction)
-                                writeClipboard(processedAction)
-                                response = "Copied processed action '\(actionName)' to clipboard"
-                                logInfo("Copied processed action for \(actionType) '\(actionName)' to clipboard")
-                            } else {
-                                response = "Failed to process action: \(actionName)"
-                                logError(response)
-                            }
-                        } else {
-                            response = "No valid JSON file found with results"
-                            logError("No valid JSON file found for copy-action")
+                    do {
+                        guard let (actionType, action) = try findUniqueActionByName(actionName, configManager: configMgr) else {
+                            response = "Action not found: \(actionName)"
+                            logError("Action not found for copy-action: \(actionName)")
+                            _ = sendResponse(response, to: clientSocket)
+                            break
                         }
-                    } else {
-                        response = "Action not found: \(actionName)"
-                        logError("Action not found for copy-action: \(actionName)")
+
+                        let resolvedMetaSource = try resolveCLIActionMetaSource(
+                            metaValue: commandMessage.arguments?["meta"],
+                            configManager: configMgr
+                        )
+                        logInfo("Using meta source for copy-action '\(actionName)': \(resolvedMetaSource.description)")
+
+                        let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+                        if let processedAction = processedActionContent(
+                            actionType: actionType,
+                            action: action,
+                            actionName: actionName,
+                            metaJson: enhancedMetaJson
+                        ) {
+                            // Suppress Macrowhisper's own capture for this specific clipboard write,
+                            // while keeping the clipboard content plain/visible to other apps.
+                            clipboardMonitorRef?.suppressNextClipboardCapture(for: processedAction)
+                            writeClipboard(processedAction)
+                            response = "Copied processed action '\(actionName)' to clipboard"
+                            logInfo("Copied processed action for \(actionType) '\(actionName)' to clipboard")
+                        } else {
+                            response = "Failed to process action: \(actionName)"
+                            logError(response)
+                        }
+                    } catch {
+                        response = error.localizedDescription
+                        logError(response)
                     }
                 } else {
                     response = "Action name missing"
