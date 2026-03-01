@@ -64,6 +64,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * `appContext`, `frontApp` and `appVocabulary` placeholders are  captured lazily, only when placeholder is found in action, and at action execution.
   * `selectedText` and `clipboardContext` are captured only during recording session and their values are used again in chained actions.
 * **Improvement** to trigger evaluation for Front App. Prior to this update, trigger matching would  require both name & bundle ID to exist (would fail otherwise). Now, it works with one value. 
+* **Improvement** when users run `--exec-action` on an action with `moveTo`. The `moveTo` now applies for consistency.
 * **Improvement** on validation for the `meta.json` file. If an LLM result is expected, the system will only wait for that result, even if voice is empty. 
   * This allows users to use Macrowhisper even in those cases where nothing is dictated.
   * Voice triggers only match against result (raw transcription).
