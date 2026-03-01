@@ -52,7 +52,7 @@ class SocketCommunication {
     struct ProcessedInsertAction {
         let text: String
         let isAutoPaste: Bool
-        let hadPlaceholderTransform: Bool
+        let hadSmartCasingBlockingTransform: Bool
     }
 
     private enum CLIActionChainError: LocalizedError {
@@ -415,7 +415,7 @@ class SocketCommunication {
                     processedInsert.text,
                     activeInsert: resolvedInsert,
                     isAutoPaste: isAutoPasteTemplate || processedInsert.isAutoPaste,
-                    hadPlaceholderTransform: processedInsert.hadPlaceholderTransform
+                    hadSmartCasingBlockingTransform: processedInsert.hadSmartCasingBlockingTransform
                 )
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedInsert)
             case .url:
@@ -557,17 +557,17 @@ class SocketCommunication {
     ) -> ProcessedInsertAction {
         _ = activeInsert
         if action == ".none" {
-            return ProcessedInsertAction(text: "", isAutoPaste: false, hadPlaceholderTransform: false)
+            return ProcessedInsertAction(text: "", isAutoPaste: false, hadSmartCasingBlockingTransform: false)
         }
         if action == ".autoPaste" {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            return ProcessedInsertAction(text: swResult, isAutoPaste: true, hadPlaceholderTransform: false)
+            return ProcessedInsertAction(text: swResult, isAutoPaste: true, hadSmartCasingBlockingTransform: false)
         }
         let result = processAllPlaceholders(action: action, metaJson: metaJson, actionType: .insert)
         return ProcessedInsertAction(
             text: result.text,
             isAutoPaste: false,
-            hadPlaceholderTransform: result.hadPlaceholderTransform
+            hadSmartCasingBlockingTransform: result.hadSmartCasingBlockingTransform
         )
     }
 
@@ -940,14 +940,14 @@ class SocketCommunication {
     private func resolveSmartInsertTextIfNeeded(
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
-        hadPlaceholderTransform: Bool = false
+        hadSmartCasingBlockingTransform: Bool = false
     ) -> String {
         let smartInsertEnabled = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
         if !smartInsertEnabled {
             return text
         }
 
-        let shouldApplySmartCasing = !hadPlaceholderTransform
+        let shouldApplySmartCasing = !hadSmartCasingBlockingTransform
         var resolved = text
 
         resolved = resolved.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1032,8 +1032,8 @@ class SocketCommunication {
             "[SmartInsert] After stats: len=\(resolved.count) leadingSpaces=\(countLeadingSpaces(resolved)) " +
             "visible=\(redactForLogs(visibleWhitespace(resolved)))"
         )
-        if hadPlaceholderTransform {
-            logDebug("[SmartInsert] Smart casing disabled because placeholder transform was detected")
+        if hadSmartCasingBlockingTransform {
+            logDebug("[SmartInsert] Smart casing disabled because a smart-casing-blocking placeholder transform was detected")
         }
 
         return resolved
@@ -1641,12 +1641,12 @@ class SocketCommunication {
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
         isAutoPaste: Bool = false,
-        hadPlaceholderTransform: Bool = false
+        hadSmartCasingBlockingTransform: Bool = false
     ) {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
             activeInsert: activeInsert,
-            hadPlaceholderTransform: hadPlaceholderTransform
+            hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -1676,12 +1676,12 @@ class SocketCommunication {
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
         isAutoPaste: Bool = false,
-        hadPlaceholderTransform: Bool = false
+        hadSmartCasingBlockingTransform: Bool = false
     ) {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
             activeInsert: activeInsert,
-            hadPlaceholderTransform: hadPlaceholderTransform
+            hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -1720,12 +1720,12 @@ class SocketCommunication {
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
         isAutoPaste: Bool = false,
-        hadPlaceholderTransform: Bool = false
+        hadSmartCasingBlockingTransform: Bool = false
     ) -> Bool {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
             activeInsert: activeInsert,
-            hadPlaceholderTransform: hadPlaceholderTransform
+            hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {

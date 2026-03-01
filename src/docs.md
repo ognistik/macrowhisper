@@ -577,6 +577,8 @@ How to read these fields in practice:
 - `inputCondition` can neutralize fields at runtime before execution.
 - `trigger*` fields only decide matching; they do not modify payload content.
 
+*For the `action` payload: placeholder expansion, placeholder-level transforms, and placeholder regex replacements are common processing steps for all action types. See Section 11.*
+
 ### Common field examples
 
 ```json
@@ -616,13 +618,8 @@ Insert field reference:
 | `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
 
-Insert text execution order:
 
-1. Placeholder expansion.
-2. Placeholder-level transform (if `::transform` is present).
-3. Placeholder regex replacements (`||regex||replacement`) in order.
-4. Smart insert adjustments (spacing/punctuation always when enabled; smart casing is skipped when any placeholder transform is used).
-5. Paste/type output.
+*Note: `smartInsert` will lowercase the first letter of the insertion, it may add a whitespace before or after the insertion, and will keep or remove the end punctuation—all according to specific rules. At the time being, `smartInsert` will NOT uppercase anything, and will NOT change the case of anything in the actual content of the placeholder other than the opening character. There's transformations for that.*
 
 Examples:
 
@@ -1057,24 +1054,40 @@ If a placeholder key does not exist, it resolves to empty string.
 
 #### 11.7 Placeholder transforms (`::`)
 
-Transforms are placeholder-scoped and work for all placeholder types/values:
+You can transform placeholder values before they get passed to an action. Placeholders can only have one transform value. This is applied before regex replacements so you can still apply exclusions via regex.
+
+Basic format:
+
+```text
+{{placeholder::transformName}}
+```
+
+What each transform does:
+
+- `uppercase`: makes the whole value UPPERCASE.
+- `lowercase`: makes the whole value lowercase.
+- `uppercaseFirst`: only uppercases the first letter it finds.
+- `lowercaseFirst`: only lowercases the first letter it finds.
+- `titleCase`: uses automatic language detection (English/Spanish) and applies title case rules.
+- `titleCase:en`: English title case rules.
+- `titleCase:es`: Spanish title case rules.
+- `titleCase:all`: capitalizes the first letter of every word (including minor words like "and", "of", "de", etc.).
+- `ensureSentence`: makes sure the text starts with a capital letter and ends with `.`, `!`, or `?`. If ending punctuation is missing, it adds a period (`.`).
+  
+Examples:
 
 - `{{swResult::uppercase}}`
 - `{{json:swResult::lowercase}}`
 - `{{raw:swResult::uppercaseFirst}}`
 - `{{date:short::uppercase}}`
 - `{{folderName:1::lowercase}}`
+- `{{swResult::ensureSentence}}`
 
-Supported transform names:
+Smart insert interaction (important):
 
-- `uppercase`
-- `lowercase`
-- `uppercaseFirst`
-- `lowercaseFirst`
-- `titleCase`
-- `titleCase:en`
-- `titleCase:es`
-- `titleCase:all`
+- `ensureSentence` keeps smart capitalization enabled.
+- `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:en`, `titleCase:es`, and `titleCase:all` disable smart capitalization for that insert.
+- Smart spacing and smart punctuation logic still run when smart insert is enabled.
 
 ---
 
@@ -1266,15 +1279,12 @@ This prevents clipboard captures from ignored apps from polluting `{{clipboardCo
 
 In simple terms:
 - Macrowhisper prioritizes speed. It launches actions quickly so users can dictate again right away.
-- For Shell and AppleScript actions, Macrowhisper does not wait for script completion.
+- For Shell, AppleScript, and Shortcut actions, Macrowhisper does not wait for completion.
 - Clipboard restore is part of Macrowhisper's own action flow timing, not a "wait for script to fully finish."
 - Because of that, clipboard state may still change after launch if external tools/scripts keep writing to clipboard.
 - Clipboard restoration mainly cleans up what Macrowhisper/Superwhisper touched during execution windows.
 
-Why this design exists:
-- Even small blocking waits (1-2 seconds) can disrupt chained actions and rapid back-to-back dictations.
-- Async launch reduces those edge cases and keeps action handling predictable under heavy/fast usage.
-
+*Currently there is no way to prevent Superwhisper's use of clipboard, so there's a whole system in place to prevent clipboard contamination for `{{clipboardContext}}` . This, in iself, is related to clipboard buffer capture. Adding delay to action execution and therefore adding delay to clipboard restoration adds complexity and more edge cases.*
 ---
 
 ## 16) Recording File Handling (`moveTo`, `history`)

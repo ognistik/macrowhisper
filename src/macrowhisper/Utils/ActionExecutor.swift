@@ -663,7 +663,7 @@ class ActionExecutor {
                     processedInsert.text,
                     activeInsert: insert,
                     isAutoPaste: isAutoPaste,
-                    hadPlaceholderTransform: processedInsert.hadPlaceholderTransform
+                    hadSmartCasingBlockingTransform: processedInsert.hadSmartCasingBlockingTransform
                 ) ?? false
             },
             actionDelay: actionDelay,

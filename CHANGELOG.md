@@ -32,7 +32,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 
 ## Other
 * **Breaking.** `--insert, --get-insert, --exec-insert, getInsert, execInsert` flags have been deprecated for quite some time, and now they've been cleaned up from the code.
-* **New** `smartInsert` set to true by default
+* **New** `smartInsert` for insert actions set to true by default (at the defaults level)
   * Lots of edge cases covered. Most minor remaining issues are with those apps that do not have good accessibility integrations.
 * **New** `bypassModes` setting in defaults of the config, where the user can set modes where Macrowhisper should not kick in at all.
   * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
@@ -42,7 +42,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * Info also available via CLI `--folder-name [<index>]` and `--folder-path [<index>]`
   * Useful for automations/scripts where user may need to do something with current or previous recording paths.
 * **New** `transform` option for placeholders with the syntax `{{placeholder::transform||regex1find||regex1replace...}}`.
-  * For now it supports `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`, `titleCase:en`, `titleCase:es` .
+  * For now it supports `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`, `titleCase:en`, `titleCase:es`, `ensureSentence`.
   * More languages for titleCase may be added upon request.
   * This is for transformations beyond what regex allowand. They are applied before regex so you can still set your own exceptions.
 * **Improvement.** `inputCondition` has been expanded to all action types
@@ -57,15 +57,16 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * It is still suggested to set `autoUpdateConfig` to `true` so users don't miss out on future new features.
 * **Improvement.** Better guard protection when multiple recordings appear in burst (none will process).
 * **Improvement.** Better handling of `meta.json` values.
-  * Use the `segments` key from the `meta.json` file as placeholder, and it will be formatted correctly. You can now send your speaker-separated transcripts to automations.
+  * Use the `segments` key from the `meta.json` file as placeholder, and it will be formatted correctly. **You can now send your speaker-separated transcripts to automations.**
   * It is now also possible to use `meta.json` subkeys or arrays. For example, `{{promptContext.systemContext.language}}` is possible.
 * **Improvement.** Raised blackout window for clipboard duplication up to 5 seconds to accommodate to Superwhisper. I'm convinced this is a Superwhisper bug by now and Macrowhisper is just trying to work around it.
 * **Improvements to context placeholders for performance.**
   * `appContext`, `frontApp` and `appVocabulary` placeholders are  captured lazily, only when placeholder is found in action, and at action execution.
   * `selectedText` and `clipboardContext` are captured only during recording session and their values are used again in chained actions.
-* **Improvement** to trigger evaluation for Front App. Prior to this update, trigger matching would  require both name & bundle ID to exist. Now, it works with one value. 
-* **Improvement.**  `moveTo` behavior runs `--exec-action` for consistency.
-* **Improvement** on validation for the `meta.json` file. If an LLM result is expected, the system will only wait for that result, even if voice is empty. Voice triggers only match against result.
+* **Improvement** to trigger evaluation for Front App. Prior to this update, trigger matching would  require both name & bundle ID to exist (would fail otherwise). Now, it works with one value. 
+* **Improvement** on validation for the `meta.json` file. If an LLM result is expected, the system will only wait for that result, even if voice is empty. 
+  * This allows users to use Macrowhisper even in those cases where nothing is dictated.
+  * Voice triggers only match against result (raw transcription).
   
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13

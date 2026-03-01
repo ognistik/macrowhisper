@@ -28,7 +28,7 @@ func sanitizeContextPlaceholderValue(_ value: String) -> String {
 
 struct PlaceholderProcessingResult {
     let text: String
-    let hadPlaceholderTransform: Bool
+    let hadSmartCasingBlockingTransform: Bool
 }
 
 private enum PlaceholderTransform: String {
@@ -40,6 +40,12 @@ private enum PlaceholderTransform: String {
     case titleCaseEn = "titleCase:en"
     case titleCaseEs = "titleCase:es"
     case titleCaseAll = "titleCase:all"
+    case ensureSentence
+}
+
+private struct PlaceholderTransformResult {
+    let value: String
+    let blocksSmartCasing: Bool
 }
 
 private func lowercasingFirstLetterForPlaceholder(_ text: String) -> String {
@@ -68,34 +74,63 @@ private func uppercasingFirstLetterForPlaceholder(_ text: String) -> String {
     return result
 }
 
-private func applyPlaceholderTransform(_ value: String, transformName: String, placeholderKey: String) -> (String, Bool) {
+private func hasTerminalSentencePunctuationForPlaceholder(_ text: String) -> Bool {
+    guard let lastNonWhitespace = text.last(where: { !$0.isWhitespace }) else {
+        return false
+    }
+    return ".!?".contains(lastNonWhitespace)
+}
+
+private func ensureSentenceCasingAndPunctuationForPlaceholder(_ text: String) -> String {
+    var output = uppercasingFirstLetterForPlaceholder(text)
+    if !hasTerminalSentencePunctuationForPlaceholder(output) {
+        output += "."
+    }
+    return output
+}
+
+private func applyPlaceholderTransform(_ value: String, transformName: String, placeholderKey: String) -> PlaceholderTransformResult {
     guard !value.isEmpty else {
-        return (value, false)
+        return PlaceholderTransformResult(value: value, blocksSmartCasing: false)
     }
 
     guard let transform = PlaceholderTransform(rawValue: transformName) else {
         logWarning("[PlaceholderTransform] Unsupported transform '\(transformName)' for placeholder '\(placeholderKey)' - skipping")
-        return (value, false)
+        return PlaceholderTransformResult(value: value, blocksSmartCasing: false)
     }
 
     let locale = Locale.current
     switch transform {
     case .uppercase:
-        return (value.uppercased(with: locale), true)
+        return PlaceholderTransformResult(value: value.uppercased(with: locale), blocksSmartCasing: true)
     case .lowercase:
-        return (value.lowercased(with: locale), true)
+        return PlaceholderTransformResult(value: value.lowercased(with: locale), blocksSmartCasing: true)
     case .uppercaseFirst:
-        return (uppercasingFirstLetterForPlaceholder(value), true)
+        return PlaceholderTransformResult(value: uppercasingFirstLetterForPlaceholder(value), blocksSmartCasing: true)
     case .lowercaseFirst:
-        return (lowercasingFirstLetterForPlaceholder(value), true)
+        return PlaceholderTransformResult(value: lowercasingFirstLetterForPlaceholder(value), blocksSmartCasing: true)
     case .titleCase:
-        return (applyAutoDetectedTitleCaseForPlaceholder(in: value, locale: locale), true)
+        return PlaceholderTransformResult(
+            value: applyAutoDetectedTitleCaseForPlaceholder(in: value, locale: locale),
+            blocksSmartCasing: true
+        )
     case .titleCaseEn:
-        return (applyEnglishTitleCaseForPlaceholder(in: value, locale: locale), true)
+        return PlaceholderTransformResult(
+            value: applyEnglishTitleCaseForPlaceholder(in: value, locale: locale),
+            blocksSmartCasing: true
+        )
     case .titleCaseEs:
-        return (applySpanishTitleCaseForPlaceholder(in: value, locale: locale), true)
+        return PlaceholderTransformResult(
+            value: applySpanishTitleCaseForPlaceholder(in: value, locale: locale),
+            blocksSmartCasing: true
+        )
     case .titleCaseAll:
-        return (applyTitleCaseAllForPlaceholder(in: value), true)
+        return PlaceholderTransformResult(value: applyTitleCaseAllForPlaceholder(in: value), blocksSmartCasing: true)
+    case .ensureSentence:
+        return PlaceholderTransformResult(
+            value: ensureSentenceCasingAndPunctuationForPlaceholder(value),
+            blocksSmartCasing: false
+        )
     }
 }
 
@@ -692,7 +727,7 @@ func processDynamicPlaceholders(
 ) -> PlaceholderProcessingResult {
     var result = action
     var resolvedFolderPathCache: [Int: String?] = [:]
-    var hadPlaceholderTransform = false
+    var hadSmartCasingBlockingTransform = false
     
     // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key::transform||regex||replacement}}
     let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^:|}]+))?(?:::(?!\\|)([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
@@ -741,9 +776,9 @@ func processDynamicPlaceholders(
 
                 if let transformName {
                     let transformed = applyPlaceholderTransform(value, transformName: transformName, placeholderKey: key)
-                    value = transformed.0
-                    if transformed.1 {
-                        hadPlaceholderTransform = true
+                    value = transformed.value
+                    if transformed.blocksSmartCasing {
+                        hadSmartCasingBlockingTransform = true
                     }
                 }
 
@@ -989,7 +1024,10 @@ func processDynamicPlaceholders(
             }
         }
     }
-    return PlaceholderProcessingResult(text: result, hadPlaceholderTransform: hadPlaceholderTransform)
+    return PlaceholderProcessingResult(
+        text: result,
+        hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
+    )
 }
 
 private func getCurrentFrontAppName() -> String {
@@ -1128,7 +1166,10 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     result = dynamicResult.text
     
     // logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
-    return PlaceholderProcessingResult(text: result, hadPlaceholderTransform: dynamicResult.hadPlaceholderTransform)
+    return PlaceholderProcessingResult(
+        text: result,
+        hadSmartCasingBlockingTransform: dynamicResult.hadSmartCasingBlockingTransform
+    )
 }
 
 // MARK: - CLI Clipboard Helper

@@ -44,7 +44,7 @@
       "triggerVoice" : null
     },
     "autoPaste" : {
-      "action" : "{{swResult||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
+      "action" : "{{swResult::ensureSentence||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
       "actionDelay" : 0,
       "icon" : "•",
       "inputCondition" : "!nextAction",
