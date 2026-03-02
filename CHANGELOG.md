@@ -49,15 +49,15 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * This operation is not captured by Macrowhisper's `{{clipboardContext}}`
   * Supports placeholder expansion, and context placeholders.
   * Great to pass information to Superwhisper's clipboard for processing (you can now pass a stacked clipboard to Superwhisper)
-* **New.** `--exec-action`, `--get-action`, and `--copy-action` now support a custom path with `--meta`.
+* **New.** `--exec-action`, `--get-action`, and `--copy-action` now support a custom path with `--meta` (action name is still required).
   * This can be a recording folder name, a recording folder path, or the path to any JSON file in the format of `meta.json`
 * **Improvement.** `inputCondition` has been expanded to all action types
   * You can now have any action behave differently depending on user being in an input field or not.
 * **Improvement.** Streamlined the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This improves responsiveness.
-* **Improvement.** Updated a couple of config-related CLI flag behavior:
+* **Improvement.** Updated a couple of config-related CLI flag behavior and fixed related bugs:
   * `--set-config <path>`: persists path, creates default config at that path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
   * `--reset-config`: persists reset to default path, creates default config at default path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
-  * `--config <path>`: now persists path immediately, creates config file if missing, if daemon is running, switches immediately and exits, if daemon is not running, continues startup and runs daemon with that path
+  * `--config <path>`: now persists path immediately, creates config file if missing, if daemon is running, switches immediately and continues, if daemon is not running, starts up and runs daemon with that path
 * * **Improvement.** standardized values at default level of config.
   * Now the only required key is the watch folder. This allows for minimal configuration files if users set `autoUpdateConfig` to `false`.
   * It is still suggested to set `autoUpdateConfig` to `true` so users don't miss out on future new features.
