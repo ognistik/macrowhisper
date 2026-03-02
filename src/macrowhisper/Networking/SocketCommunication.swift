@@ -1181,6 +1181,7 @@ class SocketCommunication {
                 to: resolved,
                 leftCharacter: context.leftCharacter,
                 leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
+                leftLinePrefix: context.leftLinePrefix,
                 rightCharacter: context.rightCharacter,
                 rightNonWhitespaceCharacter: context.rightNonWhitespaceCharacter,
                 rightHasLineBreakBeforeNextNonWhitespace: context.rightHasLineBreakBeforeNextNonWhitespace
@@ -1282,6 +1283,7 @@ class SocketCommunication {
         to text: String,
         leftCharacter: Character?,
         leftNonWhitespaceCharacter: Character?,
+        leftLinePrefix: String,
         rightCharacter: Character?,
         rightNonWhitespaceCharacter: Character?,
         rightHasLineBreakBeforeNextNonWhitespace: Bool
@@ -1307,6 +1309,7 @@ class SocketCommunication {
         if shouldPreserveTrailingPunctuationForSentenceBoundary(
             leftCharacter: leftCharacter,
             leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+            leftLinePrefix: leftLinePrefix,
             rightCharacter: rightCharacter,
             rightNonWhitespaceCharacter: rightNonWhitespaceCharacter
         ) {
@@ -1335,15 +1338,20 @@ class SocketCommunication {
     private func shouldPreserveTrailingPunctuationForSentenceBoundary(
         leftCharacter: Character?,
         leftNonWhitespaceCharacter: Character?,
+        leftLinePrefix: String,
         rightCharacter: Character?,
         rightNonWhitespaceCharacter: Character?
     ) -> Bool {
-        let effectiveLeft: Character?
+        let boundaryBaseLeft: Character?
         if let leftCharacter = leftCharacter, !leftCharacter.isWhitespace {
-            effectiveLeft = leftCharacter
+            boundaryBaseLeft = leftCharacter
         } else {
-            effectiveLeft = leftNonWhitespaceCharacter
+            boundaryBaseLeft = leftNonWhitespaceCharacter
         }
+        let effectiveLeft = effectiveLeftContextCharacter(
+            leftCharacter: boundaryBaseLeft,
+            leftLinePrefix: leftLinePrefix
+        )
 
         guard let left = effectiveLeft, ".!?".contains(left) else {
             return false
@@ -1372,6 +1380,11 @@ class SocketCommunication {
     ) -> String {
         var updated = text
 
+        let effectiveLeft = effectiveLeftContextCharacter(
+            leftCharacter: leftCharacter,
+            leftLinePrefix: leftLinePrefix
+        )
+
         if let first = updated.first {
             let hasImmediateRightWhitespace = rightCharacter.map {
                 $0.isWhitespace && !$0.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) })
@@ -1379,11 +1392,11 @@ class SocketCommunication {
             let shouldInsertLeadingSpaceForMarkdownList =
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
                 !(leftCharacter?.isWhitespace ?? false)
-            let shouldInsertLeadingSpaceAfterWord = leftCharacter.map { isWordCharacter($0) } ?? false
+            let shouldInsertLeadingSpaceAfterWord = effectiveLeft.map { isWordCharacter($0) } ?? false
             let punctuationNeedingTrailingSpace = ".,;:!?)]}\""
-            let shouldInsertLeadingSpaceAfterPunctuation = leftCharacter.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
+            let shouldInsertLeadingSpaceAfterPunctuation = effectiveLeft.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
             let startsWithBoundaryNeedingLeadingSpace = isWordCharacter(first) || isOpeningWrapperCharacter(first)
-            let shouldInsertLeadingSpaceBeforeOpeningWrapper = (leftCharacter.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
+            let shouldInsertLeadingSpaceBeforeOpeningWrapper = (effectiveLeft.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
 
             if !hasImmediateRightWhitespace &&
                 startsWithBoundaryNeedingLeadingSpace &&
@@ -1434,13 +1447,52 @@ class SocketCommunication {
             guard let previous = leftNonWhitespaceCharacter else {
                 return false
             }
-            if isIgnorableBoundaryCharacter(previous) {
+            let effectivePrevious = effectiveLeftContextCharacter(
+                leftCharacter: previous,
+                leftLinePrefix: leftLinePrefix
+            )
+            guard let effectivePrevious else {
                 return false
             }
-            return !".!?".contains(previous)
+            if isIgnorableBoundaryCharacter(effectivePrevious) {
+                return false
+            }
+            return !".!?".contains(effectivePrevious)
         }
 
-        return !".!?".contains(leftCharacter)
+        let effectiveLeft = effectiveLeftContextCharacter(
+            leftCharacter: leftCharacter,
+            leftLinePrefix: leftLinePrefix
+        ) ?? leftCharacter
+        return !".!?".contains(effectiveLeft)
+    }
+
+    private func effectiveLeftContextCharacter(
+        leftCharacter: Character?,
+        leftLinePrefix: String
+    ) -> Character? {
+        guard let leftCharacter else {
+            return nil
+        }
+        if !isSkippableTrailingDelimiterForBoundary(leftCharacter) {
+            return leftCharacter
+        }
+
+        for character in leftLinePrefix.reversed() {
+            if character.isWhitespace || isIgnorableBoundaryCharacter(character) {
+                continue
+            }
+            if isSkippableTrailingDelimiterForBoundary(character) {
+                continue
+            }
+            return character
+        }
+
+        return leftCharacter
+    }
+
+    private func isSkippableTrailingDelimiterForBoundary(_ character: Character) -> Bool {
+        "*_~`)]}\"'".contains(character)
     }
 
     private func isMarkdownHeadingLineStart(_ leftLinePrefix: String) -> Bool {
