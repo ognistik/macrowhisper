@@ -32,6 +32,12 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 
 ## Other
 * **Breaking.** `--insert, --get-insert, --exec-insert, getInsert, execInsert` flags have been deprecated for quite some time, and now they've been cleaned up from the code.
+* **New.** `restoreClipboardDelay` can be set at the default level or at the actions level.
+  * Defaul is 0.3 sec. I suggest not extending too much, especially if you dictate quickly. Could easily lead to clipboard contamination in overlapping dictations.
+* **New.** Up until now, action execution for Shortcuts and scripts has been asyng. Now you got a `scriptAsync` which you can set to false.
+  * Related to this, there's a customizable `scriptWaitTimeout` that you can set for script execution when set it's not async. 
+  * With `scriptAsync` set to false, action execution will wait for script completion. And in chained you can use the result of the first script with `{{actionResult}}` placeholder.
+  * `{{actionResult}}` has a set index. No index or `{{actionResult:0}}` is the first script completion, `{{actionResult:1}}` the next, and so on.
 * **New** `smartInsert` for insert actions set to true by default (at the defaults level)
   * Lots of edge cases covered. Most minor remaining issues are with those apps that do not have good accessibility integrations.
 * **New** `bypassModes` setting in defaults of the config, where the user can set modes where Macrowhisper should not kick in at all.
