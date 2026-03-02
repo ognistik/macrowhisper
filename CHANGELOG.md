@@ -57,6 +57,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * Great to pass information to Superwhisper's clipboard for processing (you can now pass a stacked clipboard to Superwhisper)
 * **New.** `--exec-action`, `--get-action`, and `--copy-action` now support a custom path with `--meta` (action name is still required).
   * This can be a recording folder name, a recording folder path, or the path to any JSON file in the format of `meta.json`
+* **Improvement.** cleaned up the logs to make them more readable and less noisy.
 * **Improvement.** `inputCondition` has been expanded to all action types
   * You can now have any action behave differently depending on user being in an input field or not.
 * **Improvement.** Streamlined the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This improves responsiveness.
