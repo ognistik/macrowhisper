@@ -542,29 +542,46 @@ class ConfigurationManager {
         case .insert:
             allowedTokens = [
                 "restoreClipboard",
+                "restoreClipboardDelay",
                 "noEsc",
                 "nextAction",
                 "moveTo",
                 "action",
                 "actionDelay"
             ]
-        case .url, .shell, .appleScript:
+        case .url:
             allowedTokens = [
                 "restoreClipboard",
+                "restoreClipboardDelay",
                 "noEsc",
                 "nextAction",
                 "moveTo",
                 "action",
                 "actionDelay"
+            ]
+        case .shell, .appleScript:
+            allowedTokens = [
+                "restoreClipboard",
+                "restoreClipboardDelay",
+                "noEsc",
+                "nextAction",
+                "moveTo",
+                "action",
+                "actionDelay",
+                "scriptAsync",
+                "scriptWaitTimeout"
             ]
         case .shortcut:
             allowedTokens = [
                 "restoreClipboard",
+                "restoreClipboardDelay",
                 "noEsc",
                 "nextAction",
                 "moveTo",
                 "action",
-                "actionDelay"
+                "actionDelay",
+                "scriptAsync",
+                "scriptWaitTimeout"
             ]
         }
 

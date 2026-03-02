@@ -925,6 +925,9 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
             resolved.pressReturn = nil
         }
@@ -960,6 +963,9 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -992,6 +998,9 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -1006,6 +1015,12 @@ class SocketCommunication {
         }
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
+        }
+        if !shouldApplyToken("scriptAsync", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptAsync = nil
+        }
+        if !shouldApplyToken("scriptWaitTimeout", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptWaitTimeout = nil
         }
 
         return resolved
@@ -1024,6 +1039,9 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -1038,6 +1056,12 @@ class SocketCommunication {
         }
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
+        }
+        if !shouldApplyToken("scriptAsync", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptAsync = nil
+        }
+        if !shouldApplyToken("scriptWaitTimeout", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptWaitTimeout = nil
         }
 
         return resolved
@@ -1056,6 +1080,9 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -1070,6 +1097,12 @@ class SocketCommunication {
         }
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
+        }
+        if !shouldApplyToken("scriptAsync", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptAsync = nil
+        }
+        if !shouldApplyToken("scriptWaitTimeout", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptWaitTimeout = nil
         }
 
         return resolved

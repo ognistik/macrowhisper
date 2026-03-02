@@ -203,7 +203,7 @@ Priority order:
 If an action runs, Macrowhisper can chain to next actions with `nextAction` rules.
 
 Important runtime note:
-- Action flows are designed to stay responsive. For script-like actions (Shell/AppleScript), Macrowhisper launches them and continues; it does not wait for script completion before moving on.
+- Action flows are designed to stay responsive. Script-like actions (Shortcut/Shell/AppleScript) default to async launch-and-continue, but can opt into synchronous wait mode with `scriptAsync: false` and `scriptWaitTimeout`.
 
 ### Step G: Post-processing
 
@@ -565,7 +565,10 @@ Null behavior at `defaults` level:
 | `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
 | `returnDelay` | number/null | `0.1` | Delay before Return press. `null` = built-in default (`0.1`). |
 | `restoreClipboard` | bool/null | `true` | Restore original clipboard at end of action flow. `null` = built-in default (`true`). |
+| `restoreClipboardDelay` | number/null | `0.3` | Delay before clipboard restoration at end of action flow. `null` = built-in default (`0.3`). |
 | `scheduledActionTimeout` | number/null | `5` | Timeout (seconds) for pending auto-return/scheduled action when no recording starts. `0` means no timeout. `null` = built-in default (`5`). |
+| `scriptAsync` | bool/null | `true` | Default script execution mode for Shortcut/Shell/AppleScript. `false` waits for completion. |
+| `scriptWaitTimeout` | number/null | `3.0` | Max wait time (seconds) when `scriptAsync` is `false`. |
 | `clipboardStacking` | bool/null | `false` | Capture multiple clipboard events for `{{clipboardContext}}`. `null` = built-in default (`false`). |
 | `clipboardBuffer` | number/null | `5.0` | Pre-recording clipboard capture window in seconds. `0` disables buffer capture. `null` = built-in default (`5.0`). |
 | `clipboardIgnore` | string/null | `null` | Regex for apps ignored in clipboard capture. |
@@ -617,6 +620,9 @@ Section 5.4 has the full behavior details.
 | `noEsc`            | bool/null   | Skip ESC before action if `true`.                                               |
 | `actionDelay`      | number/null | Per-action delay override                                                       |
 | `restoreClipboard` | bool/null   | Per-action clipboard restoration override                                       |
+| `restoreClipboardDelay` | number/null | Per-action clipboard restore delay override (final chain step governs).      |
+| `scriptAsync`      | bool/null   | Script-only override for Shortcut/Shell/AppleScript wait mode.                 |
+| `scriptWaitTimeout` | number/null | Script-only timeout override used when `scriptAsync` is `false`.             |
 | `inputCondition`   | string/null | Conditional option gating. Applies fields IF user is input field.               |
 | `nextAction`       | string/null | Chain to another action                                                         |
 | `triggerVoice`     | string/null | Voice trigger patterns                                                          |
@@ -783,7 +789,7 @@ Shell field reference:
 | `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string or special value. |
 
 Execution model:
-- Shell actions are started asynchronously. Macrowhisper starts the command and immediately continues the action flow without waiting for the shell process to finish.
+- Shell actions default to asynchronous launch. You can set `scriptAsync: false` to wait (up to `scriptWaitTimeout`) before continuing chain execution.
 
 Examples:
 
@@ -809,7 +815,7 @@ AppleScript field reference:
 | `action` | string | `"display notification..."`, `".none"` | AppleScript source or special value. |
 
 Execution model:
-- AppleScript actions are started asynchronously. Macrowhisper launches `osascript` and continues immediately instead of waiting for script completion.
+- AppleScript actions default to asynchronous launch. You can set `scriptAsync: false` to wait (up to `scriptWaitTimeout`) before continuing chain execution.
 
 Example:
 
@@ -953,11 +959,14 @@ Examples:
 ### 9.1 Allowed tokens
 
 - `restoreClipboard`
+- `restoreClipboardDelay`
 - `noEsc`
 - `nextAction`
 - `moveTo`
 - `action`
 - `actionDelay`
+- `scriptAsync` (Shortcut/Shell/AppleScript only)
+- `scriptWaitTimeout` (Shortcut/Shell/AppleScript only)
 
 ### 9.2 Validation rules
 
@@ -1014,8 +1023,8 @@ Because chains resolve by name across all types, duplicate names across types ar
 
 - Actions execute step-by-step.
 - If one step fails, chain continues to remaining steps and reports partial failure.
-- Shell and AppleScript steps are launch-and-continue: they are considered successful once launched, not when script work fully finishes.
-- This async behavior is intentional to keep dictation workflows instant and prevent backlog/race issues when users dictate repeatedly in quick succession.
+- Shell/AppleScript/Shortcut steps default to launch-and-continue.
+- When `scriptAsync: false`, those steps wait for completion (up to `scriptWaitTimeout`) and can provide stdout to `{{actionResult}}` placeholders in later chain steps.
 - Clipboard restoration decision is controlled by the last step.
 - `moveTo` post-processing is based on final executed action context.
 - `noEsc` is controlled at the first action-level (if set) else defaults.nextAction.
@@ -1042,6 +1051,8 @@ For each action payload:
 - `{{llmResult}}`
 - `{{folderName}}` / `{{folderPath}}` - current active recording folder (if any), otherwise latest valid completed folder
 - `{{folderName:<index>}}` / `{{folderPath:<index>}}` - indexed folder lookup (`0` newest/current, `1` previous, etc.)
+- `{{actionResult}}` - stdout from the first synchronous script-like step in the current execution group
+- `{{actionResult:0}}`, `{{actionResult:1}}`, ... - indexed stdout results from synchronous script-like steps
 
 *For most users, `{{swResult}}` will be the default placeholder to use, as it dynamically includes expected Superwhisper's result.*
 
@@ -1334,8 +1345,8 @@ This prevents clipboard captures from ignored apps from polluting `{{clipboardCo
 
 In simple terms:
 - Macrowhisper prioritizes speed. It launches actions quickly so users can dictate again right away.
-- For Shell, AppleScript, and Shortcut actions, Macrowhisper does not wait for completion.
-- Clipboard restore is part of Macrowhisper's own action flow timing, not a "wait for script to fully finish."
+- For Shell, AppleScript, and Shortcut actions, default behavior is async launch, but you can opt into sync wait with `scriptAsync: false`.
+- Clipboard restore timing is controlled by `restoreClipboardDelay` (final chain step), and in sync mode restoration can happen after script completion/timeout.
 - Because of that, clipboard state may still change after launch if external tools/scripts keep writing to clipboard.
 - Clipboard restoration mainly cleans up what Macrowhisper/Superwhisper touched during execution windows.
 

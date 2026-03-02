@@ -23,6 +23,8 @@ private let CONCEALED_MARKER_TYPES: [NSPasteboard.PasteboardType] = [
 /// Time window for retroactive clipboard cleanup when ignored apps become frontmost
 /// This handles cases where apps trigger clipboard changes before gaining focus (e.g., during window activation)
 private let RETROACTIVE_CLEANUP_WINDOW: TimeInterval = 0.5  // Look back 0.5 seconds for cleanup
+private let DEFAULT_CLIPBOARD_RESTORE_DELAY: TimeInterval = 0.3
+private let CLIPBOARD_CLEANUP_GRACE: TimeInterval = 0.2
 
 /// Handles clipboard monitoring and synchronization for insert actions triggered by valid results
 /// This solves the timing issue where Superwhisper puts content on clipboard at the same time as insert execution
@@ -57,8 +59,11 @@ class ClipboardMonitor {
     private var earlyMonitoringSessions: [String: EarlyMonitoringSession] = [:]
     private let sessionsQueue = DispatchQueue(label: "ClipboardMonitor.sessions", attributes: .concurrent)
     private var cleanupTimer: Timer? // Periodic cleanup timer to prevent memory growth
+    private var executionGroups: [String: ExecutionGroup] = [:]
+    private var recordingPathToGroupId: [String: String] = [:]
     
     private struct EarlyMonitoringSession {
+        let groupId: String
         let userOriginalClipboard: String?
         let startTime: Date
         var clipboardChanges: [ClipboardChange] = []
@@ -71,6 +76,20 @@ class ClipboardMonitor {
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
         let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (5s blackout period)
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
+    }
+
+    private struct ExecutionGroup {
+        let id: String
+        let rootRecordingPath: String
+        let rootOriginalClipboard: String?
+        let rootSelectedText: String?
+        let rootPreRecordingClipboard: String?
+        let rootPreRecordingClipboardStack: [String]
+        var memberRecordingPaths: Set<String>
+        var pendingRestoreRecordingPath: String?
+        var pendingRestoreDelay: TimeInterval
+        var pendingCleanupDelay: TimeInterval
+        var scriptResults: [String]
     }
     
     private struct ClipboardChange {
@@ -121,20 +140,66 @@ class ClipboardMonitor {
         
         let currentChangeCount = pasteboard.changeCount
         let ignoreUntil = sessionStartTime.addingTimeInterval(5) // Ignore clipboard duplicates for 5 seconds
-        let session = EarlyMonitoringSession(
-            userOriginalClipboard: userOriginal,
-            startTime: sessionStartTime,
-            selectedText: selectedText,
-            preRecordingClipboard: preRecordingClipboard,
-            preRecordingClipboardStack: preRecordingClipboardStack,
-            startingChangeCount: currentChangeCount,
-            lastSeenChangeCount: currentChangeCount,
-            ignoreClipboardUntil: ignoreUntil,
-            lastCapturedClipboardContent: userOriginal
-        )
-        
         sessionsQueue.async(flags: .barrier) { [weak self] in
-            self?.earlyMonitoringSessions[recordingPath] = session
+            guard let self else { return }
+
+            let activeGroupId = self.executionGroups.values
+                .first { !$0.memberRecordingPaths.isEmpty }?
+                .id
+
+            let groupId: String
+            let effectiveUserOriginal: String?
+            let effectiveSelectedText: String?
+            let effectivePreRecordingClipboard: String?
+            let effectivePreRecordingClipboardStack: [String]
+
+            if let activeGroupId, var group = self.executionGroups[activeGroupId] {
+                group.memberRecordingPaths.insert(recordingPath)
+                self.executionGroups[activeGroupId] = group
+                self.recordingPathToGroupId[recordingPath] = activeGroupId
+                groupId = activeGroupId
+                effectiveUserOriginal = group.rootOriginalClipboard
+                effectiveSelectedText = group.rootSelectedText
+                effectivePreRecordingClipboard = group.rootPreRecordingClipboard
+                effectivePreRecordingClipboardStack = group.rootPreRecordingClipboardStack
+                logDebug("[ClipboardMonitor] Joined execution group \(activeGroupId) for \(recordingPath); reusing root context from \(group.rootRecordingPath)")
+            } else {
+                groupId = UUID().uuidString
+                let newGroup = ExecutionGroup(
+                    id: groupId,
+                    rootRecordingPath: recordingPath,
+                    rootOriginalClipboard: userOriginal,
+                    rootSelectedText: selectedText,
+                    rootPreRecordingClipboard: preRecordingClipboard,
+                    rootPreRecordingClipboardStack: preRecordingClipboardStack,
+                    memberRecordingPaths: [recordingPath],
+                    pendingRestoreRecordingPath: nil,
+                    pendingRestoreDelay: DEFAULT_CLIPBOARD_RESTORE_DELAY,
+                    pendingCleanupDelay: DEFAULT_CLIPBOARD_RESTORE_DELAY + CLIPBOARD_CLEANUP_GRACE,
+                    scriptResults: []
+                )
+                self.executionGroups[groupId] = newGroup
+                self.recordingPathToGroupId[recordingPath] = groupId
+                effectiveUserOriginal = userOriginal
+                effectiveSelectedText = selectedText
+                effectivePreRecordingClipboard = preRecordingClipboard
+                effectivePreRecordingClipboardStack = preRecordingClipboardStack
+                logDebug("[ClipboardMonitor] Created execution group \(groupId) with root \(recordingPath)")
+            }
+
+            let session = EarlyMonitoringSession(
+                groupId: groupId,
+                userOriginalClipboard: effectiveUserOriginal,
+                startTime: sessionStartTime,
+                selectedText: effectiveSelectedText,
+                preRecordingClipboard: effectivePreRecordingClipboard,
+                preRecordingClipboardStack: effectivePreRecordingClipboardStack,
+                startingChangeCount: currentChangeCount,
+                lastSeenChangeCount: currentChangeCount,
+                ignoreClipboardUntil: ignoreUntil,
+                lastCapturedClipboardContent: effectiveUserOriginal
+            )
+            self.earlyMonitoringSessions[recordingPath] = session
         }
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
@@ -147,6 +212,39 @@ class ClipboardMonitor {
         // Start monitoring clipboard changes (continues until session cleanup)
         monitorClipboardChangesForSession(recordingPath: recordingPath)
     }
+
+    func getContextRootRecordingPath(for recordingPath: String) -> String {
+        var resolvedPath = recordingPath
+        sessionsQueue.sync {
+            guard let groupId = recordingPathToGroupId[recordingPath],
+                  let group = executionGroups[groupId] else {
+                return
+            }
+            resolvedPath = group.rootRecordingPath
+        }
+        return resolvedPath
+    }
+
+    func appendScriptResult(_ result: String, for recordingPath: String) {
+        let sanitized = sanitizeContextPlaceholderValue(result)
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            guard let self else { return }
+            guard let groupId = self.recordingPathToGroupId[recordingPath],
+                  var group = self.executionGroups[groupId] else { return }
+            group.scriptResults.append(sanitized)
+            self.executionGroups[groupId] = group
+        }
+    }
+
+    func getScriptResults(for recordingPath: String) -> [String] {
+        var results: [String] = []
+        sessionsQueue.sync {
+            guard let groupId = recordingPathToGroupId[recordingPath],
+                  let group = executionGroups[groupId] else { return }
+            results = group.scriptResults
+        }
+        return results
+    }
     
     /// Marks that action execution is starting (enables clipboard change logging)
     func startActionExecution(for recordingPath: String) {
@@ -156,22 +254,27 @@ class ClipboardMonitor {
     }
     
     /// Marks that action execution is finished (disables clipboard change logging)
-    func finishActionExecution(for recordingPath: String, shouldCleanup: Bool = true) {
+    func finishActionExecution(
+        for recordingPath: String,
+        shouldCleanup: Bool = true,
+        cleanupDelay: TimeInterval? = nil
+    ) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             self?.earlyMonitoringSessions[recordingPath]?.isExecutingAction = false
         }
         
-        // Trigger cleanup of clipboard changes after 0.5s to prevent contamination
+        // Trigger cleanup of clipboard changes using restore-aware timing.
         if shouldCleanup {
-            cleanupClipboardChangesAfterAction(for: recordingPath)
+            let resolvedDelay = max(0, cleanupDelay ?? (DEFAULT_CLIPBOARD_RESTORE_DELAY + CLIPBOARD_CLEANUP_GRACE))
+            cleanupClipboardChangesAfterAction(for: recordingPath, after: resolvedDelay)
         }
     }
     
     /// Clears clipboard changes after action execution to prevent contamination of clipboardContext
     /// This addresses the issue where fast usage causes previous action results to contaminate the next clipboardContext
     /// Called 0.5s after action execution completes to account for 0.3s clipboard restoration + buffer
-    private func cleanupClipboardChangesAfterAction(for recordingPath: String) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+    private func cleanupClipboardChangesAfterAction(for recordingPath: String, after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.sessionsQueue.async(flags: .barrier) { [weak self] in
                 guard let self = self,
                       var session = self.earlyMonitoringSessions[recordingPath],
@@ -245,21 +348,85 @@ class ClipboardMonitor {
     /// Stops early monitoring for a recording session (natural cleanup)
     func stopEarlyMonitoring(for recordingPath: String, onCompletion: (() -> Void)? = nil) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
-            // Mark session as inactive for eventual cleanup
-            // Monitoring will stop naturally when session becomes inactive
-            self?.earlyMonitoringSessions[recordingPath]?.isActive = false
-            // Remove session after a brief delay to let any in-flight monitoring complete
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self?.sessionsQueue.async(flags: .barrier) {
-                    self?.earlyMonitoringSessions.removeValue(forKey: recordingPath)
-                    // Call completion callback after cleanup is done
-                    DispatchQueue.main.async {
-                        onCompletion?()
-                    }
-                }
+            guard let self else { return }
+            self.earlyMonitoringSessions[recordingPath]?.isActive = false
+            guard let groupId = self.recordingPathToGroupId[recordingPath],
+                  var group = self.executionGroups[groupId] else {
+                self.earlyMonitoringSessions.removeValue(forKey: recordingPath)
+                DispatchQueue.main.async { onCompletion?() }
+                return
+            }
+
+            group.memberRecordingPaths.remove(recordingPath)
+            let shouldFinalize = group.memberRecordingPaths.isEmpty
+            let shouldPreserveRootContext = !shouldFinalize && (recordingPath == group.rootRecordingPath)
+            if !shouldPreserveRootContext {
+                self.earlyMonitoringSessions.removeValue(forKey: recordingPath)
+                self.recordingPathToGroupId.removeValue(forKey: recordingPath)
+            }
+            self.executionGroups[groupId] = group
+
+            if shouldFinalize {
+                self.finalizeExecutionGroup(groupId: groupId, onCompletion: onCompletion)
+            } else {
+                DispatchQueue.main.async { onCompletion?() }
             }
         }
         logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
+    }
+
+    private func finalizeExecutionGroup(groupId: String, onCompletion: (() -> Void)? = nil) {
+        guard let group = executionGroups[groupId] else {
+            DispatchQueue.main.async { onCompletion?() }
+            return
+        }
+
+        let completeCleanup: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.sessionsQueue.async(flags: .barrier) {
+                let staleRecordingPaths = self.recordingPathToGroupId
+                    .filter { $0.value == groupId }
+                    .map { $0.key }
+                for path in staleRecordingPaths {
+                    self.recordingPathToGroupId.removeValue(forKey: path)
+                    self.earlyMonitoringSessions.removeValue(forKey: path)
+                }
+                self.executionGroups.removeValue(forKey: groupId)
+                DispatchQueue.main.async {
+                    onCompletion?()
+                }
+            }
+        }
+
+        if group.pendingRestoreRecordingPath != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + group.pendingRestoreDelay) { [weak self] in
+                self?.restoreCorrectClipboard(group.rootOriginalClipboard)
+                completeCleanup()
+            }
+        } else {
+            completeCleanup()
+        }
+    }
+
+    private func markGroupRestoreIntent(
+        for recordingPath: String,
+        shouldRestoreClipboard: Bool,
+        restoreDelay: TimeInterval
+    ) {
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            guard let self else { return }
+            guard let groupId = self.recordingPathToGroupId[recordingPath],
+                  var group = self.executionGroups[groupId] else { return }
+
+            if shouldRestoreClipboard {
+                group.pendingRestoreRecordingPath = recordingPath
+                group.pendingRestoreDelay = max(0, restoreDelay)
+                group.pendingCleanupDelay = max(0, restoreDelay + CLIPBOARD_CLEANUP_GRACE)
+            } else {
+                group.pendingCleanupDelay = max(group.pendingCleanupDelay, CLIPBOARD_CLEANUP_GRACE)
+            }
+            self.executionGroups[groupId] = group
+        }
     }
     
     /// Gets the selected text that was captured when the recording session started
@@ -620,11 +787,23 @@ class ClipboardMonitor {
     /// Monitors clipboard changes during early monitoring session
     private func monitorClipboardChangesForSession(recordingPath: String) {
         // Get session data in a single atomic operation to prevent race conditions
-        var sessionData: (isActive: Bool, userOriginalClipboard: String?, lastChange: ClipboardChange?, isExecutingAction: Bool, lastSeenChangeCount: Int, ignoreClipboardUntil: Date, lastCapturedClipboardContent: String?) = (false, nil, nil, false, 0, Date.distantPast, nil)
+        var sessionData: (
+            isActive: Bool,
+            isRootSession: Bool,
+            userOriginalClipboard: String?,
+            lastChange: ClipboardChange?,
+            isExecutingAction: Bool,
+            lastSeenChangeCount: Int,
+            ignoreClipboardUntil: Date,
+            lastCapturedClipboardContent: String?
+        ) = (false, false, nil, nil, false, 0, Date.distantPast, nil)
         
         sessionsQueue.sync { [weak self] in
             guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
             sessionData.isActive = session.isActive
+            if let group = self?.executionGroups[session.groupId] {
+                sessionData.isRootSession = (group.rootRecordingPath == recordingPath)
+            }
             sessionData.userOriginalClipboard = session.userOriginalClipboard
             sessionData.lastChange = session.clipboardChanges.last
             sessionData.isExecutingAction = session.isExecutingAction
@@ -636,6 +815,14 @@ class ClipboardMonitor {
         // Exit silently if session is not active - session will be cleaned up naturally
         guard sessionData.isActive else { 
             return 
+        }
+
+        // Overlapping sessions reuse root dictation context and must not capture new clipboard context.
+        if !sessionData.isRootSession {
+            DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+                self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
+            }
+            return
         }
         
         let pasteboard = NSPasteboard.general
@@ -856,6 +1043,7 @@ class ClipboardMonitor {
         shouldStopMonitoringAfterAction: Bool = true,
         shouldTriggerCleanupAfterAction: Bool = true,
         restoreClipboardIndependentlyOfEsc: Bool = false,
+        restoreClipboardDelay: TimeInterval = DEFAULT_CLIPBOARD_RESTORE_DELAY,
         forceEscForAutoPasteWhenNotInInputField: Bool = false,
         forceEscForEmptyInsert: Bool = false,
         onCompletion: ((Bool) -> Void)? = nil
@@ -914,6 +1102,7 @@ class ClipboardMonitor {
                         userIsInInputField: userIsInInputField,
                         recordingPath: recordingPath,
                         shouldRestoreClipboard: shouldRestoreClipboard,
+                        restoreDelay: restoreClipboardDelay,
                         shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
                         shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
                         forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
@@ -932,6 +1121,7 @@ class ClipboardMonitor {
                         userIsInInputField: userIsInInputField,
                         recordingPath: recordingPath,
                         shouldRestoreClipboard: shouldRestoreClipboard,
+                        restoreDelay: restoreClipboardDelay,
                         shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
                         shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
                         forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
@@ -950,6 +1140,7 @@ class ClipboardMonitor {
                     userIsInInputField: userIsInInputField,
                     recordingPath: recordingPath,
                     shouldRestoreClipboard: shouldRestoreClipboard,
+                    restoreDelay: restoreClipboardDelay,
                     shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
                     shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
                     forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
@@ -971,6 +1162,7 @@ class ClipboardMonitor {
         userIsInInputField: Bool,
         recordingPath: String,
         shouldRestoreClipboard: Bool,
+        restoreDelay: TimeInterval,
         shouldStopMonitoringAfterAction: Bool,
         shouldTriggerCleanupAfterAction: Bool,
         forceEscForAutoPasteWhenNotInInputField: Bool,
@@ -991,6 +1183,7 @@ class ClipboardMonitor {
             userIsInInputField: userIsInInputField,
             recordingPath: recordingPath,
             shouldRestoreClipboard: shouldRestoreClipboard,
+            restoreDelay: restoreDelay,
             shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
             shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
             forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
@@ -1011,6 +1204,7 @@ class ClipboardMonitor {
         userIsInInputField: Bool,
         recordingPath: String,
         shouldRestoreClipboard: Bool,
+        restoreDelay: TimeInterval,
         shouldStopMonitoringAfterAction: Bool,
         shouldTriggerCleanupAfterAction: Bool,
         forceEscForAutoPasteWhenNotInInputField: Bool,
@@ -1034,6 +1228,7 @@ class ClipboardMonitor {
                 userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath,
                 shouldRestoreClipboard: shouldRestoreClipboard,
+                restoreDelay: restoreDelay,
                 shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
                 shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
                 forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
@@ -1057,6 +1252,7 @@ class ClipboardMonitor {
                 userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath,
                 shouldRestoreClipboard: shouldRestoreClipboard,
+                restoreDelay: restoreDelay,
                 shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
                 shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
                 forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
@@ -1079,6 +1275,7 @@ class ClipboardMonitor {
                 userIsInInputField: userIsInInputField,
                 recordingPath: recordingPath,
                 shouldRestoreClipboard: shouldRestoreClipboard,
+                restoreDelay: restoreDelay,
                 shouldStopMonitoringAfterAction: shouldStopMonitoringAfterAction,
                 shouldTriggerCleanupAfterAction: shouldTriggerCleanupAfterAction,
                 forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
@@ -1111,6 +1308,7 @@ class ClipboardMonitor {
         userIsInInputField: Bool,
         recordingPath: String,
         shouldRestoreClipboard: Bool,
+        restoreDelay: TimeInterval,
         shouldStopMonitoringAfterAction: Bool,
         shouldTriggerCleanupAfterAction: Bool,
         forceEscForAutoPasteWhenNotInInputField: Bool,
@@ -1148,29 +1346,25 @@ class ClipboardMonitor {
         let didSucceed = insertAction()
         
         // Step 4: Mark action execution as finished (disables clipboard change logging)
-        self.finishActionExecution(for: recordingPath, shouldCleanup: shouldTriggerCleanupAfterAction)
+        let cleanupDelay = shouldRestoreClipboard
+            ? max(0, restoreDelay + CLIPBOARD_CLEANUP_GRACE)
+            : CLIPBOARD_CLEANUP_GRACE
+        self.finishActionExecution(
+            for: recordingPath,
+            shouldCleanup: shouldTriggerCleanupAfterAction,
+            cleanupDelay: cleanupDelay
+        )
+        self.markGroupRestoreIntent(
+            for: recordingPath,
+            shouldRestoreClipboard: shouldRestoreClipboard,
+            restoreDelay: restoreDelay
+        )
 
         // Step 5: Restore clipboard only when requested; stop monitoring only at end of chain.
         let completion = onCompletion
-        if shouldRestoreClipboard {
-            let restoreDelay = 0.3
-            DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
-                self?.restoreCorrectClipboard(clipboardToRestore)
-                if shouldStopMonitoringAfterAction {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                        self?.stopEarlyMonitoring(for: recordingPath) {
-                            completion?(didSucceed)
-                        }
-                    }
-                } else {
-                    completion?(didSucceed)
-                }
-            }
-        } else if shouldStopMonitoringAfterAction {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                self?.stopEarlyMonitoring(for: recordingPath) {
-                    completion?(didSucceed)
-                }
+        if shouldStopMonitoringAfterAction {
+            self.stopEarlyMonitoring(for: recordingPath) {
+                completion?(didSucceed)
             }
         } else {
             completion?(didSucceed)
@@ -1209,18 +1403,12 @@ class ClipboardMonitor {
         shouldStopMonitoringAfterAction: Bool = true,
         shouldTriggerCleanupAfterAction: Bool = true,
         restoreClipboardIndependentlyOfEsc: Bool = false,
+        restoreClipboardDelay: TimeInterval = DEFAULT_CLIPBOARD_RESTORE_DELAY,
         onCompletion: ((Bool) -> Void)? = nil
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
-            // Get the early monitoring session data with thread safety
-            var session: EarlyMonitoringSession?
-            self.sessionsQueue.sync {
-                session = self.earlyMonitoringSessions[recordingPath]
-            }
-
-            let clipboardToRestore = session?.userOriginalClipboard
             let shouldRestoreClipboard = restoreClipboardIndependentlyOfEsc
                 ? restoreClipboard
                 : (shouldEsc && restoreClipboard)
@@ -1244,28 +1432,24 @@ class ClipboardMonitor {
             let didSucceed = action()
             
             // Mark action execution as finished
-            self.finishActionExecution(for: recordingPath, shouldCleanup: shouldTriggerCleanupAfterAction)
+            let cleanupDelay = shouldRestoreClipboard
+                ? max(0, restoreClipboardDelay + CLIPBOARD_CLEANUP_GRACE)
+                : CLIPBOARD_CLEANUP_GRACE
+            self.finishActionExecution(
+                for: recordingPath,
+                shouldCleanup: shouldTriggerCleanupAfterAction,
+                cleanupDelay: cleanupDelay
+            )
+            self.markGroupRestoreIntent(
+                for: recordingPath,
+                shouldRestoreClipboard: shouldRestoreClipboard,
+                restoreDelay: restoreClipboardDelay
+            )
 
             let completion = onCompletion
-            if shouldRestoreClipboard {
-                let restoreDelay = 0.3
-                DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
-                    self?.restoreCorrectClipboard(clipboardToRestore)
-                    if shouldStopMonitoringAfterAction {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                            self?.stopEarlyMonitoring(for: recordingPath) {
-                                completion?(didSucceed)
-                            }
-                        }
-                    } else {
-                        completion?(didSucceed)
-                    }
-                }
-            } else if shouldStopMonitoringAfterAction {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    self?.stopEarlyMonitoring(for: recordingPath) {
-                        completion?(didSucceed)
-                    }
+            if shouldStopMonitoringAfterAction {
+                self.stopEarlyMonitoring(for: recordingPath) {
+                    completion?(didSucceed)
                 }
             } else {
                 completion?(didSucceed)

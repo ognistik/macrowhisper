@@ -9,6 +9,7 @@ class ActionExecutor {
     private let clipboardMonitor: ClipboardMonitor
     private let chainContextQueue = DispatchQueue(label: "com.macrowhisper.actionexecutor.chaincontext")
     private var chainContextByRecordingPath: [String: ChainContextSnapshot] = [:]
+    private var chainContextRefCountByRecordingPath: [String: Int] = [:]
     
     init(logger: Logger, socketCommunication: SocketCommunication, configManager: ConfigurationManager, clipboardMonitor: ClipboardMonitor) {
         self.logger = logger
@@ -422,6 +423,9 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
             resolved.pressReturn = nil
         }
@@ -457,6 +461,9 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -489,6 +496,9 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -503,6 +513,12 @@ class ActionExecutor {
         }
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
+        }
+        if !shouldApplyToken("scriptAsync", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptAsync = nil
+        }
+        if !shouldApplyToken("scriptWaitTimeout", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptWaitTimeout = nil
         }
 
         return resolved
@@ -521,6 +537,9 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -535,6 +554,12 @@ class ActionExecutor {
         }
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
+        }
+        if !shouldApplyToken("scriptAsync", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptAsync = nil
+        }
+        if !shouldApplyToken("scriptWaitTimeout", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptWaitTimeout = nil
         }
 
         return resolved
@@ -553,6 +578,9 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboard", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboard = nil
         }
+        if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
+            resolved.restoreClipboardDelay = nil
+        }
         if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.noEsc = nil
         }
@@ -567,6 +595,12 @@ class ActionExecutor {
         }
         if !shouldApplyToken("actionDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.actionDelay = nil
+        }
+        if !shouldApplyToken("scriptAsync", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptAsync = nil
+        }
+        if !shouldApplyToken("scriptWaitTimeout", tokens: tokens, isInInputField: isInInputField) {
+            resolved.scriptWaitTimeout = nil
         }
 
         return resolved
@@ -655,6 +689,9 @@ class ActionExecutor {
         let restoreClipboard = options.isLastInChain
             ? (insert.restoreClipboard ?? configManager.config.defaults.restoreClipboard)
             : false
+        let restoreDelay = options.isLastInChain
+            ? (insert.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3)
+            : (configManager.config.defaults.restoreClipboardDelay ?? 0.3)
         
         clipboardMonitor.executeInsertWithEnhancedClipboardSync(
             insertAction: { [weak self] in
@@ -676,6 +713,7 @@ class ActionExecutor {
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
+            restoreClipboardDelay: restoreDelay,
             forceEscForAutoPasteWhenNotInInputField: forceEscForAutoPasteWhenNotInInputField,
             forceEscForEmptyInsert: forceEscForEmptyInsert,
             onCompletion: onCompletion
@@ -698,6 +736,9 @@ class ActionExecutor {
         
         // Only the last action controls clipboard restoration decision.
         let restoreClipboard = options.isLastInChain ? (url.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
+        let restoreDelay = options.isLastInChain
+            ? (url.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3)
+            : (configManager.config.defaults.restoreClipboardDelay ?? 0.3)
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
@@ -710,6 +751,7 @@ class ActionExecutor {
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
+            restoreClipboardDelay: restoreDelay,
             onCompletion: onCompletion
         )
     }
@@ -728,13 +770,25 @@ class ActionExecutor {
         let baseShouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
+        let effectiveScriptAsync = shortcut.scriptAsync ?? configManager.config.defaults.scriptAsync ?? true
+        let effectiveScriptWaitTimeout = shortcut.scriptWaitTimeout ?? configManager.config.defaults.scriptWaitTimeout ?? 3.0
         
         // Only the last action controls clipboard restoration decision.
         let restoreClipboard = options.isLastInChain ? (shortcut.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
+        let restoreDelay = options.isLastInChain
+            ? (shortcut.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3)
+            : (configManager.config.defaults.restoreClipboardDelay ?? 0.3)
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processShortcutAction(shortcut, shortcutName: shortcutName, metaJson: enhancedMetaJson) ?? false
+                self?.processShortcutAction(
+                    shortcut,
+                    shortcutName: shortcutName,
+                    metaJson: enhancedMetaJson,
+                    recordingPath: recordingPath,
+                    scriptAsync: effectiveScriptAsync,
+                    scriptWaitTimeout: effectiveScriptWaitTimeout
+                ) ?? false
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
@@ -743,6 +797,7 @@ class ActionExecutor {
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
+            restoreClipboardDelay: restoreDelay,
             onCompletion: onCompletion
         )
     }
@@ -760,13 +815,24 @@ class ActionExecutor {
         let baseShouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = shell.actionDelay ?? configManager.config.defaults.actionDelay
+        let effectiveScriptAsync = shell.scriptAsync ?? configManager.config.defaults.scriptAsync ?? true
+        let effectiveScriptWaitTimeout = shell.scriptWaitTimeout ?? configManager.config.defaults.scriptWaitTimeout ?? 3.0
         
         // Only the last action controls clipboard restoration decision.
         let restoreClipboard = options.isLastInChain ? (shell.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
+        let restoreDelay = options.isLastInChain
+            ? (shell.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3)
+            : (configManager.config.defaults.restoreClipboardDelay ?? 0.3)
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processShellScriptAction(shell, metaJson: enhancedMetaJson) ?? false
+                self?.processShellScriptAction(
+                    shell,
+                    metaJson: enhancedMetaJson,
+                    recordingPath: recordingPath,
+                    scriptAsync: effectiveScriptAsync,
+                    scriptWaitTimeout: effectiveScriptWaitTimeout
+                ) ?? false
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
@@ -775,6 +841,7 @@ class ActionExecutor {
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
+            restoreClipboardDelay: restoreDelay,
             onCompletion: onCompletion
         )
     }
@@ -792,13 +859,24 @@ class ActionExecutor {
         let baseShouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
+        let effectiveScriptAsync = ascript.scriptAsync ?? configManager.config.defaults.scriptAsync ?? true
+        let effectiveScriptWaitTimeout = ascript.scriptWaitTimeout ?? configManager.config.defaults.scriptWaitTimeout ?? 3.0
         
         // Only the last action controls clipboard restoration decision.
         let restoreClipboard = options.isLastInChain ? (ascript.restoreClipboard ?? configManager.config.defaults.restoreClipboard) : false
+        let restoreDelay = options.isLastInChain
+            ? (ascript.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3)
+            : (configManager.config.defaults.restoreClipboardDelay ?? 0.3)
         
         clipboardMonitor.executeNonInsertActionWithClipboardRestore(
             action: { [weak self] in
-                self?.processAppleScriptAction(ascript, metaJson: enhancedMetaJson) ?? false
+                self?.processAppleScriptAction(
+                    ascript,
+                    metaJson: enhancedMetaJson,
+                    recordingPath: recordingPath,
+                    scriptAsync: effectiveScriptAsync,
+                    scriptWaitTimeout: effectiveScriptWaitTimeout
+                ) ?? false
             },
             shouldEsc: shouldEsc,
             actionDelay: actionDelay,
@@ -807,6 +885,7 @@ class ActionExecutor {
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
+            restoreClipboardDelay: restoreDelay,
             onCompletion: onCompletion
         )
     }
@@ -926,12 +1005,13 @@ class ActionExecutor {
     /// Enhances metaJson with session data from clipboard monitor and chain-frozen app context placeholders.
     private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String, actionTemplate: String) -> [String: Any] {
         var enhanced = metaJson
+        let contextRecordingPath = clipboardMonitor.getContextRootRecordingPath(for: recordingPath)
         
         let existingSelectedText = (metaJson["selectedText"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if existingSelectedText.isEmpty {
             // Get selected text that was captured when recording session started
-            let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: recordingPath)
+            let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: contextRecordingPath)
             if !sessionSelectedText.isEmpty {
                 enhanced["selectedText"] = sessionSelectedText
             }
@@ -944,13 +1024,21 @@ class ActionExecutor {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             let enableStacking = configManager.config.defaults.clipboardStacking
             let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(
-                for: recordingPath,
+                for: contextRecordingPath,
                 swResult: swResult,
                 enableStacking: enableStacking
             )
             if !sessionClipboardContent.isEmpty {
                 enhanced["clipboardContext"] = sessionClipboardContent
             }
+        }
+
+        let scriptResults = clipboardMonitor.getScriptResults(for: recordingPath)
+        if let firstResult = scriptResults.first, !firstResult.isEmpty {
+            enhanced["actionResult"] = firstResult
+        }
+        if !scriptResults.isEmpty {
+            enhanced["actionResults"] = scriptResults
         }
 
         var snapshot = getChainContextSnapshot(recordingPath: recordingPath)
@@ -1002,6 +1090,17 @@ class ActionExecutor {
     }
 
     private func initializeChainContextSnapshot(recordingPath: String, metaJson: [String: Any]) {
+        let snapshotKey = chainSnapshotKey(for: recordingPath)
+        var shouldInitializeSnapshot = false
+        chainContextQueue.sync {
+            let currentCount = chainContextRefCountByRecordingPath[snapshotKey] ?? 0
+            chainContextRefCountByRecordingPath[snapshotKey] = currentCount + 1
+            shouldInitializeSnapshot = chainContextByRecordingPath[snapshotKey] == nil
+        }
+        if !shouldInitializeSnapshot {
+            return
+        }
+
         let snapshot = ChainContextSnapshot(
             frontAppName: (metaJson["frontAppName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             frontAppBundleId: (metaJson["frontAppBundleId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
@@ -1011,18 +1110,26 @@ class ActionExecutor {
             didResolveAppVocabulary: false,
             appVocabulary: ""
         )
-        setChainContextSnapshot(snapshot, recordingPath: recordingPath)
+        setChainContextSnapshot(snapshot, recordingPath: snapshotKey)
     }
 
     private func clearChainContextSnapshot(recordingPath: String) {
+        let snapshotKey = chainSnapshotKey(for: recordingPath)
         chainContextQueue.sync {
-            _ = chainContextByRecordingPath.removeValue(forKey: recordingPath)
+            let currentCount = chainContextRefCountByRecordingPath[snapshotKey] ?? 0
+            if currentCount <= 1 {
+                chainContextRefCountByRecordingPath.removeValue(forKey: snapshotKey)
+                chainContextByRecordingPath.removeValue(forKey: snapshotKey)
+            } else {
+                chainContextRefCountByRecordingPath[snapshotKey] = currentCount - 1
+            }
         }
     }
 
     private func getChainContextSnapshot(recordingPath: String) -> ChainContextSnapshot {
-        chainContextQueue.sync {
-            chainContextByRecordingPath[recordingPath] ?? ChainContextSnapshot(
+        let snapshotKey = chainSnapshotKey(for: recordingPath)
+        return chainContextQueue.sync {
+            chainContextByRecordingPath[snapshotKey] ?? ChainContextSnapshot(
                 frontAppName: "",
                 frontAppBundleId: "",
                 frontAppPid: nil,
@@ -1035,9 +1142,14 @@ class ActionExecutor {
     }
 
     private func setChainContextSnapshot(_ snapshot: ChainContextSnapshot, recordingPath: String) {
+        let snapshotKey = chainSnapshotKey(for: recordingPath)
         chainContextQueue.sync {
-            chainContextByRecordingPath[recordingPath] = snapshot
+            chainContextByRecordingPath[snapshotKey] = snapshot
         }
+    }
+
+    private func chainSnapshotKey(for recordingPath: String) -> String {
+        clipboardMonitor.getContextRootRecordingPath(for: recordingPath)
     }
 
     private func extractFrontAppPid(from metaJson: [String: Any]) -> Int32? {
@@ -1135,7 +1247,14 @@ class ActionExecutor {
         }
     }
     
-    private func processShortcutAction(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) -> Bool {
+    private func processShortcutAction(
+        _ shortcut: AppConfiguration.Shortcut,
+        shortcutName: String,
+        metaJson: [String: Any],
+        recordingPath: String,
+        scriptAsync: Bool,
+        scriptWaitTimeout: TimeInterval
+    ) -> Bool {
         let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut).text
         
         logDebug("[ShortcutAction] Processed action before sending to shortcuts: \(redactForLogs(processedAction))")
@@ -1148,17 +1267,13 @@ class ActionExecutor {
             task.launchPath = "/usr/bin/shortcuts"
             task.arguments = ["run", shortcutName]
             task.environment = getUTF8Environment()
-            task.standardOutput = FileHandle.nullDevice
-            task.standardError = FileHandle.nullDevice
-
-            do {
-                try task.run()
-                logDebug("[ShortcutAction] Shortcut launched without input")
-                return true
-            } catch {
-                logError("Failed to execute shortcut action without input: \(error)")
-                return false
-            }
+            return executeScriptTask(
+                task,
+                recordingPath: recordingPath,
+                scriptAsync: scriptAsync,
+                scriptWaitTimeout: scriptWaitTimeout,
+                logPrefix: "ShortcutAction"
+            )
         } else if normalized.isEmpty || normalized == ".none" {
             logDebug("[ShortcutAction] Action is empty or '.none' - skipping shortcut execution")
             return true
@@ -1176,11 +1291,14 @@ class ActionExecutor {
                 task.launchPath = "/usr/bin/shortcuts"
                 task.arguments = ["run", shortcutName, "-i", tempFile]
                 task.environment = getUTF8Environment()
-                task.standardOutput = FileHandle.nullDevice
-                task.standardError = FileHandle.nullDevice
 
-                try task.run()
-                logDebug("[ShortcutAction] Shortcut launched with temporary file input")
+                let success = executeScriptTask(
+                    task,
+                    recordingPath: recordingPath,
+                    scriptAsync: scriptAsync,
+                    scriptWaitTimeout: scriptWaitTimeout,
+                    logPrefix: "ShortcutAction"
+                )
                 
                 // Clean up the temporary file after a short delay to ensure shortcuts has read it
                 DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
@@ -1191,7 +1309,7 @@ class ActionExecutor {
                         logWarning("[ShortcutAction] Failed to clean up temporary file \(tempFile): \(error)")
                     }
                 }
-                return true
+                return success
             } catch {
                 logError("Failed to execute shortcut action: \(error)")
                 // Clean up temp file on error
@@ -1202,7 +1320,13 @@ class ActionExecutor {
         // ESC simulation and action delay are now handled by ClipboardMonitor
     }
     
-    private func processShellScriptAction(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) -> Bool {
+    private func processShellScriptAction(
+        _ shell: AppConfiguration.ScriptShell,
+        metaJson: [String: Any],
+        recordingPath: String,
+        scriptAsync: Bool,
+        scriptWaitTimeout: TimeInterval
+    ) -> Bool {
         let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
@@ -1213,20 +1337,23 @@ class ActionExecutor {
         task.launchPath = "/bin/bash"
         task.arguments = ["-c", processedAction]
         task.environment = getUTF8Environment()
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        do {
-            try task.run()
-            logDebug("Shell script launched asynchronously")
-            return true
-        } catch {
-            logError("Failed to execute shell script: \(error)")
-            return false
-        }
+        return executeScriptTask(
+            task,
+            recordingPath: recordingPath,
+            scriptAsync: scriptAsync,
+            scriptWaitTimeout: scriptWaitTimeout,
+            logPrefix: "ShellAction"
+        )
         // ESC simulation and action delay are now handled by ClipboardMonitor
     }
     
-    private func processAppleScriptAction(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) -> Bool {
+    private func processAppleScriptAction(
+        _ ascript: AppConfiguration.ScriptAppleScript,
+        metaJson: [String: Any],
+        recordingPath: String,
+        scriptAsync: Bool,
+        scriptWaitTimeout: TimeInterval
+    ) -> Bool {
         let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript).text
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
@@ -1237,17 +1364,56 @@ class ActionExecutor {
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", processedAction]
         task.environment = getUTF8Environment()
-        task.standardOutput = FileHandle.nullDevice
+        return executeScriptTask(
+            task,
+            recordingPath: recordingPath,
+            scriptAsync: scriptAsync,
+            scriptWaitTimeout: scriptWaitTimeout,
+            logPrefix: "AppleScriptAction"
+        )
+        // ESC simulation and action delay are now handled by ClipboardMonitor
+    }
+
+    private func executeScriptTask(
+        _ task: Process,
+        recordingPath: String,
+        scriptAsync: Bool,
+        scriptWaitTimeout: TimeInterval,
+        logPrefix: String
+    ) -> Bool {
+        let stdoutPipe = Pipe()
+        task.standardOutput = stdoutPipe
         task.standardError = FileHandle.nullDevice
+
         do {
             try task.run()
-            logDebug("AppleScript launched asynchronously")
-            return true
+            if scriptAsync {
+                logDebug("[\(logPrefix)] Script launched asynchronously")
+                return true
+            }
+
+            let timeout = max(0.1, scriptWaitTimeout)
+            let deadline = Date().addingTimeInterval(timeout)
+            while task.isRunning {
+                if Date() >= deadline {
+                    task.terminate()
+                    logError("[\(logPrefix)] Script wait timed out after \(timeout)s")
+                    return false
+                }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !output.isEmpty {
+                clipboardMonitor.appendScriptResult(output, for: recordingPath)
+            }
+            return task.terminationStatus == 0
         } catch {
-            logError("Failed to execute AppleScript action: \(error)")
+            logError("[\(logPrefix)] Failed to execute script: \(error)")
             return false
         }
-        // ESC simulation and action delay are now handled by ClipboardMonitor
     }
     
     // MARK: - Helper Methods

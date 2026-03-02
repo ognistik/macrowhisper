@@ -1008,6 +1008,40 @@ func processDynamicPlaceholders(
                     let escapedValue = finalizePlaceholderValue(value)
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
+            }
+            
+            // Handle actionResult and actionResult:N
+            else if key == "actionResult" {
+                var index = 0
+                if match.numberOfRanges > 3,
+                   match.range(at: 3).location != NSNotFound,
+                   let indexRange = Range(match.range(at: 3), in: action) {
+                    let rawIndex = String(action[indexRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let parsed = Int(rawIndex), parsed >= 0 {
+                        index = parsed
+                    } else {
+                        result.replaceSubrange(fullMatchRange, with: "")
+                        continue
+                    }
+                }
+
+                let results = (metaJson["actionResults"] as? [String]) ?? ((metaJson["actionResults"] as? [Any])?.compactMap { $0 as? String } ?? [])
+                let fallback = metaJson["actionResult"] as? String
+                let value: String
+                if index < results.count {
+                    value = sanitizeContextPlaceholderValue(results[index])
+                } else if index == 0 {
+                    value = sanitizeContextPlaceholderValue(fallback ?? "")
+                } else {
+                    value = ""
+                }
+
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    let escapedValue = finalizePlaceholderValue(value)
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
             } else if let jsonValue = resolveMetaJsonValue(for: key, in: metaJson) {
                 let value = stringifyPlaceholderValue(for: key, jsonValue: jsonValue, metaJson: metaJson)
                 

@@ -33,14 +33,23 @@ swift build
 - Configure an insert with `inputCondition` and test watcher flow and CLI flow (`--exec-action`).
 - Verify both input states (inside and outside input field) for positive and negated tokens:
   - `restoreClipboard`, `!restoreClipboard`
+  - `restoreClipboardDelay`, `!restoreClipboardDelay`
   - `noEsc`, `!noEsc`
   - `nextAction`, `!nextAction`
   - `moveTo`, `!moveTo`
+  - `action`, `!action`
+  - `actionDelay`, `!actionDelay`
 - Verify strict validation behavior:
   - Invalid tokens, whitespace, empty segments (`||`), or malformed `!` should fail config validation.
   - A configuration error notification should be emitted and defaults used until fixed.
 - Verify sentinel compatibility:
   - `action: ".autoPaste"` and `action: ".none"` must ignore user sibling overrides and apply built-in hard templates.
+
+### Testing Script Wait Modes
+- For `shortcuts`, `scriptsShell`, and `scriptsAS` actions:
+  - `scriptAsync = true` should launch and continue chain immediately.
+  - `scriptAsync = false` should wait up to `scriptWaitTimeout` seconds.
+  - `{{actionResult}}` and `{{actionResult:N}}` should resolve stdout from prior synchronous script steps in the same execution group.
 
 ## Common Development Tasks
 

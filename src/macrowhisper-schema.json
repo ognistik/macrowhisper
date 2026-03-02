@@ -95,11 +95,28 @@
           "description": "Restore original clipboard content after action execution. null or omitted = use built-in default (true).",
           "default": true
         },
+        "restoreClipboardDelay": {
+          "type": ["number", "null"],
+          "description": "Delay in seconds before restoring clipboard at end of action flow. null or omitted = use built-in default (0.3).",
+          "minimum": 0,
+          "default": 0.3
+        },
         "scheduledActionTimeout": {
           "type": ["number", "null"],
           "description": "Timeout in seconds for auto-return and scheduled actions when no recording session is active (0 = no timeout, 5 = default). null or omitted = use built-in default (5).",
           "minimum": 0,
           "default": 5
+        },
+        "scriptAsync": {
+          "type": ["boolean", "null"],
+          "description": "Default execution mode for script-like actions (Shortcut/Shell/AppleScript). true launches asynchronously; false waits for completion up to scriptWaitTimeout. null or omitted = use built-in default (true).",
+          "default": true
+        },
+        "scriptWaitTimeout": {
+          "type": ["number", "null"],
+          "description": "Default timeout in seconds when scriptAsync is false. null or omitted = use built-in default (3.0).",
+          "minimum": 0,
+          "default": 3
         },
         "clipboardStacking": {
           "type": ["boolean", "null"],
@@ -234,6 +251,12 @@
           "description": "Override clipboard restoration setting for this action. null = use global default, true/false = explicit override.",
           "default": null
         },
+        "restoreClipboardDelay": {
+          "type": ["number", "null"],
+          "description": "Override clipboard restore delay for this action (seconds). null = use defaults.restoreClipboardDelay.",
+          "minimum": 0,
+          "default": null
+        },
         "nextAction": {
           "type": ["string", "null"],
           "description": "Action name to execute after this action completes. null or omitted = inherit defaults.nextAction. Empty string = explicit no next action.",
@@ -308,7 +331,7 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Insert-only conditional option gate. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Insert-only conditional option gate. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "restoreClipboard|moveTo",
@@ -341,7 +364,7 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for URL actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for URL actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "restoreClipboard|moveTo",
@@ -379,12 +402,23 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for shortcut actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for shortcut actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "restoreClipboard|nextAction",
                 "!action|!noEsc"
               ],
+              "default": null
+            },
+            "scriptAsync": {
+              "type": ["boolean", "null"],
+              "description": "Override async execution for this shortcut action. null = use defaults.scriptAsync.",
+              "default": null
+            },
+            "scriptWaitTimeout": {
+              "type": ["number", "null"],
+              "description": "Override timeout in seconds when scriptAsync is false for this shortcut action. null = use defaults.scriptWaitTimeout.",
+              "minimum": 0,
               "default": null
             }
           },
@@ -414,12 +448,23 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for shell actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for shell actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "noEsc|actionDelay",
                 "!action|!restoreClipboard"
               ],
+              "default": null
+            },
+            "scriptAsync": {
+              "type": ["boolean", "null"],
+              "description": "Override async execution for this shell action. null = use defaults.scriptAsync.",
+              "default": null
+            },
+            "scriptWaitTimeout": {
+              "type": ["number", "null"],
+              "description": "Override timeout in seconds when scriptAsync is false for this shell action. null = use defaults.scriptWaitTimeout.",
+              "minimum": 0,
               "default": null
             }
           },
@@ -449,12 +494,23 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for AppleScript actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for AppleScript actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "nextAction|moveTo",
                 "!noEsc|!action"
               ],
+              "default": null
+            },
+            "scriptAsync": {
+              "type": ["boolean", "null"],
+              "description": "Override async execution for this AppleScript action. null = use defaults.scriptAsync.",
+              "default": null
+            },
+            "scriptWaitTimeout": {
+              "type": ["number", "null"],
+              "description": "Override timeout in seconds when scriptAsync is false for this AppleScript action. null = use defaults.scriptWaitTimeout.",
+              "minimum": 0,
               "default": null
             }
           },

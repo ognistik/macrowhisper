@@ -809,6 +809,7 @@ class RecordingsFolderWatcher {
                     recordingPath: recordingPath,
                     metaJson: enhancedMetaJson,
                     restoreClipboard: configManager.config.defaults.restoreClipboard,
+                    restoreClipboardDelay: configManager.config.defaults.restoreClipboardDelay ?? 0.3,
                     onCompletion: { _ in
                         finalizeAfterAction(nil)
                     }
