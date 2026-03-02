@@ -1316,6 +1316,16 @@ class SocketCommunication {
             return text
         }
 
+        if isLikelySentenceBoundaryBeforeUppercaseRight(
+            leftCharacter: leftCharacter,
+            leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+            leftLinePrefix: leftLinePrefix,
+            rightCharacter: rightCharacter,
+            rightNonWhitespaceCharacter: rightNonWhitespaceCharacter
+        ) {
+            return text
+        }
+
         // Strip trailing punctuation only when we're inserting into ongoing word content.
         // This avoids stripping when only markdown/code delimiters are to the right.
         guard let rightNonWhitespaceCharacter = rightNonWhitespaceCharacter else {
@@ -1386,9 +1396,6 @@ class SocketCommunication {
         )
 
         if let first = updated.first {
-            let hasImmediateRightWhitespace = rightCharacter.map {
-                $0.isWhitespace && !$0.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) })
-            } ?? false
             let shouldInsertLeadingSpaceForMarkdownList =
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
                 !(leftCharacter?.isWhitespace ?? false)
@@ -1398,8 +1405,7 @@ class SocketCommunication {
             let startsWithBoundaryNeedingLeadingSpace = isWordCharacter(first) || isOpeningWrapperCharacter(first)
             let shouldInsertLeadingSpaceBeforeOpeningWrapper = (effectiveLeft.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
 
-            if !hasImmediateRightWhitespace &&
-                startsWithBoundaryNeedingLeadingSpace &&
+            if startsWithBoundaryNeedingLeadingSpace &&
                 (shouldInsertLeadingSpaceForMarkdownList ||
                  shouldInsertLeadingSpaceAfterWord ||
                  shouldInsertLeadingSpaceAfterPunctuation ||
@@ -1465,6 +1471,58 @@ class SocketCommunication {
             leftLinePrefix: leftLinePrefix
         ) ?? leftCharacter
         return !".!?".contains(effectiveLeft)
+    }
+
+    private func isLikelySentenceBoundaryBeforeUppercaseRight(
+        leftCharacter: Character?,
+        leftNonWhitespaceCharacter: Character?,
+        leftLinePrefix: String,
+        rightCharacter: Character?,
+        rightNonWhitespaceCharacter: Character?
+    ) -> Bool {
+        let effectiveRight: Character?
+        if let rightCharacter = rightCharacter, !rightCharacter.isWhitespace {
+            effectiveRight = rightCharacter
+        } else {
+            effectiveRight = rightNonWhitespaceCharacter
+        }
+
+        guard let right = effectiveRight else {
+            return false
+        }
+        let rightString = String(right)
+        guard rightString.rangeOfCharacter(from: .uppercaseLetters) != nil else {
+            return false
+        }
+
+        if let leftCharacter, let rightCharacter, isWordCharacter(leftCharacter), isWordCharacter(rightCharacter) {
+            return false
+        }
+
+        if isLineStartBoundary(leftCharacter) {
+            return true
+        }
+
+        if leftCharacter?.isWhitespace == true {
+            let effectiveLeft = effectiveLeftContextCharacter(
+                leftCharacter: leftNonWhitespaceCharacter,
+                leftLinePrefix: leftLinePrefix
+            )
+            guard let effectiveLeft else {
+                return false
+            }
+            return isWordCharacter(effectiveLeft) || isClosingWrapperCharacter(effectiveLeft) || ".,;:!?".contains(effectiveLeft)
+        }
+
+        let effectiveLeft = effectiveLeftContextCharacter(
+            leftCharacter: leftCharacter,
+            leftLinePrefix: leftLinePrefix
+        )
+        guard let effectiveLeft else {
+            return false
+        }
+
+        return ".,;:!?".contains(effectiveLeft) || isClosingWrapperCharacter(effectiveLeft)
     }
 
     private func effectiveLeftContextCharacter(

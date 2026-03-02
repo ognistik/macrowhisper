@@ -136,6 +136,24 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerVoice" : null
+    },
+    "titleCase" : {
+      "action" : "{{swResult::titleCase||\\.$||}}",
+      "actionDelay" : null,
+      "icon" : null,
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "noEsc" : null,
+      "pressReturn" : null,
+      "restoreClipboard" : null,
+      "restoreClipboardDelay" : null,
+      "simKeypress" : null,
+      "smartInsert" : null,
+      "triggerApps" : null,
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerVoice" : "title"
     }
   },
   "scriptsAS" : {
