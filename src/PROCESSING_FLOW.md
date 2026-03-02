@@ -299,7 +299,7 @@ insertAction()
 ```
 
 ### Corrected Timing Behavior:
-- **Clipboard Sync First**: Always wait up to `maxWaitTime (0.1s)` for Superwhisper, regardless of actionDelay
+- **Clipboard Sync First**: On the first action in a chain, wait up to `maxWaitTime (0.1s)` for Superwhisper unless recent clipboard activity allows skipping the wait
 - **ActionDelay Second**: Applied after clipboard synchronization is complete
 - **Independent Timing**: ActionDelay value does not affect clipboard synchronization logic
 
@@ -362,13 +362,13 @@ func executeNonInsertActionWithClipboardRestore(
 The clipboard synchronization system now follows the proper sequence:
 
 ```
-1. Extract swResult from metaJson
-2. Check if Superwhisper already placed swResult on clipboard
-3. If not, wait up to maxWaitTime (0.1s) for Superwhisper to do so
+1. For the first action in the chain, check for very recent session clipboard activity
+2. If recent activity exists, skip waiting (treat as Superwhisper already synced)
+3. Otherwise, wait up to maxWaitTime (0.1s) for clipboard activity
 4. Determine correct clipboard content to restore
 5. Apply actionDelay (user's setting)
 6. Simulate ESC key if enabled
-7. Execute insert action
+7. Execute action
 8. Restore clipboard content
 ```
 
