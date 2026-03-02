@@ -745,6 +745,11 @@ class SocketCommunication {
         pasteboard.setString(text, forType: .string)
     }
 
+    /// Prevents Macrowhisper clipboard writes from polluting clipboardContext capture.
+    private func suppressSelfClipboardCapture(_ text: String) {
+        clipboardMonitorRef?.suppressNextClipboardCapture(for: text)
+    }
+
     private typealias ParsedInputCondition = [String: Bool]
 
     private func resolveInsertForCLIExecution(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
@@ -1832,6 +1837,7 @@ class SocketCommunication {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
                 logDebug("Auto paste - not in input field, direct paste only")
+                suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
@@ -1871,6 +1877,7 @@ class SocketCommunication {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
             if !isInInputField() {
                 logInfo("CLI exec auto paste - not in input field, direct paste only")
+                suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return
@@ -1908,6 +1915,7 @@ class SocketCommunication {
             if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return false }
             if !isInInputField() {
                 logDebug("Clipboard-monitored auto paste - not in input field, direct paste only")
+                suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
                 checkAndSimulatePressReturn(activeInsert: activeInsert); return true
@@ -2141,6 +2149,7 @@ class SocketCommunication {
                 "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
             )
         }
+        suppressSelfClipboardCapture(text)
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         if shouldLogSmartInsertClipboard {
@@ -2167,6 +2176,7 @@ class SocketCommunication {
                 "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
             )
         }
+        suppressSelfClipboardCapture(text)
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         if shouldLogSmartInsertClipboard {

@@ -740,6 +740,10 @@ class RecordingsFolderWatcher {
                 enhancedMetaJson["selectedText"] = sessionSelectedText
             }
             
+            // Filter out recent system clipboard sync (Superwhisper) from clipboardContext capture
+            // before resolving placeholders, regardless of action type.
+            clipboardMonitor.markRecentClipboardActivityAsSystemSync(for: recordingPath)
+
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             let enableStacking = configManager.config.defaults.clipboardStacking
             let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(for: recordingPath, swResult: swResult, enableStacking: enableStacking)

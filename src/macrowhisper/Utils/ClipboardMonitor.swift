@@ -76,6 +76,7 @@ class ClipboardMonitor {
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
         let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (5s blackout period)
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
+        var ignoredClipboardChangeCounts: Set<Int> = []
     }
 
     private struct ExecutionGroup {
@@ -144,7 +145,15 @@ class ClipboardMonitor {
             guard let self else { return }
 
             let activeGroupId = self.executionGroups.values
-                .first { !$0.memberRecordingPaths.isEmpty }?
+                .filter { !$0.memberRecordingPaths.isEmpty || $0.pendingRestoreRecordingPath != nil }
+                .max { lhs, rhs in
+                    let lhsStart = self.earlyMonitoringSessions[lhs.rootRecordingPath]?.startTime ?? .distantPast
+                    let rhsStart = self.earlyMonitoringSessions[rhs.rootRecordingPath]?.startTime ?? .distantPast
+                    if lhsStart != rhsStart {
+                        return lhsStart < rhsStart
+                    }
+                    return lhs.id < rhs.id
+                }?
                 .id
 
             let groupId: String
@@ -154,7 +163,12 @@ class ClipboardMonitor {
             let effectivePreRecordingClipboardStack: [String]
 
             if let activeGroupId, var group = self.executionGroups[activeGroupId] {
+                let wasPendingRestoreWindow = group.memberRecordingPaths.isEmpty && group.pendingRestoreRecordingPath != nil
                 group.memberRecordingPaths.insert(recordingPath)
+                if wasPendingRestoreWindow {
+                    group.pendingRestoreRecordingPath = nil
+                    logDebug("[ClipboardMonitor] Joined pending restore execution group \(activeGroupId) for \(recordingPath); canceled prior pending restore timing")
+                }
                 self.executionGroups[activeGroupId] = group
                 self.recordingPathToGroupId[recordingPath] = activeGroupId
                 groupId = activeGroupId
@@ -244,6 +258,31 @@ class ClipboardMonitor {
             results = group.scriptResults
         }
         return results
+    }
+
+    /// Marks the most recent session clipboard operation in the recent-activity window
+    /// as system clipboard sync (e.g. Superwhisper) so it doesn't pollute clipboardContext.
+    func markRecentClipboardActivityAsSystemSync(for recordingPath: String, within window: TimeInterval? = nil) {
+        let effectiveWindow = max(0, window ?? recentClipboardActivityWindow)
+        guard effectiveWindow > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-effectiveWindow)
+
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            guard let self else { return }
+
+            var targetSessionPath = recordingPath
+            if let groupId = self.recordingPathToGroupId[recordingPath],
+               let group = self.executionGroups[groupId] {
+                targetSessionPath = group.rootRecordingPath
+            }
+
+            guard var session = self.earlyMonitoringSessions[targetSessionPath] else { return }
+            guard let recentChange = session.clipboardChanges.last(where: { $0.timestamp >= cutoff }) else { return }
+
+            session.ignoredClipboardChangeCounts.insert(recentChange.changeCount)
+            self.earlyMonitoringSessions[targetSessionPath] = session
+            logDebug("[ClipboardMonitor] Marked recent clipboard change as system sync for context filtering (changeCount: \(recentChange.changeCount))")
+        }
     }
     
     /// Marks that action execution is starting (enables clipboard change logging)
@@ -349,7 +388,6 @@ class ClipboardMonitor {
     func stopEarlyMonitoring(for recordingPath: String, onCompletion: (() -> Void)? = nil) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             guard let self else { return }
-            self.earlyMonitoringSessions[recordingPath]?.isActive = false
             guard let groupId = self.recordingPathToGroupId[recordingPath],
                   var group = self.executionGroups[groupId] else {
                 self.earlyMonitoringSessions.removeValue(forKey: recordingPath)
@@ -359,8 +397,18 @@ class ClipboardMonitor {
 
             group.memberRecordingPaths.remove(recordingPath)
             let shouldFinalize = group.memberRecordingPaths.isEmpty
-            let shouldPreserveRootContext = !shouldFinalize && (recordingPath == group.rootRecordingPath)
-            if !shouldPreserveRootContext {
+            let isRootRecording = recordingPath == group.rootRecordingPath
+            let shouldPreserveRootContext = isRootRecording && (!shouldFinalize || group.pendingRestoreRecordingPath != nil)
+
+            if shouldPreserveRootContext {
+                if var rootSession = self.earlyMonitoringSessions[recordingPath] {
+                    // Keep root session alive while overlap/pending-restore chain is still active.
+                    rootSession.isActive = true
+                    rootSession.isExecutingAction = false
+                    self.earlyMonitoringSessions[recordingPath] = rootSession
+                }
+            } else {
+                self.earlyMonitoringSessions[recordingPath]?.isActive = false
                 self.earlyMonitoringSessions.removeValue(forKey: recordingPath)
                 self.recordingPathToGroupId.removeValue(forKey: recordingPath)
             }
@@ -381,9 +429,37 @@ class ClipboardMonitor {
             return
         }
 
-        let completeCleanup: () -> Void = { [weak self] in
+        let completeCleanup: (_ clipboardToRestore: String?, _ shouldRestore: Bool) -> Void = { [weak self] clipboardToRestore, shouldRestore in
             guard let self else { return }
             self.sessionsQueue.async(flags: .barrier) {
+                guard let currentGroup = self.executionGroups[groupId] else {
+                    DispatchQueue.main.async { onCompletion?() }
+                    return
+                }
+
+                if let expectedPath = group.pendingRestoreRecordingPath {
+                    guard currentGroup.memberRecordingPaths.isEmpty,
+                          currentGroup.pendingRestoreRecordingPath == expectedPath else {
+                        DispatchQueue.main.async { onCompletion?() }
+                        return
+                    }
+                }
+
+                // Ensure global clipboard history is reset after the final overlap/chain completion.
+                self.globalHistoryQueue.async(flags: .barrier) { [weak self] in
+                    guard let self = self else { return }
+                    let cleanedGlobalEntries = self.globalClipboardHistory.count
+                    self.globalClipboardHistory.removeAll()
+                    self.lastSeenClipboardContent = nil
+                    self.lastSeenChangeCount = 0
+                    self.isFirstGlobalCheck = true
+                    if cleanedGlobalEntries > 0 {
+                        DispatchQueue.main.async {
+                            logDebug("[ClipboardMonitor] FULL RESET: Cleaned up \(cleanedGlobalEntries) global history entries after execution group finalization")
+                        }
+                    }
+                }
+
                 let staleRecordingPaths = self.recordingPathToGroupId
                     .filter { $0.value == groupId }
                     .map { $0.key }
@@ -392,19 +468,24 @@ class ClipboardMonitor {
                     self.earlyMonitoringSessions.removeValue(forKey: path)
                 }
                 self.executionGroups.removeValue(forKey: groupId)
+
                 DispatchQueue.main.async {
+                    if shouldRestore {
+                        self.restoreCorrectClipboard(clipboardToRestore)
+                    }
                     onCompletion?()
                 }
             }
         }
 
         if group.pendingRestoreRecordingPath != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + group.pendingRestoreDelay) { [weak self] in
-                self?.restoreCorrectClipboard(group.rootOriginalClipboard)
-                completeCleanup()
+            let restoreDelay = max(0, group.pendingRestoreDelay)
+            let clipboardToRestore = group.rootOriginalClipboard
+            DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) {
+                completeCleanup(clipboardToRestore, true)
             }
         } else {
-            completeCleanup()
+            completeCleanup(nil, false)
         }
     }
 
@@ -423,6 +504,7 @@ class ClipboardMonitor {
                 group.pendingRestoreDelay = max(0, restoreDelay)
                 group.pendingCleanupDelay = max(0, restoreDelay + CLIPBOARD_CLEANUP_GRACE)
             } else {
+                group.pendingRestoreRecordingPath = nil
                 group.pendingCleanupDelay = max(group.pendingCleanupDelay, CLIPBOARD_CLEANUP_GRACE)
             }
             self.executionGroups[groupId] = group
@@ -447,9 +529,12 @@ class ClipboardMonitor {
         let normalizedSwResult = sanitizeContextPlaceholderValue(swResult)
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
+            let filteredChanges = session.clipboardChanges.filter { change in
+                !session.ignoredClipboardChangeCounts.contains(change.changeCount)
+            }
             
             // Priority 1: Return the last clipboard change during the session (maintains current behavior)
-            if let lastChange = session.clipboardChanges.last {
+            if let lastChange = filteredChanges.last {
                 clipboardContent = sanitizeContextPlaceholderValue(lastChange.content ?? "")
                 if clipboardContent == normalizedSwResult {
                     clipboardContent = ""
@@ -503,6 +588,9 @@ class ClipboardMonitor {
             
             // Then collect all clipboard changes during the session (excluding swResult)
             for change in session.clipboardChanges {
+                if session.ignoredClipboardChangeCounts.contains(change.changeCount) {
+                    continue
+                }
                 if let content = change.content {
                     let normalized = sanitizeContextPlaceholderValue(content)
                     if !normalized.isEmpty && normalized != normalizedSwResult {
@@ -573,7 +661,10 @@ class ClipboardMonitor {
         }
 
         if !enableStacking {
-            if let lastChange = activeSession.clipboardChanges.last,
+            let filteredChanges = activeSession.clipboardChanges.filter { change in
+                !activeSession.ignoredClipboardChangeCounts.contains(change.changeCount)
+            }
+            if let lastChange = filteredChanges.last,
                let content = lastChange.content {
                 let normalized = sanitizeContextPlaceholderValue(content)
                 if !normalized.isEmpty {
@@ -602,6 +693,9 @@ class ClipboardMonitor {
         }
 
         for change in activeSession.clipboardChanges {
+            if activeSession.ignoredClipboardChangeCounts.contains(change.changeCount) {
+                continue
+            }
             if let content = change.content {
                 let normalized = sanitizeContextPlaceholderValue(content)
                 if !normalized.isEmpty {
@@ -1377,6 +1471,7 @@ class ClipboardMonitor {
     private func restoreCorrectClipboard(_ clipboardToRestore: String?) {
         let pasteboard = NSPasteboard.general
         if let contentToRestore = clipboardToRestore {
+            suppressNextClipboardCapture(for: contentToRestore, duration: 1.5)
             pasteboard.clearContents()
             pasteboard.setString(contentToRestore, forType: .string)
             logDebug("[ClipboardMonitor] Restored clipboard content captured at session start")

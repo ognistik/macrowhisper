@@ -19,7 +19,7 @@
     "pressReturn" : false,
     "redactedLogs" : false,
     "restoreClipboard" : true,
-    "restoreClipboardDelay" : null,
+    "restoreClipboardDelay" : 3,
     "returnDelay" : 0.15,
     "scheduledActionTimeout" : 10,
     "scriptAsync" : null,
@@ -84,27 +84,9 @@
       "triggerVoice" : null
     },
     "pasteResult" : {
-      "action" : "{{swResult::lowercase||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
+      "action" : "NEW SESSION: the clipboard: {{clipboardContext}}\n\ndictation: {{swResult}}",
       "actionDelay" : 0,
       "icon" : "⏎",
-      "inputCondition" : null,
-      "moveTo" : null,
-      "nextAction" : null,
-      "noEsc" : null,
-      "pressReturn" : null,
-      "restoreClipboard" : null,
-      "restoreClipboardDelay" : null,
-      "simKeypress" : null,
-      "smartInsert" : null,
-      "triggerApps" : null,
-      "triggerLogic" : "or",
-      "triggerModes" : null,
-      "triggerVoice" : null
-    },
-    "scresult" : {
-      "action" : "The result: {{actionResult}}",
-      "actionDelay" : null,
-      "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
       "nextAction" : null,
@@ -210,23 +192,6 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerVoice" : "Make note"
-    },
-    "test" : {
-      "action" : ".run",
-      "actionDelay" : null,
-      "icon" : null,
-      "inputCondition" : null,
-      "moveTo" : null,
-      "nextAction" : "",
-      "noEsc" : null,
-      "restoreClipboard" : null,
-      "restoreClipboardDelay" : null,
-      "scriptAsync" : false,
-      "scriptWaitTimeout" : null,
-      "triggerApps" : null,
-      "triggerLogic" : "or",
-      "triggerModes" : null,
-      "triggerVoice" : ""
     }
   },
   "urls" : {
