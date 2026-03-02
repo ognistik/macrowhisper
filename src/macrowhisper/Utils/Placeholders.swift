@@ -1136,18 +1136,39 @@ func applyFinalEscaping(value: String, prefixType: String?, actionType: ActionTy
 /// - Returns: The string with all regex replacements applied
 func applyRegexReplacements(to input: String, replacements: [(regex: String, replacement: String)]) -> String {
     var result = input
+    var changedRules = 0
     
-    for (regexPattern, replacement) in replacements {
+    for (index, replacementRule) in replacements.enumerated() {
+        let regexPattern = replacementRule.regex
+        let replacement = replacementRule.replacement
         do {
             let regex = try NSRegularExpression(pattern: regexPattern, options: [])
             let range = NSRange(result.startIndex..., in: result)
             let beforeReplace = result
             result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: replacement)
-            logDebug("[RegexReplacement] Pattern: \(redactForLogs(regexPattern)) | Replacement: \(redactForLogs(replacement)) | Before: \(redactForLogs(beforeReplace)) | After: \(redactForLogs(result))")
+            let changed = beforeReplace != result
+            if changed {
+                changedRules += 1
+            }
+            if changed || isVerboseLogDetailEnabled() {
+                logDebug(
+                    "[RegexReplacement] Rule \(index + 1)/\(replacements.count) changed=\(changed) " +
+                    "inputLen=\(beforeReplace.count) outputLen=\(result.count) " +
+                    "pattern=\(summarizeForLogs(regexPattern, maxPreview: 80)) " +
+                    "replacement=\(summarizeForLogs(replacement, maxPreview: 80))"
+                )
+            }
         } catch {
             // If regex compilation fails, log the error but continue with other replacements
             logError("[RegexReplacement] Invalid regex pattern \(redactForLogs(regexPattern)): \(error.localizedDescription)")
         }
+    }
+
+    if !replacements.isEmpty {
+        logDebug(
+            "[RegexReplacement] Summary rulesTotal=\(replacements.count) " +
+            "rulesChanged=\(changedRules) inputLen=\(input.count) outputLen=\(result.count)"
+        )
     }
     
     return result

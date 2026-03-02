@@ -1490,10 +1490,13 @@ while i < args.count {
 // Apply verbose logging setting if requested
 if verboseLogging {
     logger.setConsoleLogLevel(.debug)
+    logDetailMode = .verbose
     logInfo("Verbose logging enabled - debug messages will be shown in console")
     // Treat --verbose as explicit operator intent to see full diagnostic output.
     redactedLogsEnabled = false
     logInfo("Verbose mode override: log redaction disabled for this run")
+} else {
+    logDetailMode = .normal
 }
 
 // Initialize configuration manager with the specified path

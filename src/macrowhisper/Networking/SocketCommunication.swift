@@ -1198,15 +1198,15 @@ class SocketCommunication {
         let rightChar = context.rightCharacter.map { String($0) } ?? "nil"
         let rightNonWs = context.rightNonWhitespaceCharacter.map { String($0) } ?? "nil"
         logDebug(
-            "[SmartInsert] Context left=\(redactForLogs(leftChar)) leftNonWs=\(redactForLogs(leftNonWs)) " +
-            "right=\(redactForLogs(rightChar)) rightNonWs=\(redactForLogs(rightNonWs)) " +
+            "[SmartInsert] Context left=\(summarizeForLogs(leftChar, maxPreview: 40)) leftNonWs=\(summarizeForLogs(leftNonWs, maxPreview: 40)) " +
+            "right=\(summarizeForLogs(rightChar, maxPreview: 40)) rightNonWs=\(summarizeForLogs(rightNonWs, maxPreview: 40)) " +
             "rightHasLineBreak=\(context.rightHasLineBreakBeforeNextNonWhitespace) " +
-            "linePrefix=\(redactForLogs(context.leftLinePrefix))"
+            "linePrefix=\(summarizeForLogs(context.leftLinePrefix, maxPreview: 80))"
         )
-        logDebug("[SmartInsert] Text before: \(redactForLogs(original)) | after: \(redactForLogs(resolved))")
+        logDebug("[SmartInsert] Text before: \(summarizeForLogs(original, maxPreview: 120)) | after: \(summarizeForLogs(resolved, maxPreview: 120))")
         logDebug(
             "[SmartInsert] After stats: len=\(resolved.count) leadingSpaces=\(countLeadingSpaces(resolved)) " +
-            "visible=\(redactForLogs(visibleWhitespace(resolved)))"
+            "visible=\(summarizeForLogs(visibleWhitespace(resolved), maxPreview: 120))"
         )
         if hadSmartCasingBlockingTransform {
             logDebug("[SmartInsert] Smart casing disabled because a smart-casing-blocking placeholder transform was detected")
@@ -1936,6 +1936,7 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url).text
+        logDebug("[URL-CLI] Processed action: \(summarizeForLogs(processedAction, maxPreview: 120))")
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[URL-CLI] Action is empty or '.none' - skipping URL execution")
@@ -1945,7 +1946,7 @@ class SocketCommunication {
         // Try to create URL directly from processed action
         // Placeholders are now URL-encoded individually during processing
         guard let url = URL(string: processedAction) else {
-            logError("Invalid URL after processing: \(redactForLogs(processedAction))")
+            logError("Invalid URL after processing: \(summarizeForLogs(processedAction, maxPreview: 120))")
             return
         }
         
@@ -1986,7 +1987,7 @@ class SocketCommunication {
         }
         do {
             try task.run()
-            logDebug("URL opened \(inBackground ? "in background" : "normally") via CLI: \(redactForLogs(url.absoluteString))")
+            logDebug("URL opened \(inBackground ? "in background" : "normally") via CLI: \(summarizeForLogs(url.absoluteString, maxPreview: 120))")
         } catch {
             logError("Failed to open URL \(inBackground ? "in background" : "normally") via CLI: \(error)")
             // Ultimate fallback to standard opening
@@ -1999,6 +2000,7 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut).text
+        logDebug("[Shortcut-CLI] Processed action: \(summarizeForLogs(processedAction, maxPreview: 120))")
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if normalized == ".run" {
@@ -2050,6 +2052,7 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell).text
+        logDebug("[Shell-CLI] Processed action: \(summarizeForLogs(processedAction, maxPreview: 120))")
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[Shell-CLI] Action is empty or '.none' - skipping shell execution")
@@ -2074,6 +2077,7 @@ class SocketCommunication {
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
         
         let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript).text
+        logDebug("[AppleScript-CLI] Processed action: \(summarizeForLogs(processedAction, maxPreview: 120))")
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[AppleScript-CLI] Action is empty or '.none' - skipping AppleScript execution")
@@ -2146,7 +2150,7 @@ class SocketCommunication {
         if shouldLogSmartInsertClipboard {
             logDebug(
                 "[SmartInsert] Clipboard insert payload (restore): len=\(text.count) " +
-                "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
+                "leadingSpaces=\(countLeadingSpaces(text)) visible=\(summarizeForLogs(visibleWhitespace(text), maxPreview: 120))"
             )
         }
         suppressSelfClipboardCapture(text)
@@ -2156,7 +2160,7 @@ class SocketCommunication {
             let confirm = pasteboard.string(forType: .string) ?? ""
             logDebug(
                 "[SmartInsert] Pasteboard confirmed (restore): len=\(confirm.count) " +
-                "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
+                "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(summarizeForLogs(visibleWhitespace(confirm), maxPreview: 120))"
             )
         }
         simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
@@ -2173,7 +2177,7 @@ class SocketCommunication {
         if shouldLogSmartInsertClipboard {
             logDebug(
                 "[SmartInsert] Clipboard insert payload (no-restore): len=\(text.count) " +
-                "leadingSpaces=\(countLeadingSpaces(text)) visible=\(redactForLogs(visibleWhitespace(text)))"
+                "leadingSpaces=\(countLeadingSpaces(text)) visible=\(summarizeForLogs(visibleWhitespace(text), maxPreview: 120))"
             )
         }
         suppressSelfClipboardCapture(text)
@@ -2183,7 +2187,7 @@ class SocketCommunication {
             let confirm = pasteboard.string(forType: .string) ?? ""
             logDebug(
                 "[SmartInsert] Pasteboard confirmed (no-restore): len=\(confirm.count) " +
-                "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(redactForLogs(visibleWhitespace(confirm)))"
+                "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(summarizeForLogs(visibleWhitespace(confirm), maxPreview: 120))"
             )
         }
         simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V

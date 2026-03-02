@@ -1180,11 +1180,17 @@ class ActionExecutor {
     }
     
     // MARK: - Action Processing Methods
+
+    private func logProcessedActionPreview(_ actionType: String, value: String) {
+        let payload = summarizeForLogs(value, maxPreview: 120)
+        logDebug("[\(actionType)] Processed action: \(payload)")
+    }
     
     private func processUrlAction(_ urlAction: AppConfiguration.Url, metaJson: [String: Any]) -> Bool {
         // Process the URL action with both XML and dynamic placeholders
         // Placeholders are now URL-encoded individually during processing
         let processedAction = processAllPlaceholders(action: urlAction.action, metaJson: metaJson, actionType: .url).text
+        logProcessedActionPreview("UrlAction", value: processedAction)
 
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
@@ -1194,7 +1200,7 @@ class ActionExecutor {
         
         // Try to create URL directly from processed action
         guard let url = URL(string: processedAction) else {
-            logError("Invalid URL after processing: \(redactForLogs(processedAction))")
+            logError("Invalid URL after processing: \(summarizeForLogs(processedAction, maxPreview: 120))")
             return false
         }
         
@@ -1242,7 +1248,7 @@ class ActionExecutor {
         }
         do {
             try task.run()
-            logDebug("URL opened \(inBackground ? "in background" : "normally"): \(redactForLogs(url.absoluteString))")
+            logDebug("URL opened \(inBackground ? "in background" : "normally"): \(summarizeForLogs(url.absoluteString, maxPreview: 120))")
             return true
         } catch {
             logError("Failed to open URL \(inBackground ? "in background" : "normally"): \(error)")
@@ -1260,8 +1266,7 @@ class ActionExecutor {
         scriptWaitTimeout: TimeInterval
     ) -> Bool {
         let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut).text
-        
-        logDebug("[ShortcutAction] Processed action before sending to shortcuts: \(redactForLogs(processedAction))")
+        logProcessedActionPreview("ShortcutAction", value: processedAction)
         
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized == ".run" {
@@ -1332,6 +1337,7 @@ class ActionExecutor {
         scriptWaitTimeout: TimeInterval
     ) -> Bool {
         let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell).text
+        logProcessedActionPreview("ShellAction", value: processedAction)
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[ShellAction] Action is empty or '.none' - skipping shell execution")
@@ -1359,6 +1365,7 @@ class ActionExecutor {
         scriptWaitTimeout: TimeInterval
     ) -> Bool {
         let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript).text
+        logProcessedActionPreview("AppleScriptAction", value: processedAction)
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[AppleScriptAction] Action is empty or '.none' - skipping AppleScript execution")

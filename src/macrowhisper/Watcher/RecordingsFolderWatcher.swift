@@ -679,7 +679,7 @@ class RecordingsFolderWatcher {
                 if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
                     // In LLM mode, llmResult is sufficient for processing.
                     // Trigger voice matching still runs against result and will simply not match when result is empty.
-                    logDebug("[Validation] Passed validation with languageModelName present. llmResult=\(redactForLogs(llmResultString))")
+                    logDebug("[Validation] Passed validation with languageModelName present. llmResult=\(summarizeForLogs(llmResultString, maxPreview: 120))")
                 } else {
                     logDebug("llmResult is empty in meta.json for \(recordingPath), watching for updates.")
                     // Watch for changes to the meta.json file
@@ -700,7 +700,7 @@ class RecordingsFolderWatcher {
                 // result must be a non-empty string
                 if let resultString = result as? String, !resultString.isEmpty {
                     // result is valid, continue processing
-                    logDebug("[Validation] Passed validation without languageModelName. result=\(redactForLogs(resultString))")
+                    logDebug("[Validation] Passed validation without languageModelName. result=\(summarizeForLogs(resultString, maxPreview: 120))")
                 } else {
                     logDebug("result is empty in meta.json for \(recordingPath), watching for updates.")
                     // Watch for changes to the meta.json file
@@ -883,9 +883,18 @@ class RecordingsFolderWatcher {
             let resultText = enhancedMetaJson["result"] as? String ?? ""
 
             // Diagnostic logging for trigger evaluation
-            logDebug("[TriggerEval] Extracted resultText for matching: \(redactForLogs(resultText)) (length: \(resultText.count))")
-            logDebug("[TriggerEval] result field value: \(redactAnyForLogs(enhancedMetaJson["result"]))")
-            logDebug("[TriggerEval] llmResult field value: \(redactAnyForLogs(enhancedMetaJson["llmResult"]))")
+            if isVerboseLogDetailEnabled() {
+                logDebug(
+                    "[TriggerEval] Inputs resultText=\(summarizeForLogs(resultText, maxPreview: 120)) " +
+                    "resultField=\(summarizeAnyForLogs(enhancedMetaJson["result"], maxPreview: 120)) " +
+                    "llmResultField=\(summarizeAnyForLogs(enhancedMetaJson["llmResult"], maxPreview: 120))"
+                )
+            } else {
+                logDebug(
+                    "[TriggerEval] Input summary resultTextLen=\(resultText.count) " +
+                    "hasResult=\(enhancedMetaJson["result"] != nil) hasLlmResult=\(enhancedMetaJson["llmResult"] != nil)"
+                )
+            }
 
             let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
                 configManager: configManager,
@@ -940,7 +949,7 @@ class RecordingsFolderWatcher {
                             )
                             if let strippedLlm = strippedLlmResult {
                                 updatedJson["llmResult"] = strippedLlm
-                                logDebug("[TriggerAction] Stripped trigger from llmResult: \(redactForLogs(llmResult)) -> \(redactForLogs(strippedLlm))")
+                                logDebug("[TriggerAction] Stripped trigger from llmResult: \(summarizeForLogs(llmResult, maxPreview: 120)) -> \(summarizeForLogs(strippedLlm, maxPreview: 120))")
                             }
                         }
                     }
@@ -1144,7 +1153,10 @@ class RecordingsFolderWatcher {
     private func cleanupPendingWatcher(for path: String) {
         queue.async { [weak self] in
             guard let self = self else { return }
-            
+            let hadMetaWatcher = self.pendingMetaJsonFiles[path] != nil
+            let hadAudioWatcher = self.pendingAudioFileWatchers[path] != nil
+            let previousTotal = self.pendingMetaJsonFiles.count + self.pendingAudioFileWatchers.count
+
             // Clean up meta.json watcher if it exists for this path
             if let watcher = self.pendingMetaJsonFiles[path] {
                 watcher.cancel()
@@ -1159,8 +1171,8 @@ class RecordingsFolderWatcher {
                 self.recordingHadWavFiles.removeValue(forKey: path)
                 logDebug("Cleaned up pending audio watcher for path: \(path)")
             }
-            
-            if self.pendingMetaJsonFiles[path] == nil && self.pendingAudioFileWatchers[path] == nil {
+
+            if !hadMetaWatcher && !hadAudioWatcher && isVerboseLogDetailEnabled() {
                 logDebug("No pending watchers found for path: \(path)")
             }
             
@@ -1171,7 +1183,7 @@ class RecordingsFolderWatcher {
             
             if totalRemaining > 0 {
                 logDebug("Remaining pending watchers: \(totalRemaining) (\(remainingMetaCount) meta, \(remainingAudioCount) audio)")
-            } else {
+            } else if previousTotal > 0 {
                 logDebug("All pending watchers cleaned up - no active recording sessions")
             }
         }

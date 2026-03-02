@@ -118,6 +118,24 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerVoice" : null
+    },
+    "terminals" : {
+      "action" : "{{swResult||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1||`||}}",
+      "actionDelay" : null,
+      "icon" : null,
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "noEsc" : null,
+      "pressReturn" : null,
+      "restoreClipboard" : null,
+      "restoreClipboardDelay" : null,
+      "simKeypress" : null,
+      "smartInsert" : null,
+      "triggerApps" : "Terminal|Ghostty",
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerVoice" : null
     }
   },
   "scriptsAS" : {

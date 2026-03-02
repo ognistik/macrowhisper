@@ -3,6 +3,16 @@ import Foundation
 var suppressConsoleLogging = false
 var redactedLogsEnabled = true
 
+enum LogDetailMode {
+    case normal
+    case verbose
+}
+
+var logDetailMode: LogDetailMode = .normal
+
+private let logSuppressionQueue = DispatchQueue(label: "com.macrowhisper.logsuppression")
+private var rateLimitedLogState: [String: Date] = [:]
+
 class Logger {
     private let logFilePath: String
     private let maxLogSize: Int = 5 * 1024 * 1024 // 5 MB in bytes
@@ -168,7 +178,11 @@ func logError(_ message: String) {
 
 func logDebug(_ message: String) {
     logger.log(message, level: .debug)
-} 
+}
+
+func isVerboseLogDetailEnabled() -> Bool {
+    logDetailMode == .verbose
+}
 
 func redactForLogs(_ value: String?) -> String {
     guard let value = value else {
@@ -194,4 +208,51 @@ func redactAnyForLogs(_ value: Any?) -> String {
         return String(describing: value)
     }
     return "[REDACTED]"
+}
+
+func summarizeForLogs(_ value: String?, maxPreview: Int = 160) -> String {
+    guard let value = value else {
+        return "nil"
+    }
+    if redactedLogsEnabled {
+        return value.isEmpty ? "[REDACTED empty]" : "[REDACTED len=\(value.count)]"
+    }
+    let sanitized = value
+        .replacingOccurrences(of: "\n", with: "\\n")
+        .replacingOccurrences(of: "\t", with: "\\t")
+    let limitedPreview: String
+    if sanitized.count > maxPreview {
+        limitedPreview = String(sanitized.prefix(maxPreview))
+    } else {
+        limitedPreview = sanitized
+    }
+    let truncated = sanitized.count > maxPreview
+    return "[len=\(value.count) truncated=\(truncated) preview=\"\(limitedPreview)\"]"
+}
+
+func summarizeAnyForLogs(_ value: Any?, maxPreview: Int = 160) -> String {
+    guard let value = value else {
+        return "nil"
+    }
+    if let stringValue = value as? String {
+        return summarizeForLogs(stringValue, maxPreview: maxPreview)
+    }
+    if value is NSNull {
+        return "null"
+    }
+    if !redactedLogsEnabled {
+        return String(describing: value)
+    }
+    return "[REDACTED]"
+}
+
+func shouldEmitRateLimitedLog(key: String, cooldown: TimeInterval) -> Bool {
+    logSuppressionQueue.sync {
+        let now = Date()
+        if let lastEmitted = rateLimitedLogState[key], now.timeIntervalSince(lastEmitted) < cooldown {
+            return false
+        }
+        rateLimitedLogState[key] = now
+        return true
+    }
 }

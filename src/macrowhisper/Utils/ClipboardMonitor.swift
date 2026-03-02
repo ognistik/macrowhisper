@@ -62,6 +62,12 @@ class ClipboardMonitor {
     private var cleanupTimer: Timer? // Periodic cleanup timer to prevent memory growth
     private var executionGroups: [String: ExecutionGroup] = [:]
     private var recordingPathToGroupId: [String: String] = [:]
+
+    private func logNoContentIfNeeded(_ key: String, _ message: String) {
+        if shouldEmitRateLimitedLog(key: "ClipboardMonitor.\(key)", cooldown: 3.0) {
+            logDebug(message)
+        }
+    }
     
     private struct EarlyMonitoringSession {
         let groupId: String
@@ -567,7 +573,10 @@ class ClipboardMonitor {
             }
             
             // If we reach here, no clipboard content found (will return empty string)
-            logDebug("[ClipboardMonitor] No clipboard content found (no session changes, no pre-recording content within buffer window)")
+            logNoContentIfNeeded(
+                "session_no_content",
+                "[ClipboardMonitor] No clipboard content found (no session changes, no pre-recording content within buffer window)"
+            )
         }
         return sanitizeContextPlaceholderValue(clipboardContent)
     }
@@ -618,7 +627,7 @@ class ClipboardMonitor {
         
         // Format the result based on number of clipboard changes
         if allClipboardChanges.isEmpty {
-            logDebug("[ClipboardMonitor] No clipboard content found for stacking")
+            logNoContentIfNeeded("session_stacking_no_content", "[ClipboardMonitor] No clipboard content found for stacking")
             return ""
         } else if allClipboardChanges.count == 1 {
             // Single clipboard change - return without XML tags (maintains current behavior)
@@ -756,10 +765,16 @@ class ClipboardMonitor {
                     recentContent = mostRecent.content ?? ""
                     logDebug("[ClipboardMonitor] Using recent clipboard content from \(String(format: "%.1f", timeSinceLastChange))s ago for CLI context")
                 } else {
-                    logDebug("[ClipboardMonitor] Last clipboard change was \(String(format: "%.1f", timeSinceLastChange))s ago (older than buffer)")
+                    logNoContentIfNeeded(
+                        "cli_context_too_old",
+                        "[ClipboardMonitor] Last clipboard change was \(String(format: "%.1f", timeSinceLastChange))s ago (older than buffer)"
+                    )
                 }
             } else {
-                logDebug("[ClipboardMonitor] No clipboard changes found in global history for CLI context")
+                logNoContentIfNeeded(
+                    "cli_context_no_history",
+                    "[ClipboardMonitor] No clipboard changes found in global history for CLI context"
+                )
             }
         }
         
@@ -806,7 +821,10 @@ class ClipboardMonitor {
         
         // Format the result based on number of clipboard changes
         if allClipboardChanges.isEmpty {
-            logDebug("[ClipboardMonitor] No clipboard content found in global history for CLI stacking")
+            logNoContentIfNeeded(
+                "cli_stacking_no_history",
+                "[ClipboardMonitor] No clipboard content found in global history for CLI stacking"
+            )
             return ""
         } else if allClipboardChanges.count == 1 {
             // Single clipboard change - return without XML tags (maintains current behavior)
@@ -848,7 +866,10 @@ class ClipboardMonitor {
                 let timeBeforeRecording = sessionStartTime.timeIntervalSince(mostRecent.timestamp)
                 logDebug("[ClipboardMonitor] Using pre-recording clipboard change from \(String(format: "%.1f", timeBeforeRecording))s before recording")
             } else {
-                logDebug("[ClipboardMonitor] No clipboard changes found within buffer window before recording started")
+                logNoContentIfNeeded(
+                    "pre_recording_no_history",
+                    "[ClipboardMonitor] No clipboard changes found within buffer window before recording started"
+                )
             }
         }
         
@@ -887,7 +908,10 @@ class ClipboardMonitor {
                 let timeBeforeRecording = sessionStartTime.timeIntervalSince(preRecordingChanges.first?.timestamp ?? sessionStartTime)
                 logDebug("[ClipboardMonitor] Using \(clipboardStack.count) pre-recording clipboard changes from up to \(String(format: "%.1f", timeBeforeRecording))s before recording")
             } else {
-                logDebug("[ClipboardMonitor] No clipboard changes found within buffer window before recording started for stacking")
+                logNoContentIfNeeded(
+                    "pre_recording_stack_no_history",
+                    "[ClipboardMonitor] No clipboard changes found within buffer window before recording started for stacking"
+                )
             }
         }
         
