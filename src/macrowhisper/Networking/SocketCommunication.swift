@@ -1334,7 +1334,7 @@ class SocketCommunication {
         if rightHasLineBreakBeforeNextNonWhitespace {
             return text
         }
-        guard isWordCharacter(rightNonWhitespaceCharacter) else {
+        guard isWordCharacter(rightNonWhitespaceCharacter) || isInlineContinuationDelimiter(rightNonWhitespaceCharacter) else {
             return text
         }
 
@@ -1920,6 +1920,10 @@ class SocketCommunication {
 
     private func isClosingWrapperCharacter(_ character: Character) -> Bool {
         ")]}\"".contains(character)
+    }
+
+    private func isInlineContinuationDelimiter(_ character: Character) -> Bool {
+        "-–—".contains(character)
     }
 
     // This version is for the main watcher flow and respects the 'noEsc' setting
