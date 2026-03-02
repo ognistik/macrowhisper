@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "autoPaste",
+    "activeAction" : "pasteResult",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 3,
@@ -84,7 +84,7 @@
       "triggerVoice" : null
     },
     "pasteResult" : {
-      "action" : "{{swResult::ensureSentence||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
+      "action" : "{{swResult||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
       "actionDelay" : 0,
       "icon" : "⏎",
       "inputCondition" : null,

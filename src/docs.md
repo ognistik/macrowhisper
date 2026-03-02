@@ -577,7 +577,7 @@ Null behavior at `defaults` level:
 | `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
 | `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
 
-*By default, `actionDelay` is set to 0, but some actions (like triggering URLs or scripts) can happen faster than Superwhisper's popup appears with the result. **If you notice Superwhisper's recording window isn't closing correctly, you might need to adjust this value.** I personally prefer setting `actionDelay` to 0 for insert actions since it makes things very responsive. Though, at the default level, I have it with 0.02 for all other action types.*
+*By default, `actionDelay` is set to 0, but some actions (like triggering URLs or scripts) can happen faster than Superwhisper's popup appears with the result. **If you notice Superwhisper's recording window isn't closing correctly, you might need to adjust this value.**
 
 ### Validation rules involving defaults
 
@@ -1347,10 +1347,7 @@ In simple terms:
 - Macrowhisper prioritizes speed. It launches actions quickly so users can dictate again right away.
 - For Shell, AppleScript, and Shortcut actions, default behavior is async launch, but you can opt into sync wait with `scriptAsync: false`.
 - Clipboard restore timing is controlled by `restoreClipboardDelay` (final chain step), and in sync mode restoration can happen after script completion/timeout.
-- Because of that, clipboard state may still change after launch if external tools/scripts keep writing to clipboard.
-- Clipboard restoration mainly cleans up what Macrowhisper/Superwhisper touched during execution windows.
-
-*Currently there is no way to prevent Superwhisper's use of clipboard, so there's a whole system in place to prevent clipboard contamination for `{{clipboardContext}}` . This, in iself, is related to clipboard buffer capture. Adding delay to action execution and therefore adding delay to clipboard restoration adds complexity and more edge cases.*
+  
 ---
 
 ## 16) Recording File Handling (`moveTo`, `history`)
