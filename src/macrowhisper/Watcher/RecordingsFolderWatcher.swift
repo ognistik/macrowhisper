@@ -734,19 +734,27 @@ class RecordingsFolderWatcher {
                 enhancedMetaJson["frontAppPid"] = Int(frontAppPid)
             }
             
+            // Resolve session context from the root recording path so overlap chains
+            // always read/write a single clipboard/selection context source.
+            let contextRecordingPath = clipboardMonitor.getContextRootRecordingPath(for: recordingPath)
+
             // Add session data from clipboard monitor for placeholder processing
-            let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: recordingPath)
+            let sessionSelectedText = clipboardMonitor.getSessionSelectedText(for: contextRecordingPath)
             if !sessionSelectedText.isEmpty {
                 enhancedMetaJson["selectedText"] = sessionSelectedText
             }
             
             // Filter out recent system clipboard sync (Superwhisper) from clipboardContext capture
             // before resolving placeholders, regardless of action type.
-            clipboardMonitor.markRecentClipboardActivityAsSystemSync(for: recordingPath)
+            clipboardMonitor.markRecentClipboardActivityAsSystemSync(for: contextRecordingPath)
 
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             let enableStacking = configManager.config.defaults.clipboardStacking
-            let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(for: recordingPath, swResult: swResult, enableStacking: enableStacking)
+            let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(
+                for: contextRecordingPath,
+                swResult: swResult,
+                enableStacking: enableStacking
+            )
             if !sessionClipboardContent.isEmpty {
                 enhancedMetaJson["clipboardContext"] = sessionClipboardContent
             }

@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0.02,
-    "activeAction" : "pasteResult",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 3,
@@ -19,7 +19,7 @@
     "pressReturn" : false,
     "redactedLogs" : false,
     "restoreClipboard" : true,
-    "restoreClipboardDelay" : 3,
+    "restoreClipboardDelay" : null,
     "returnDelay" : 0.15,
     "scheduledActionTimeout" : 10,
     "scriptAsync" : null,
@@ -84,7 +84,7 @@
       "triggerVoice" : null
     },
     "pasteResult" : {
-      "action" : "NEW SESSION: the clipboard: {{clipboardContext}}\n\ndictation: {{swResult}}",
+      "action" : "{{swResult::ensureSentence||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
       "actionDelay" : 0,
       "icon" : "⏎",
       "inputCondition" : null,
@@ -154,6 +154,23 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerVoice" : null
+    },
+    "test" : {
+      "action" : "display dialog \"--- clipbrd:{{clipboardContext}}\n\n--- Seltext:{{selectedText}}\n\n--- Result:{{result}}\"",
+      "actionDelay" : null,
+      "icon" : null,
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "noEsc" : null,
+      "restoreClipboard" : null,
+      "restoreClipboardDelay" : null,
+      "scriptAsync" : null,
+      "scriptWaitTimeout" : null,
+      "triggerApps" : null,
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerVoice" : "test"
     }
   },
   "scriptsShell" : {

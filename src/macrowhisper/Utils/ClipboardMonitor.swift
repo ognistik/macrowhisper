@@ -318,6 +318,19 @@ class ClipboardMonitor {
                 guard let self = self,
                       var session = self.earlyMonitoringSessions[recordingPath],
                       session.isActive else { return }
+
+                // Skip stale cleanup when overlap/chain state has moved on to a different
+                // restore owner. This prevents an earlier dictation cleanup from clearing
+                // root clipboard context needed by a newer overlapping dictation.
+                if let groupId = self.recordingPathToGroupId[recordingPath],
+                   let group = self.executionGroups[groupId] {
+                    let hasActiveMembers = !group.memberRecordingPaths.isEmpty
+                    let restoreOwnedByAnotherRecording = group.pendingRestoreRecordingPath != nil && group.pendingRestoreRecordingPath != recordingPath
+                    if hasActiveMembers || restoreOwnedByAnotherRecording {
+                        logDebug("[ClipboardMonitor] Skipping stale FULL RESET for \(recordingPath) due to active overlap/group ownership")
+                        return
+                    }
+                }
                 
                 // FULL RESET: Clear ALL clipboard changes that might contain contaminated content from action execution
                 let clearedSessionChanges = session.clipboardChanges.count
