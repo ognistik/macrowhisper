@@ -52,7 +52,7 @@
       "triggerVoice" : null
     },
     "autoPaste" : {
-      "action" : "{{swResult::titleCase}}",
+      "action" : "{{swResult::ensureSentence}}",
       "actionDelay" : null,
       "icon" : "•",
       "inputCondition" : "!nextAction",

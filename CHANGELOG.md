@@ -51,11 +51,11 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 * **New** `{{folderName}}`, `{{folderName:<index>}}`, `{{folderPath}}`, `{{folderPath:<index>}}` placeholders which return current recording folder information (and indexed folder lookup (0 newest/current, 1 previous, etc.))
   * Info also available via CLI `--folder-name [<index>]` and `--folder-path [<index>]`
   * Useful for automations/scripts where user may need to do something with current or previous recording paths.
-* **New** `transform` option for placeholders with the syntax `{{placeholder::transform||regex1find||regex1replace...}}` AND/OR within the regex pipeline with capture groups like `{{placeholder||(.*)||${N::transform}}}
-  * For now it supports `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`, `titleCase:en`, `titleCase:es`, `ensureSentence`.
+* **New** `transform` option for placeholders with the syntax `{{placeholder::transform||regex1find||regex1replace...}}` AND/OR within the regex pipeline with capture groups like `{{placeholder||(.*)||${N::transform}}}`
+  * For now it supports `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`, `titleCase:en`, `titleCase:es`, `titleCase:fr`, `ensureSentence`, `camelCase`, `pascalCase`, `snakeCase`, `kebabCase`, `randomCase`, `altCase` (alternating case), `altCase:upperFirst`, `trim`.
   * More languages for titleCase may be added upon request.
   * This is for transformations beyond what regex allows. Since they are applied in the regex pipeline you can add your own custom exceptions.
-  * Watch out that if your transform is meant to change first letter case, you may want to set `smartCasing` to `false`.
+  * **Watch out that if your transform is meant to change first letter case, you may want to set `smartCasing` to `false`.**
 * **New.** `--copy-action` which can copy the contents of an action to user's clipboard. 
   * This operation is not captured by Macrowhisper's `{{clipboardContext}}`
   * Supports placeholder expansion, and context placeholders.
