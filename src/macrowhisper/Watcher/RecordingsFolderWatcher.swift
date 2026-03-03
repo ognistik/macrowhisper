@@ -878,31 +878,43 @@ class RecordingsFolderWatcher {
             }
             
             // THIRD: Evaluate triggers for all actions - this has precedence over active inserts
-
-            // Extract result text for trigger evaluation (can be empty, that's fine for triggers)
-            let resultText = enhancedMetaJson["result"] as? String ?? ""
-
-            // Diagnostic logging for trigger evaluation
-            if isVerboseLogDetailEnabled() {
-                logDebug(
-                    "[TriggerEval] Inputs resultText=\(summarizeForLogs(resultText, maxPreview: 120)) " +
-                    "resultField=\(summarizeAnyForLogs(enhancedMetaJson["result"], maxPreview: 120)) " +
-                    "llmResultField=\(summarizeAnyForLogs(enhancedMetaJson["llmResult"], maxPreview: 120))"
-                )
+            let runtimeMuteActive = globalState.isRuntimeMuteTriggersActive()
+            let persistentMuteEnabled = configManager.config.defaults.muteTriggers
+            let effectiveMuteTriggers = persistentMuteEnabled || runtimeMuteActive
+            let matchedTriggerActions: [(action: Any, name: String, type: ActionType, strippedResult: String?)]
+            if effectiveMuteTriggers {
+                matchedTriggerActions = []
+                if persistentMuteEnabled {
+                    logInfo("[TriggerEval] Skipping trigger evaluation because defaults.muteTriggers is enabled.")
+                } else {
+                    logInfo("[TriggerEval] Skipping trigger evaluation because runtime temporary mute is active.")
+                }
             } else {
-                logDebug(
-                    "[TriggerEval] Input summary resultTextLen=\(resultText.count) " +
-                    "hasResult=\(enhancedMetaJson["result"] != nil) hasLlmResult=\(enhancedMetaJson["llmResult"] != nil)"
+                // Extract result text for trigger evaluation (can be empty, that's fine for triggers)
+                let resultText = enhancedMetaJson["result"] as? String ?? ""
+
+                // Diagnostic logging for trigger evaluation
+                if isVerboseLogDetailEnabled() {
+                    logDebug(
+                        "[TriggerEval] Inputs resultText=\(summarizeForLogs(resultText, maxPreview: 120)) " +
+                        "resultField=\(summarizeAnyForLogs(enhancedMetaJson["result"], maxPreview: 120)) " +
+                        "llmResultField=\(summarizeAnyForLogs(enhancedMetaJson["llmResult"], maxPreview: 120))"
+                    )
+                } else {
+                    logDebug(
+                        "[TriggerEval] Input summary resultTextLen=\(resultText.count) " +
+                        "hasResult=\(enhancedMetaJson["result"] != nil) hasLlmResult=\(enhancedMetaJson["llmResult"] != nil)"
+                    )
+                }
+
+                matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
+                    configManager: configManager,
+                    result: resultText,
+                    metaJson: enhancedMetaJson,
+                    frontAppName: frontAppName,
+                    frontAppBundleId: frontAppBundleId
                 )
             }
-
-            let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
-                configManager: configManager,
-                result: resultText,
-                metaJson: enhancedMetaJson,
-                frontAppName: frontAppName,
-                frontAppBundleId: frontAppBundleId
-            )
             
             if !matchedTriggerActions.isEmpty {
                 // Execute the first matched trigger action (they're already sorted by name)

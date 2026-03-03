@@ -31,6 +31,7 @@ class GlobalStateManager {
     private var _scheduledActionName: String? = nil
     private var _autoReturnTimeoutTimer: Timer? = nil
     private var _scheduledActionTimeoutTimer: Timer? = nil
+    private var _muteTriggersUntil: Date? = nil
     private var _actionDelayValue: Double? = nil
     private var _socketHealthTimer: Timer? = nil
     private var _lastDetectedFrontApp: NSRunningApplication? = nil
@@ -81,6 +82,38 @@ class GlobalStateManager {
     var actionDelayValue: Double? {
         get { queue.sync { _actionDelayValue } }
         set { queue.async(flags: .barrier) { self._actionDelayValue = newValue } }
+    }
+
+    var muteTriggersUntil: Date? {
+        get { queue.sync { _muteTriggersUntil } }
+        set { queue.async(flags: .barrier) { self._muteTriggersUntil = newValue } }
+    }
+
+    func clearMuteTriggersTimeout() {
+        queue.async(flags: .barrier) {
+            self._muteTriggersUntil = nil
+        }
+    }
+
+    func setMuteTriggersTimeout(seconds: TimeInterval) {
+        queue.async(flags: .barrier) {
+            self._muteTriggersUntil = Date().addingTimeInterval(seconds)
+        }
+    }
+
+    func isRuntimeMuteTriggersActive() -> Bool {
+        queue.sync {
+            guard let until = _muteTriggersUntil else { return false }
+            return until > Date()
+        }
+    }
+
+    func runtimeMuteTriggersRemainingSeconds() -> TimeInterval? {
+        queue.sync {
+            guard let until = _muteTriggersUntil else { return nil }
+            let remaining = until.timeIntervalSinceNow
+            return remaining > 0 ? remaining : nil
+        }
     }
     
     var socketHealthTimer: Timer? {
@@ -134,6 +167,7 @@ class GlobalStateManager {
             self._autoReturnTimeoutTimer = nil
             self._scheduledActionTimeoutTimer?.invalidate()
             self._scheduledActionTimeoutTimer = nil
+            self._muteTriggersUntil = nil
             self._socketHealthTimer?.invalidate()
             self._socketHealthTimer = nil
         }
@@ -266,6 +300,34 @@ func cancelScheduledActionTimeout() {
 // Utility function to expand tilde in paths
 func expandTilde(_ path: String) -> String {
     return (path as NSString).expandingTildeInPath
+}
+
+func parseMuteTriggersDurationSeconds(_ rawValue: String) -> Double? {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmed.isEmpty else { return nil }
+
+    let pattern = #"^([0-9]+(?:\.[0-9]+)?)([smh]?)$"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let nsRange = NSRange(trimmed.startIndex..., in: trimmed)
+    guard let match = regex.firstMatch(in: trimmed, options: [], range: nsRange),
+          let valueRange = Range(match.range(at: 1), in: trimmed),
+          let unitRange = Range(match.range(at: 2), in: trimmed),
+          let value = Double(trimmed[valueRange]) else {
+        return nil
+    }
+
+    guard value > 0 else { return nil }
+    let unit = String(trimmed[unitRange])
+    switch unit {
+    case "", "s":
+        return value
+    case "m":
+        return value * 60.0
+    case "h":
+        return value * 3600.0
+    default:
+        return nil
+    }
 }
 
 // SAFETY: Track the last notification time to prevent spam
@@ -805,7 +867,7 @@ if args.contains("--service-status") {
 // Commands that require a running daemon
 let requireDaemonCommands = [
     "-s", "--status", "--get-icon", "--list-inserts", 
-    "--check-updates", "--auto-return", "--schedule-action", "--add-url", 
+    "--check-updates", "--auto-return", "--schedule-action", "--mute-triggers", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
     "--remove-action",
     // New unified action commands
@@ -896,6 +958,37 @@ if hasDaemonCommand {
             print(response)
         } else {
             print("Failed to set auto-return.")
+        }
+        exit(0)
+    }
+
+    if args.contains("--mute-triggers") {
+        let muteTriggersIndex = args.firstIndex(where: { $0 == "--mute-triggers" })
+        var commandArgs: [String: String] = [:]
+
+        if let index = muteTriggersIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+            let rawValue = args[index + 1]
+            let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalized == "true" || normalized == "false" {
+                commandArgs["mode"] = "persistent"
+                commandArgs["value"] = normalized
+            } else if let durationSeconds = parseMuteTriggersDurationSeconds(rawValue) {
+                commandArgs["mode"] = "temporary"
+                commandArgs["seconds"] = String(durationSeconds)
+                commandArgs["raw"] = rawValue
+            } else {
+                print("Invalid value for --mute-triggers: '\(rawValue)'")
+                print("Expected true/false or a duration like 30, 30s, 5m, 1h.")
+                exit(1)
+            }
+        } else {
+            commandArgs["mode"] = "status"
+        }
+
+        if let response = socketCommunication.sendCommand(.muteTriggers, arguments: commandArgs) {
+            print(response)
+        } else {
+            print("Failed to update trigger mute state.")
         }
         exit(0)
     }
@@ -1276,7 +1369,8 @@ if args.count > 1 {
                      args[i-1] == "--add-shell" || args[i-1] == "--add-as" ||
                      args[i-1] == "--add-insert" || args[i-1] == "--remove-action" || 
                      args[i-1] == "--auto-return" || 
-                     args[i-1] == "--schedule-action" || args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
+                     args[i-1] == "--schedule-action" || args[i-1] == "--mute-triggers" ||
+                     args[i-1] == "--test-version" || args[i-1] == "--test-description" || 
                      args[i-1] == "--exec-action" || args[i-1] == "--get-action" ||
                      args[i-1] == "--copy-action" ||
                      args[i-1] == "--folder-name" || args[i-1] == "--folder-path" ||
@@ -1401,6 +1495,9 @@ func printHelp() {
       --schedule-action [<name>]    Schedule any action for next (or active) recording session
                                     (takes priority over active action and triggers)
                                     (no name = cancel scheduled action)
+      --mute-triggers [<value>]     Mute trigger matching globally (voice/app/mode)
+                                    true/false updates config; duration (30|30s|5m|1h) is runtime-only
+                                    (no value shows persistent/runtime/effective mute status)
 
     OTHER (require running daemon):
       --check-updates               Force check for updates
@@ -1440,6 +1537,12 @@ func printHelp() {
         
       macrowhisper --schedule-action
         # Cancels any scheduled action
+
+      macrowhisper --mute-triggers true
+        # Persistently disables trigger matching in config
+
+      macrowhisper --mute-triggers 10m
+        # Temporarily disables trigger matching for 10 minutes (runtime only)
         
       macrowhisper --list-actions
         # Lists all actions with their types (INSERT: name, URL: name, etc.)

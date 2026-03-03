@@ -36,13 +36,14 @@ struct AppConfiguration: Codable {
         var clipboardBuffer: Double
         var clipboardIgnore: String?
         var bypassModes: String?
+        var muteTriggers: Bool
         var autoUpdateConfig: Bool
         var redactedLogs: Bool
         var nextAction: String?
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, history, pressReturn, returnDelay, restoreClipboard, restoreClipboardDelay, scheduledActionTimeout, scriptAsync, scriptWaitTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, bypassModes, autoUpdateConfig, redactedLogs, nextAction
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, history, pressReturn, returnDelay, restoreClipboard, restoreClipboardDelay, scheduledActionTimeout, scriptAsync, scriptWaitTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, bypassModes, muteTriggers, autoUpdateConfig, redactedLogs, nextAction
         }
         
         // Custom encoding to preserve null values
@@ -72,6 +73,7 @@ struct AppConfiguration: Codable {
             try container.encode(clipboardBuffer, forKey: .clipboardBuffer)
             try container.encode(clipboardIgnore, forKey: .clipboardIgnore)
             try container.encode(bypassModes, forKey: .bypassModes)
+            try container.encode(muteTriggers, forKey: .muteTriggers)
             try container.encode(autoUpdateConfig, forKey: .autoUpdateConfig)
             try container.encode(redactedLogs, forKey: .redactedLogs)
             try container.encode(nextAction, forKey: .nextAction)
@@ -134,13 +136,14 @@ struct AppConfiguration: Codable {
             clipboardBuffer = try container.decodeIfPresent(Double.self, forKey: .clipboardBuffer) ?? 5.0
             clipboardIgnore = try container.decodeIfPresent(String.self, forKey: .clipboardIgnore)
             bypassModes = try container.decodeIfPresent(String.self, forKey: .bypassModes)
+            muteTriggers = try container.decodeIfPresent(Bool.self, forKey: .muteTriggers) ?? false
             autoUpdateConfig = try container.decodeIfPresent(Bool.self, forKey: .autoUpdateConfig) ?? true
             redactedLogs = try container.decodeIfPresent(Bool.self, forKey: .redactedLogs) ?? true
             nextAction = try container.decodeIfPresent(String.self, forKey: .nextAction)
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, simEsc: Bool, simKeypress: Bool, smartCasing: Bool, smartPunctuation: Bool, smartSpacing: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, restoreClipboardDelay: Double?, scheduledActionTimeout: Double, scriptAsync: Bool?, scriptWaitTimeout: Double?, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, bypassModes: String?, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, simEsc: Bool, simKeypress: Bool, smartCasing: Bool, smartPunctuation: Bool, smartSpacing: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, restoreClipboardDelay: Double?, scheduledActionTimeout: Double, scriptAsync: Bool?, scriptWaitTimeout: Double?, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, bypassModes: String?, muteTriggers: Bool, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -165,6 +168,7 @@ struct AppConfiguration: Codable {
             self.clipboardBuffer = clipboardBuffer
             self.clipboardIgnore = clipboardIgnore
             self.bypassModes = bypassModes
+            self.muteTriggers = muteTriggers
             self.autoUpdateConfig = autoUpdateConfig
             self.redactedLogs = redactedLogs
             self.nextAction = nextAction
@@ -196,6 +200,7 @@ struct AppConfiguration: Codable {
                 clipboardBuffer: 5.0,
                 clipboardIgnore: nil,
                 bypassModes: nil,
+                muteTriggers: false,
                 autoUpdateConfig: true,
                 redactedLogs: true,
                 nextAction: nil

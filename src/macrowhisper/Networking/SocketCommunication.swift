@@ -132,6 +132,7 @@ class SocketCommunication {
         case getIcon
         case autoReturn
         case scheduleAction
+        case muteTriggers
         case addUrl
         case addShortcut
         case addShell
@@ -165,6 +166,40 @@ class SocketCommunication {
     struct CommandMessage: Codable {
         let command: Command
         let arguments: [String: String]?
+    }
+
+    private func formatMuteRemaining(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(ceil(seconds))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m \(secs)s"
+        }
+        if minutes > 0 {
+            return "\(minutes)m \(secs)s"
+        }
+        return "\(secs)s"
+    }
+
+    private func buildMuteTriggersStatusLines(configManager: ConfigurationManager) -> [String] {
+        let persistentMute = configManager.config.defaults.muteTriggers
+        let runtimeRemaining = globalState.runtimeMuteTriggersRemainingSeconds()
+        let runtimeActive = runtimeRemaining != nil
+        let effectiveMute = persistentMute || runtimeActive
+        let runtimeLine: String
+        if let runtimeRemaining {
+            runtimeLine = "runtimeMuteTriggers: active (\(formatMuteRemaining(runtimeRemaining)))"
+        } else {
+            runtimeLine = "runtimeMuteTriggers: inactive"
+        }
+
+        return [
+            "persistentMuteTriggers: \(persistentMute ? "yes" : "no")",
+            runtimeLine,
+            "effectiveMuteTriggers: \(effectiveMute ? "yes" : "no")"
+        ]
     }
     
     init(socketPath: String) {
@@ -2519,6 +2554,7 @@ class SocketCommunication {
                 // Auto-return and scheduled action
                 lines.append("Auto-return: \(globalState.autoReturnEnabled ? "enabled" : "disabled")")
                 lines.append("Scheduled action: \(globalState.scheduledActionName ?? "(none)")")
+                lines.append(contentsOf: buildMuteTriggersStatusLines(configManager: configMgr))
                 // Settings
                 lines.append("noUpdates: \(defaults.noUpdates ? "yes" : "no")")
                 lines.append("noNoti: \(defaults.noNoti ? "yes" : "no")")
@@ -2663,6 +2699,55 @@ class SocketCommunication {
                     response = "Missing action name parameter"
                     logError(response)
                 }
+                _ = sendResponse(response, to: clientSocket)
+
+            case .muteTriggers:
+                let mode = commandMessage.arguments?["mode"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "status"
+
+                switch mode {
+                case "status":
+                    response = buildMuteTriggersStatusLines(configManager: configMgr).joined(separator: "\n")
+
+                case "persistent":
+                    guard let value = commandMessage.arguments?["value"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                          let enable = Bool(value) else {
+                        response = "Missing or invalid value parameter for persistent mode (expected true/false)"
+                        break
+                    }
+
+                    configMgr.config.defaults.muteTriggers = enable
+                    if !enable {
+                        globalState.clearMuteTriggersTimeout()
+                    }
+
+                    do {
+                        try configMgr.saveConfig()
+                        configMgr.onConfigChanged?(nil)
+                        response = enable
+                            ? "Trigger matching muted persistently (config updated)."
+                            : "Trigger matching unmuted persistently (config updated); runtime mute cleared."
+                    } catch {
+                        response = "Failed to save configuration: \(error.localizedDescription)"
+                    }
+
+                case "temporary":
+                    let rawSeconds = commandMessage.arguments?["seconds"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    guard let seconds = Double(rawSeconds), seconds > 0 else {
+                        response = "Missing or invalid seconds parameter for temporary mode"
+                        break
+                    }
+
+                    if configMgr.config.defaults.muteTriggers {
+                        response = "Persistent trigger mute is enabled; temporary mute not set."
+                    } else {
+                        globalState.setMuteTriggersTimeout(seconds: seconds)
+                        response = "Trigger matching muted temporarily for \(formatMuteRemaining(seconds))."
+                    }
+
+                default:
+                    response = "Invalid mode for muteTriggers. Use status, persistent, or temporary."
+                }
+
                 _ = sendResponse(response, to: clientSocket)
                 
             case .addUrl:

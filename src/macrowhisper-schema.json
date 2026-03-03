@@ -151,6 +151,11 @@
           "examples": ["dictation", "dictation|rewrite", "", null],
           "default": null
         },
+        "muteTriggers": {
+          "type": ["boolean", "null"],
+          "description": "Mute all trigger matching (triggerVoice/triggerApps/triggerModes) globally. When true, trigger evaluation is skipped and Macrowhisper continues with activeAction fallback logic. null or omitted = use built-in default (false).",
+          "default": false
+        },
         "autoUpdateConfig": {
           "type": ["boolean", "null"],
           "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config. null or omitted = use built-in default (true).",

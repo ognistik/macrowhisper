@@ -284,6 +284,7 @@ macrowhisper --folder-name [<index>]
 macrowhisper --folder-path [<index>]
 macrowhisper --schedule-action [<name>]
 macrowhisper --auto-return <true/false>
+macrowhisper --mute-triggers [<true|false|duration>]
 macrowhisper --get-icon
 macrowhisper --check-updates
 ```
@@ -303,6 +304,22 @@ Behavior notes:
 - `--schedule-action` (no name) cancels scheduled action.
 - `--auto-return true` schedules one-time "paste result + return behavior" for the next recording.
 - `--auto-return` with no value behaves like `true`.
+- `--mute-triggers true|false` persistently updates `defaults.muteTriggers` in config.
+- `--mute-triggers <duration>` temporarily mutes trigger matching at runtime only (`30`, `30s`, `5m`, `1h`).
+- `--mute-triggers` with no value prints persistent/runtime/effective mute status.
+- If `defaults.muteTriggers` is already `true`, duration mode is ignored (no temporary timer is set).
+
+What those status lines mean in plain language:
+
+- `persistentMuteTriggers`: Your saved preference in the config file.  
+  `yes` = triggers stay muted until you change the setting.  
+  `no` = your saved preference is not muting triggers.
+- `runtimeMuteTriggers`: A temporary mute timer from CLI.  
+  `active` = muted for a short time right now.  
+  `inactive` = no temporary timer is running.
+- `effectiveMuteTriggers`: The final result right now.  
+  `yes` = triggers are currently muted (by saved setting or temporary timer).  
+  `no` = triggers are currently active.
 
 ### `--meta` (choose a different `meta.json` source)
 
@@ -575,6 +592,7 @@ Null behavior at `defaults` level:
 | `clipboardBuffer` | number/null | `5.0` | Pre-recording clipboard capture window in seconds. `0` disables buffer capture. `null` = built-in default (`5.0`). |
 | `clipboardIgnore` | string/null | `null` | Regex for apps ignored in clipboard capture. |
 | `bypassModes` | string/null | `null` | Pipe-separated Superwhisper mode names that bypass Macrowhisper entirely (case-insensitive). |
+| `muteTriggers` | bool/null | `false` | Mute all trigger matching (`triggerVoice`, `triggerApps`, `triggerModes`) globally. |
 | `autoUpdateConfig` | bool/null | `true` | Auto-refresh config format/schema fields at startup. `null` = built-in default (`true`). |
 | `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
 | `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
@@ -844,6 +862,8 @@ Triggers are evaluated across all action types. Matched actions are sorted by na
 
 #### Important priority reminder:
 Triggered action resolution happens after one-shot runtime commands (`--auto-return`, `--schedule-action`) and before `defaults.activeAction`. This means scheduled actions (plus one-time auto-return) have priority over triggers, but triggers have priority over the currently active action.
+
+If `defaults.muteTriggers` is enabled (or a temporary CLI mute is active), this trigger phase is skipped entirely and Macrowhisper proceeds to `defaults.activeAction`.
 
 ### 8.1 `triggerVoice`
 

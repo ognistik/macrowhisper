@@ -12,6 +12,7 @@
     "history" : 8,
     "icon" : null,
     "moveTo" : null,
+    "muteTriggers" : false,
     "nextAction" : null,
     "noNoti" : false,
     "noUpdates" : false,
