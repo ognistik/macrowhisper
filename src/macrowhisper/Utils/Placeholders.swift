@@ -697,6 +697,207 @@ func stringifyPlaceholderValue(for keyPath: String, jsonValue: Any, metaJson: [S
     return String(describing: jsonValue)
 }
 
+private struct PlaceholderSegment {
+    let fullRange: Range<String.Index>
+    let content: String
+}
+
+private struct ParsedPlaceholderExpression {
+    let prefixType: String?
+    let key: String
+    let format: String?
+    let transformName: String?
+    let regexReplacements: [(regex: String, replacement: String)]
+}
+
+private func isEscapedCharacter(in text: String, at index: String.Index) -> Bool {
+    guard index > text.startIndex else { return false }
+    var backslashCount = 0
+    var cursor = index
+    while cursor > text.startIndex {
+        let previous = text.index(before: cursor)
+        if text[previous] == "\\" {
+            backslashCount += 1
+            cursor = previous
+        } else {
+            break
+        }
+    }
+    return backslashCount % 2 == 1
+}
+
+private func extractPlaceholderSegments(from action: String) -> [PlaceholderSegment] {
+    var segments: [PlaceholderSegment] = []
+    var cursor = action.startIndex
+
+    while cursor < action.endIndex {
+        var openIndex: String.Index?
+        var search = cursor
+        while search < action.endIndex {
+            let next = action.index(after: search)
+            if next < action.endIndex,
+               action[search] == "{",
+               action[next] == "{",
+               !isEscapedCharacter(in: action, at: search) {
+                openIndex = search
+                break
+            }
+            search = next
+        }
+
+        guard let start = openIndex else { break }
+        let contentStart = action.index(start, offsetBy: 2)
+        var closeSearch = contentStart
+        var closeStart: String.Index?
+        var closeEnd: String.Index?
+
+        while closeSearch < action.endIndex {
+            let next = action.index(after: closeSearch)
+            guard next < action.endIndex else { break }
+
+            if action[closeSearch] == "}",
+               action[next] == "}",
+               !isEscapedCharacter(in: action, at: closeSearch) {
+                let afterNext = action.index(after: next)
+                // Prefer the last `}}` in a run like `}}}` so `${1}`-style
+                // tokens inside placeholders don't close parsing early.
+                if afterNext < action.endIndex, action[afterNext] == "}" {
+                    closeSearch = next
+                    continue
+                }
+                closeStart = closeSearch
+                closeEnd = afterNext
+                break
+            }
+
+            closeSearch = next
+        }
+
+        guard let finalCloseStart = closeStart, let finalCloseEnd = closeEnd else { break }
+        let content = String(action[contentStart..<finalCloseStart])
+        segments.append(
+            PlaceholderSegment(
+                fullRange: start..<finalCloseEnd,
+                content: content
+            )
+        )
+        cursor = finalCloseEnd
+    }
+
+    return segments
+}
+
+private func splitAtFirstUnescapedDelimiter(
+    in value: String,
+    delimiters: [String]
+) -> (head: String, tail: String) {
+    let sortedDelimiters = delimiters.sorted { $0.count > $1.count }
+    var index = value.startIndex
+    while index < value.endIndex {
+        if !isEscapedCharacter(in: value, at: index) {
+            for delimiter in sortedDelimiters where value[index...].hasPrefix(delimiter) {
+                return (String(value[..<index]), String(value[index...]))
+            }
+        }
+        index = value.index(after: index)
+    }
+    return (value, "")
+}
+
+private func splitByUnescapedDoublePipe(_ value: String) -> [String] {
+    var parts: [String] = []
+    var tokenStart = value.startIndex
+    var index = value.startIndex
+
+    while index < value.endIndex {
+        let next = value.index(after: index)
+        if next < value.endIndex,
+           value[index] == "|",
+           value[next] == "|",
+           !isEscapedCharacter(in: value, at: index) {
+            parts.append(String(value[tokenStart..<index]))
+            tokenStart = value.index(after: next)
+            index = tokenStart
+            continue
+        }
+        index = next
+    }
+
+    parts.append(String(value[tokenStart..<value.endIndex]))
+    return parts
+}
+
+private func parsePlaceholderExpression(_ content: String) -> ParsedPlaceholderExpression? {
+    var remaining = content
+    var prefixType: String? = nil
+
+    if remaining.hasPrefix("json:") {
+        prefixType = "json"
+        remaining.removeFirst("json:".count)
+    } else if remaining.hasPrefix("raw:") {
+        prefixType = "raw"
+        remaining.removeFirst("raw:".count)
+    }
+
+    let keyStart = remaining.startIndex
+    let keyEnd = remaining.firstIndex(where: { character in
+        !(character.isLetter || character.isNumber || character == "_" || character == ".")
+    }) ?? remaining.endIndex
+
+    guard keyEnd > keyStart else {
+        return nil
+    }
+
+    let key = String(remaining[keyStart..<keyEnd])
+    remaining = String(remaining[keyEnd...])
+
+    var format: String? = nil
+    if remaining.hasPrefix(":") && !remaining.hasPrefix("::") {
+        remaining.removeFirst()
+        let (head, tail) = splitAtFirstUnescapedDelimiter(in: remaining, delimiters: ["::", "||"])
+        let trimmed = head.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            format = trimmed
+        }
+        remaining = tail
+    }
+
+    var transformName: String? = nil
+    if remaining.hasPrefix("::") {
+        remaining.removeFirst(2)
+        let (head, tail) = splitAtFirstUnescapedDelimiter(in: remaining, delimiters: ["||"])
+        let trimmed = head.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            transformName = trimmed
+        }
+        remaining = tail
+    }
+
+    var regexReplacements: [(regex: String, replacement: String)] = []
+    if remaining.hasPrefix("||") {
+        remaining.removeFirst(2)
+        let parts = splitByUnescapedDoublePipe(remaining)
+        for i in stride(from: 0, to: parts.count - 1, by: 2) {
+            if i + 1 < parts.count {
+                regexReplacements.append((regex: parts[i], replacement: parts[i + 1]))
+            }
+        }
+        remaining = ""
+    }
+
+    guard remaining.isEmpty else {
+        return nil
+    }
+
+    return ParsedPlaceholderExpression(
+        prefixType: prefixType,
+        key: key,
+        format: format,
+        transformName: transformName,
+        regexReplacements: regexReplacements
+    )
+}
+
 /// Expands dynamic placeholders with context-aware escaping based on action type
 /// Supports {{key}}, {{json:key}}, {{raw:key}}, {{date:format}}, and regex replacements {{key||regex||replacement}}
 /// The json: prefix applies JSON string escaping regardless of action type, useful for embedding content in JSON strings.
@@ -709,48 +910,16 @@ func processDynamicPlaceholders(
 ) -> PlaceholderProcessingResult {
     var result = action
     var resolvedFolderPathCache: [Int: String?] = [:]
-    
-    // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key::transform||regex||replacement}}
-    let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^:|}]+))?(?:::(?!\\|)([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
-    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
-    
-    if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
-        for match in matches.reversed() {
-            guard let keyRange = Range(match.range(at: 2), in: action),
-                  let fullMatchRange = Range(match.range, in: action) else { continue }
-            let key = String(action[keyRange])
-            
-            // Check the prefix type for escaping
-            var prefixType: String? = nil
-            if match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound,
-               let prefixRange = Range(match.range(at: 1), in: action) {
-                prefixType = String(action[prefixRange])
-            }
-            
-            // Extract regex replacements if present
-            var regexReplacements: [(regex: String, replacement: String)] = []
-            if match.numberOfRanges > 5, let replacementRange = Range(match.range(at: 5), in: action) {
-                let replacementString = String(action[replacementRange])
-                let parts = replacementString.components(separatedBy: "||")
-                // Process pairs of regex and replacement
-                for i in stride(from: 0, to: parts.count - 1, by: 2) {
-                    if i + 1 < parts.count {
-                        let regex = parts[i]
-                        let replacement = parts[i + 1]
-                        regexReplacements.append((regex: regex, replacement: replacement))
-                    }
-                }
-            }
+    let placeholderSegments = extractPlaceholderSegments(from: action)
 
-            var transformName: String? = nil
-            if match.numberOfRanges > 4,
-               match.range(at: 4).location != NSNotFound,
-               let transformRange = Range(match.range(at: 4), in: action) {
-                let rawTransform = String(action[transformRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !rawTransform.isEmpty {
-                    transformName = rawTransform
-                }
-            }
+    for placeholderSegment in placeholderSegments.reversed() {
+            guard let parsedExpression = parsePlaceholderExpression(placeholderSegment.content) else { continue }
+            let key = parsedExpression.key
+            let prefixType = parsedExpression.prefixType
+            let regexReplacements = parsedExpression.regexReplacements
+            let transformName = parsedExpression.transformName
+            let placeholderFormat = parsedExpression.format
+            let fullMatchRange = placeholderSegment.fullRange
             
             func finalizePlaceholderValue(_ rawValue: String) -> String {
                 var value = rawValue
@@ -767,8 +936,7 @@ func processDynamicPlaceholders(
             }
 
             // Check for date placeholder
-            if key == "date", match.numberOfRanges > 3, let formatRange = Range(match.range(at: 3), in: action) {
-                let format = String(action[formatRange])
+            if key == "date", let format = placeholderFormat {
                 var replacement: String
                 switch format {
                 case "short":
@@ -796,10 +964,8 @@ func processDynamicPlaceholders(
             // Handle folder placeholders with optional index (e.g. {{folderName}}, {{folderPath:1}})
             else if key == "folderName" || key == "folderPath" {
                 var index = 0
-                if match.numberOfRanges > 3,
-                   match.range(at: 3).location != NSNotFound,
-                   let indexRange = Range(match.range(at: 3), in: action) {
-                    let rawIndex = String(action[indexRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let placeholderFormat {
+                    let rawIndex = placeholderFormat.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard let parsedIndex = Int(rawIndex), parsedIndex >= 0 else {
                         result.replaceSubrange(fullMatchRange, with: "")
                         continue
@@ -990,10 +1156,8 @@ func processDynamicPlaceholders(
             // Handle actionResult and actionResult:N
             else if key == "actionResult" {
                 var index = 0
-                if match.numberOfRanges > 3,
-                   match.range(at: 3).location != NSNotFound,
-                   let indexRange = Range(match.range(at: 3), in: action) {
-                    let rawIndex = String(action[indexRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let placeholderFormat {
+                    let rawIndex = placeholderFormat.trimmingCharacters(in: .whitespacesAndNewlines)
                     if let parsed = Int(rawIndex), parsed >= 0 {
                         index = parsed
                     } else {
@@ -1033,7 +1197,6 @@ func processDynamicPlaceholders(
                 // Key doesn't exist in metaJson, remove the placeholder
                 result.replaceSubrange(fullMatchRange, with: "")
             }
-        }
     }
     return PlaceholderProcessingResult(text: result)
 }
@@ -1105,6 +1268,23 @@ func applyFinalEscaping(value: String, prefixType: String?, actionType: ActionTy
 
 private var captureTransformTokenRegexForPlaceholder: NSRegularExpression? {
     try? NSRegularExpression(pattern: #"\$\{(\d+)::([^}]+)\}"#)
+}
+
+private var braceCaptureReferenceRegexForPlaceholder: NSRegularExpression? {
+    try? NSRegularExpression(pattern: #"\$\{(\d+)\}"#)
+}
+
+private func normalizeBraceCaptureReferences(in replacementTemplate: String) -> String {
+    guard let regex = braceCaptureReferenceRegexForPlaceholder else {
+        return replacementTemplate
+    }
+    let range = NSRange(replacementTemplate.startIndex..., in: replacementTemplate)
+    return regex.stringByReplacingMatches(
+        in: replacementTemplate,
+        options: [],
+        range: range,
+        withTemplate: "$$1"
+    )
 }
 
 private func replacementTemplateHasCaptureTransforms(_ template: String) -> Bool {
@@ -1185,15 +1365,16 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
         do {
             let regex = try NSRegularExpression(pattern: regexPattern, options: [])
             let beforeReplace = result
+            let normalizedReplacementTemplate = normalizeBraceCaptureReferences(in: replacement)
 
-            if replacementTemplateHasCaptureTransforms(replacement) {
+            if replacementTemplateHasCaptureTransforms(normalizedReplacementTemplate) {
                 let matches = regex.matches(in: result, options: [], range: NSRange(result.startIndex..., in: result))
                 if !matches.isEmpty {
                     var updated = result
                     for match in matches.reversed() {
                         guard let matchRange = Range(match.range, in: updated) else { continue }
                         let resolvedTemplate = resolveCaptureTransformTemplateForMatch(
-                            replacementTemplate: replacement,
+                            replacementTemplate: normalizedReplacementTemplate,
                             match: match,
                             source: updated,
                             regexPattern: regexPattern
@@ -1210,7 +1391,12 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
                 }
             } else {
                 let range = NSRange(result.startIndex..., in: result)
-                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: replacement)
+                result = regex.stringByReplacingMatches(
+                    in: result,
+                    options: [],
+                    range: range,
+                    withTemplate: normalizedReplacementTemplate
+                )
             }
 
             let changed = beforeReplace != result

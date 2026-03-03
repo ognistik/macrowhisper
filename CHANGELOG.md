@@ -41,7 +41,8 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * Related to this, there's a customizable `scriptWaitTimeout` that you can set for script execution when set it's not async. 
   * With `scriptAsync` set to false, action execution will wait for script completion. And in chained you can use the result of the first script with `{{actionResult}}` placeholder.
   * `{{actionResult}}` has a set index. No index or `{{actionResult:0}}` is the first script completion, `{{actionResult:1}}` the next, and so on.
-* **New** `smartInsert` for insert actions set to true by default (at the defaults level)
+* **New** `smartCasing`, `smartPunctuation`, and `smartSpacing` for insert actions set to true by default (at the defaults level)
+  * When all set to true, they adjust capitalization, punctuation, and spacing depending on insertion point.
   * Lots of edge cases covered. Most minor remaining issues are with those apps that do not have good accessibility integrations.
 * **New** `bypassModes` setting in defaults of the config, where the user can set modes where Macrowhisper should not kick in at all.
   * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
@@ -50,10 +51,11 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 * **New** `{{folderName}}`, `{{folderName:<index>}}`, `{{folderPath}}`, `{{folderPath:<index>}}` placeholders which return current recording folder information (and indexed folder lookup (0 newest/current, 1 previous, etc.))
   * Info also available via CLI `--folder-name [<index>]` and `--folder-path [<index>]`
   * Useful for automations/scripts where user may need to do something with current or previous recording paths.
-* **New** `transform` option for placeholders with the syntax `{{placeholder::transform||regex1find||regex1replace...}}`.
+* **New** `transform` option for placeholders with the syntax `{{placeholder::transform||regex1find||regex1replace...}}` AND/OR within the regex pipeline with capture groups like `{{placeholder||(.*)||${N::transform}}}
   * For now it supports `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`, `titleCase:en`, `titleCase:es`, `ensureSentence`.
   * More languages for titleCase may be added upon request.
-  * This is for transformations beyond what regex allowand. They are applied before regex so you can still set your own exceptions.
+  * This is for transformations beyond what regex allows. Since they are applied in the regex pipeline you can add your own custom exceptions.
+  * Watch out that if your transform is meant to change first letter case, you may want to set `smartCasing` to `false`.
 * **New.** `--copy-action` which can copy the contents of an action to user's clipboard. 
   * This operation is not captured by Macrowhisper's `{{clipboardContext}}`
   * Supports placeholder expansion, and context placeholders.
@@ -84,6 +86,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 * **Improvement** on validation for the `meta.json` file. If an LLM result is expected, the system will only wait for that result, even if voice is empty. 
   * This allows users to use Macrowhisper even in those cases where nothing is dictated.
   * Voice triggers only match against result (raw transcription).
+* **Improvement.** Refactored parser for placeholders so that they can include curly brackets.
   
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13
