@@ -2,13 +2,13 @@
 
 ## UNRELEASED
 
-The [documentation](https://by.afadingthought.com/macrowhisper) has be fully updated for more clarity.
+The [documentation](https://by.afadingthought.com/macrowhisper) has been fully updated.
 
-## Big Config semantics update (clearer and more predictable)
+## BIG Config semantics update (clearer and more predictable)
 This release introduces `configVersion: 2` with clearer rules for the configuration file.
 - `null` = inherit default
 - `""` = explicit empty value
-- Action payload templates stay explicit:
+- **Action payload templates** stay explicit:
   - `.none` (no-op template)
   - `.autoPaste` (insert only)
   - `.run` (shortcuts only)
@@ -32,6 +32,9 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 
 ## Other
 * **Breaking.** `--insert, --get-insert, --exec-insert, getInsert, execInsert` flags have been deprecated for quite some time, and now they've been cleaned up from the code.
+* **New.** `simEsc` (with `true` as default) has replaced `noEsc` (with `false` as default) in the configuration.
+  * This setting is on charge of simulating Esc to close Superwhisper's recording window.
+  * Your configuration will be updated automatically with the migration mentioned above.
 * **New.** `restoreClipboardDelay` can be set at the default level or at the actions level.
   * Defaul is 0.3 sec. I suggest not extending too much, especially if you dictate quickly. Could easily lead to clipboard contamination in overlapping dictations.
 * **New.** Up until now, action execution for Shortcuts and scripts has been asyng. Now you got a `scriptAsync` which you can set to false.
