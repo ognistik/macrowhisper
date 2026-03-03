@@ -280,6 +280,7 @@ macrowhisper --action [<name>]
 macrowhisper --get-action [<name>] [--meta <value>]
 macrowhisper --copy-action <name> [--meta <value>]
 macrowhisper --exec-action <name> [--meta <value>]
+macrowhisper --run-auto [--meta <value>]
 macrowhisper --folder-name [<index>]
 macrowhisper --folder-path [<index>]
 macrowhisper --schedule-action [<name>]
@@ -298,6 +299,9 @@ Behavior notes:
 - `--get-action --meta ...` without `<name>` returns an error, because `--meta` needs a specific action to process.
 - `--copy-action <name>` processes action content and copies it to clipboard (without polluting `clipboardContext` capture), using latest valid result by default (or `--meta`).
 - `--exec-action <name>` runs the action once using latest valid result by default (or `--meta`).
+- `--run-auto` runs watcher-style action resolution once using latest valid result by default (or `--meta`):
+  bypass mode check, trigger mute check, trigger evaluation, then active action fallback.
+- `--run-auto` does not accept an action name and does not consume or clear one-shot runtime state (`--auto-return` / `--schedule-action`).
 - `--folder-name [<index>]` returns recording folder name by recency (`0` = current active recording if any, otherwise latest valid completed).
 - `--folder-path [<index>]` returns recording folder path by recency (`0` = current active recording if any, otherwise latest valid completed).
 - `--schedule-action <name>` schedules one action for the next recording.
@@ -365,9 +369,14 @@ macrowhisper --get-action
 macrowhisper --get-action --meta 2026-03-01_10-00-00
 ```
 
+```bash
+# 6) Resolve and execute automatically (triggers -> active fallback)
+macrowhisper --run-auto --meta 2026-03-01_10-00-00
+```
+
 ### `moveTo` behavior when using `--meta`
 
-For `--exec-action`, `moveTo` works like this:
+For `--exec-action` and `--run-auto`, `moveTo` works like this:
 
 - If `--meta` points to a recording folder name or a recording folder path:
   Macrowhisper can identify the recording folder, so `moveTo` still applies normally.
@@ -376,19 +385,21 @@ For `--exec-action`, `moveTo` works like this:
 
 ### CLI action behavior matrix
 
-| Behavior | `--exec-action <name> [--meta <value>]` | `--get-action <name> [--meta <value>]` | `--copy-action <name> [--meta <value>]` |
-|---|---|---|---|
-| Processes placeholders (`{{...}}`) | Yes | Yes | Yes |
-| Uses latest valid recording result (default) | Yes | Yes | Yes |
-| Can use custom metadata source via `--meta` | Yes | Yes | Yes |
-| Evaluates `inputCondition` | Yes | No | No |
-| Executes action side effects (open URL/run shortcut/shell/AppleScript/paste) | Yes | No | No |
-| Applies `actionDelay` | Yes | No | No |
-| Applies `nextAction` chain | Yes | No | No |
-| Applies `moveTo` post-processing | Yes for latest/default or folder-based `--meta`; skipped for direct JSON file `--meta` | No | No |
-| Handles ESC behavior (`simEsc`) | CLI exec path never simulates ESC; `simEsc` has no practical effect here | N/A | N/A |
-| Clipboard restore behavior (`restoreClipboard`) | Insert actions only | No | No |
-| Writes to clipboard | Insert action behavior only (when action itself pastes) | No | Yes (writes processed content) |
+| Behavior | `--exec-action <name> [--meta <value>]` | `--run-auto [--meta <value>]` | `--get-action <name> [--meta <value>]` | `--copy-action <name> [--meta <value>]` |
+|---|---|---|---|---|
+| Processes placeholders (`{{...}}`) | Yes | Yes | Yes | Yes |
+| Uses latest valid recording result (default) | Yes | Yes | Yes | Yes |
+| Can use custom metadata source via `--meta` | Yes | Yes | Yes | Yes |
+| Evaluates `inputCondition` | Yes | Yes | No | No |
+| Executes action side effects (open URL/run shortcut/shell/AppleScript/paste) | Yes | Yes | No | No |
+| Applies `actionDelay` | Yes | Yes | No | No |
+| Applies `nextAction` chain | Yes | Yes | No | No |
+| Applies watcher-style selection (`bypassModes`, trigger mute, triggers, active fallback) | No (explicit action name only) | Yes | No | No |
+| Applies `moveTo` post-processing | Yes for latest/default or folder-based `--meta`; skipped for direct JSON file `--meta` | Yes for latest/default or folder-based `--meta`; skipped for direct JSON file `--meta` | No | No |
+| Handles ESC behavior (`simEsc`) | CLI exec path never simulates ESC; `simEsc` has no practical effect here | CLI exec path never simulates ESC; `simEsc` has no practical effect here | N/A | N/A |
+| Clipboard restore behavior (`restoreClipboard`) | Insert actions only | Insert actions only | No | No |
+| Writes to clipboard | Insert action behavior only (when action itself pastes) | Insert action behavior only (when action itself pastes) | No | Yes (writes processed content) |
+| Consumes or clears one-shot runtime state (`--auto-return`, `--schedule-action`) | No | No | No | No |
 
 ---
 
@@ -1249,7 +1260,7 @@ Stacking output format for multiple items:
 
 ### 12.6 On CLI Execution
 
-In CLI execution context (with `--exec-action` , `--get-action` or `copy-action` ), Macrowhisper captures context placeholders at CLI execution time (live context).
+In CLI execution context (with `--exec-action`, `--run-auto`, `--get-action`, or `--copy-action`), Macrowhisper captures context placeholders at CLI execution time (live context).
 
 ***Powerful Use-Case**: With `--copy-action` , you can pass stacked clipboards to Superwhisper for processing if the selected mode in Superwhisper includes clipboard capture.*
 
@@ -1437,6 +1448,8 @@ Supported values:
 ### 17.1 `--schedule-action` and `--auto-return` are one-shot
 
 After use (or cancellation), they are cleared.
+
+`--run-auto` does not consume or clear one-shot runtime state. It ignores those flags and only applies bypass/trigger/active resolution for the selected meta source.
 
 ### 17.2 Timeout behavior
 

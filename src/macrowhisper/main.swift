@@ -872,7 +872,7 @@ let requireDaemonCommands = [
     "--remove-action",
     // New unified action commands
     "--list-actions", "--list-urls", "--list-shortcuts", "--list-shell", 
-    "--list-as", "--exec-action", "--get-action", "--copy-action", "--action",
+    "--list-as", "--exec-action", "--run-auto", "--get-action", "--copy-action", "--action",
     "--folder-name", "--folder-path"
 ]
 
@@ -1154,7 +1154,7 @@ if hasDaemonCommand {
     
     if args.contains("--exec-action") {
         let execActionIndex = args.firstIndex(where: { $0 == "--exec-action" })
-        if let index = execActionIndex, index + 1 < args.count {
+        if let index = execActionIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
             let actionName = args[index + 1]
             var arguments: [String: String] = ["name": actionName]
             if let metaOverrideValue {
@@ -1167,6 +1167,26 @@ if hasDaemonCommand {
             }
         } else {
             print("Missing action name after --exec-action")
+        }
+        exit(0)
+    }
+
+    if args.contains("--run-auto") {
+        let runAutoIndex = args.firstIndex(where: { $0 == "--run-auto" })
+        if let index = runAutoIndex, index + 1 < args.count, !args[index + 1].starts(with: "--") {
+            print("--run-auto does not accept an action name. Use --exec-action <name> for explicit execution.")
+            exit(1)
+        }
+
+        var arguments: [String: String]? = nil
+        if let metaOverrideValue {
+            arguments = ["meta": metaOverrideValue]
+        }
+
+        if let response = socketCommunication.sendCommand(.runAuto, arguments: arguments) {
+            print(response)
+        } else {
+            print("Failed to run auto action resolution.")
         }
         exit(0)
     }
@@ -1469,6 +1489,8 @@ func printHelp() {
       --action [<name>]             Sets active action (if name provided) or clears it (if no name)
       --exec-action <name>          Execute any action using the last valid result
                                     (optionally: --meta <folderName|folderPath|jsonPath>)
+      --run-auto                    Resolve and execute like runtime priority
+                                    (bypass/mute/triggers/active; optionally --meta <folderName|folderPath|jsonPath>)
       --get-icon                    Get the icon of the active action
       --get-action [<name>]         Get name of active action (if run without <name>)
                                     If a name is provided, returns the action content
@@ -1528,6 +1550,13 @@ func printHelp() {
 
       macrowhisper --exec-action myURLAction --meta 2026-03-01_10-00-00
         # Uses ~/Documents/superwhisper/recordings/2026-03-01_10-00-00/meta.json
+
+      macrowhisper --run-auto
+        # Resolves and executes using runtime-style priority
+        # (bypassModes, muteTriggers, triggers, then active action)
+
+      macrowhisper --run-auto --meta ~/tmp/custom-meta.json
+        # Same auto-resolution flow, but using a custom meta source
 
       macrowhisper --copy-action pasteResult --meta ~/tmp/custom-meta.json
         # Uses a direct JSON file as placeholder source (moveTo is skipped for exec-action)

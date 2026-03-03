@@ -156,6 +156,7 @@ class SocketCommunication {
         case listShell
         case listAppleScript
         case execAction
+        case runAuto
         case getAction
         case copyAction
         case removeAction
@@ -464,6 +465,192 @@ class SocketCommunication {
         return enhanced
     }
 
+    private func shouldBypassProcessingForCLI(modeName: String?, configManager: ConfigurationManager) -> Bool {
+        let bypassModes = configManager.config.defaults.bypassModes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !bypassModes.isEmpty else { return false }
+
+        let normalizedMode = modeName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !normalizedMode.isEmpty else { return false }
+
+        let configuredModes = bypassModes
+            .components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !configuredModes.isEmpty else { return false }
+        return configuredModes.contains { $0.caseInsensitiveCompare(normalizedMode) == .orderedSame }
+    }
+
+    private func captureFrontAppSnapshotForCLI() -> (name: String?, bundleId: String?, pid: Int32?) {
+        var frontApp: NSRunningApplication?
+        if Thread.isMainThread {
+            frontApp = NSWorkspace.shared.frontmostApplication
+        } else {
+            DispatchQueue.main.sync {
+                frontApp = NSWorkspace.shared.frontmostApplication
+            }
+        }
+
+        globalState.lastDetectedFrontApp = frontApp
+        return (name: frontApp?.localizedName, bundleId: frontApp?.bundleIdentifier, pid: frontApp?.processIdentifier)
+    }
+
+    private func applyFrontAppSnapshotToMetaForCLI(
+        metaJson: [String: Any],
+        frontAppName: String?,
+        frontAppBundleId: String?,
+        frontAppPid: Int32?
+    ) -> [String: Any] {
+        var enhanced = metaJson
+        enhanced["frontAppName"] = frontAppName
+        enhanced["frontAppBundleId"] = frontAppBundleId
+        enhanced["frontApp"] = frontAppName
+        if let frontAppPid {
+            enhanced["frontAppPid"] = Int(frontAppPid)
+        }
+        return enhanced
+    }
+
+    private func triggerVoicePatternForAction(_ action: Any, actionType: ActionType) -> String? {
+        switch actionType {
+        case .insert:
+            return (action as? AppConfiguration.Insert)?.triggerVoice
+        case .url:
+            return (action as? AppConfiguration.Url)?.triggerVoice
+        case .shortcut:
+            return (action as? AppConfiguration.Shortcut)?.triggerVoice
+        case .shell:
+            return (action as? AppConfiguration.ScriptShell)?.triggerVoice
+        case .appleScript:
+            return (action as? AppConfiguration.ScriptAppleScript)?.triggerVoice
+        }
+    }
+
+    private func applyTriggerResultAdjustmentsForCLI(
+        metaJson: [String: Any],
+        action: Any,
+        actionType: ActionType,
+        strippedResult: String?
+    ) -> [String: Any] {
+        var updated = metaJson
+        guard let strippedResult else {
+            return updated
+        }
+
+        updated["result"] = strippedResult
+        guard let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty else {
+            return updated
+        }
+
+        guard let triggerVoice = triggerVoicePatternForAction(action, actionType: actionType),
+              !triggerVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return updated
+        }
+
+        if let strippedLlmResult = stripTriggerFromTextForCLI(text: llmResult, triggerVoice: triggerVoice) {
+            updated["llmResult"] = strippedLlmResult
+            logDebug(
+                "[RunAuto] Stripped trigger from llmResult: " +
+                "\(summarizeForLogs(llmResult, maxPreview: 120)) -> \(summarizeForLogs(strippedLlmResult, maxPreview: 120))"
+            )
+        }
+
+        return updated
+    }
+
+    /// Strips trigger pattern from text using the same logic as TriggerEvaluator/RecordingsFolderWatcher.
+    /// Returns stripped text if a non-raw, non-exception voice trigger matches; otherwise nil.
+    private func stripTriggerFromTextForCLI(text: String, triggerVoice: String) -> String? {
+        let triggers = splitVoiceTriggersForCLI(triggerVoice)
+
+        for trigger in triggers {
+            let isException = trigger.hasPrefix("!")
+            if isException {
+                continue
+            }
+
+            let actualPattern = trigger
+            let isRawRegex = actualPattern.hasPrefix("==") && actualPattern.hasSuffix("==")
+            if isRawRegex {
+                continue
+            }
+
+            let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: actualPattern)
+            guard let regex = try? NSRegularExpression(pattern: regexPattern, options: []) else {
+                continue
+            }
+
+            let range = NSRange(location: 0, length: text.utf16.count)
+            guard let match = regex.firstMatch(in: text, options: [], range: range) else {
+                continue
+            }
+
+            let afterTriggerIndex = text.index(text.startIndex, offsetBy: match.range.length)
+            var stripped = String(text[afterTriggerIndex...])
+            let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+            while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
+                stripped.removeFirst()
+            }
+            if let first = stripped.first {
+                stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
+            }
+            return stripped
+        }
+
+        return nil
+    }
+
+    /// Splits a triggerVoice string into individual patterns, using '|' as separator,
+    /// but ignoring '|' inside raw regex blocks delimited by '==' ... '=='.
+    private func splitVoiceTriggersForCLI(_ input: String) -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var i = input.startIndex
+        var inRaw = false
+
+        func pushCurrent() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { parts.append(trimmed) }
+            current.removeAll(keepingCapacity: true)
+        }
+
+        while i < input.endIndex {
+            if inRaw {
+                if input[i] == "=" {
+                    let next = input.index(after: i)
+                    if next < input.endIndex && input[next] == "=" {
+                        current.append("==")
+                        i = input.index(after: next)
+                        inRaw = false
+                        continue
+                    }
+                }
+                current.append(input[i])
+                i = input.index(after: i)
+            } else {
+                if input[i] == "|" {
+                    pushCurrent()
+                    i = input.index(after: i)
+                    continue
+                }
+                if input[i] == "=" {
+                    let next = input.index(after: i)
+                    if next < input.endIndex && input[next] == "=" {
+                        inRaw = true
+                        current.append("==")
+                        i = input.index(after: next)
+                        continue
+                    }
+                }
+                current.append(input[i])
+                i = input.index(after: i)
+            }
+        }
+
+        pushCurrent()
+        return parts
+    }
+
     private func validateInsertExists(_ insertName: String, configManager: ConfigurationManager) -> Bool {
         if insertName.isEmpty { return true }
         return configManager.config.inserts[insertName] != nil
@@ -680,14 +867,14 @@ class SocketCommunication {
         }
 
         if path == ".delete" {
-            logInfo("Deleting processed recording folder after CLI exec-action: \(recordingPath)")
+            logInfo("Deleting processed recording folder after CLI action execution: \(recordingPath)")
             try? FileManager.default.removeItem(atPath: recordingPath)
         } else if path == ".none" {
-            logInfo("Keeping recording folder in place after CLI exec-action as requested by .none setting")
+            logInfo("Keeping recording folder in place after CLI action execution as requested by .none setting")
         } else {
             let expandedPath = (path as NSString).expandingTildeInPath
             let destinationUrl = URL(fileURLWithPath: expandedPath).appendingPathComponent((recordingPath as NSString).lastPathComponent)
-            logInfo("Moving processed recording folder after CLI exec-action to: \(destinationUrl.path)")
+            logInfo("Moving processed recording folder after CLI action execution to: \(destinationUrl.path)")
             try? FileManager.default.moveItem(atPath: recordingPath, toPath: destinationUrl.path)
         }
     }
@@ -2986,6 +3173,136 @@ class SocketCommunication {
                 let scripts = configMgr.config.scriptsAS.keys.sorted()
                 let activeActionName = configMgr.config.defaults.activeAction ?? ""
                 response = scripts.map { "\($0)\($0 == activeActionName ? " (active)" : "")" }.joined(separator: "\n")
+                _ = sendResponse(response, to: clientSocket)
+
+            case .runAuto:
+                do {
+                    let resolvedMetaSource = try resolveCLIActionMetaSource(
+                        metaValue: commandMessage.arguments?["meta"],
+                        configManager: configMgr
+                    )
+                    logInfo("Using meta source for run-auto: \(resolvedMetaSource.description)")
+
+                    var enhancedMetaJson = enhanceMetaJsonForCLI(
+                        metaJson: resolvedMetaSource.metaJson,
+                        configManager: configMgr
+                    )
+                    let frontApp = captureFrontAppSnapshotForCLI()
+                    enhancedMetaJson = applyFrontAppSnapshotToMetaForCLI(
+                        metaJson: enhancedMetaJson,
+                        frontAppName: frontApp.name,
+                        frontAppBundleId: frontApp.bundleId,
+                        frontAppPid: frontApp.pid
+                    )
+
+                    let modeName = enhancedMetaJson["modeName"] as? String
+                    if shouldBypassProcessingForCLI(modeName: modeName, configManager: configMgr) {
+                        let normalizedMode = modeName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let readableMode = normalizedMode.isEmpty ? "(empty)" : normalizedMode
+                        response = "No action resolved by --run-auto: bypassModes matched mode '\(readableMode)'."
+                        logInfo(response)
+                        _ = sendResponse(response, to: clientSocket)
+                        break
+                    }
+
+                    let runtimeMuteActive = globalState.isRuntimeMuteTriggersActive()
+                    let persistentMuteEnabled = configMgr.config.defaults.muteTriggers
+                    let effectiveMuteTriggers = persistentMuteEnabled || runtimeMuteActive
+
+                    var selectedAction: (action: Any, name: String, type: ActionType, source: String)? = nil
+                    var executionMetaJson = enhancedMetaJson
+
+                    if effectiveMuteTriggers {
+                        if persistentMuteEnabled {
+                            logInfo("[RunAuto] Skipping trigger evaluation because defaults.muteTriggers is enabled.")
+                        } else {
+                            logInfo("[RunAuto] Skipping trigger evaluation because runtime temporary mute is active.")
+                        }
+                    } else {
+                        let resultText = enhancedMetaJson["result"] as? String ?? ""
+                        let triggerEvaluator = TriggerEvaluator(logger: logger)
+                        let matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
+                            configManager: configMgr,
+                            result: resultText,
+                            metaJson: enhancedMetaJson,
+                            frontAppName: frontApp.name,
+                            frontAppBundleId: frontApp.bundleId
+                        )
+
+                        if let matched = matchedTriggerActions.first {
+                            selectedAction = (
+                                action: matched.action,
+                                name: matched.name,
+                                type: matched.type,
+                                source: "trigger"
+                            )
+                            executionMetaJson = applyTriggerResultAdjustmentsForCLI(
+                                metaJson: enhancedMetaJson,
+                                action: matched.action,
+                                actionType: matched.type,
+                                strippedResult: matched.strippedResult
+                            )
+                        }
+                    }
+
+                    if selectedAction == nil {
+                        if let activeActionName = configMgr.config.defaults.activeAction?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !activeActionName.isEmpty {
+                            let (actionType, action) = findActionByName(activeActionName, configManager: configMgr)
+                            if let action {
+                                selectedAction = (
+                                    action: action,
+                                    name: activeActionName,
+                                    type: actionType,
+                                    source: "active"
+                                )
+                            } else {
+                                logWarning("[RunAuto] Active action '\(activeActionName)' not found. No action executed.")
+                            }
+                        }
+                    }
+
+                    guard let selectedAction else {
+                        response = "No action resolved by --run-auto (no trigger match and no active action)."
+                        logInfo(response)
+                        _ = sendResponse(response, to: clientSocket)
+                        break
+                    }
+
+                    let finalStep = try executeActionChainForCLI(
+                        initialAction: selectedAction.action,
+                        initialActionName: selectedAction.name,
+                        initialActionType: selectedAction.type,
+                        metaJson: executionMetaJson,
+                        configManager: configMgr
+                    )
+
+                    if let recordingPath = resolvedMetaSource.recordingPath {
+                        applyMoveToForCLI(
+                            recordingPath: recordingPath,
+                            finalActionType: finalStep.type,
+                            finalAction: finalStep.action,
+                            configManager: configMgr
+                        )
+                    } else if resolvedMetaSource.kind == .jsonFilePath {
+                        logInfo("Skipping moveTo for run-auto because --meta points to a direct JSON file")
+                    }
+
+                    clipboardMonitorRef?.triggerClipboardCleanupForCLI()
+
+                    if selectedAction.source == "trigger" {
+                        response = "Executed \(selectedAction.type) action '\(selectedAction.name)' via trigger resolution"
+                    } else {
+                        response = "Executed \(selectedAction.type) action '\(selectedAction.name)' via active action fallback"
+                    }
+                    logInfo(response)
+                } catch {
+                    response = error.localizedDescription
+                    logError(response)
+                    if commandMessage.arguments?["meta"] == nil && response == "No valid JSON file found with results" {
+                        notify(title: "Macrowhisper", message: "No valid result found for --run-auto. Please check Superwhisper recordings.")
+                    }
+                }
                 _ = sendResponse(response, to: clientSocket)
                 
             case .execAction:
