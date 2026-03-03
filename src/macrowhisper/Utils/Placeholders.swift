@@ -35,6 +35,14 @@ private enum PlaceholderTransform: String {
     case lowercase
     case uppercaseFirst
     case lowercaseFirst
+    case camelCase
+    case pascalCase
+    case snakeCase
+    case kebabCase
+    case altCase
+    case altCaseUpperFirst = "altCase:upperFirst"
+    case randomCase
+    case trim
     case titleCase
     case titleCaseEn = "titleCase:en"
     case titleCaseEs = "titleCase:es"
@@ -84,6 +92,144 @@ private func ensureSentenceCasingAndPunctuationForPlaceholder(_ text: String) ->
     return output
 }
 
+private var placeholderIdentifierWordRegex: NSRegularExpression? {
+    try? NSRegularExpression(pattern: #"[[:alpha:][:digit:]]+"#)
+}
+
+private func characterIsLetterForPlaceholder(_ character: Character) -> Bool {
+    String(character).rangeOfCharacter(from: .letters) != nil
+}
+
+private func characterIsDigitForPlaceholder(_ character: Character) -> Bool {
+    String(character).rangeOfCharacter(from: .decimalDigits) != nil
+}
+
+private func characterIsUppercaseLetterForPlaceholder(_ character: Character) -> Bool {
+    let scalarSet = CharacterSet.uppercaseLetters
+    return String(character).unicodeScalars.contains { scalarSet.contains($0) }
+}
+
+private func characterIsLowercaseLetterForPlaceholder(_ character: Character) -> Bool {
+    let scalarSet = CharacterSet.lowercaseLetters
+    return String(character).unicodeScalars.contains { scalarSet.contains($0) }
+}
+
+private func splitIdentifierTokenForPlaceholder(_ token: String) -> [String] {
+    let characters = Array(token)
+    guard !characters.isEmpty else { return [] }
+    if characters.count == 1 { return [token] }
+
+    var boundaries: [Int] = [0]
+    for index in 1..<characters.count {
+        let previous = characters[index - 1]
+        let current = characters[index]
+        let next: Character? = index + 1 < characters.count ? characters[index + 1] : nil
+
+        let previousIsLower = characterIsLowercaseLetterForPlaceholder(previous)
+        let previousIsUpper = characterIsUppercaseLetterForPlaceholder(previous)
+        let previousIsLetter = characterIsLetterForPlaceholder(previous)
+        let previousIsDigit = characterIsDigitForPlaceholder(previous)
+
+        let currentIsUpper = characterIsUppercaseLetterForPlaceholder(current)
+        let currentIsLetter = characterIsLetterForPlaceholder(current)
+        let currentIsDigit = characterIsDigitForPlaceholder(current)
+
+        let nextIsLower = next.map(characterIsLowercaseLetterForPlaceholder) ?? false
+
+        let shouldBreak =
+            (previousIsLower && currentIsUpper) ||
+            (previousIsLetter && currentIsDigit) ||
+            (previousIsDigit && currentIsLetter) ||
+            (previousIsUpper && currentIsUpper && nextIsLower)
+
+        if shouldBreak {
+            boundaries.append(index)
+        }
+    }
+    boundaries.append(characters.count)
+
+    var parts: [String] = []
+    for index in 0..<(boundaries.count - 1) {
+        let start = boundaries[index]
+        let end = boundaries[index + 1]
+        guard start < end else { continue }
+        parts.append(String(characters[start..<end]))
+    }
+    return parts
+}
+
+private func normalizedIdentifierWordsForPlaceholder(_ text: String) -> [String] {
+    guard let regex = placeholderIdentifierWordRegex else {
+        return text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    let matches = regex.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text))
+    var words: [String] = []
+
+    for match in matches {
+        guard let range = Range(match.range, in: text) else { continue }
+        let token = String(text[range])
+        words.append(contentsOf: splitIdentifierTokenForPlaceholder(token))
+    }
+
+    return words.filter { !$0.isEmpty }
+}
+
+private func capitalizeWordTokenForPlaceholder(_ token: String, locale: Locale) -> String {
+    uppercasingFirstLetterForPlaceholder(token.lowercased(with: locale))
+}
+
+private func applyCamelOrPascalCaseForPlaceholder(_ text: String, locale: Locale, uppercaseFirstToken: Bool) -> String {
+    let words = normalizedIdentifierWordsForPlaceholder(text)
+    guard !words.isEmpty else { return text }
+
+    var output = ""
+    for (index, word) in words.enumerated() {
+        if index == 0 && !uppercaseFirstToken {
+            output += word.lowercased(with: locale)
+        } else {
+            output += capitalizeWordTokenForPlaceholder(word, locale: locale)
+        }
+    }
+    return output
+}
+
+private func applyDelimitedLowercaseCaseForPlaceholder(_ text: String, locale: Locale, delimiter: String) -> String {
+    let words = normalizedIdentifierWordsForPlaceholder(text)
+    guard !words.isEmpty else { return text }
+    return words
+        .map { $0.lowercased(with: locale) }
+        .joined(separator: delimiter)
+}
+
+private func applyAlternatingCaseForPlaceholder(_ text: String, locale: Locale, startsUppercase: Bool) -> String {
+    var result = ""
+    var shouldUppercase = startsUppercase
+    for character in text {
+        let string = String(character)
+        if string.rangeOfCharacter(from: .letters) != nil {
+            result += shouldUppercase ? string.uppercased(with: locale) : string.lowercased(with: locale)
+            shouldUppercase.toggle()
+        } else {
+            result += string
+        }
+    }
+    return result
+}
+
+private func applyRandomCaseForPlaceholder(_ text: String, locale: Locale) -> String {
+    var result = ""
+    for character in text {
+        let string = String(character)
+        if string.rangeOfCharacter(from: .letters) != nil {
+            result += Bool.random() ? string.uppercased(with: locale) : string.lowercased(with: locale)
+        } else {
+            result += string
+        }
+    }
+    return result
+}
+
 private func applyPlaceholderTransform(_ value: String, transformName: String, placeholderKey: String) -> String {
     guard !value.isEmpty else {
         return value
@@ -104,6 +250,22 @@ private func applyPlaceholderTransform(_ value: String, transformName: String, p
         return uppercasingFirstLetterForPlaceholder(value)
     case .lowercaseFirst:
         return lowercasingFirstLetterForPlaceholder(value)
+    case .camelCase:
+        return applyCamelOrPascalCaseForPlaceholder(value, locale: locale, uppercaseFirstToken: false)
+    case .pascalCase:
+        return applyCamelOrPascalCaseForPlaceholder(value, locale: locale, uppercaseFirstToken: true)
+    case .snakeCase:
+        return applyDelimitedLowercaseCaseForPlaceholder(value, locale: locale, delimiter: "_")
+    case .kebabCase:
+        return applyDelimitedLowercaseCaseForPlaceholder(value, locale: locale, delimiter: "-")
+    case .altCase:
+        return applyAlternatingCaseForPlaceholder(value, locale: locale, startsUppercase: false)
+    case .altCaseUpperFirst:
+        return applyAlternatingCaseForPlaceholder(value, locale: locale, startsUppercase: true)
+    case .randomCase:
+        return applyRandomCaseForPlaceholder(value, locale: locale)
+    case .trim:
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     case .titleCase:
         return applyAutoDetectedTitleCaseForPlaceholder(in: value, locale: locale)
     case .titleCaseEn:

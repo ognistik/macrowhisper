@@ -8,6 +8,14 @@ private func assertEqual(_ actual: String, _ expected: String, _ label: String) 
     print("PASS: \(label)")
 }
 
+private func assertTrue(_ condition: Bool, _ label: String, details: String) {
+    if !condition {
+        fputs("FAIL: \(label)\n\(details)\n", stderr)
+        exit(1)
+    }
+    print("PASS: \(label)")
+}
+
 private func runPlaceholderRegexPipelineRegressionTests() {
     do {
         let action1 = "{{swResult||(?s)(.*)||${1}}}"
@@ -49,6 +57,50 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let meta8: [String: Any] = ["llmResult": "la sopa de pollo"]
         let result8 = processDynamicPlaceholders(action: action8, metaJson: meta8, actionType: .insert).text
         assertEqual(result8, "La Sopa de Pollo", "auto title case preserves Spanish minor words in romance tie cases")
+
+        let action9 = "{{swResult::camelCase}}"
+        let meta9: [String: Any] = ["llmResult": "hello_world HTTP server"]
+        let result9 = processDynamicPlaceholders(action: action9, metaJson: meta9, actionType: .insert).text
+        assertEqual(result9, "helloWorldHttpServer", "camelCase handles delimiters and acronym chunks")
+
+        let action10 = "{{swResult::pascalCase}}"
+        let meta10: [String: Any] = ["llmResult": "hello_world HTTP server"]
+        let result10 = processDynamicPlaceholders(action: action10, metaJson: meta10, actionType: .insert).text
+        assertEqual(result10, "HelloWorldHttpServer", "pascalCase capitalizes all word tokens")
+
+        let action11 = "{{swResult::snakeCase}}"
+        let meta11: [String: Any] = ["llmResult": "helloWorld HTTPServer now"]
+        let result11 = processDynamicPlaceholders(action: action11, metaJson: meta11, actionType: .insert).text
+        assertEqual(result11, "hello_world_http_server_now", "snakeCase tokenizes camel/pascal words")
+
+        let action12 = "{{swResult::kebabCase}}"
+        let meta12: [String: Any] = ["llmResult": "helloWorld HTTPServer now"]
+        let result12 = processDynamicPlaceholders(action: action12, metaJson: meta12, actionType: .insert).text
+        assertEqual(result12, "hello-world-http-server-now", "kebabCase tokenizes camel/pascal words")
+
+        let action13 = "{{swResult::altCase}}"
+        let meta13: [String: Any] = ["llmResult": "hello world"]
+        let result13 = processDynamicPlaceholders(action: action13, metaJson: meta13, actionType: .insert).text
+        assertEqual(result13, "hElLo WoRlD", "altCase starts lowercase")
+
+        let action14 = "{{swResult::altCase:upperFirst}}"
+        let meta14: [String: Any] = ["llmResult": "hello world"]
+        let result14 = processDynamicPlaceholders(action: action14, metaJson: meta14, actionType: .insert).text
+        assertEqual(result14, "HeLlO wOrLd", "altCase:upperFirst starts uppercase")
+
+        let action15 = "{{swResult::trim}}"
+        let meta15: [String: Any] = ["llmResult": " \n\t hello world \n\n"]
+        let result15 = processDynamicPlaceholders(action: action15, metaJson: meta15, actionType: .insert).text
+        assertEqual(result15, "hello world", "trim removes edge whitespace/newlines only")
+
+        let action16 = "{{swResult::randomCase}}"
+        let meta16: [String: Any] = ["llmResult": "hello-world 123"]
+        let result16 = processDynamicPlaceholders(action: action16, metaJson: meta16, actionType: .insert).text
+        assertTrue(
+            result16.lowercased() == "hello-world 123" && result16.count == "hello-world 123".count,
+            "randomCase preserves letters and non-letters while randomizing case",
+            details: "actual: \(result16)"
+        )
     }
 }
 

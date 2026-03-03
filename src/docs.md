@@ -1140,6 +1140,14 @@ What each transform does:
 - `lowercase`: makes the whole value lowercase.
 - `uppercaseFirst`: only uppercases the first letter it finds.
 - `lowercaseFirst`: only lowercases the first letter it finds.
+- `camelCase`: converts words to `camelCase`.
+- `pascalCase`: converts words to `PascalCase`.
+- `snakeCase`: converts words to `snake_case`.
+- `kebabCase`: converts words to `kebab-case`.
+- `altCase`: alternates letter case starting with lowercase (`hElLo`).
+- `altCase:upperFirst`: alternates letter case starting with uppercase (`HeLlO`).
+- `randomCase`: randomly upper/lowercases each letter (non-deterministic).
+- `trim`: removes leading/trailing whitespace and line breaks.
 - `titleCase`: uses automatic language detection (English/Spanish/French) and applies title case rules.
 - `titleCase:en`: English title case rules.
 - `titleCase:es`: Spanish title case rules.
@@ -1155,6 +1163,9 @@ Examples:
 - `{{date:short::uppercase}}`
 - `{{folderName:1::lowercase}}`
 - `{{swResult::ensureSentence}}`
+- `{{swResult::camelCase}}`
+- `{{swResult::altCase:upperFirst}}`
+- `{{swResult::trim}}`
 
 Smart insertion interaction:
 
