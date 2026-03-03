@@ -25,6 +25,7 @@ private let CONCEALED_MARKER_TYPES: [NSPasteboard.PasteboardType] = [
 private let RETROACTIVE_CLEANUP_WINDOW: TimeInterval = 0.5  // Look back 0.5 seconds for cleanup
 private let DEFAULT_CLIPBOARD_RESTORE_DELAY: TimeInterval = 0.3
 private let CLIPBOARD_CLEANUP_GRACE: TimeInterval = 0.2
+private let DUPLICATE_CAPTURE_BLACKOUT_WINDOW: TimeInterval = 3.0
 
 /// Handles clipboard monitoring and synchronization for action execution triggered by valid results
 /// This solves timing issues where Superwhisper and Macrowhisper can modify clipboard around the same time.
@@ -81,7 +82,7 @@ class ClipboardMonitor {
         var preRecordingClipboardStack: [String]  // All clipboard content captured from global history before recording (mutable for cleanup)
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
-        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (5s blackout period)
+        let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (3s blackout period)
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
         var ignoredClipboardChangeCounts: Set<Int> = []
     }
@@ -147,7 +148,7 @@ class ClipboardMonitor {
         let preRecordingClipboardStack = capturePreRecordingClipboardStack(beforeTime: sessionStartTime)
         
         let currentChangeCount = pasteboard.changeCount
-        let ignoreUntil = sessionStartTime.addingTimeInterval(5) // Ignore clipboard duplicates for 5 seconds
+        let ignoreUntil = sessionStartTime.addingTimeInterval(DUPLICATE_CAPTURE_BLACKOUT_WINDOW)
         sessionsQueue.async(flags: .barrier) { [weak self] in
             guard let self else { return }
 
@@ -225,7 +226,7 @@ class ClipboardMonitor {
         
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
         logDebug("[ClipboardMonitor] Captured user original clipboard content")
-        logDebug("[ClipboardMonitor] Ignoring duplicate clipboard captures for 5 seconds")
+        logDebug("[ClipboardMonitor] Ignoring duplicate clipboard captures for \(Int(DUPLICATE_CAPTURE_BLACKOUT_WINDOW)) seconds")
         if !selectedText.isEmpty {
             logDebug("[ClipboardMonitor] Captured selected text at recording start")
         }
@@ -989,7 +990,7 @@ class ClipboardMonitor {
             let appName = frontApp?.localizedName ?? ""
             let bundleId = frontApp?.bundleIdentifier ?? ""
             
-            // Check if we're still in the 5-second ignore window
+            // Check if we're still in the 3-second ignore window
             let isInIgnoreWindow = now < sessionData.ignoreClipboardUntil
             
             // Check if the captured app should be ignored (using the app info we captured atomically)
@@ -1070,7 +1071,7 @@ class ClipboardMonitor {
                         self.earlyMonitoringSessions[recordingPath] = session
 
                         if session.isExecutingAction {
-                            logDebug("[ClipboardMonitor] Detected unique clipboard change during 5s blackout window (changeCount: \(currentChangeCount))")
+                            logDebug("[ClipboardMonitor] Detected unique clipboard change during 3s blackout window (changeCount: \(currentChangeCount))")
                         }
                     }
                 } else {
@@ -1087,7 +1088,7 @@ class ClipboardMonitor {
                     }
 
                     let timeRemaining = sessionData.ignoreClipboardUntil.timeIntervalSince(now)
-                    logDebug("[ClipboardMonitor] Ignoring duplicate clipboard change during 5s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
+                    logDebug("[ClipboardMonitor] Ignoring duplicate clipboard change during 3s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
                 }
             } else if shouldIgnoreAppFlag || containsSensitiveMarkers { // MODIFIED LINE
                 if containsSensitiveMarkers { // NEW LOGIC
@@ -1734,7 +1735,7 @@ class ClipboardMonitor {
     }
 
     /// Prevents global history contamination when duplicate clipboard writes happen
-    /// inside an active session's 5-second blackout window.
+    /// inside an active session's 3-second blackout window.
     private func shouldSkipGlobalCaptureDuringSessionBlackout(content: String?, now: Date) -> Bool {
         guard let content = content else { return false }
         var shouldSkip = false

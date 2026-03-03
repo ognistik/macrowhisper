@@ -1337,7 +1337,7 @@ Superwhisper and Macrowhisper can touch clipboard near the same time. The clipbo
 
 - Short wait window for Superwhisper clipboard sync before the first action in a chain (`0.1s`)
 - Recent-activity window to skip unnecessary waiting (`0.5s`)
-- Startup duplicate-ignore window (`5s`). For some reason Superwhisper performs a clipboard operation if the user is not in an input field. This 5 sec window prevents clipboard contamination for context placeholders
+- Startup duplicate-ignore window (`3s`). For some reason Superwhisper performs a clipboard operation if the user is not in an input field. This 3 sec window prevents clipboard contamination for context placeholders
 - Pre-recording capture window from `clipboardBuffer` (user-configurable, default `5s`)
 
 ### 15.3 Important settings
