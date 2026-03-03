@@ -31,9 +31,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   - `""` for explicit empty
 
 ## Other
-* **Breaking.** `--insert, --get-insert, --exec-insert, getInsert, execInsert` flags have been deprecated for quite some time, and now they've been cleaned up from the code.
-* **New.** `simEsc` (with `true` as default) has replaced `noEsc` (with `false` as default) in the configuration.
-  * This setting is on charge of simulating Esc to close Superwhisper's recording window.
+* **New.** `simEsc` (with `true` as default) has replaced `noEsc` (with `false` as default) in the configuration. `noUpdates` has been renamed to `disableUpdateCheck` and `noNoti` to `muteNotification`
   * Your configuration will be updated automatically with the migration mentioned above.
 * **New.** `restoreClipboardDelay` can be set at the default level or at the actions level.
   * Defaul is 0.3 sec. I suggest not extending too much, especially if you dictate quickly. Could easily lead to clipboard contamination in overlapping dictations.

@@ -13,8 +13,8 @@ struct AppConfiguration: Codable {
     
     struct Defaults: Codable {
         var watch: String
-        var noUpdates: Bool
-        var noNoti: Bool
+        var disableUpdateCheck: Bool
+        var muteNotifications: Bool
         var activeAction: String?
         var icon: String?
         var moveTo: String?
@@ -43,15 +43,15 @@ struct AppConfiguration: Codable {
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, history, pressReturn, returnDelay, restoreClipboard, restoreClipboardDelay, scheduledActionTimeout, scriptAsync, scriptWaitTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, bypassModes, muteTriggers, autoUpdateConfig, redactedLogs, nextAction
+            case watch, disableUpdateCheck, muteNotifications, activeAction, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, history, pressReturn, returnDelay, restoreClipboard, restoreClipboardDelay, scheduledActionTimeout, scriptAsync, scriptWaitTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, bypassModes, muteTriggers, autoUpdateConfig, redactedLogs, nextAction
         }
         
         // Custom encoding to preserve null values
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(watch, forKey: .watch)
-            try container.encode(noUpdates, forKey: .noUpdates)
-            try container.encode(noNoti, forKey: .noNoti)
+            try container.encode(disableUpdateCheck, forKey: .disableUpdateCheck)
+            try container.encode(muteNotifications, forKey: .muteNotifications)
             try container.encode(activeAction, forKey: .activeAction)
             try container.encode(icon, forKey: .icon)
             try container.encode(moveTo, forKey: .moveTo)
@@ -79,7 +79,7 @@ struct AppConfiguration: Codable {
             try container.encode(nextAction, forKey: .nextAction)
         }
         
-        // Custom decoding with migration logic from activeInsert to activeAction
+        // Custom decoding with legacy key fallbacks
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             // Required fields
@@ -87,18 +87,23 @@ struct AppConfiguration: Codable {
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay) ?? 0
 
             // Optional fields with sensible fallbacks (aligned with defaultValues())
-            noUpdates = try container.decodeIfPresent(Bool.self, forKey: .noUpdates) ?? false
-            noNoti = try container.decodeIfPresent(Bool.self, forKey: .noNoti) ?? false
-            
-            // Migration logic: try new activeAction first, fall back to old activeInsert
-            if let newActiveAction = try container.decodeIfPresent(String.self, forKey: .activeAction) {
-                activeAction = newActiveAction
+            if let newDisableUpdateCheck = try container.decodeIfPresent(Bool.self, forKey: .disableUpdateCheck) {
+                disableUpdateCheck = newDisableUpdateCheck
             } else {
-                // Try to decode the old activeInsert field using a separate container for backward compatibility
                 let legacyContainer = try decoder.container(keyedBy: AnyCodingKey.self)
-                let activeInsertKey = AnyCodingKey(stringValue: "activeInsert")
-                activeAction = try legacyContainer.decodeIfPresent(String.self, forKey: activeInsertKey)
+                let legacyNoUpdatesKey = AnyCodingKey(stringValue: "noUpdates")
+                disableUpdateCheck = try legacyContainer.decodeIfPresent(Bool.self, forKey: legacyNoUpdatesKey) ?? false
             }
+
+            if let newMuteNotifications = try container.decodeIfPresent(Bool.self, forKey: .muteNotifications) {
+                muteNotifications = newMuteNotifications
+            } else {
+                let legacyContainer = try decoder.container(keyedBy: AnyCodingKey.self)
+                let legacyNoNotiKey = AnyCodingKey(stringValue: "noNoti")
+                muteNotifications = try legacyContainer.decodeIfPresent(Bool.self, forKey: legacyNoNotiKey) ?? false
+            }
+
+            activeAction = try container.decodeIfPresent(String.self, forKey: .activeAction)
             
             icon = try container.decodeIfPresent(String.self, forKey: .icon)
             moveTo = try container.decodeIfPresent(String.self, forKey: .moveTo)
@@ -143,10 +148,10 @@ struct AppConfiguration: Codable {
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, simEsc: Bool, simKeypress: Bool, smartCasing: Bool, smartPunctuation: Bool, smartSpacing: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, restoreClipboardDelay: Double?, scheduledActionTimeout: Double, scriptAsync: Bool?, scriptWaitTimeout: Double?, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, bypassModes: String?, muteTriggers: Bool, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
+        init(watch: String, disableUpdateCheck: Bool, muteNotifications: Bool, activeAction: String?, icon: String?, moveTo: String?, simEsc: Bool, simKeypress: Bool, smartCasing: Bool, smartPunctuation: Bool, smartSpacing: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, restoreClipboardDelay: Double?, scheduledActionTimeout: Double, scriptAsync: Bool?, scriptWaitTimeout: Double?, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, bypassModes: String?, muteTriggers: Bool, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
             self.watch = watch
-            self.noUpdates = noUpdates
-            self.noNoti = noNoti
+            self.disableUpdateCheck = disableUpdateCheck
+            self.muteNotifications = muteNotifications
             self.activeAction = activeAction
             self.icon = icon
             self.moveTo = moveTo
@@ -177,8 +182,8 @@ struct AppConfiguration: Codable {
         static func defaultValues() -> Defaults {
             return Defaults(
                 watch: ("~/Documents/superwhisper" as NSString).expandingTildeInPath,
-                noUpdates: false,
-                noNoti: false,
+                disableUpdateCheck: false,
+                muteNotifications: false,
                 activeAction: "autoPaste",
                 icon: nil,
                 moveTo: nil,

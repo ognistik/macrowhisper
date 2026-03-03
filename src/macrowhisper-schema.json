@@ -24,14 +24,24 @@
           "description": "Path to Superwhisper recordings folder",
           "examples": ["~/Documents/superwhisper", "/Users/username/Documents/superwhisper"]
         },
-        "noUpdates": {
+        "disableUpdateCheck": {
           "type": ["boolean", "null"],
           "description": "Disable automatic update checking. null or omitted = use built-in default (false).",
           "default": false
         },
-        "noNoti": {
+        "muteNotifications": {
           "type": ["boolean", "null"],
           "description": "Disable system notifications. null or omitted = use built-in default (false).",
+          "default": false
+        },
+        "noUpdates": {
+          "type": ["boolean", "null"],
+          "description": "Legacy alias for disableUpdateCheck. Runtime still accepts this key, but new configs should use disableUpdateCheck.",
+          "default": false
+        },
+        "noNoti": {
+          "type": ["boolean", "null"],
+          "description": "Legacy alias for muteNotifications. Runtime still accepts this key, but new configs should use muteNotifications.",
           "default": false
         },
         "activeAction": {

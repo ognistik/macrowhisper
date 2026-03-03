@@ -1682,8 +1682,8 @@ historyManager = HistoryManager(configManager: configManager)
 
 // Read values from config first and update thread-safe state
 let config = configManager.config
-globalState.disableUpdates = config.defaults.noUpdates
-globalState.disableNotifications = config.defaults.noNoti
+globalState.disableUpdates = config.defaults.disableUpdateCheck
+globalState.disableNotifications = config.defaults.muteNotifications
 redactedLogsEnabled = verboseLogging ? false : config.defaults.redactedLogs
 
 // Request accessibility permissions upfront for better user experience
@@ -1776,8 +1776,8 @@ configManager.onConfigChanged = { reason in
     let previousDisableUpdates = globalState.disableUpdates
     
     // Update global state variables using thread-safe operations
-    globalState.disableUpdates = configManager.config.defaults.noUpdates
-    globalState.disableNotifications = configManager.config.defaults.noNoti
+    globalState.disableUpdates = configManager.config.defaults.disableUpdateCheck
+    globalState.disableNotifications = configManager.config.defaults.muteNotifications
     redactedLogsEnabled = verboseLogging ? false : configManager.config.defaults.redactedLogs
     
     // Apply clipboard buffer changes live to the global ClipboardMonitor
@@ -1915,7 +1915,7 @@ configManager.onConfigChanged = { reason in
 // Initialize version checker
 let versionChecker = VersionChecker()
 
-// Check for updates on startup (respects noUpdates setting and timing constraints)
+// Check for updates on startup (respects disableUpdateCheck setting and timing constraints)
 versionChecker.checkForUpdates()
 
 registerForSleepWakeNotifications()

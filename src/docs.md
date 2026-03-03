@@ -580,8 +580,8 @@ Null behavior at `defaults` level:
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `watch` | string | `~/Documents/superwhisper` | Path to Superwhisper folder (the one containing `recordings`). |
-| `noUpdates` | bool/null | `false` | Disable periodic update checks. `null` = built-in default (`false`). |
-| `noNoti` | bool/null | `false` | Disable notifications. `null` = built-in default (`false`). |
+| `disableUpdateCheck` | bool/null | `false` | Disable periodic update checks. `null` = built-in default (`false`). |
+| `muteNotifications` | bool/null | `false` | Disable notifications. `null` = built-in default (`false`). |
 | `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty/null means none. |
 | `icon` | string/null | `null` | Default icon for actions. |
 | `moveTo` | string/null | `null` | Default post-processing path (`.delete`, a path, or empty). |

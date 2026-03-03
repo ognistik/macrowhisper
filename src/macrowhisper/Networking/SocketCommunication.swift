@@ -896,7 +896,7 @@ class SocketCommunication {
                config.scriptsAS[actionName] != nil
     }
     
-    // Function to get the current active action (generalizes validateInsertExists for activeInsert)
+    // Function to get the current active action
     private func getActiveAction(configManager: ConfigurationManager) -> (type: ActionType, action: Any?, name: String) {
         let activeActionName = configManager.config.defaults.activeAction ?? ""
         
@@ -2658,8 +2658,8 @@ class SocketCommunication {
                 if let arguments = commandMessage.arguments {
                     var updated = false
                     
-                    // Update active action with validation (supports both new activeAction and legacy activeInsert)
-                    if let activeAction = arguments["activeAction"] ?? arguments["activeInsert"] {
+                    // Update active action with validation
+                    if let activeAction = arguments["activeAction"] {
                         // Validate action exists if it's not empty
                         if !activeAction.isEmpty && !validateActionExists(activeAction, configManager: configMgr) {
                             response = "Error: Action '\(activeAction)' does not exist."
@@ -2743,8 +2743,8 @@ class SocketCommunication {
                 lines.append("Scheduled action: \(globalState.scheduledActionName ?? "(none)")")
                 lines.append(contentsOf: buildMuteTriggersStatusLines(configManager: configMgr))
                 // Settings
-                lines.append("noUpdates: \(defaults.noUpdates ? "yes" : "no")")
-                lines.append("noNoti: \(defaults.noNoti ? "yes" : "no")")
+                lines.append("disableUpdateCheck: \(defaults.disableUpdateCheck ? "yes" : "no")")
+                lines.append("muteNotifications: \(defaults.muteNotifications ? "yes" : "no")")
                 lines.append("simEsc: \(defaults.simEsc ? "yes" : "no")")
                 lines.append("simKeypress: \(defaults.simKeypress ? "yes" : "no")")
                 lines.append("redactedLogs: \(defaults.redactedLogs ? "yes" : "no")")

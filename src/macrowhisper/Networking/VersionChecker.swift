@@ -420,7 +420,7 @@ class VersionChecker {
         return lines.joined(separator: "\n")
     }
     
-    /// Force an update check regardless of timing constraints and noUpdates setting
+    /// Force an update check regardless of timing constraints and disableUpdateCheck setting
     func forceUpdateCheck() {
         logDebug("Forcing update check - resetting ALL timing constraints...")
         
@@ -444,8 +444,8 @@ class VersionChecker {
     
     /// Synchronous version of update check for forced updates
     private func forceUpdateCheckSynchronous() {
-        // Note: Forced checks ignore the noUpdates setting
-        logDebug("Performing synchronous update check (ignoring noUpdates setting)...")
+        // Note: Forced checks ignore the disableUpdateCheck setting
+        logDebug("Performing synchronous update check (ignoring disableUpdateCheck setting)...")
         updateCheckInProgress = true
         
         // Create request with timeout
