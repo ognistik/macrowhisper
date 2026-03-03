@@ -664,6 +664,28 @@ if args.contains("--reset-config") {
     exit(0)
 }
 
+if args.contains("--validate-config") {
+    let configArgIndex = args.firstIndex(where: { $0 == "--config" })
+    let configPath: String
+    if let index = configArgIndex, index + 1 < args.count {
+        configPath = ConfigurationManager.normalizeConfigPath(args[index + 1])
+    } else {
+        configPath = ConfigurationManager.getEffectiveConfigPath()
+    }
+
+    let report = ConfigurationManager.validateConfig(at: configPath)
+    if report.isValid {
+        print("Configuration is valid: \(report.configPath)")
+        exit(0)
+    }
+
+    print("Configuration invalid (\(report.issues.count) issues): \(report.configPath)")
+    for issue in report.issues {
+        print("[\(issue.kind.rawValue)] \(issue.path): \(issue.message)")
+    }
+    exit(1)
+}
+
 // Persist --config path immediately and apply it live if a daemon is running.
 if args.contains("--config") {
     let configArgIndex = args.firstIndex(where: { $0 == "--config" })
@@ -1369,7 +1391,7 @@ if args.count > 1 {
     let validDaemonArgs = ["--config", "--verbose", "--meta"]
     let validQuickCommands = [
         "-h", "--help", "-v", "--version", "--reveal-config", "--set-config", 
-        "--reset-config", "--get-config", "--update-config", "--schema-info",
+        "--reset-config", "--get-config", "--update-config", "--validate-config", "--schema-info",
         "--install-service", "--start-service", "--stop-service", "--restart-service", 
         "--uninstall-service", "--service-status", "--test-update-dialog", "--test-version", 
         "--test-description", "--version-state", "--version-clear", "--debug-ax-tree"
@@ -1468,6 +1490,7 @@ func printHelp() {
       --get-config                  Show the currently saved config path
       --update-config               Update configuration file with new schema changes
                                     (preserves your settings, fixes formatting issues)
+      --validate-config             Validate config and print detailed path-based issues
       --reveal-config               Open the configuration file in Finder
                                     (creates default config if none exists)
       

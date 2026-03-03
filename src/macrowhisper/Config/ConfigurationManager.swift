@@ -1,5 +1,26 @@
 import Foundation
 
+enum ConfigValidationIssueKind: String {
+    case semantic
+    case duplicateName
+    case decoding
+    case io
+}
+
+struct ConfigValidationIssue: Hashable {
+    let path: String
+    let message: String
+    let kind: ConfigValidationIssueKind
+    let rawValue: String?
+}
+
+struct ConfigValidationReport {
+    let isValid: Bool
+    let issues: [ConfigValidationIssue]
+    let configPath: String
+    let summary: String?
+}
+
 class ConfigurationManager {
     private var _config: AppConfiguration
     var config: AppConfiguration {
@@ -25,8 +46,9 @@ class ConfigurationManager {
     private var pendingCommands: [(arguments: [String: String], completion: (() -> Void)?)] = []
     private var isProcessingCommands = false
     
-    // Add properties to track JSON error state and prevent reload loops
+    // Track config-notification state and prevent reload loops
     private var hasNotifiedAboutJsonError = false
+    private var hasNotifiedAboutValidationError = false
     private var suppressNextConfigReload = false
     private(set) var hasLegacyConfigOnDisk = false
     
@@ -70,6 +92,7 @@ class ConfigurationManager {
                 logDebug("Configuration loaded from \(self.configPath)")
                 // Reset notification flag on successful load
                 hasNotifiedAboutJsonError = false
+                hasNotifiedAboutValidationError = false
             } else {
                 // If loading fails but file exists, don't overwrite it.
                 // loadConfig() already emitted the correct notification.
@@ -250,16 +273,72 @@ class ConfigurationManager {
             return nil
         }
         normalizeConfigurationForRuntime(&decoded)
-        if let duplicateNames = findDuplicateActionNamesAcrossTypes(in: decoded), !duplicateNames.isEmpty {
-            logError("Configuration validation failed: duplicate action names across types are not allowed: \(duplicateNames.sorted().joined(separator: ", "))")
-            return nil
-        }
-        let validationErrors = collectConfigurationValidationErrors(in: decoded)
-        if !validationErrors.isEmpty {
-            logError("Configuration validation failed: \(validationErrors.joined(separator: " | "))")
+        let issues = sortedIssues(validationIssues(for: decoded))
+        if !issues.isEmpty {
+            logError("Configuration validation failed: \(issues.map { "\($0.path): \($0.message)" }.joined(separator: " | "))")
             return nil
         }
         return decoded
+    }
+
+    static func validateConfig(at path: String) -> ConfigValidationReport {
+        let normalizedPath = normalizeConfigPath(path)
+        let url = URL(fileURLWithPath: normalizedPath)
+
+        do {
+            let data = try Data(contentsOf: url, options: .uncached)
+            if data.isEmpty {
+                let issue = ConfigValidationIssue(
+                    path: "root",
+                    message: "configuration file is empty",
+                    kind: .io,
+                    rawValue: nil
+                )
+                return ConfigValidationReport(
+                    isValid: false,
+                    issues: [issue],
+                    configPath: normalizedPath,
+                    summary: "Configuration is invalid"
+                )
+            }
+
+            let decoder = JSONDecoder()
+            var decoded = try decoder.decode(AppConfiguration.self, from: data)
+            normalizeConfigurationForRuntime(&decoded)
+            let issues = sortedIssues(validationIssues(for: decoded))
+            return ConfigValidationReport(
+                isValid: issues.isEmpty,
+                issues: issues,
+                configPath: normalizedPath,
+                summary: issues.isEmpty ? "Configuration is valid" : "Configuration is invalid"
+            )
+        } catch let error as DecodingError {
+            let issue = ConfigValidationIssue(
+                path: decodingErrorPath(error) ?? "root",
+                message: decodingErrorMessage(error),
+                kind: .decoding,
+                rawValue: nil
+            )
+            return ConfigValidationReport(
+                isValid: false,
+                issues: [issue],
+                configPath: normalizedPath,
+                summary: "Configuration is invalid"
+            )
+        } catch {
+            let issue = ConfigValidationIssue(
+                path: "root",
+                message: error.localizedDescription,
+                kind: .io,
+                rawValue: nil
+            )
+            return ConfigValidationReport(
+                isValid: false,
+                issues: [issue],
+                configPath: normalizedPath,
+                summary: "Configuration is invalid"
+            )
+        }
     }
 
     /// Loads configuration with enhanced error handling and recovery mechanisms
@@ -285,29 +364,29 @@ class ConfigurationManager {
             var config = try decoder.decode(AppConfiguration.self, from: data)
             hasLegacyConfigOnDisk = (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion
             Self.normalizeConfigurationForRuntime(&config)
-            if let duplicateNames = Self.findDuplicateActionNamesAcrossTypes(in: config), !duplicateNames.isEmpty {
-                let duplicateList = duplicateNames.sorted().joined(separator: ", ")
-                logError("Configuration validation failed: duplicate action names across action types are not allowed: \(duplicateList)")
-                showConfigValidationErrorNotification("Duplicate action names across types are not allowed: \(duplicateList)")
-                return nil
-            }
-
-            let validationErrors = Self.collectConfigurationValidationErrors(in: config)
-            if !validationErrors.isEmpty {
-                showConfigValidationErrorNotification(validationErrors.joined(separator: "\n"))
+            let issues = Self.sortedIssues(Self.validationIssues(for: config))
+            if !issues.isEmpty {
+                let report = ConfigValidationReport(
+                    isValid: false,
+                    issues: issues,
+                    configPath: configPath,
+                    summary: "Configuration is invalid"
+                )
+                showConfigValidationErrorNotification(report)
                 return nil
             }
             
             // JSON loaded successfully, reset notification flag
             hasNotifiedAboutJsonError = false
+            hasNotifiedAboutValidationError = false
             
             return config
         } catch let error as DecodingError {
             // Provide specific JSON decoding error details
-            let errorDetails = formatDecodingError(error)
+            let errorDetails = Self.decodingErrorMessage(error)
             logError("Configuration JSON parsing failed: \(errorDetails)")
             
-            showJsonErrorNotification()
+            showJsonErrorNotification(decodingPath: Self.decodingErrorPath(error))
             return nil
         } catch {
             // Other file system errors (permissions, etc.)
@@ -334,10 +413,23 @@ class ConfigurationManager {
         return duplicates
     }
 
-    private static func collectConfigurationValidationErrors(in config: AppConfiguration) -> [String] {
-        var errors: [String] = []
+    private static func validationIssues(for config: AppConfiguration) -> [ConfigValidationIssue] {
+        var issues: [ConfigValidationIssue] = []
 
-        // Build unique action name set (duplicate-name check is performed separately).
+        if let duplicateNames = findDuplicateActionNamesAcrossTypes(in: config), !duplicateNames.isEmpty {
+            for name in duplicateNames.sorted() {
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "actions.\(name)",
+                        message: "duplicate action name exists across multiple action types ('\(name)')",
+                        kind: .duplicateName,
+                        rawValue: name
+                    )
+                )
+            }
+        }
+
+        // Build unique action name set.
         var actionNames: Set<String> = []
         actionNames.formUnion(config.inserts.keys)
         actionNames.formUnion(config.urls.keys)
@@ -349,13 +441,34 @@ class ConfigurationManager {
         let defaultsNextAction = config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         if !activeAction.isEmpty && !actionNames.contains(activeAction) {
-            errors.append("defaults.activeAction '\(activeAction)' does not exist")
+            issues.append(
+                ConfigValidationIssue(
+                    path: "defaults.activeAction",
+                    message: "referenced action does not exist ('\(activeAction)')",
+                    kind: .semantic,
+                    rawValue: activeAction
+                )
+            )
         }
         if !defaultsNextAction.isEmpty && !actionNames.contains(defaultsNextAction) {
-            errors.append("defaults.nextAction '\(defaultsNextAction)' does not exist")
+            issues.append(
+                ConfigValidationIssue(
+                    path: "defaults.nextAction",
+                    message: "referenced action does not exist ('\(defaultsNextAction)')",
+                    kind: .semantic,
+                    rawValue: defaultsNextAction
+                )
+            )
         }
         if !activeAction.isEmpty && !defaultsNextAction.isEmpty && activeAction == defaultsNextAction {
-            errors.append("defaults.activeAction and defaults.nextAction cannot be the same ('\(activeAction)')")
+            issues.append(
+                ConfigValidationIssue(
+                    path: "defaults.activeAction",
+                    message: "defaults.activeAction and defaults.nextAction cannot be the same ('\(activeAction)')",
+                    kind: .semantic,
+                    rawValue: activeAction
+                )
+            )
         }
 
         struct NextActionSetting {
@@ -366,7 +479,7 @@ class ConfigurationManager {
         var nextActionMap: [String: String] = [:]
         var nextActionSettings: [String: NextActionSetting] = [:]
         var actionTypeMap: [String: ActionType] = [:]
-        func appendNextAction(_ actionName: String, _ rawNextAction: String?) {
+        func appendNextAction(_ actionName: String, _ rawNextAction: String?, _ actionType: ActionType) {
             guard let rawNextAction else {
                 nextActionSettings[actionName] = NextActionSetting(isExplicitlySet: false, value: "")
                 return
@@ -375,32 +488,59 @@ class ConfigurationManager {
             nextActionSettings[actionName] = NextActionSetting(isExplicitlySet: true, value: next)
             guard !next.isEmpty else { return }
             if !actionNames.contains(next) {
-                errors.append("Action '\(actionName)' has nextAction '\(next)' which does not exist")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "\(actionSectionPath(for: actionType)).\(actionName).nextAction",
+                        message: "referenced action does not exist ('\(next)')",
+                        kind: .semantic,
+                        rawValue: next
+                    )
+                )
                 return
             }
             nextActionMap[actionName] = next
         }
 
-        for (name, insert) in config.inserts { appendNextAction(name, insert.nextAction) }
-        for (name, url) in config.urls { appendNextAction(name, url.nextAction) }
-        for (name, shortcut) in config.shortcuts { appendNextAction(name, shortcut.nextAction) }
-        for (name, shell) in config.scriptsShell { appendNextAction(name, shell.nextAction) }
-        for (name, script) in config.scriptsAS { appendNextAction(name, script.nextAction) }
+        for (name, insert) in config.inserts { appendNextAction(name, insert.nextAction, .insert) }
+        for (name, url) in config.urls { appendNextAction(name, url.nextAction, .url) }
+        for (name, shortcut) in config.shortcuts { appendNextAction(name, shortcut.nextAction, .shortcut) }
+        for (name, shell) in config.scriptsShell { appendNextAction(name, shell.nextAction, .shell) }
+        for (name, script) in config.scriptsAS { appendNextAction(name, script.nextAction, .appleScript) }
 
         for (name, insert) in config.inserts {
-            errors.append(contentsOf: validateInputCondition(insert.inputCondition, actionName: name, actionType: .insert))
+            issues.append(contentsOf: validateInputCondition(
+                insert.inputCondition,
+                actionType: .insert,
+                actionPathPrefix: "inserts.\(name)"
+            ))
         }
         for (name, url) in config.urls {
-            errors.append(contentsOf: validateInputCondition(url.inputCondition, actionName: name, actionType: .url))
+            issues.append(contentsOf: validateInputCondition(
+                url.inputCondition,
+                actionType: .url,
+                actionPathPrefix: "urls.\(name)"
+            ))
         }
         for (name, shortcut) in config.shortcuts {
-            errors.append(contentsOf: validateInputCondition(shortcut.inputCondition, actionName: name, actionType: .shortcut))
+            issues.append(contentsOf: validateInputCondition(
+                shortcut.inputCondition,
+                actionType: .shortcut,
+                actionPathPrefix: "shortcuts.\(name)"
+            ))
         }
         for (name, shell) in config.scriptsShell {
-            errors.append(contentsOf: validateInputCondition(shell.inputCondition, actionName: name, actionType: .shell))
+            issues.append(contentsOf: validateInputCondition(
+                shell.inputCondition,
+                actionType: .shell,
+                actionPathPrefix: "scriptsShell.\(name)"
+            ))
         }
         for (name, script) in config.scriptsAS {
-            errors.append(contentsOf: validateInputCondition(script.inputCondition, actionName: name, actionType: .appleScript))
+            issues.append(contentsOf: validateInputCondition(
+                script.inputCondition,
+                actionType: .appleScript,
+                actionPathPrefix: "scriptsAS.\(name)"
+            ))
         }
 
         for name in config.inserts.keys { actionTypeMap[name] = .insert }
@@ -410,50 +550,134 @@ class ConfigurationManager {
         for name in config.scriptsAS.keys { actionTypeMap[name] = .appleScript }
 
         if config.defaults.icon == ".none" {
-            errors.append("defaults.icon cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no icon or null to inherit")
+            issues.append(
+                ConfigValidationIssue(
+                    path: "defaults.icon",
+                    message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no icon or null to inherit",
+                    kind: .semantic,
+                    rawValue: ".none"
+                )
+            )
         }
         if config.defaults.moveTo == ".none" {
-            errors.append("defaults.moveTo cannot use '.none' in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no move or null to inherit")
+            issues.append(
+                ConfigValidationIssue(
+                    path: "defaults.moveTo",
+                    message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion); use empty string for explicit no move or null to inherit",
+                    kind: .semantic,
+                    rawValue: ".none"
+                )
+            )
         }
 
         for (name, insert) in config.inserts {
             if insert.icon == ".none" {
-                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "inserts.\(name).icon",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
             if insert.moveTo == ".none" {
-                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "inserts.\(name).moveTo",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
         }
         for (name, url) in config.urls {
             if url.icon == ".none" {
-                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "urls.\(name).icon",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
             if url.moveTo == ".none" {
-                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "urls.\(name).moveTo",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
         }
         for (name, shortcut) in config.shortcuts {
             if shortcut.icon == ".none" {
-                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "shortcuts.\(name).icon",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
             if shortcut.moveTo == ".none" {
-                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "shortcuts.\(name).moveTo",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
         }
         for (name, shell) in config.scriptsShell {
             if shell.icon == ".none" {
-                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "scriptsShell.\(name).icon",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
             if shell.moveTo == ".none" {
-                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "scriptsShell.\(name).moveTo",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
         }
         for (name, ascript) in config.scriptsAS {
             if ascript.icon == ".none" {
-                errors.append("Action '\(name)' uses icon '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "scriptsAS.\(name).icon",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
             if ascript.moveTo == ".none" {
-                errors.append("Action '\(name)' uses moveTo '.none' which is not allowed in configVersion \(AppConfiguration.currentConfigVersion)")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "scriptsAS.\(name).moveTo",
+                        message: "'.none' is not allowed in configVersion \(AppConfiguration.currentConfigVersion)",
+                        kind: .semantic,
+                        rawValue: ".none"
+                    )
+                )
             }
         }
 
@@ -464,7 +688,14 @@ class ConfigurationManager {
         func dfs(_ node: String) {
             if let state = nodeStates[node] {
                 if state == .visiting {
-                    errors.append("Action chain cycle detected involving '\(node)'")
+                    issues.append(
+                        ConfigValidationIssue(
+                            path: "actions.\(node).nextAction",
+                            message: "action chain cycle detected involving '\(node)'",
+                            kind: .semantic,
+                            rawValue: node
+                        )
+                    )
                 }
                 return
             }
@@ -496,9 +727,13 @@ class ConfigurationManager {
                 if actionTypeMap[current] == .insert {
                     if let firstInsertName = firstInsertName, firstInsertName != current {
                         let chainPath = traversedPath.joined(separator: " -> ")
-                        errors.append(
-                            "Chain starting at '\(start)' contains multiple insert actions ('\(firstInsertName)' and '\(current)'). " +
-                            "Only one insert action is allowed per chain. Path: \(chainPath)"
+                        issues.append(
+                            ConfigValidationIssue(
+                                path: "actions.\(start).nextAction",
+                                message: "chain contains multiple insert actions ('\(firstInsertName)' and '\(current)'). Only one insert action is allowed per chain. Path: \(chainPath)",
+                                kind: .semantic,
+                                rawValue: chainPath
+                            )
                         )
                         break
                     }
@@ -524,17 +759,28 @@ class ConfigurationManager {
             }
         }
 
-        return Array(Set(errors)).sorted()
+        return Array(Set(issues))
     }
 
-    private static func validateInputCondition(_ rawValue: String?, actionName: String, actionType: ActionType) -> [String] {
+    private static func validateInputCondition(
+        _ rawValue: String?,
+        actionType: ActionType,
+        actionPathPrefix: String
+    ) -> [ConfigValidationIssue] {
         let normalized = rawValue ?? ""
         if normalized.isEmpty {
             return []
         }
 
         if normalized.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
-            return ["Action '\(actionName)' has invalid inputCondition '\(normalized)': whitespace is not allowed"]
+            return [
+                ConfigValidationIssue(
+                    path: "\(actionPathPrefix).inputCondition",
+                    message: "invalid inputCondition '\(normalized)': whitespace is not allowed",
+                    kind: .semantic,
+                    rawValue: normalized
+                )
+            ]
         }
 
         let allowedTokens: Set<String>
@@ -585,41 +831,110 @@ class ConfigurationManager {
             ]
         }
 
-        var errors: [String] = []
+        var issues: [ConfigValidationIssue] = []
         let parts = normalized.components(separatedBy: "|")
         for rawToken in parts {
             if rawToken.isEmpty {
-                errors.append("Action '\(actionName)' has invalid inputCondition '\(normalized)': empty token is not allowed")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "\(actionPathPrefix).inputCondition",
+                        message: "invalid inputCondition '\(normalized)': empty token is not allowed",
+                        kind: .semantic,
+                        rawValue: normalized
+                    )
+                )
                 continue
             }
 
             let token = rawToken.hasPrefix("!") ? String(rawToken.dropFirst()) : rawToken
             if token.isEmpty {
-                errors.append("Action '\(actionName)' has invalid inputCondition '\(normalized)': '!' must be followed by a valid token")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "\(actionPathPrefix).inputCondition",
+                        message: "invalid inputCondition '\(normalized)': '!' must be followed by a valid token",
+                        kind: .semantic,
+                        rawValue: normalized
+                    )
+                )
                 continue
             }
 
             if !allowedTokens.contains(token) {
-                errors.append("Action '\(actionName)' has invalid inputCondition token '\(rawToken)'")
+                issues.append(
+                    ConfigValidationIssue(
+                        path: "\(actionPathPrefix).inputCondition",
+                        message: "invalid inputCondition token '\(rawToken)'",
+                        kind: .semantic,
+                        rawValue: rawToken
+                    )
+                )
             }
         }
 
-        return errors
+        return issues
     }
-    
-    /// Formats decoding errors to be more user-friendly
-    private func formatDecodingError(_ error: DecodingError) -> String {
+
+    private static func actionSectionPath(for type: ActionType) -> String {
+        switch type {
+        case .insert: return "inserts"
+        case .url: return "urls"
+        case .shortcut: return "shortcuts"
+        case .shell: return "scriptsShell"
+        case .appleScript: return "scriptsAS"
+        }
+    }
+
+    private static func sortedIssues(_ issues: [ConfigValidationIssue]) -> [ConfigValidationIssue] {
+        issues.sorted {
+            if $0.path != $1.path {
+                return $0.path < $1.path
+            }
+            if $0.kind.rawValue != $1.kind.rawValue {
+                return $0.kind.rawValue < $1.kind.rawValue
+            }
+            return $0.message < $1.message
+        }
+    }
+
+    private static func codingPathString(_ codingPath: [CodingKey]) -> String {
+        let components = codingPath
+            .map(\.stringValue)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return components.isEmpty ? "root" : components.joined(separator: ".")
+    }
+
+    private static func decodingErrorPath(_ error: DecodingError) -> String? {
+        switch error {
+        case .typeMismatch(_, let context):
+            return codingPathString(context.codingPath)
+        case .valueNotFound(_, let context):
+            return codingPathString(context.codingPath)
+        case .keyNotFound(let key, let context):
+            var path = context.codingPath
+            path.append(key)
+            return codingPathString(path)
+        case .dataCorrupted(let context):
+            return codingPathString(context.codingPath)
+        @unknown default:
+            return nil
+        }
+    }
+
+    private static func decodingErrorMessage(_ error: DecodingError) -> String {
         switch error {
         case .typeMismatch(let type, let context):
-            return "Type mismatch for \(type) at \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+            return "type mismatch for \(type) at \(codingPathString(context.codingPath))"
         case .valueNotFound(let type, let context):
-            return "Missing required value of type \(type) at \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+            return "missing required value of type \(type) at \(codingPathString(context.codingPath))"
         case .keyNotFound(let key, let context):
-            return "Missing required key '\(key.stringValue)' at \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+            var path = context.codingPath
+            path.append(key)
+            return "missing required key '\(key.stringValue)' at \(codingPathString(path))"
         case .dataCorrupted(let context):
-            return "Data corrupted at \(context.codingPath.map { $0.stringValue }.joined(separator: ".")): \(context.debugDescription)"
+            return "data corrupted at \(codingPathString(context.codingPath)): \(context.debugDescription)"
         @unknown default:
-            return "Unknown decoding error: \(error.localizedDescription)"
+            return "unknown decoding error: \(error.localizedDescription)"
         }
     }
     
@@ -653,34 +968,80 @@ class ConfigurationManager {
         }
     }
     
-    /// Shows user-friendly notification for JSON configuration errors with recovery options
-    private func showJsonErrorNotification() {
+    /// Shows user-friendly notification for JSON configuration errors with compact hints.
+    private func showJsonErrorNotification(decodingPath: String?) {
         // Only show notification if we haven't already notified
         if !hasNotifiedAboutJsonError {
             hasNotifiedAboutJsonError = true
             
-            // Show a more helpful notification with recovery options
-            notify(title: "MacroWhisper - Configuration Error",
-                   message: "Configuration file has invalid JSON. Using default settings until fixed. Use --reveal-config to locate and repair the file.")
+            let path = (decodingPath ?? "root").trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = compactValidationNotificationMessage(
+                prefix: "Config parse error at \(path.isEmpty ? "root" : path).",
+                maxLength: 160
+            )
+
+            notify(title: "MacroWhisper - Configuration Error", message: message)
             
             logWarning("Configuration file at \(configPath) contains invalid JSON. Application will continue with default settings.")
-            logWarning("To fix: Use 'macrowhisper --reveal-config' to open the file and correct the JSON syntax.")
+            logWarning("To inspect issues quickly, run: macrowhisper --validate-config")
             
             // Reset the file watcher to recover from JSON error
             self.resetFileWatcher()
         }
     }
 
-    private func showConfigValidationErrorNotification(_ details: String) {
-        if !hasNotifiedAboutJsonError {
-            hasNotifiedAboutJsonError = true
+    private func showConfigValidationErrorNotification(_ report: ConfigValidationReport) {
+        if !hasNotifiedAboutValidationError {
+            hasNotifiedAboutValidationError = true
             notify(
                 title: "MacroWhisper - Configuration Error",
-                message: "Configuration validation failed. Using default settings until fixed. Use --reveal-config to inspect and fix validation errors."
+                message: compactValidationNotificationMessage(
+                    for: report,
+                    maxLength: 160
+                )
             )
         }
+        let details = report.issues
+            .map { "[\($0.kind.rawValue)] \($0.path): \($0.message)" }
+            .joined(separator: "\n")
         logWarning("Configuration validation errors in \(configPath): \(details)")
         self.resetFileWatcher()
+    }
+
+    private func compactValidationNotificationMessage(for report: ConfigValidationReport, maxLength: Int) -> String {
+        let paths = Array(Set(report.issues.map(\.path))).sorted()
+        let pathPreview = paths.prefix(2).joined(separator: ", ")
+        let prefix: String
+        if pathPreview.isEmpty {
+            prefix = "\(report.issues.count) config errors."
+        } else {
+            prefix = "\(report.issues.count) config errors: \(pathPreview)."
+        }
+        return compactValidationNotificationMessage(prefix: prefix, maxLength: maxLength)
+    }
+
+    private func compactValidationNotificationMessage(prefix: String, maxLength: Int) -> String {
+        let suffix = "Run --validate-config"
+        let singleLinePrefix = prefix.replacingOccurrences(of: "\n", with: " ")
+        let fullMessage = "\(singleLinePrefix) \(suffix)"
+        if fullMessage.count <= maxLength {
+            return fullMessage
+        }
+
+        let maxPrefixLength = maxLength - suffix.count - 1
+        if maxPrefixLength <= 0 {
+            return String(suffix.prefix(maxLength))
+        }
+
+        var trimmedPrefix = String(singleLinePrefix.prefix(maxPrefixLength))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = trimmedPrefix.last, [",", ".", ":", ";"].contains(last) {
+            trimmedPrefix.removeLast()
+        }
+        if trimmedPrefix.isEmpty {
+            return suffix
+        }
+        return "\(trimmedPrefix) \(suffix)"
     }
     
     /// Post-process JSON string to round all floating point numbers to 3 decimal places
@@ -934,8 +1295,9 @@ class ConfigurationManager {
     }
 
     func configurationSuccessfullyLoaded() {
-        // Reset the notification flag when config is successfully reloaded
+        // Reset notification flags when config is successfully reloaded
         hasNotifiedAboutJsonError = false
+        hasNotifiedAboutValidationError = false
     }
     
     func getHistoryRetentionDays() -> Int? {

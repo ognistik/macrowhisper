@@ -313,7 +313,7 @@ Behavior notes:
 - `--mute-triggers` with no value prints persistent/runtime/effective mute status.
 - If `defaults.muteTriggers` is already `true`, duration mode is ignored (no temporary timer is set).
 
-What those status lines mean in plain language:
+How to read --mute-triggers status:
 
 - `persistentMuteTriggers`: Your saved preference in the config file.  
   `yes` = triggers stay muted until you change the setting.  
@@ -1276,6 +1276,7 @@ Regex replacements work inside placeholder syntax and run after placeholder-leve
 ```text
 {{placeholder||find_regex||replace||find_regex2||replace2}}
 ```
+*Placeholder transform (`::...`) is optional and in this case applies before regex replacements*
 
 ```text
 {{placeholder::titleCase||find_regex||replace}}
@@ -1287,9 +1288,9 @@ Capture transform format inside replacement templates:
 ${N::transformName}
 ```
 
-Where `N` is the capture index (`0` = full match, `1+` = capture groups).
+*Where `N` is the capture index (`0` = full match, `1+` = capture groups). Use this to perform transforms within the regex pipieline.
 
-Examples:
+13.1) Examples:
 
 Remove filler words:
 
@@ -1321,14 +1322,13 @@ Mixed replacements with transformed and raw captures:
 {{swResult||(foo)\\s+(bar)||${1} ${2::titleCase}}}
 ```
 
-Behavior details:
+13.2) Behavior details:
 
-- multiple replacements execute in order
-- invalid regex patterns are logged and skipped
-- placeholder transform (`::...`) is optional and applies before regex replacements
-- unknown transforms are logged and ignored (fail-open)
-- capture transforms are optional and only affect the referenced capture token
-- standard replacement template syntax (for example `${1}`) remains supported
+- Multiple replacements execute in order
+- Invalid regex patterns are logged and skipped
+- Unknown transforms are logged and ignored (fail-open)
+- Capture transforms are optional and only affect the referenced capture token
+- Standard replacement template syntax (for example `${1}` or `$1`) remains supported
 
 ---
 

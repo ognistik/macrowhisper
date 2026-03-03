@@ -65,6 +65,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
 * **New.** `--run-auto` with optional custom path `--meta`. 
   * This CLI flag runs Macrowhisper on the last valid meta JSON file with action validation as if running live (respects triggers, active action, bypassModes, muteTriggers, etc)
   * Ignores one-time executions set by `--schedule-action` and/or `--auto-return`
+* **New.** `--validate-config` flag and improved config file error noifications.
 * **Improvement.** cleaned up the logs to make them more readable and less noisy.
 * **Improvement.** `inputCondition` has been expanded to all action types
   * You can now have any action behave differently depending on user being in an input field or not.
