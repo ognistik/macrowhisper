@@ -144,7 +144,7 @@
       "restoreClipboardDelay" : null,
       "simEsc" : null,
       "simKeypress" : null,
-      "smartCasing" : null,
+      "smartCasing" : false,
       "smartPunctuation" : null,
       "smartSpacing" : null,
       "triggerApps" : "Terminal|Ghostty",

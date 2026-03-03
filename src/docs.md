@@ -1198,6 +1198,9 @@ Examples:
 - `{{swResult::altCase:upperFirst}}`
 - `{{swResult::trim}}`
 
+When built-in transforms are not enough, you can create your own transform pipeline with a synchronous script action (`scriptAsync: false`) and then pass the script output to the next action using `{{actionResult}}`.  
+See Section 18.3 for a full working example.
+
 Smart insertion interaction:
 
 - Placeholder transforms do not auto-disable smart behavior.
@@ -1574,6 +1577,48 @@ Example:
   "scriptsShell": {}
 }
 ```
+
+### 18.3 Custom transform pipeline (script -> insert with `{{actionResult}}`)
+
+Use this pattern when built-in placeholder transforms are not enough and you need your own logic.
+
+In this example:
+- A shell action normalizes `{{swResult}}` and emits a structured payload to stdout.
+- `scriptAsync: false` makes Macrowhisper wait and capture that stdout.
+- `nextAction` sends execution to an insert action that pastes `{{actionResult}}`.
+
+```json
+{
+  "configVersion": 2,
+  "defaults": {
+    "watch": "~/Documents/superwhisper",
+    "activeAction": "buildTicketPayload",
+    "nextAction": null,
+    "restoreClipboard": true
+  },
+  "inserts": {
+    "insertTicketPayload": {
+      "action": "## Ticket Draft\\n\\n{{actionResult}}\\n\\nSource App: {{frontApp}}"
+    }
+  },
+  "urls": {},
+  "shortcuts": {},
+  "scriptsShell": {
+    "buildTicketPayload": {
+      "action" : "TEXT='{{swResult}}'; CLEAN=$(printf \"%s\" \"$TEXT\" | tr '\\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ +| +$//g'); LEET_TEXT=$(printf \"%s\" \"$CLEAN\" | tr 'aeio' '4310'); printf \"Original: %s\\nTransformed: %s\\n\" \"$TEXT\" \"$LEET_TEXT\"",
+      "scriptAsync": false,
+      "scriptWaitTimeout": 3.0,
+      "nextAction": "insertTicketPayload"
+    }
+  },
+  "scriptsAS": {}
+}
+```
+
+Notes:
+- `{{actionResult}}` is the first synchronous script result in the current execution group.
+- If you chain multiple synchronous script-like steps, use `{{actionResult:0}}`, `{{actionResult:1}}`, etc.
+- If the script fails or times out, chain execution continues, but `{{actionResult}}` may be empty.
 
 ---
 
