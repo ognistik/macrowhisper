@@ -700,8 +700,7 @@ class ActionExecutor {
                 return self?.socketCommunication.applyInsertWithoutEsc(
                     processedInsert.text,
                     activeInsert: insert,
-                    isAutoPaste: isAutoPaste,
-                    hadSmartCasingBlockingTransform: processedInsert.hadSmartCasingBlockingTransform
+                    isAutoPaste: isAutoPaste
                 ) ?? false
             },
             actionDelay: actionDelay,

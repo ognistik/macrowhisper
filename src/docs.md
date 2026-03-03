@@ -452,7 +452,7 @@ Quick rules (what wins?)
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
-| Boolean/number overrides (`simEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
+| Boolean/number overrides (`simEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing`) | Use `defaults.<sameField>` | Action value wins |
 | `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
 | `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
 | `nextAction` | `null` -> use `defaults.nextAction` (first chain step only) | Action value wins (`""` = explicit no next action) |
@@ -559,7 +559,9 @@ Null behavior at `defaults` level:
 | `moveTo` | string/null | `null` | Default post-processing path (`.delete`, a path, or empty). |
 | `simEsc` | bool/null | `true` | Simulate ESC before actions. `null` = built-in default (`true`). |
 | `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
-| `smartInsert` | bool/null | `true` | Smart casing/spacing behavior for insert actions. `null` = built-in default (`true`). |
+| `smartCasing` | bool/null | `true` | Smart first-letter casing normalization for insert actions. `null` = built-in default (`true`). |
+| `smartPunctuation` | bool/null | `true` | Smart punctuation conflict cleanup for insert actions. `null` = built-in default (`true`). |
+| `smartSpacing` | bool/null | `true` | Smart boundary spacing normalization for insert actions. `null` = built-in default (`true`). |
 | `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
 | `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
 | `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
@@ -667,7 +669,9 @@ How to read these fields in practice:
 Insert-only extra fields:
 
 - `simKeypress` (bool/null)
-- `smartInsert` (bool/null)
+- `smartCasing` (bool/null)
+- `smartPunctuation` (bool/null)
+- `smartSpacing` (bool/null)
 - `pressReturn` (bool/null)
 
 Insert field reference:
@@ -676,11 +680,13 @@ Insert field reference:
 | --- | --- | --- | --- |
 | `action` | string | `"{{swResult}}"`, `".autoPaste"`, `".none"` | Main inserted content/template. |
 | `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters; slower but useful where paste is blocked. |
-| `smartInsert` | bool/null | `true`, `false`, `null` | Smart punctuation/casing/spacing adjustments. |
+| `smartCasing` | bool/null | `true`, `false`, `null` | First-letter case normalization at insertion boundaries (lowercase mid-sentence, uppercase at strong sentence/line starts). |
+| `smartPunctuation` | bool/null | `true`, `false`, `null` | Punctuation conflict cleanup at boundaries (removal only; no punctuation insertion). |
+| `smartSpacing` | bool/null | `true`, `false`, `null` | Boundary spacing normalization around inserted text. |
 | `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
 
 
-*Note: `smartInsert` will lowercase the first letter of the insertion, it may add a whitespace before or after the insertion, and will keep or remove the end punctuation—all according to specific rules. At the time being, `smartInsert` will NOT uppercase anything, and will NOT change the case of anything in the actual content of the placeholder other than the opening character. There's transformations for that.*
+*AX guard behavior: if Accessibility is unavailable or insertion context is low-confidence, smart casing, smart punctuation, and smart spacing are all skipped for that insertion.*
 
 Examples:
 
@@ -1149,11 +1155,11 @@ Examples:
 - `{{folderName:1::lowercase}}`
 - `{{swResult::ensureSentence}}`
 
-Smart insert interaction (important):
+Smart insertion interaction:
 
-- `ensureSentence` keeps smart capitalization enabled.
-- `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:en`, `titleCase:es`, and `titleCase:all` disable smart capitalization for that insert.
-- Smart spacing and smart punctuation logic still run when smart insert is enabled.
+- Placeholder transforms do not auto-disable smart behavior.
+- `smartCasing`, `smartPunctuation`, and `smartSpacing` are controlled explicitly by config toggles.
+- If Accessibility is unavailable or insertion context is low-confidence, all three smart passes are skipped.
 
 ---
 
@@ -1229,6 +1235,14 @@ Regex replacements work inside placeholder syntax and run after placeholder-leve
 {{placeholder::titleCase||find_regex||replace}}
 ```
 
+Capture transform format inside replacement templates:
+
+```text
+${N::transformName}
+```
+
+Where `N` is the capture index (`0` = full match, `1+` = capture groups).
+
 Examples:
 
 Remove filler words:
@@ -1249,12 +1263,26 @@ Replace line breaks with HTML `<br>`:
 {{swResult||\\n||<br>}}
 ```
 
+Uppercase only a captured acronym token:
+
+```text
+{{swResult||\\b(api|sdk)\\b||${1::uppercase}}}
+```
+
+Mixed replacements with transformed and raw captures:
+
+```text
+{{swResult||(foo)\\s+(bar)||${1} ${2::titleCase}}}
+```
+
 Behavior details:
 
 - multiple replacements execute in order
 - invalid regex patterns are logged and skipped
 - placeholder transform (`::...`) is optional and applies before regex replacements
 - unknown transforms are logged and ignored (fail-open)
+- capture transforms are optional and only affect the referenced capture token
+- standard replacement template syntax (for example `${1}`) remains supported
 
 ---
 
@@ -1415,7 +1443,9 @@ Example:
     "actionDelay": 0,
     "restoreClipboard": true,
     "pressReturn": false,
-    "smartInsert": true,
+    "smartCasing": true,
+    "smartPunctuation": true,
+    "smartSpacing": true,
     "clipboardBuffer": 5,
     "clipboardStacking": false,
     "clipboardIgnore": null,

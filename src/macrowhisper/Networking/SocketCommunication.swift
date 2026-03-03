@@ -66,7 +66,6 @@ class SocketCommunication {
     struct ProcessedInsertAction {
         let text: String
         let isAutoPaste: Bool
-        let hadSmartCasingBlockingTransform: Bool
     }
 
     private enum CLIActionChainError: LocalizedError {
@@ -552,8 +551,7 @@ class SocketCommunication {
                 applyInsertForExec(
                     processedInsert.text,
                     activeInsert: resolvedInsert,
-                    isAutoPaste: isAutoPasteTemplate || processedInsert.isAutoPaste,
-                    hadSmartCasingBlockingTransform: processedInsert.hadSmartCasingBlockingTransform
+                    isAutoPaste: isAutoPasteTemplate || processedInsert.isAutoPaste
                 )
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedInsert)
             case .url:
@@ -695,17 +693,16 @@ class SocketCommunication {
     ) -> ProcessedInsertAction {
         _ = activeInsert
         if action == ".none" {
-            return ProcessedInsertAction(text: "", isAutoPaste: false, hadSmartCasingBlockingTransform: false)
+            return ProcessedInsertAction(text: "", isAutoPaste: false)
         }
         if action == ".autoPaste" {
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            return ProcessedInsertAction(text: swResult, isAutoPaste: true, hadSmartCasingBlockingTransform: false)
+            return ProcessedInsertAction(text: swResult, isAutoPaste: true)
         }
         let result = processAllPlaceholders(action: action, metaJson: metaJson, actionType: .insert)
         return ProcessedInsertAction(
             text: result.text,
-            isAutoPaste: false,
-            hadSmartCasingBlockingTransform: result.hadSmartCasingBlockingTransform
+            isAutoPaste: false
         )
     }
 
@@ -1116,15 +1113,14 @@ class SocketCommunication {
 
     private func resolveSmartInsertTextIfNeeded(
         _ text: String,
-        activeInsert: AppConfiguration.Insert?,
-        hadSmartCasingBlockingTransform: Bool = false
+        activeInsert: AppConfiguration.Insert?
     ) -> String {
-        let smartInsertEnabled = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
-        if !smartInsertEnabled {
+        let smartCasingEnabled = activeInsert?.smartCasing ?? globalConfigManager?.config.defaults.smartCasing ?? true
+        let smartPunctuationEnabled = activeInsert?.smartPunctuation ?? globalConfigManager?.config.defaults.smartPunctuation ?? true
+        let smartSpacingEnabled = activeInsert?.smartSpacing ?? globalConfigManager?.config.defaults.smartSpacing ?? true
+        if !smartCasingEnabled && !smartPunctuationEnabled && !smartSpacingEnabled {
             return text
         }
-
-        let shouldApplySmartCasing = !hadSmartCasingBlockingTransform
         var resolved = text
 
         resolved = resolved.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1162,22 +1158,24 @@ class SocketCommunication {
         let isIntraWordInsertion = (context.leftCharacter.map { isWordCharacter($0) } ?? false) &&
             (context.rightCharacter.map { isWordCharacter($0) } ?? false)
 
-        if isIntraWordInsertion {
+        if isIntraWordInsertion && !lowConfidenceContext {
             logDebug("[SmartInsert] Intra-word insertion boundary detected, applying mid-sentence casing and punctuation/spacing rules")
         }
         if lowConfidenceContext {
-            logDebug("[SmartInsert] Low-confidence context: skipping risky smart transforms (casing and punctuation stripping)")
+            logDebug("[SmartInsert] Low-confidence context: skipping smart casing, punctuation, and spacing")
+            return resolved
         }
 
-        if shouldApplySmartCasing && !lowConfidenceContext {
+        if smartCasingEnabled {
             resolved = applySmartCasing(
                 to: resolved,
                 leftCharacter: context.leftCharacter,
                 leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
-                leftLinePrefix: context.leftLinePrefix
+                leftLinePrefix: context.leftLinePrefix,
+                rightCharacter: context.rightCharacter
             )
         }
-        if !lowConfidenceContext {
+        if smartPunctuationEnabled {
             resolved = applySmartTrailingPunctuation(
                 to: resolved,
                 leftCharacter: context.leftCharacter,
@@ -1188,12 +1186,14 @@ class SocketCommunication {
                 rightHasLineBreakBeforeNextNonWhitespace: context.rightHasLineBreakBeforeNextNonWhitespace
             )
         }
-        resolved = applySmartBoundarySpacing(
-            to: resolved,
-            leftCharacter: context.leftCharacter,
-            leftLinePrefix: context.leftLinePrefix,
-            rightCharacter: context.rightCharacter
-        )
+        if smartSpacingEnabled {
+            resolved = applySmartBoundarySpacing(
+                to: resolved,
+                leftCharacter: context.leftCharacter,
+                leftLinePrefix: context.leftLinePrefix,
+                rightCharacter: context.rightCharacter
+            )
+        }
 
         let leftChar = context.leftCharacter.map { String($0) } ?? "nil"
         let leftNonWs = context.leftNonWhitespaceCharacter.map { String($0) } ?? "nil"
@@ -1207,12 +1207,13 @@ class SocketCommunication {
         )
         logDebug("[SmartInsert] Text before: \(summarizeForLogs(original, maxPreview: 120)) | after: \(summarizeForLogs(resolved, maxPreview: 120))")
         logDebug(
+            "[SmartInsert] Feature flags smartCasing=\(smartCasingEnabled) " +
+            "smartPunctuation=\(smartPunctuationEnabled) smartSpacing=\(smartSpacingEnabled)"
+        )
+        logDebug(
             "[SmartInsert] After stats: len=\(resolved.count) leadingSpaces=\(countLeadingSpaces(resolved)) " +
             "visible=\(summarizeForLogs(visibleWhitespace(resolved), maxPreview: 120))"
         )
-        if hadSmartCasingBlockingTransform {
-            logDebug("[SmartInsert] Smart casing disabled because a smart-casing-blocking placeholder transform was detected")
-        }
 
         return resolved
     }
@@ -1262,22 +1263,32 @@ class SocketCommunication {
         to text: String,
         leftCharacter: Character?,
         leftNonWhitespaceCharacter: Character?,
-        leftLinePrefix: String
+        leftLinePrefix: String,
+        rightCharacter: Character?
     ) -> String {
-        guard shouldLowercaseForMidSentence(
+        if shouldLowercaseForMidSentence(
             leftCharacter: leftCharacter,
             leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
             leftLinePrefix: leftLinePrefix
-        ) else {
-            return text
+        ) {
+            let firstToken = extractFirstWordToken(from: text)
+            if shouldPreserveLeadingUppercase(for: firstToken) {
+                return text
+            }
+
+            return lowercasingFirstLetter(in: text)
         }
 
-        let firstToken = extractFirstWordToken(from: text)
-        if shouldPreserveLeadingUppercase(for: firstToken) {
-            return text
+        if shouldUppercaseForSentenceStart(
+            leftCharacter: leftCharacter,
+            leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+            leftLinePrefix: leftLinePrefix,
+            rightCharacter: rightCharacter
+        ) {
+            return uppercasingFirstLetter(in: text)
         }
 
-        return lowercasingFirstLetter(in: text)
+        return text
     }
 
     private func applySmartTrailingPunctuation(
@@ -1472,6 +1483,59 @@ class SocketCommunication {
             leftLinePrefix: leftLinePrefix
         ) ?? leftCharacter
         return !".!?".contains(effectiveLeft)
+    }
+
+    private func shouldUppercaseForSentenceStart(
+        leftCharacter: Character?,
+        leftNonWhitespaceCharacter: Character?,
+        leftLinePrefix: String,
+        rightCharacter: Character?
+    ) -> Bool {
+        if isMarkdownHeadingLineStart(leftLinePrefix) {
+            return false
+        }
+
+        if isMarkdownListLineStart(leftLinePrefix) {
+            return false
+        }
+
+        if let leftCharacter, let rightCharacter, isWordCharacter(leftCharacter), isWordCharacter(rightCharacter) {
+            return false
+        }
+
+        if isLineStartBoundary(leftCharacter) {
+            return true
+        }
+
+        guard let leftCharacter else {
+            return true
+        }
+
+        if leftCharacter.isWhitespace {
+            guard let previous = leftNonWhitespaceCharacter else {
+                return true
+            }
+            let effectivePrevious = effectiveLeftContextCharacter(
+                leftCharacter: previous,
+                leftLinePrefix: leftLinePrefix
+            )
+            guard let effectivePrevious else {
+                return true
+            }
+            if isIgnorableBoundaryCharacter(effectivePrevious) {
+                return true
+            }
+            return ".!?".contains(effectivePrevious)
+        }
+
+        let effectiveLeft = effectiveLeftContextCharacter(
+            leftCharacter: leftCharacter,
+            leftLinePrefix: leftLinePrefix
+        ) ?? leftCharacter
+        if isIgnorableBoundaryCharacter(effectiveLeft) {
+            return true
+        }
+        return ".!?".contains(effectiveLeft)
     }
 
     private func isLikelySentenceBoundaryBeforeUppercaseRight(
@@ -1931,13 +1995,11 @@ class SocketCommunication {
     func applyInsert(
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
-        isAutoPaste: Bool = false,
-        hadSmartCasingBlockingTransform: Bool = false
+        isAutoPaste: Bool = false
     ) {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
-            activeInsert: activeInsert,
-            hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
+            activeInsert: activeInsert
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -1967,13 +2029,11 @@ class SocketCommunication {
     func applyInsertForExec(
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
-        isAutoPaste: Bool = false,
-        hadSmartCasingBlockingTransform: Bool = false
+        isAutoPaste: Bool = false
     ) {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
-            activeInsert: activeInsert,
-            hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
+            activeInsert: activeInsert
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -2012,13 +2072,11 @@ class SocketCommunication {
     func applyInsertWithoutEsc(
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
-        isAutoPaste: Bool = false,
-        hadSmartCasingBlockingTransform: Bool = false
+        isAutoPaste: Bool = false
     ) -> Bool {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
-            activeInsert: activeInsert,
-            hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
+            activeInsert: activeInsert
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
@@ -2261,7 +2319,10 @@ class SocketCommunication {
     private func pasteUsingClipboard(_ text: String, activeInsert: AppConfiguration.Insert?) {
         let pasteboard = NSPasteboard.general
         let originalContent = pasteboard.string(forType: .string)
-        let shouldLogSmartInsertClipboard = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
+        let smartCasingEnabled = activeInsert?.smartCasing ?? globalConfigManager?.config.defaults.smartCasing ?? true
+        let smartPunctuationEnabled = activeInsert?.smartPunctuation ?? globalConfigManager?.config.defaults.smartPunctuation ?? true
+        let smartSpacingEnabled = activeInsert?.smartSpacing ?? globalConfigManager?.config.defaults.smartSpacing ?? true
+        let shouldLogSmartInsertClipboard = smartCasingEnabled || smartPunctuationEnabled || smartSpacingEnabled
         if shouldLogSmartInsertClipboard {
             logDebug(
                 "[SmartInsert] Clipboard insert payload (restore): len=\(text.count) " +
@@ -2288,7 +2349,10 @@ class SocketCommunication {
     // Version of pasteUsingClipboard that doesn't save/restore clipboard (used with ClipboardMonitor)
     private func pasteUsingClipboardNoRestore(_ text: String, activeInsert: AppConfiguration.Insert?) {
         let pasteboard = NSPasteboard.general
-        let shouldLogSmartInsertClipboard = activeInsert?.smartInsert ?? globalConfigManager?.config.defaults.smartInsert ?? false
+        let smartCasingEnabled = activeInsert?.smartCasing ?? globalConfigManager?.config.defaults.smartCasing ?? true
+        let smartPunctuationEnabled = activeInsert?.smartPunctuation ?? globalConfigManager?.config.defaults.smartPunctuation ?? true
+        let smartSpacingEnabled = activeInsert?.smartSpacing ?? globalConfigManager?.config.defaults.smartSpacing ?? true
+        let shouldLogSmartInsertClipboard = smartCasingEnabled || smartPunctuationEnabled || smartSpacingEnabled
         if shouldLogSmartInsertClipboard {
             logDebug(
                 "[SmartInsert] Clipboard insert payload (no-restore): len=\(text.count) " +

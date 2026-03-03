@@ -20,7 +20,9 @@ struct AppConfiguration: Codable {
         var moveTo: String?
         var simEsc: Bool
         var simKeypress: Bool
-        var smartInsert: Bool
+        var smartCasing: Bool
+        var smartPunctuation: Bool
+        var smartSpacing: Bool
         var actionDelay: Double
         var history: Int?
         var pressReturn: Bool
@@ -40,7 +42,7 @@ struct AppConfiguration: Codable {
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
-            case watch, noUpdates, noNoti, activeAction, icon, moveTo, simEsc, simKeypress, smartInsert, actionDelay, history, pressReturn, returnDelay, restoreClipboard, restoreClipboardDelay, scheduledActionTimeout, scriptAsync, scriptWaitTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, bypassModes, autoUpdateConfig, redactedLogs, nextAction
+            case watch, noUpdates, noNoti, activeAction, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, history, pressReturn, returnDelay, restoreClipboard, restoreClipboardDelay, scheduledActionTimeout, scriptAsync, scriptWaitTimeout, clipboardStacking, clipboardBuffer, clipboardIgnore, bypassModes, autoUpdateConfig, redactedLogs, nextAction
         }
         
         // Custom encoding to preserve null values
@@ -54,7 +56,9 @@ struct AppConfiguration: Codable {
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(simEsc, forKey: .simEsc)
             try container.encode(simKeypress, forKey: .simKeypress)
-            try container.encode(smartInsert, forKey: .smartInsert)
+            try container.encode(smartCasing, forKey: .smartCasing)
+            try container.encode(smartPunctuation, forKey: .smartPunctuation)
+            try container.encode(smartSpacing, forKey: .smartSpacing)
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(history, forKey: .history)
             try container.encode(pressReturn, forKey: .pressReturn)
@@ -108,7 +112,9 @@ struct AppConfiguration: Codable {
                 }
             }
             simKeypress = try container.decodeIfPresent(Bool.self, forKey: .simKeypress) ?? false
-            smartInsert = try container.decodeIfPresent(Bool.self, forKey: .smartInsert) ?? true
+            smartCasing = try container.decodeIfPresent(Bool.self, forKey: .smartCasing) ?? true
+            smartPunctuation = try container.decodeIfPresent(Bool.self, forKey: .smartPunctuation) ?? true
+            smartSpacing = try container.decodeIfPresent(Bool.self, forKey: .smartSpacing) ?? true
             // Handle both Int and Float values for history (some configs may have Float)
             if let intHistory = try? container.decodeIfPresent(Int.self, forKey: .history) {
                 history = intHistory
@@ -134,7 +140,7 @@ struct AppConfiguration: Codable {
         }
         
         // Memberwise initializer (needed since we added custom init(from decoder:))
-        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, simEsc: Bool, simKeypress: Bool, smartInsert: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, restoreClipboardDelay: Double?, scheduledActionTimeout: Double, scriptAsync: Bool?, scriptWaitTimeout: Double?, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, bypassModes: String?, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
+        init(watch: String, noUpdates: Bool, noNoti: Bool, activeAction: String?, icon: String?, moveTo: String?, simEsc: Bool, simKeypress: Bool, smartCasing: Bool, smartPunctuation: Bool, smartSpacing: Bool, actionDelay: Double, history: Int?, pressReturn: Bool, returnDelay: Double, restoreClipboard: Bool, restoreClipboardDelay: Double?, scheduledActionTimeout: Double, scriptAsync: Bool?, scriptWaitTimeout: Double?, clipboardStacking: Bool, clipboardBuffer: Double, clipboardIgnore: String?, bypassModes: String?, autoUpdateConfig: Bool, redactedLogs: Bool, nextAction: String?) {
             self.watch = watch
             self.noUpdates = noUpdates
             self.noNoti = noNoti
@@ -143,7 +149,9 @@ struct AppConfiguration: Codable {
             self.moveTo = moveTo
             self.simEsc = simEsc
             self.simKeypress = simKeypress
-            self.smartInsert = smartInsert
+            self.smartCasing = smartCasing
+            self.smartPunctuation = smartPunctuation
+            self.smartSpacing = smartSpacing
             self.actionDelay = actionDelay
             self.history = history
             self.pressReturn = pressReturn
@@ -172,7 +180,9 @@ struct AppConfiguration: Codable {
                 moveTo: nil,
                 simEsc: true,
                 simKeypress: false,
-                smartInsert: true,
+                smartCasing: true,
+                smartPunctuation: true,
+                smartSpacing: true,
                 actionDelay: 0,
                 history: nil,
                 pressReturn: false,
@@ -199,7 +209,9 @@ struct AppConfiguration: Codable {
         var moveTo: String?
         var simEsc: Bool?
         var simKeypress: Bool?
-        var smartInsert: Bool?
+        var smartCasing: Bool?
+        var smartPunctuation: Bool?
+        var smartSpacing: Bool?
         var actionDelay: Double?
         var pressReturn: Bool?
         var restoreClipboard: Bool?  // Action-level override for clipboard restoration
@@ -218,7 +230,7 @@ struct AppConfiguration: Codable {
         // ---------------------------------------------
         
         enum CodingKeys: String, CodingKey {
-            case action, icon, moveTo, simEsc, simKeypress, smartInsert, actionDelay, pressReturn, restoreClipboard, restoreClipboardDelay, inputCondition, nextAction
+            case action, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, pressReturn, restoreClipboard, restoreClipboardDelay, inputCondition, nextAction
             case triggerVoice, triggerApps, triggerModes, triggerLogic
         }
         
@@ -230,7 +242,9 @@ struct AppConfiguration: Codable {
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(simEsc, forKey: .simEsc)
             try container.encode(simKeypress, forKey: .simKeypress)
-            try container.encode(smartInsert, forKey: .smartInsert)
+            try container.encode(smartCasing, forKey: .smartCasing)
+            try container.encode(smartPunctuation, forKey: .smartPunctuation)
+            try container.encode(smartSpacing, forKey: .smartSpacing)
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(pressReturn, forKey: .pressReturn)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
@@ -260,7 +274,9 @@ struct AppConfiguration: Codable {
                 }
             }
             simKeypress = try container.decodeIfPresent(Bool.self, forKey: .simKeypress)
-            smartInsert = try container.decodeIfPresent(Bool.self, forKey: .smartInsert)
+            smartCasing = try container.decodeIfPresent(Bool.self, forKey: .smartCasing)
+            smartPunctuation = try container.decodeIfPresent(Bool.self, forKey: .smartPunctuation)
+            smartSpacing = try container.decodeIfPresent(Bool.self, forKey: .smartSpacing)
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
             pressReturn = try container.decodeIfPresent(Bool.self, forKey: .pressReturn)
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard)
@@ -273,13 +289,15 @@ struct AppConfiguration: Codable {
             triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
         }
         // Default initializer for new inserts
-        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, simKeypress: Bool? = nil, smartInsert: Bool? = nil, actionDelay: Double? = nil, pressReturn: Bool? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerLogic: String? = "or") {
+        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, simKeypress: Bool? = nil, smartCasing: Bool? = nil, smartPunctuation: Bool? = nil, smartSpacing: Bool? = nil, actionDelay: Double? = nil, pressReturn: Bool? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerLogic: String? = "or") {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
             self.simEsc = simEsc
             self.simKeypress = simKeypress
-            self.smartInsert = smartInsert
+            self.smartCasing = smartCasing
+            self.smartPunctuation = smartPunctuation
+            self.smartSpacing = smartSpacing
             self.actionDelay = actionDelay
             self.pressReturn = pressReturn
             self.restoreClipboard = restoreClipboard
@@ -740,7 +758,9 @@ struct AppConfiguration: Codable {
             moveTo: nil,
             simEsc: nil,
             simKeypress: nil,
-            smartInsert: nil,
+            smartCasing: nil,
+            smartPunctuation: nil,
+            smartSpacing: nil,
             actionDelay: nil,
             pressReturn: nil,
             restoreClipboard: nil,

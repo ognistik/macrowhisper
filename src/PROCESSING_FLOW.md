@@ -450,7 +450,7 @@ Action execution is coordinated through the ActionExecutor which handles all act
 #### Action Types:
 
 ##### 1. Insert Actions:
-- **Processing**: Placeholder replacement, optional insert `transform`, optional placeholder-segment deferred regex reapply (when transform is active), and insert runtime conditioning via `inputCondition`
+- **Processing**: Placeholder replacement (including placeholder transforms, regex replacements, and capture-scoped regex replacement transforms), insert runtime conditioning via `inputCondition`, then smart insertion passes (`smartCasing`, `smartPunctuation`, `smartSpacing`) when AX context is available and confident
 - **Execution**: Text insertion via clipboard or keystroke simulation
 - **Special Cases**:
   - `.autoPaste` hard override: `action="{{swResult}}"`, `inputCondition="!restoreClipboard|!simEsc"`, `simEsc=false`, `restoreClipboard=false`
@@ -539,7 +539,9 @@ Determines where to move or how to handle the processed recording folder:
 - `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
 - `pressReturn: Bool` - Auto-press return after actions (default: false)
-- `transform: String?` - Default insert text transform (`uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase` [auto EN/ES], `titleCase:en`, `titleCase:es`, `titleCase:all`)
+- `smartCasing: Bool` - Smart first-letter case normalization at insertion boundaries (default: true)
+- `smartPunctuation: Bool` - Smart punctuation conflict cleanup at insertion boundaries (default: true)
+- `smartSpacing: Bool` - Smart boundary spacing normalization (default: true)
 - `returnDelay: Double` - Delay before pressing return (default: 0.1)
 - `scheduledActionTimeout: Double` - Timeout for auto-return and scheduled actions (default: 5, 0 = no timeout)
 

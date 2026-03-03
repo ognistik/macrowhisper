@@ -62,9 +62,19 @@
           "description": "Use keystroke simulation instead of clipboard for text insertion. null or omitted = use built-in default (false).",
           "default": false
         },
-        "smartInsert": {
+        "smartCasing": {
           "type": ["boolean", "null"],
-          "description": "Enable smart casing and spacing for insert actions in reliable input-field contexts. Applies only to insert actions. null or omitted = use built-in default (true).",
+          "description": "Enable smart first-letter casing normalization for insert actions in reliable input-field contexts. This lowercases in mid-sentence boundaries and uppercases at strong sentence/line starts. null or omitted = use built-in default (true).",
+          "default": true
+        },
+        "smartPunctuation": {
+          "type": ["boolean", "null"],
+          "description": "Enable smart punctuation conflict cleanup for insert actions in reliable input-field contexts. This only removes conflicting boundary punctuation and does not add punctuation. null or omitted = use built-in default (true).",
+          "default": true
+        },
+        "smartSpacing": {
+          "type": ["boolean", "null"],
+          "description": "Enable smart boundary spacing normalization for insert actions in reliable input-field contexts. null or omitted = use built-in default (true).",
           "default": true
         },
         "actionDelay": {
@@ -319,9 +329,19 @@
               "description": "Use keystroke simulation instead of clipboard for this action. null = use global default, true/false = explicit override.",
               "default": null
             },
-            "smartInsert": {
+            "smartCasing": {
               "type": ["boolean", "null"],
-              "description": "Enable smart casing and spacing for this insert. null = use global default, true/false = explicit override.",
+              "description": "Enable smart first-letter casing normalization for this insert. null = use global default, true/false = explicit override.",
+              "default": null
+            },
+            "smartPunctuation": {
+              "type": ["boolean", "null"],
+              "description": "Enable smart punctuation conflict cleanup for this insert. null = use global default, true/false = explicit override.",
+              "default": null
+            },
+            "smartSpacing": {
+              "type": ["boolean", "null"],
+              "description": "Enable smart boundary spacing normalization for this insert. null = use global default, true/false = explicit override.",
               "default": null
             },
             "pressReturn": {

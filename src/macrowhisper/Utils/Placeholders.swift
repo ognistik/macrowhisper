@@ -28,7 +28,6 @@ func sanitizeContextPlaceholderValue(_ value: String) -> String {
 
 struct PlaceholderProcessingResult {
     let text: String
-    let hadSmartCasingBlockingTransform: Bool
 }
 
 private enum PlaceholderTransform: String {
@@ -41,11 +40,6 @@ private enum PlaceholderTransform: String {
     case titleCaseEs = "titleCase:es"
     case titleCaseAll = "titleCase:all"
     case ensureSentence
-}
-
-private struct PlaceholderTransformResult {
-    let value: String
-    let blocksSmartCasing: Bool
 }
 
 private func lowercasingFirstLetterForPlaceholder(_ text: String) -> String {
@@ -89,48 +83,36 @@ private func ensureSentenceCasingAndPunctuationForPlaceholder(_ text: String) ->
     return output
 }
 
-private func applyPlaceholderTransform(_ value: String, transformName: String, placeholderKey: String) -> PlaceholderTransformResult {
+private func applyPlaceholderTransform(_ value: String, transformName: String, placeholderKey: String) -> String {
     guard !value.isEmpty else {
-        return PlaceholderTransformResult(value: value, blocksSmartCasing: false)
+        return value
     }
 
     guard let transform = PlaceholderTransform(rawValue: transformName) else {
         logWarning("[PlaceholderTransform] Unsupported transform '\(transformName)' for placeholder '\(placeholderKey)' - skipping")
-        return PlaceholderTransformResult(value: value, blocksSmartCasing: false)
+        return value
     }
 
     let locale = Locale.current
     switch transform {
     case .uppercase:
-        return PlaceholderTransformResult(value: value.uppercased(with: locale), blocksSmartCasing: true)
+        return value.uppercased(with: locale)
     case .lowercase:
-        return PlaceholderTransformResult(value: value.lowercased(with: locale), blocksSmartCasing: true)
+        return value.lowercased(with: locale)
     case .uppercaseFirst:
-        return PlaceholderTransformResult(value: uppercasingFirstLetterForPlaceholder(value), blocksSmartCasing: true)
+        return uppercasingFirstLetterForPlaceholder(value)
     case .lowercaseFirst:
-        return PlaceholderTransformResult(value: lowercasingFirstLetterForPlaceholder(value), blocksSmartCasing: true)
+        return lowercasingFirstLetterForPlaceholder(value)
     case .titleCase:
-        return PlaceholderTransformResult(
-            value: applyAutoDetectedTitleCaseForPlaceholder(in: value, locale: locale),
-            blocksSmartCasing: true
-        )
+        return applyAutoDetectedTitleCaseForPlaceholder(in: value, locale: locale)
     case .titleCaseEn:
-        return PlaceholderTransformResult(
-            value: applyEnglishTitleCaseForPlaceholder(in: value, locale: locale),
-            blocksSmartCasing: true
-        )
+        return applyEnglishTitleCaseForPlaceholder(in: value, locale: locale)
     case .titleCaseEs:
-        return PlaceholderTransformResult(
-            value: applySpanishTitleCaseForPlaceholder(in: value, locale: locale),
-            blocksSmartCasing: true
-        )
+        return applySpanishTitleCaseForPlaceholder(in: value, locale: locale)
     case .titleCaseAll:
-        return PlaceholderTransformResult(value: applyTitleCaseAllForPlaceholder(in: value), blocksSmartCasing: true)
+        return applyTitleCaseAllForPlaceholder(in: value)
     case .ensureSentence:
-        return PlaceholderTransformResult(
-            value: ensureSentenceCasingAndPunctuationForPlaceholder(value),
-            blocksSmartCasing: false
-        )
+        return ensureSentenceCasingAndPunctuationForPlaceholder(value)
     }
 }
 
@@ -727,7 +709,6 @@ func processDynamicPlaceholders(
 ) -> PlaceholderProcessingResult {
     var result = action
     var resolvedFolderPathCache: [Int: String?] = [:]
-    var hadSmartCasingBlockingTransform = false
     
     // Updated regex for {{key}}, {{json:key}}, {{raw:key}}, {{date:...}}, and {{key::transform||regex||replacement}}
     let placeholderPattern = "\\{\\{(?:(json|raw):)?([A-Za-z0-9_.]+)(?::([^:|}]+))?(?:::(?!\\|)([^|}]+))?(?:\\|\\|(.+?))?\\}\\}"
@@ -775,11 +756,7 @@ func processDynamicPlaceholders(
                 var value = rawValue
 
                 if let transformName {
-                    let transformed = applyPlaceholderTransform(value, transformName: transformName, placeholderKey: key)
-                    value = transformed.value
-                    if transformed.blocksSmartCasing {
-                        hadSmartCasingBlockingTransform = true
-                    }
+                    value = applyPlaceholderTransform(value, transformName: transformName, placeholderKey: key)
                 }
 
                 if !regexReplacements.isEmpty {
@@ -1058,10 +1035,7 @@ func processDynamicPlaceholders(
             }
         }
     }
-    return PlaceholderProcessingResult(
-        text: result,
-        hadSmartCasingBlockingTransform: hadSmartCasingBlockingTransform
-    )
+    return PlaceholderProcessingResult(text: result)
 }
 
 private func getCurrentFrontAppName() -> String {
@@ -1129,6 +1103,73 @@ func applyFinalEscaping(value: String, prefixType: String?, actionType: ActionTy
 
 // MARK: - Regex Replacement Helper
 
+private var captureTransformTokenRegexForPlaceholder: NSRegularExpression? {
+    try? NSRegularExpression(pattern: #"\$\{(\d+)::([^}]+)\}"#)
+}
+
+private func replacementTemplateHasCaptureTransforms(_ template: String) -> Bool {
+    guard let regex = captureTransformTokenRegexForPlaceholder else {
+        return false
+    }
+    let range = NSRange(template.startIndex..., in: template)
+    return regex.firstMatch(in: template, options: [], range: range) != nil
+}
+
+private func resolveCaptureTransformTemplateForMatch(
+    replacementTemplate: String,
+    match: NSTextCheckingResult,
+    source: String,
+    regexPattern: String
+) -> String {
+    guard let captureTokenRegex = captureTransformTokenRegexForPlaceholder else {
+        return replacementTemplate
+    }
+
+    var resolvedTemplate = replacementTemplate
+    let tokenMatches = captureTokenRegex.matches(
+        in: replacementTemplate,
+        options: [],
+        range: NSRange(replacementTemplate.startIndex..., in: replacementTemplate)
+    )
+
+    for tokenMatch in tokenMatches.reversed() {
+        guard let tokenRange = Range(tokenMatch.range, in: resolvedTemplate) else { continue }
+        guard let captureIndexRange = Range(tokenMatch.range(at: 1), in: resolvedTemplate) else { continue }
+        guard let transformNameRange = Range(tokenMatch.range(at: 2), in: resolvedTemplate) else { continue }
+
+        let captureIndexRaw = String(resolvedTemplate[captureIndexRange])
+        guard let captureIndex = Int(captureIndexRaw), captureIndex >= 0 else {
+            logWarning(
+                "[RegexReplacement] Invalid capture index '\(captureIndexRaw)' " +
+                "pattern=\(summarizeForLogs(regexPattern, maxPreview: 80))"
+            )
+            resolvedTemplate.replaceSubrange(tokenRange, with: "")
+            continue
+        }
+
+        let transformName = String(resolvedTemplate[transformNameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let captureValue: String
+        if captureIndex < match.numberOfRanges,
+           match.range(at: captureIndex).location != NSNotFound,
+           let captureRange = Range(match.range(at: captureIndex), in: source) {
+            captureValue = String(source[captureRange])
+        } else {
+            captureValue = ""
+        }
+
+        let transformedValue = applyPlaceholderTransform(
+            captureValue,
+            transformName: transformName,
+            placeholderKey: "capture:\(captureIndex)"
+        )
+        let escapedTransformedValue = NSRegularExpression.escapedTemplate(for: transformedValue)
+        resolvedTemplate.replaceSubrange(tokenRange, with: escapedTransformedValue)
+    }
+
+    return resolvedTemplate
+}
+
 /// Applies multiple regex replacements to a string in sequence
 /// - Parameters:
 ///   - input: The input string to perform replacements on
@@ -1143,9 +1184,35 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
         let replacement = replacementRule.replacement
         do {
             let regex = try NSRegularExpression(pattern: regexPattern, options: [])
-            let range = NSRange(result.startIndex..., in: result)
             let beforeReplace = result
-            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: replacement)
+
+            if replacementTemplateHasCaptureTransforms(replacement) {
+                let matches = regex.matches(in: result, options: [], range: NSRange(result.startIndex..., in: result))
+                if !matches.isEmpty {
+                    var updated = result
+                    for match in matches.reversed() {
+                        guard let matchRange = Range(match.range, in: updated) else { continue }
+                        let resolvedTemplate = resolveCaptureTransformTemplateForMatch(
+                            replacementTemplate: replacement,
+                            match: match,
+                            source: updated,
+                            regexPattern: regexPattern
+                        )
+                        let replacementString = regex.replacementString(
+                            for: match,
+                            in: updated,
+                            offset: 0,
+                            template: resolvedTemplate
+                        )
+                        updated.replaceSubrange(matchRange, with: replacementString)
+                    }
+                    result = updated
+                }
+            } else {
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: replacement)
+            }
+
             let changed = beforeReplace != result
             if changed {
                 changedRules += 1
@@ -1221,10 +1288,7 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     result = dynamicResult.text
     
     // logDebug("[UnifiedPlaceholders] Final processed action: '\(result)'")
-    return PlaceholderProcessingResult(
-        text: result,
-        hadSmartCasingBlockingTransform: dynamicResult.hadSmartCasingBlockingTransform
-    )
+    return PlaceholderProcessingResult(text: result)
 }
 
 // MARK: - CLI Clipboard Helper
