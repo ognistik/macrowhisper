@@ -38,6 +38,7 @@ private enum PlaceholderTransform: String {
     case titleCase
     case titleCaseEn = "titleCase:en"
     case titleCaseEs = "titleCase:es"
+    case titleCaseFr = "titleCase:fr"
     case titleCaseAll = "titleCase:all"
     case ensureSentence
 }
@@ -109,6 +110,8 @@ private func applyPlaceholderTransform(_ value: String, transformName: String, p
         return applyEnglishTitleCaseForPlaceholder(in: value, locale: locale)
     case .titleCaseEs:
         return applySpanishTitleCaseForPlaceholder(in: value, locale: locale)
+    case .titleCaseFr:
+        return applyFrenchTitleCaseForPlaceholder(in: value, locale: locale)
     case .titleCaseAll:
         return applyTitleCaseAllForPlaceholder(in: value)
     case .ensureSentence:
@@ -119,22 +122,36 @@ private func applyPlaceholderTransform(_ value: String, transformName: String, p
 private enum PlaceholderTitleCaseLanguage {
     case english
     case spanish
+    case french
 }
 
 private func applyEnglishTitleCaseForPlaceholder(in text: String, locale: Locale) -> String {
-    applyTitleCaseWithRulesForPlaceholder(
+    let minorWords = englishMinorTitleCaseWordsForPlaceholder()
+    return applyTitleCaseWithRulesForPlaceholder(
         in: text,
         locale: locale,
-        minorWords: englishMinorTitleCaseWordsForPlaceholder(),
+        isMinorWord: { minorWords.contains($0) },
         forceUppercasePredicate: shouldForceUppercaseInEnglishTitleCaseForPlaceholder
     )
 }
 
 private func applySpanishTitleCaseForPlaceholder(in text: String, locale: Locale) -> String {
-    applyTitleCaseWithRulesForPlaceholder(
+    let minorWords = spanishMinorTitleCaseWordsForPlaceholder()
+    return applyTitleCaseWithRulesForPlaceholder(
         in: text,
         locale: locale,
-        minorWords: spanishMinorTitleCaseWordsForPlaceholder()
+        isMinorWord: { minorWords.contains($0) }
+    )
+}
+
+private func applyFrenchTitleCaseForPlaceholder(in text: String, locale: Locale) -> String {
+    let minorWords = frenchMinorTitleCaseWordsForPlaceholder()
+    return applyTitleCaseWithRulesForPlaceholder(
+        in: text,
+        locale: locale,
+        isMinorWord: { normalizedToken in
+            minorWords.contains(normalizedToken) || hasFrenchElidedMinorWordForPlaceholder(normalizedToken)
+        }
     )
 }
 
@@ -144,6 +161,8 @@ private func applyAutoDetectedTitleCaseForPlaceholder(in text: String, locale: L
         return applyEnglishTitleCaseForPlaceholder(in: text, locale: locale)
     case .spanish:
         return applySpanishTitleCaseForPlaceholder(in: text, locale: locale)
+    case .french:
+        return applyFrenchTitleCaseForPlaceholder(in: text, locale: locale)
     }
 }
 
@@ -158,8 +177,10 @@ private func detectTitleCaseLanguageForPlaceholder(in text: String, locale: Loca
 
     let englishWords = englishMinorTitleCaseWordsForPlaceholder()
     let spanishWords = spanishMinorTitleCaseWordsForPlaceholder()
+    let frenchWords = frenchMinorTitleCaseWordsForPlaceholder()
     var englishScore: Double = 0
     var spanishScore: Double = 0
+    var frenchScore: Double = 0
 
     for match in matches {
         guard let range = Range(match.range, in: text) else { continue }
@@ -167,23 +188,43 @@ private func detectTitleCaseLanguageForPlaceholder(in text: String, locale: Loca
         let normalized = token.lowercased(with: locale)
         if englishWords.contains(normalized) { englishScore += 2.0 }
         if spanishWords.contains(normalized) { spanishScore += 2.0 }
+        if frenchWords.contains(normalized) { frenchScore += 2.0 }
         if hasSpanishCharacterCueForPlaceholder(normalized) { spanishScore += 1.5 }
+        if hasFrenchCharacterCueForPlaceholder(normalized) { frenchScore += 1.5 }
+        if hasFrenchElisionCueForPlaceholder(normalized) { frenchScore += 1.5 }
         if hasEnglishContractionCueForPlaceholder(normalized) { englishScore += 1.5 }
     }
 
-    if englishScore == 0 && spanishScore == 0 {
+    if englishScore == 0 && spanishScore == 0 && frenchScore == 0 {
         return .english
     }
-    if spanishScore > englishScore && (spanishScore - englishScore) >= 1.0 {
-        return .spanish
+
+    let rankedScores: [(PlaceholderTitleCaseLanguage, Double)] = [
+        (.english, englishScore),
+        (.spanish, spanishScore),
+        (.french, frenchScore)
+    ].sorted { lhs, rhs in lhs.1 > rhs.1 }
+
+    let topLanguage = rankedScores[0].0
+    let topScore = rankedScores[0].1
+    let secondScore = rankedScores[1].1
+    if topScore - secondScore >= 1.0 {
+        return topLanguage
     }
+
+    // Avoid falling back to English for Romance-language ties caused by shared
+    // function words (for example "la", "de"), which would incorrectly title-case them.
+    if englishScore == 0 && (spanishScore > 0 || frenchScore > 0) {
+        return spanishScore >= frenchScore ? .spanish : .french
+    }
+
     return .english
 }
 
 private func applyTitleCaseWithRulesForPlaceholder(
     in text: String,
     locale: Locale,
-    minorWords: Set<String>,
+    isMinorWord: (String) -> Bool,
     forceUppercasePredicate: (String) -> Bool = { _ in false }
 ) -> String {
     guard let regex = titleCaseWordRegexForPlaceholder else {
@@ -208,7 +249,7 @@ private func applyTitleCaseWithRulesForPlaceholder(
             replacement = token
         } else if isFirst || isLast || followsBoundary || forceUppercasePredicate(normalized) {
             replacement = uppercasingFirstLetterForPlaceholder(token)
-        } else if minorWords.contains(normalized) {
+        } else if isMinorWord(normalized) {
             replacement = lowercasingFirstLetterForPlaceholder(token)
         } else {
             replacement = uppercasingFirstLetterForPlaceholder(token)
@@ -256,10 +297,48 @@ private func spanishMinorTitleCaseWordsForPlaceholder() -> Set<String> {
     ]
 }
 
+private func frenchMinorTitleCaseWordsForPlaceholder() -> Set<String> {
+    [
+        "a", "au", "aux", "de", "des", "du", "le", "la", "les", "un", "une", "et",
+        "ou", "en", "dans", "sur", "sous", "pour", "par", "sans", "avec", "chez",
+        "vers", "entre", "contre", "apres", "après", "avant", "que", "qui", "dont"
+    ]
+}
+
 private func hasSpanishCharacterCueForPlaceholder(_ normalizedToken: String) -> Bool {
     normalizedToken.unicodeScalars.contains { scalar in
         CharacterSet(charactersIn: "ñÑáéíóúüÁÉÍÓÚÜ").contains(scalar)
     }
+}
+
+private func hasFrenchCharacterCueForPlaceholder(_ normalizedToken: String) -> Bool {
+    normalizedToken.unicodeScalars.contains { scalar in
+        CharacterSet(charactersIn: "àâæçéèêëîïôœùûüÿÀÂÆÇÉÈÊËÎÏÔŒÙÛÜŸ").contains(scalar)
+    }
+}
+
+private func hasFrenchElisionCueForPlaceholder(_ normalizedToken: String) -> Bool {
+    let normalizedApostrophes = normalizedToken.replacingOccurrences(of: "’", with: "'")
+    guard let apostropheIndex = normalizedApostrophes.firstIndex(of: "'") else {
+        return false
+    }
+    let prefix = String(normalizedApostrophes[..<apostropheIndex])
+    return frenchElisionPrefixesForPlaceholder().contains(prefix)
+}
+
+private func hasFrenchElidedMinorWordForPlaceholder(_ normalizedToken: String) -> Bool {
+    let normalizedApostrophes = normalizedToken.replacingOccurrences(of: "’", with: "'")
+    guard let apostropheIndex = normalizedApostrophes.firstIndex(of: "'") else {
+        return false
+    }
+    let prefix = String(normalizedApostrophes[..<apostropheIndex])
+    return frenchElisionPrefixesForPlaceholder().contains(prefix)
+}
+
+private func frenchElisionPrefixesForPlaceholder() -> Set<String> {
+    [
+        "l", "d", "j", "m", "n", "s", "t", "c", "qu", "jusqu", "lorsqu", "puisqu"
+    ]
 }
 
 private func hasEnglishContractionCueForPlaceholder(_ normalizedToken: String) -> Bool {

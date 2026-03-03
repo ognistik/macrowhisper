@@ -1140,9 +1140,10 @@ What each transform does:
 - `lowercase`: makes the whole value lowercase.
 - `uppercaseFirst`: only uppercases the first letter it finds.
 - `lowercaseFirst`: only lowercases the first letter it finds.
-- `titleCase`: uses automatic language detection (English/Spanish) and applies title case rules.
+- `titleCase`: uses automatic language detection (English/Spanish/French) and applies title case rules.
 - `titleCase:en`: English title case rules.
 - `titleCase:es`: Spanish title case rules.
+- `titleCase:fr`: French title case rules.
 - `titleCase:all`: capitalizes the first letter of every word (including minor words like "and", "of", "de", etc.).
 - `ensureSentence`: makes sure the text starts with a capital letter and ends with `.`, `!`, or `?`. If ending punctuation is missing, it adds a period (`.`).
   

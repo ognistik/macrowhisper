@@ -52,7 +52,7 @@
       "triggerVoice" : null
     },
     "autoPaste" : {
-      "action" : "{{swResult::ensureSentence}}",
+      "action" : "{{swResult::titleCase}}",
       "actionDelay" : null,
       "icon" : "•",
       "inputCondition" : "!nextAction",
@@ -63,7 +63,7 @@
       "restoreClipboardDelay" : null,
       "simEsc" : null,
       "simKeypress" : null,
-      "smartCasing" : false,
+      "smartCasing" : null,
       "smartPunctuation" : null,
       "smartSpacing" : null,
       "triggerApps" : null,
@@ -92,7 +92,7 @@
       "triggerVoice" : null
     },
     "pasteResult" : {
-      "action" : "{{swResult||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1}}",
+      "action" : "{{swResult::ensureSentence}}",
       "actionDelay" : 0,
       "icon" : "⏎",
       "inputCondition" : null,
@@ -132,7 +132,7 @@
       "triggerVoice" : null
     },
     "terminals" : {
-      "action" : "{{swResult||(?s)^thought\n(.*)$||$1||(?s)^thoughtfulness\n(.*)$||$1||`||}}",
+      "action" : "{{swResult::lowercaseFirst}}",
       "actionDelay" : null,
       "icon" : null,
       "inputCondition" : null,

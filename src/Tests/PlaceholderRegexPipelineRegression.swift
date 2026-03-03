@@ -34,6 +34,21 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let meta5: [String: Any] = ["llmResult": "ABC"]
         let result5 = processDynamicPlaceholders(action: action5, metaJson: meta5, actionType: .insert).text
         assertEqual(result5, "ABC", "unknown capture transform fails open")
+
+        let action6 = "{{swResult::titleCase:fr}}"
+        let meta6: [String: Any] = ["llmResult": "le seigneur des anneaux et l'amour perdu"]
+        let result6 = processDynamicPlaceholders(action: action6, metaJson: meta6, actionType: .insert).text
+        assertEqual(result6, "Le Seigneur des Anneaux et l'amour Perdu", "explicit French title case applies minor word rules")
+
+        let action7 = "{{swResult::titleCase}}"
+        let meta7: [String: Any] = ["llmResult": "l'été en provence et le chant du vent"]
+        let result7 = processDynamicPlaceholders(action: action7, metaJson: meta7, actionType: .insert).text
+        assertEqual(result7, "L'été en Provence et le Chant du Vent", "auto title case detects French")
+
+        let action8 = "{{swResult::titleCase}}"
+        let meta8: [String: Any] = ["llmResult": "la sopa de pollo"]
+        let result8 = processDynamicPlaceholders(action: action8, metaJson: meta8, actionType: .insert).text
+        assertEqual(result8, "La Sopa de Pollo", "auto title case preserves Spanish minor words in romance tie cases")
     }
 }
 
