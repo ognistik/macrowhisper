@@ -304,8 +304,8 @@ class ActionExecutor {
         var resolved = insert
 
         if insert.action == ".autoPaste" {
-            resolved.inputCondition = "!restoreClipboard|!noEsc"
-            resolved.noEsc = true
+            resolved.inputCondition = "!restoreClipboard|!simEsc"
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -313,7 +313,7 @@ class ActionExecutor {
         if insert.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
         }
 
@@ -326,7 +326,7 @@ class ActionExecutor {
         if url.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -340,7 +340,7 @@ class ActionExecutor {
         if shell.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -354,7 +354,7 @@ class ActionExecutor {
         if ascript.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -368,7 +368,7 @@ class ActionExecutor {
         if shortcut.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -393,7 +393,8 @@ class ActionExecutor {
             if tokenName.isEmpty {
                 continue
             }
-            tokens[tokenName] = appliesOutsideInput ? false : true
+            let canonicalToken = tokenName == "noEsc" ? "simEsc" : tokenName
+            tokens[canonicalToken] = appliesOutsideInput ? false : true
         }
 
         return tokens
@@ -429,8 +430,8 @@ class ActionExecutor {
         if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
             resolved.pressReturn = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -464,8 +465,8 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -499,8 +500,8 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -540,8 +541,8 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -581,8 +582,8 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -671,14 +672,14 @@ class ActionExecutor {
             metaJson: enhancedMetaJson,
             activeInsert: insert
         )
-        let baseShouldEsc = !(insert.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = (insert.simEsc ?? configManager.config.defaults.simEsc)
         var shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = insert.actionDelay ?? configManager.config.defaults.actionDelay
 
         let isAutoPaste = processedInsert.isAutoPaste || insert.action == ".autoPaste"
         let isEmptyOrNoneInsert = processedInsert.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-        // Respect noEsc=true strictly. Forced ESC only applies when ESC is otherwise allowed.
+        // Respect simEsc=false strictly. Forced ESC only applies when ESC is otherwise allowed.
         let forceEscForAutoPasteWhenNotInInputField = !options.isLastInChain && baseShouldEsc && isAutoPaste
         let forceEscForEmptyInsert = !options.isLastInChain && baseShouldEsc && isEmptyOrNoneInsert
         if forceEscForAutoPasteWhenNotInInputField || forceEscForEmptyInsert {
@@ -730,7 +731,7 @@ class ActionExecutor {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: url.action)
         
-        let baseShouldEsc = !(url.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = (url.simEsc ?? configManager.config.defaults.simEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = url.actionDelay ?? configManager.config.defaults.actionDelay
         
@@ -768,7 +769,7 @@ class ActionExecutor {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: shortcut.action)
         
-        let baseShouldEsc = !(shortcut.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = (shortcut.simEsc ?? configManager.config.defaults.simEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = shortcut.actionDelay ?? configManager.config.defaults.actionDelay
         let effectiveScriptAsync = shortcut.scriptAsync ?? configManager.config.defaults.scriptAsync ?? true
@@ -814,7 +815,7 @@ class ActionExecutor {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: shell.action)
         
-        let baseShouldEsc = !(shell.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = (shell.simEsc ?? configManager.config.defaults.simEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = shell.actionDelay ?? configManager.config.defaults.actionDelay
         let effectiveScriptAsync = shell.scriptAsync ?? configManager.config.defaults.scriptAsync ?? true
@@ -859,7 +860,7 @@ class ActionExecutor {
         // Enhance metaJson with session data from clipboard monitor
         let enhancedMetaJson = enhanceMetaJsonWithSessionData(metaJson: metaJson, recordingPath: recordingPath, actionTemplate: ascript.action)
         
-        let baseShouldEsc = !(ascript.noEsc ?? configManager.config.defaults.noEsc)
+        let baseShouldEsc = (ascript.simEsc ?? configManager.config.defaults.simEsc)
         let shouldEsc = options.isFirstInChain ? baseShouldEsc : false
         let actionDelay = ascript.actionDelay ?? configManager.config.defaults.actionDelay
         let effectiveScriptAsync = ascript.scriptAsync ?? configManager.config.defaults.scriptAsync ?? true
@@ -1543,9 +1544,9 @@ class ActionExecutor {
     }
     
     private func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
-        // Use insert-specific noEsc if set, otherwise fall back to global default
-        let shouldSkipEsc = activeInsert?.noEsc ?? configManager.config.defaults.noEsc
-        if !shouldSkipEsc {
+        // Use insert-specific simEsc if set, otherwise fall back to global default
+        let shouldSimEsc = activeInsert?.simEsc ?? configManager.config.defaults.simEsc
+        if shouldSimEsc {
             DispatchQueue.main.async {
                 simulateKeyDown(key: 53) // ESC key
             }

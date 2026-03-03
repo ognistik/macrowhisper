@@ -369,7 +369,7 @@ For `--exec-action`, `moveTo` works like this:
 | Applies `actionDelay` | Yes | No | No |
 | Applies `nextAction` chain | Yes | No | No |
 | Applies `moveTo` post-processing | Yes for latest/default or folder-based `--meta`; skipped for direct JSON file `--meta` | No | No |
-| Handles ESC behavior (`noEsc`) | CLI exec path never simulates ESC; `noEsc` has no practical effect here | N/A | N/A |
+| Handles ESC behavior (`simEsc`) | CLI exec path never simulates ESC; `simEsc` has no practical effect here | N/A | N/A |
 | Clipboard restore behavior (`restoreClipboard`) | Insert actions only | No | No |
 | Writes to clipboard | Insert action behavior only (when action itself pastes) | No | Yes (writes processed content) |
 
@@ -452,7 +452,7 @@ Quick rules (what wins?)
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
-| Boolean/number overrides (`noEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
+| Boolean/number overrides (`simEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartInsert`) | Use `defaults.<sameField>` | Action value wins |
 | `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
 | `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
 | `nextAction` | `null` -> use `defaults.nextAction` (first chain step only) | Action value wins (`""` = explicit no next action) |
@@ -467,7 +467,7 @@ Quick rules (what wins?)
 - `action: ".none"` applies:
     - `action = ""`
     - `inputCondition = ""`
-    - `noEsc = true`
+    - `simEsc = false`
     - `restoreClipboard = false`
 
 ---
@@ -475,8 +475,8 @@ Quick rules (what wins?)
 #### For insert actions
 
 - `action: ".autoPaste"` applies:
-    - `inputCondition = "!restoreClipboard|!noEsc"`
-    - `noEsc = true`
+    - `inputCondition = "!restoreClipboard|!simEsc"`
+    - `simEsc = false`
     - `restoreClipboard = false`
 
 These values simulate the exact behavior of Superwhisper's auto-paste.
@@ -514,7 +514,7 @@ Meaning: this action runs with no payload.
 ```json
 "action": ".none"
 ```
-Meaning: no-op template (`action=""`, `noEsc=true`, `restoreClipboard=false`).
+Meaning: no-op template (`action=""`, `simEsc=false`, `restoreClipboard=false`).
 
 ---
 
@@ -557,7 +557,7 @@ Null behavior at `defaults` level:
 | `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty/null means none. |
 | `icon` | string/null | `null` | Default icon for actions. |
 | `moveTo` | string/null | `null` | Default post-processing path (`.delete`, a path, or empty). |
-| `noEsc` | bool/null | `false` | Disable ESC simulation before actions. `null` = built-in default (`false`). |
+| `simEsc` | bool/null | `true` | Simulate ESC before actions. `null` = built-in default (`true`). |
 | `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
 | `smartInsert` | bool/null | `true` | Smart casing/spacing behavior for insert actions. `null` = built-in default (`true`). |
 | `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
@@ -604,7 +604,7 @@ All actions are stored by name in one of five dictionaries:
 | Value | Where it works | Simple meaning |
 | --- | --- | --- |
 | `""` | All action types | Empty payload for this action (not a template). |
-| `.none` | All action types | No-op template (`action=""`, `inputCondition=""`, `noEsc=true`, `restoreClipboard=false`). |
+| `.none` | All action types | No-op template (`action=""`, `inputCondition=""`, `simEsc=false`, `restoreClipboard=false`). |
 | `.autoPaste` | Insert actions only | Insert template that matches Superwhisper-style auto-paste behavior. |
 | `.run` | Shortcut actions only | Run the Shortcut with no input payload. |
 
@@ -617,7 +617,7 @@ Section 5.4 has the full behavior details.
 | `action`           | string      | Main action payload (text/url/script/etc.)                                      |
 | `icon`             | string/null | Per-action icon override                                                        |
 | `moveTo`           | string/null | Per-action recording folder post-processing override. Can be `.delete` or path. |
-| `noEsc`            | bool/null   | Skip ESC before action if `true`.                                               |
+| `simEsc`            | bool/null   | Simulate ESC before action if `true`.                                           |
 | `actionDelay`      | number/null | Per-action delay override                                                       |
 | `restoreClipboard` | bool/null   | Per-action clipboard restoration override                                       |
 | `restoreClipboardDelay` | number/null | Per-action clipboard restore delay override (final chain step governs).      |
@@ -960,7 +960,7 @@ Examples:
 
 - `restoreClipboard`
 - `restoreClipboardDelay`
-- `noEsc`
+- `simEsc`
 - `nextAction`
 - `moveTo`
 - `action`
@@ -1027,7 +1027,7 @@ Because chains resolve by name across all types, duplicate names across types ar
 - When `scriptAsync: false`, those steps wait for completion (up to `scriptWaitTimeout`) and can provide stdout to `{{actionResult}}` placeholders in later chain steps.
 - Clipboard restoration decision is controlled by the last step.
 - `moveTo` post-processing is based on final executed action context.
-- `noEsc` is controlled at the first action-level (if set) else defaults.nextAction.
+- `simEsc` is controlled at the first action-level (if set) else `defaults.simEsc`.
 
 ---
 

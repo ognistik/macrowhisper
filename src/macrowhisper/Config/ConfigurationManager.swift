@@ -543,7 +543,7 @@ class ConfigurationManager {
             allowedTokens = [
                 "restoreClipboard",
                 "restoreClipboardDelay",
-                "noEsc",
+                "simEsc",
                 "nextAction",
                 "moveTo",
                 "action",
@@ -553,7 +553,7 @@ class ConfigurationManager {
             allowedTokens = [
                 "restoreClipboard",
                 "restoreClipboardDelay",
-                "noEsc",
+                "simEsc",
                 "nextAction",
                 "moveTo",
                 "action",
@@ -563,7 +563,7 @@ class ConfigurationManager {
             allowedTokens = [
                 "restoreClipboard",
                 "restoreClipboardDelay",
-                "noEsc",
+                "simEsc",
                 "nextAction",
                 "moveTo",
                 "action",
@@ -575,7 +575,7 @@ class ConfigurationManager {
             allowedTokens = [
                 "restoreClipboard",
                 "restoreClipboardDelay",
-                "noEsc",
+                "simEsc",
                 "nextAction",
                 "moveTo",
                 "action",
@@ -989,6 +989,7 @@ class ConfigurationManager {
                 logInfo("Marked configuration as configVersion \(AppConfiguration.currentConfigVersion)")
             }
         }
+        _ = Self.normalizeEscInputConditionTokens(&updatedConfig)
 
         // Update our in-memory config with the loaded/migrated data
         syncQueue.sync {
@@ -1043,6 +1044,7 @@ class ConfigurationManager {
     }
 
     private static func normalizeConfigurationForRuntime(_ config: inout AppConfiguration) {
+        _ = normalizeEscInputConditionTokens(&config)
         guard (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion else {
             return
         }
@@ -1137,6 +1139,63 @@ class ConfigurationManager {
             normalizeInputLike(&ascript.triggerVoice)
             normalizeInputLike(&ascript.triggerApps)
             normalizeInputLike(&ascript.triggerModes)
+            config.scriptsAS[name] = ascript
+        }
+
+        return changed
+    }
+
+    private static func normalizeEscInputConditionTokens(_ config: inout AppConfiguration) -> Bool {
+        var changed = false
+
+        func normalizeEscToken(_ value: inout String?) {
+            guard let raw = value, !raw.isEmpty else { return }
+
+            let transformedTokens = raw.split(separator: "|", omittingEmptySubsequences: false).map { token -> String in
+                let tokenString = String(token)
+                switch tokenString {
+                case "noEsc":
+                    return "simEsc"
+                case "!noEsc":
+                    return "!simEsc"
+                default:
+                    return tokenString
+                }
+            }
+            let transformed = transformedTokens.joined(separator: "|")
+            if transformed != raw {
+                value = transformed
+                changed = true
+            }
+        }
+
+        for name in config.inserts.keys {
+            guard var insert = config.inserts[name] else { continue }
+            normalizeEscToken(&insert.inputCondition)
+            config.inserts[name] = insert
+        }
+
+        for name in config.urls.keys {
+            guard var url = config.urls[name] else { continue }
+            normalizeEscToken(&url.inputCondition)
+            config.urls[name] = url
+        }
+
+        for name in config.shortcuts.keys {
+            guard var shortcut = config.shortcuts[name] else { continue }
+            normalizeEscToken(&shortcut.inputCondition)
+            config.shortcuts[name] = shortcut
+        }
+
+        for name in config.scriptsShell.keys {
+            guard var shell = config.scriptsShell[name] else { continue }
+            normalizeEscToken(&shell.inputCondition)
+            config.scriptsShell[name] = shell
+        }
+
+        for name in config.scriptsAS.keys {
+            guard var ascript = config.scriptsAS[name] else { continue }
+            normalizeEscToken(&ascript.inputCondition)
             config.scriptsAS[name] = ascript
         }
 

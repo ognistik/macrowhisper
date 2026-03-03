@@ -276,17 +276,17 @@ private func cacheResult(threadId: String, result: Bool) {
 }
 
 func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
-    // First check if there's an insert-specific noEsc setting
-    if let insert = activeInsert, let insertNoEsc = insert.noEsc {
+    // First check if there's an insert-specific simEsc setting
+    if let insert = activeInsert, let insertSimEsc = insert.simEsc {
         // Use the insert-specific setting if available
-        if insertNoEsc {
-            logDebug("ESC key simulation disabled by insert-specific noEsc setting")
+        if !insertSimEsc {
+            logDebug("ESC key simulation disabled by insert-specific simEsc setting")
             return
         }
     }
     // Otherwise fall back to the global setting
-    else if let noEsc = globalConfigManager?.config.defaults.noEsc, noEsc == true {
-        logDebug("ESC key simulation disabled by global noEsc setting")
+    else if let simEsc = globalConfigManager?.config.defaults.simEsc, simEsc == false {
+        logDebug("ESC key simulation disabled by global simEsc setting")
         return
     }
     

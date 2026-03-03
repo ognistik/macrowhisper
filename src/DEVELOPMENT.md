@@ -34,7 +34,7 @@ swift build
 - Verify both input states (inside and outside input field) for positive and negated tokens:
   - `restoreClipboard`, `!restoreClipboard`
   - `restoreClipboardDelay`, `!restoreClipboardDelay`
-  - `noEsc`, `!noEsc`
+  - `simEsc`, `!simEsc`
   - `nextAction`, `!nextAction`
   - `moveTo`, `!moveTo`
   - `action`, `!action`

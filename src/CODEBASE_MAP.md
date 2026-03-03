@@ -158,7 +158,7 @@ src/
   "inserts": {
     "name": {
       "action": "text",
-      "inputCondition": "restoreClipboard|!noEsc",
+      "inputCondition": "restoreClipboard|!simEsc",
       "triggerVoice": "pattern"
     }
   },

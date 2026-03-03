@@ -803,7 +803,7 @@ class RecordingsFolderWatcher {
                 
                 // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
                 let actionDelay = configManager.config.defaults.actionDelay
-                let shouldEsc = !configManager.config.defaults.noEsc
+                let shouldEsc = configManager.config.defaults.simEsc
                 
                 clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                     insertAction: { [weak self] in

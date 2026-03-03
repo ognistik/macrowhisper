@@ -810,8 +810,8 @@ class SocketCommunication {
         var resolved = insert
 
         if insert.action == ".autoPaste" {
-            resolved.inputCondition = "!restoreClipboard|!noEsc"
-            resolved.noEsc = true
+            resolved.inputCondition = "!restoreClipboard|!simEsc"
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -819,7 +819,7 @@ class SocketCommunication {
         if insert.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, false)
         }
@@ -833,7 +833,7 @@ class SocketCommunication {
         if url.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -847,7 +847,7 @@ class SocketCommunication {
         if shell.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -861,7 +861,7 @@ class SocketCommunication {
         if ascript.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -875,7 +875,7 @@ class SocketCommunication {
         if shortcut.action == ".none" {
             resolved.action = ""
             resolved.inputCondition = ""
-            resolved.noEsc = true
+            resolved.simEsc = false
             resolved.restoreClipboard = false
             return (resolved, true)
         }
@@ -900,7 +900,8 @@ class SocketCommunication {
             if tokenName.isEmpty {
                 continue
             }
-            tokens[tokenName] = appliesOutsideInput ? false : true
+            let canonicalToken = tokenName == "noEsc" ? "simEsc" : tokenName
+            tokens[canonicalToken] = appliesOutsideInput ? false : true
         }
 
         return tokens
@@ -936,8 +937,8 @@ class SocketCommunication {
         if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
             resolved.pressReturn = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -971,8 +972,8 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -1006,8 +1007,8 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -1047,8 +1048,8 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -1088,8 +1089,8 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("noEsc", tokens: tokens, isInInputField: isInInputField) {
-            resolved.noEsc = nil
+        if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simEsc = nil
         }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
@@ -1926,7 +1927,7 @@ class SocketCommunication {
         "-–—".contains(character)
     }
 
-    // This version is for the main watcher flow and respects the 'noEsc' setting
+    // This version is for the main watcher flow and respects the 'simEsc' setting
     func applyInsert(
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
@@ -2457,7 +2458,7 @@ class SocketCommunication {
                 // Settings
                 lines.append("noUpdates: \(defaults.noUpdates ? "yes" : "no")")
                 lines.append("noNoti: \(defaults.noNoti ? "yes" : "no")")
-                lines.append("noEsc: \(defaults.noEsc ? "yes" : "no")")
+                lines.append("simEsc: \(defaults.simEsc ? "yes" : "no")")
                 lines.append("simKeypress: \(defaults.simKeypress ? "yes" : "no")")
                 lines.append("redactedLogs: \(defaults.redactedLogs ? "yes" : "no")")
                 lines.append(String(format: "actionDelay: %.2fs", defaults.actionDelay))

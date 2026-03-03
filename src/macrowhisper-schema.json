@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
-  "description": "Configuration schema for Macrowhisper. In configVersion 2, action-level null means inherit defaults and empty string means explicit empty value (for supported string fields). At defaults level, nullable scalar fields can use null to fall back to built-in Macrowhisper defaults.",
+  "description": "Configuration schema for Macrowhisper. In configVersion 2, action-level null means inherit defaults and empty string means explicit empty value (for supported string fields), and ESC simulation is controlled by simEsc (true simulates ESC). At defaults level, nullable scalar fields can use null to fall back to built-in Macrowhisper defaults.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -11,7 +11,7 @@
     },
     "configVersion": {
       "type": "integer",
-      "description": "Configuration semantics version. Version 1 is legacy behavior. Version 2 uses explicit empty semantics: null inherits defaults, empty string is explicit.",
+      "description": "Configuration semantics version. Version 1 is legacy behavior. Version 2 uses explicit empty semantics (null inherits defaults, empty string is explicit) and simEsc-based ESC control.",
       "enum": [1, 2],
       "default": 2
     },
@@ -52,10 +52,10 @@
           "examples": ["~/Documents/processed-recordings", ".delete", "", null],
           "default": null
         },
-        "noEsc": {
+        "simEsc": {
           "type": ["boolean", "null"],
-          "description": "Disable ESC key simulation before action execution. null or omitted = use built-in default (false).",
-          "default": false
+          "description": "Simulate ESC key before action execution. null or omitted = use built-in default (true). Legacy key 'noEsc' is still accepted at runtime and inverted.",
+          "default": true
         },
         "simKeypress": {
           "type": ["boolean", "null"],
@@ -235,9 +235,9 @@
           "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", "", null],
           "default": null
         },
-        "noEsc": {
+        "simEsc": {
           "type": ["boolean", "null"],
-          "description": "Disable ESC key simulation for this action. null = use global default, true/false = explicit override.",
+          "description": "Simulate ESC key for this action. null = use global default, true/false = explicit override. Legacy key 'noEsc' is still accepted at runtime and inverted.",
           "default": null
         },
         "actionDelay": {
@@ -331,11 +331,11 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Insert-only conditional option gate. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Insert-only conditional option gate. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, simEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "restoreClipboard|moveTo",
-                "!restoreClipboard|!noEsc"
+                "!restoreClipboard|!simEsc"
               ],
               "default": null
             }
@@ -364,11 +364,11 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for URL actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for URL actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, simEsc, nextAction, moveTo, action, actionDelay. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "restoreClipboard|moveTo",
-                "!noEsc|!action"
+                "!simEsc|!action"
               ],
               "default": null
             },
@@ -402,11 +402,11 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for shortcut actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for shortcut actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, simEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "restoreClipboard|nextAction",
-                "!action|!noEsc"
+                "!action|!simEsc"
               ],
               "default": null
             },
@@ -448,10 +448,10 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for shell actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for shell actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, simEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
-                "noEsc|actionDelay",
+                "simEsc|actionDelay",
                 "!action|!restoreClipboard"
               ],
               "default": null
@@ -494,11 +494,11 @@
             },
             "inputCondition": {
               "type": ["string", "null"],
-              "description": "Conditional option gate for AppleScript actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, noEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
+              "description": "Conditional option gate for AppleScript actions. Pipe-separated tokens, optional '!' negation. Allowed tokens: restoreClipboard, restoreClipboardDelay, simEsc, nextAction, moveTo, action, actionDelay, scriptAsync, scriptWaitTimeout. Strict format: case-sensitive, no whitespace. Empty string, null, or omitted disables conditioning.",
               "examples": [
                 "",
                 "nextAction|moveTo",
-                "!noEsc|!action"
+                "!simEsc|!action"
               ],
               "default": null
             },

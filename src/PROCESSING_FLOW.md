@@ -453,9 +453,9 @@ Action execution is coordinated through the ActionExecutor which handles all act
 - **Processing**: Placeholder replacement, optional insert `transform`, optional placeholder-segment deferred regex reapply (when transform is active), and insert runtime conditioning via `inputCondition`
 - **Execution**: Text insertion via clipboard or keystroke simulation
 - **Special Cases**:
-  - `.autoPaste` hard override: `action="{{swResult}}"`, `inputCondition="!restoreClipboard|!noEsc"`, `noEsc=true`, `restoreClipboard=false`
-  - `.none` hard override: `action=""`, `noEsc=true`, `restoreClipboard=false`
-- **Conditional tokens**: `restoreClipboard`, `noEsc`, `nextAction`, `moveTo`, `action`, `actionDelay` (with optional `!`)
+  - `.autoPaste` hard override: `action="{{swResult}}"`, `inputCondition="!restoreClipboard|!simEsc"`, `simEsc=false`, `restoreClipboard=false`
+  - `.none` hard override: `action=""`, `simEsc=false`, `restoreClipboard=false`
+- **Conditional tokens**: `restoreClipboard`, `simEsc`, `nextAction`, `moveTo`, `action`, `actionDelay` (with optional `!`)
 - **Chain consistency**: Input-field state is sampled once (first insert step) and reused across the whole action chain
 
 ##### 2. URL Actions:
@@ -534,7 +534,7 @@ Determines where to move or how to handle the processed recording folder:
 #### Global Defaults:
 - `schema: String?` - JSON schema reference for IDE validation (maps to `$schema`)
 - `actionDelay: Double` - Default delay before action execution (default: 0.0)
-- `noEsc: Bool` - Disable ESC key simulation (default: false)
+- `simEsc: Bool` - Simulate ESC key before action execution (default: true)
 - `restoreClipboard: Bool` - Enable clipboard restoration (default: true)
 - `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
@@ -546,7 +546,7 @@ Determines where to move or how to handle the processed recording folder:
 #### Action-Specific Settings:
 All action types support:
 - `actionDelay: Double?` - Action-specific delay override
-- `noEsc: Bool?` - Action-specific ESC override
+- `simEsc: Bool?` - Action-specific ESC simulation override
 - `moveTo: String?` - Action-specific moveTo override
 - `triggerVoice: String?` - Voice trigger patterns
 - `triggerApps: String?` - Application trigger patterns
@@ -554,7 +554,7 @@ All action types support:
 - `triggerLogic: String?` - Trigger combination logic ("and"/"or")
 
 Insert-only settings:
-- `inputCondition: String?` - Pipe-separated conditional gate for selected insert sibling options (`!` inverts condition). Allowed tokens: `restoreClipboard`, `noEsc`, `nextAction`, `moveTo`, `action`, `actionDelay`
+- `inputCondition: String?` - Pipe-separated conditional gate for selected insert sibling options (`!` inverts condition). Allowed tokens: `restoreClipboard`, `simEsc`, `nextAction`, `moveTo`, `action`, `actionDelay`
 
 ### Runtime Variables:
 
@@ -657,7 +657,7 @@ Insert-only settings:
 #### 6. `macrowhisper/Config/AppConfiguration.swift` (474 lines)
 - **Purpose**: Configuration data structures, defaults, JSON schema integration
 - **Action Types**: Insert, Url, Shortcut, ScriptShell, ScriptAppleScript
-- **Settings**: actionDelay, noEsc, restoreClipboard, trigger configurations, insert `inputCondition`
+- **Settings**: actionDelay, simEsc, restoreClipboard, trigger configurations, insert `inputCondition`
 - **Schema Field**: `schema` property for IDE validation support
 
 #### 7. `macrowhisper/Config/ConfigurationManager.swift` (348 lines)
