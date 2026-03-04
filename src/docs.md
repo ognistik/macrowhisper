@@ -1157,7 +1157,7 @@ If a placeholder key does not exist, it resolves to empty string.
 
 #### 11.7 Placeholder transforms (`::`)
 
-You can transform placeholder values before they get passed to an action. Placeholders can only have one transform value. This is applied before regex replacements so you can still apply exclusions via regex.
+You can transform placeholder values before they get passed to an action. Placeholders can only have one transform value. This is applied before regex replacements, so you can still apply exclusions or more transforms in the regex pipeline.
 
 Basic format:
 
@@ -1205,6 +1205,8 @@ Smart insertion interaction:
 
 - Placeholder transforms do not auto-disable smart behavior.
 - `smartCasing`, `smartPunctuation`, and `smartSpacing` are controlled explicitly by config toggles.
+- Using the `ensureSentence` transform is a great way to normalize dictations before insertion while still keeping all smart insertion toggles active.
+- On the other hand, if your transform involves a specific first letter case, you may need to toggle off `smartCasing` 
 - If Accessibility is unavailable or insertion context is low-confidence, all three smart passes are skipped.
 
 ---
@@ -1415,12 +1417,13 @@ This prevents clipboard captures from ignored apps from polluting `{{clipboardCo
 4. Use `clipboardIgnore` for password managers / browsers that produce noisy clipboard events.
 5. If you see intermittent clipboard race behavior, add a small `actionDelay` (for example `0.05` to `0.2`).
 
-### 15.6 Async execution and clipboard expectations (important)
+### 15.6 Async execution and clipboard
 
 In simple terms:
 - Macrowhisper prioritizes speed. It launches actions quickly so users can dictate again right away.
 - For Shell, AppleScript, and Shortcut actions, default behavior is async launch, but you can opt into sync wait with `scriptAsync: false`.
 - Clipboard restore timing is controlled by `restoreClipboardDelay` (final chain step), and in sync mode restoration can happen after script completion/timeout.
+- Since Superwhisper always accesses the clipboard (even when Macrowhisper doesn't place anything there for non-insert actions) you'll only see the Superwhisper result if you need to access the clipboard during script execution. It's suggested to use the {{clipboardContext}} placeholder instead.
   
 ---
 
