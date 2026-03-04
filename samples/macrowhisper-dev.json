@@ -113,7 +113,7 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{appContext}}{{selectedText}}",
+      "action" : "{{appContext}}\n\nSELECTED: {{selectedText}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,

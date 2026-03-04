@@ -582,8 +582,8 @@ func getSelectedText() -> String {
         return ""
     }
     
-    // Get the frontmost application
-    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+    // Get the frontmost application using the same thread-safe path as other AX helpers.
+    guard let frontApp = getFrontmostApplicationForAccessibility() else {
         logDebug("[SelectedText] No frontmost application found")
         return ""
     }
@@ -591,87 +591,186 @@ func getSelectedText() -> String {
     // Create accessibility element for the application
     let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
     
-    // Get the focused UI element
-    var focusedElement: CFTypeRef?
-    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
-    
-    guard focusedError == .success, let focusedElement = focusedElement else {
-        logDebug("[SelectedText] Could not get focused element for \(frontApp.localizedName ?? "unknown app")")
-        return ""
-    }
-    
-    let axElement = focusedElement as! AXUIElement
-    
-    // Try to get the selected text using various accessibility attributes
-    var selectedTextValue: CFTypeRef?
-    
-    // First try: AXSelectedTextAttribute (most common)
-    let selectedTextError = AXUIElementCopyAttributeValue(axElement, "AXSelectedText" as CFString, &selectedTextValue)
-    
-    if selectedTextError == .success, let selectedTextValue = selectedTextValue {
-        if let selectedText = selectedTextValue as? String {
-            let normalized = sanitizeContextPlaceholderValue(selectedText)
-            if !normalized.isEmpty {
-                logDebug("[SelectedText] Found selected text.")
-                return normalized
-            }
-        }
-        logDebug("[SelectedText] No text selected or selected text is empty")
-        return ""
-    }
-    
-    // Second try: AXSelectedTextRangeAttribute to get selection range and slice content
-    var selectedRangeValue: CFTypeRef?
-    let selectedRangeError = AXUIElementCopyAttributeValue(axElement, "AXSelectedTextRange" as CFString, &selectedRangeValue)
-    
-    if selectedRangeError == .success, let rangeValue = selectedRangeValue {
-        // Extract CFRange from AXValue
-        if CFGetTypeID(rangeValue) == AXValueGetTypeID(),
-           AXValueGetType(rangeValue as! AXValue) == .cfRange {
-            var cfRange = CFRange(location: 0, length: 0)
-            if AXValueGetValue(rangeValue as! AXValue, .cfRange, &cfRange) {
-                // Only proceed if there is an actual non-empty selection
-                if cfRange.length > 0 {
-                    // Get the full text to slice the selection from
-                    var textValue: CFTypeRef?
-                    let textError = AXUIElementCopyAttributeValue(axElement, "AXValue" as CFString, &textValue)
-                    if textError == .success, let textValue = textValue, let fullText = textValue as? String {
-                        // Slice using UTF-16 indices to map CFRange properly
-                        let utf16 = fullText.utf16
-                        guard 
-                            cfRange.location >= 0,
-                            cfRange.length >= 0,
-                            Int(cfRange.location) <= utf16.count,
-                            Int(cfRange.location + cfRange.length) <= utf16.count
-                        else {
-                            logDebug("[SelectedText] Selection range out of bounds for text content")
-                            return ""
-                        }
-                        let start = utf16.index(utf16.startIndex, offsetBy: Int(cfRange.location))
-                        let end = utf16.index(start, offsetBy: Int(cfRange.length))
-                        if let s = String.Index(start, within: fullText), let e = String.Index(end, within: fullText) {
-                            let selected = sanitizeContextPlaceholderValue(String(fullText[s..<e]))
-                            if !selected.isEmpty {
-                                logDebug("[SelectedText] Extracted selected text via range.")
-                                return selected
-                            }
-                        }
-                    }
-                    // Could not extract text for a non-empty range
-                    logDebug("[SelectedText] Non-empty selection range present but failed to extract text")
-                    return ""
-                } else {
-                    // Empty range indicates no selection
-                    logDebug("[SelectedText] Selection range present but empty (no selection)")
-                    return ""
-                }
-            }
+    let candidateElements = getSelectedTextCandidateElements(appElement: appElement)
+    for element in candidateElements {
+        if let selected = extractSelectedText(from: element) {
+            logDebug("[SelectedText] Found selected text via AX candidate element.")
+            return selected
         }
     }
     
     // No reliable selection found
     logDebug("[SelectedText] No selected text found in \(frontApp.localizedName ?? "unknown app")")
     return ""
+}
+
+private func getSelectedTextCandidateElements(appElement: AXUIElement) -> [AXUIElement] {
+    var candidates: [AXUIElement] = []
+
+    var focusedElement: CFTypeRef?
+    if AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+       let focusedElement = focusedElement {
+        candidates.append(focusedElement as! AXUIElement)
+    }
+
+    var focusedWindow: CFTypeRef?
+    if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
+       let focusedWindow = focusedWindow {
+        let windowElement = focusedWindow as! AXUIElement
+        candidates.append(windowElement)
+
+        if let webArea = findBestWebArea(from: windowElement, maxDepth: 10, maxNodes: 2500) {
+            candidates.append(webArea)
+        }
+    }
+
+    candidates.append(appElement)
+    return candidates
+}
+
+private func extractSelectedText(from element: AXUIElement) -> String? {
+    // Fast path used by many native controls.
+    var selectedTextValue: CFTypeRef?
+    if AXUIElementCopyAttributeValue(element, "AXSelectedText" as CFString, &selectedTextValue) == .success,
+       let selectedTextValue = selectedTextValue,
+       let normalized = normalizeSelectedTextValue(selectedTextValue) {
+        return normalized
+    }
+
+    // Some controls expose multiple ranges instead of a single range.
+    if let fromRanges = extractSelectedTextFromRanges(element, attribute: "AXSelectedTextRanges", isArray: true) {
+        return fromRanges
+    }
+
+    // Fallback for controls exposing a single selected range.
+    if let fromSingleRange = extractSelectedTextFromRanges(element, attribute: "AXSelectedTextRange", isArray: false) {
+        return fromSingleRange
+    }
+
+    return nil
+}
+
+private func normalizeSelectedTextValue(_ value: CFTypeRef) -> String? {
+    if let text = value as? String {
+        let normalized = sanitizeContextPlaceholderValue(text)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    if let attributed = value as? NSAttributedString {
+        let normalized = sanitizeContextPlaceholderValue(attributed.string)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    return nil
+}
+
+private func extractSelectedTextFromRanges(_ element: AXUIElement, attribute: String, isArray: Bool) -> String? {
+    var rangesValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &rangesValue) == .success,
+          let rangesValue = rangesValue else {
+        return nil
+    }
+
+    var ranges: [CFRange] = []
+    if isArray {
+        if let array = rangesValue as? [Any] {
+            for item in array {
+                guard CFGetTypeID(item as CFTypeRef) == AXValueGetTypeID() else { continue }
+                let axValue = item as! AXValue
+                guard AXValueGetType(axValue) == .cfRange else { continue }
+                var range = CFRange(location: 0, length: 0)
+                if AXValueGetValue(axValue, .cfRange, &range), range.length > 0 {
+                    ranges.append(range)
+                }
+            }
+        }
+    } else {
+        guard CFGetTypeID(rangesValue) == AXValueGetTypeID() else { return nil }
+        let axValue = rangesValue as! AXValue
+        guard AXValueGetType(axValue) == .cfRange else { return nil }
+        var range = CFRange(location: 0, length: 0)
+        if AXValueGetValue(axValue, .cfRange, &range), range.length > 0 {
+            ranges.append(range)
+        }
+    }
+
+    guard !ranges.isEmpty else { return nil }
+
+    var selectedParts: [String] = []
+    for range in ranges {
+        if let text = extractTextFromRange(element: element, range: range) {
+            selectedParts.append(text)
+        }
+    }
+
+    guard !selectedParts.isEmpty else { return nil }
+    let joined = selectedParts.joined(separator: "\n")
+    let normalized = sanitizeContextPlaceholderValue(joined)
+    return normalized.isEmpty ? nil : normalized
+}
+
+private func extractTextFromRange(element: AXUIElement, range: CFRange) -> String? {
+    // Preferred path for web and rich text controls.
+    if let parameterized = extractTextFromRangeParameterized(element: element, range: range) {
+        return parameterized
+    }
+
+    // Fallback path for controls exposing full AXValue text.
+    var textValue: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &textValue) == .success,
+          let textValue = textValue,
+          let fullText = textValue as? String else {
+        return nil
+    }
+
+    let utf16 = fullText.utf16
+    guard range.location >= 0,
+          range.length >= 0,
+          Int(range.location) <= utf16.count,
+          Int(range.location + range.length) <= utf16.count else {
+        return nil
+    }
+
+    let start = utf16.index(utf16.startIndex, offsetBy: Int(range.location))
+    let end = utf16.index(start, offsetBy: Int(range.length))
+    guard let s = String.Index(start, within: fullText),
+          let e = String.Index(end, within: fullText) else {
+        return nil
+    }
+
+    let selected = sanitizeContextPlaceholderValue(String(fullText[s..<e]))
+    return selected.isEmpty ? nil : selected
+}
+
+private func extractTextFromRangeParameterized(element: AXUIElement, range: CFRange) -> String? {
+    var mutableRange = range
+    guard let rangeValue = AXValueCreate(.cfRange, &mutableRange) else { return nil }
+
+    var textValue: CFTypeRef?
+    if AXUIElementCopyParameterizedAttributeValue(
+        element,
+        kAXStringForRangeParameterizedAttribute as CFString,
+        rangeValue,
+        &textValue
+    ) == .success,
+       let textValue = textValue,
+       let normalized = normalizeSelectedTextValue(textValue) {
+        return normalized
+    }
+
+    var attributedValue: CFTypeRef?
+    if AXUIElementCopyParameterizedAttributeValue(
+        element,
+        kAXAttributedStringForRangeParameterizedAttribute as CFString,
+        rangeValue,
+        &attributedValue
+    ) == .success,
+       let attributedValue = attributedValue,
+       let normalized = normalizeSelectedTextValue(attributedValue) {
+        return normalized
+    }
+
+    return nil
 }
 
 /// Gets structured app context information from a target app (or frontmost app when target is unavailable).
