@@ -846,9 +846,26 @@ private func resolveTargetApp(targetPid: Int32?) -> NSRunningApplication? {
     return NSWorkspace.shared.frontmostApplication
 }
 
+/// Gets active URL for the target app (or current frontmost app when pid is nil).
+/// Returns nil when accessibility isn't available, app can't be resolved, or URL cannot be extracted.
+func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> String? {
+    guard AXIsProcessTrusted() else {
+        logDebug("[AppContext] No accessibility permissions, cannot get active URL")
+        return nil
+    }
+
+    guard let targetApp = resolveTargetApp(targetPid: targetPid) else {
+        logDebug("[AppContext] No target application found for active URL lookup")
+        return nil
+    }
+
+    let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
+    return getBrowserURL(appElement: appElement, frontApp: targetApp, fallbackBundleId: fallbackBundleId)
+}
+
 
 /// Gets the current URL from browser applications
-private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplication) -> String? {
+private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplication, fallbackBundleId: String? = nil) -> String? {
     // Check if this is a known browser application
     let browserBundleIds = [
         "com.apple.Safari",
@@ -862,15 +879,14 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
         "org.chromium.Chromium"
     ]
     
-    let bundleId = frontApp.bundleIdentifier ?? "unknown"
+    let bundleId = frontApp.bundleIdentifier ?? fallbackBundleId ?? "unknown"
     logDebug("[AppContext] Current app bundle ID: \(bundleId)")
-    
-    guard browserBundleIds.contains(bundleId) else {
-        logDebug("[AppContext] App with bundle ID '\(bundleId)' is not a recognized browser")
-        return nil
+    let isKnownBrowser = browserBundleIds.contains(bundleId)
+    if isKnownBrowser {
+        logDebug("[AppContext] Recognized browser: \(bundleId)")
+    } else {
+        logDebug("[AppContext] Unknown browser/app bundle '\(bundleId)'; attempting best-effort URL extraction")
     }
-    
-    logDebug("[AppContext] Recognized browser: \(bundleId)")
     
     // Try to get URL from address bar using accessibility
     var focusedWindow: CFTypeRef?
@@ -882,18 +898,30 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
     }
     
     let windowElement = focusedWindow as! AXUIElement
-    
-    // First pass: use accessibility-only extraction for all browsers.
-    if let axURL = getBrowserURLViaAccessibility(windowElement: windowElement, bundleId: bundleId) {
-        logDebug("[AppContext] Found browser URL via accessibility: \(redactForLogs(axURL))")
-        return axURL
-    }
 
-    // Arc-only fallback: AppleScript can provide full URL when AX cannot.
-    if bundleId == "company.thebrowser.Browser" {
-        if let scriptUrl = getArcURLViaAppleScript() {
-            logDebug("[AppContext] Successfully found full Arc URL via AppleScript: \(redactForLogs(scriptUrl))")
-            return scriptUrl
+    if isKnownBrowser {
+        // First pass: use accessibility-only extraction for known browsers.
+        if let axURL = getBrowserURLViaAccessibility(windowElement: windowElement, bundleId: bundleId) {
+            logDebug("[AppContext] Found browser URL via accessibility: \(redactForLogs(axURL))")
+            return axURL
+        }
+
+        // Arc-only fallback: AppleScript can provide full URL when AX cannot.
+        if bundleId == "company.thebrowser.Browser" {
+            if let scriptUrl = getArcURLViaAppleScript() {
+                logDebug("[AppContext] Successfully found full Arc URL via AppleScript: \(redactForLogs(scriptUrl))")
+                return scriptUrl
+            }
+        }
+    } else {
+        // Best-effort fallback for unknown apps: web area first, then address bar-like fields.
+        if let webAreaUrl = findWebAreaURL(windowElement) {
+            logDebug("[AppContext] Found URL via AXWebArea fallback: \(redactForLogs(webAreaUrl))")
+            return webAreaUrl
+        }
+        if let addressBarUrl = findAddressBarURL(windowElement) {
+            logDebug("[AppContext] Found URL via address-bar fallback: \(redactForLogs(addressBarUrl))")
+            return addressBarUrl
         }
     }
     

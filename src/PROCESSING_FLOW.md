@@ -392,7 +392,7 @@ Clipboard restoration only occurs when **ALL** conditions are met:
 
 ### Primary File: `macrowhisper/Utils/TriggerEvaluator.swift`
 
-The trigger system evaluates all configured actions to find matches based on voice, application, and mode criteria.
+The trigger system evaluates all configured actions to find matches based on voice, application, mode, and active URL criteria.
 
 #### Trigger Types:
 
@@ -427,6 +427,14 @@ Example:
 - **Custom Modes**: User-defined modes in Superwhisper
 - **Multiple Patterns**: Separated by `|`
 
+##### 4. URL Triggers (`triggerUrls`):
+- **Domain tokens** (no scheme): host suffix matching with subdomain coverage by default
+- **Full URL tokens** (`http://` / `https://`): strict exact-host matching
+- **Exceptions**: `!` prefix supported
+- **Multiple Patterns**: Separated by `|`
+- **Path/Query Prefix**: If token includes path/query, candidate URL must start with that prefix
+- **Wildcard Syntax**: Explicit `*` wildcard is not supported
+
 #### Trigger Logic (`triggerLogic`):
 - **"and"**: ALL configured triggers must match
 - **"or"**: ANY configured trigger can match
@@ -434,7 +442,7 @@ Example:
 
 #### Evaluation Process:
 1. **Collect All Actions**: Inserts, URLs, Shortcuts, Shell Scripts, AppleScripts
-2. **Evaluate Each Action**: Check voice, app, and mode triggers
+2. **Evaluate Each Action**: Check voice, app, mode, and URL triggers
 3. **Apply Logic**: Use AND/OR logic to determine matches
 4. **Sort Results**: Alphabetically by action name
 5. **Return First Match**: Execute first matching action only
@@ -553,6 +561,7 @@ All action types support:
 - `triggerVoice: String?` - Voice trigger patterns
 - `triggerApps: String?` - Application trigger patterns
 - `triggerModes: String?` - Mode trigger patterns
+- `triggerUrls: String?` - Active URL trigger patterns
 - `triggerLogic: String?` - Trigger combination logic ("and"/"or")
 
 Insert-only settings:

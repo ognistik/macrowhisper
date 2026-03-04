@@ -1330,6 +1330,26 @@ func processDynamicPlaceholders(
                     result.replaceSubrange(fullMatchRange, with: escapedValue)
                 }
             }
+
+            // Handle frontAppUrl (captured lazily at placeholder execution time)
+            else if key == "frontAppUrl" {
+                var value = sanitizeContextPlaceholderValue(metaJson["frontAppUrl"] as? String ?? "")
+                if value.isEmpty {
+                    value = sanitizeContextPlaceholderValue(
+                        getActiveURL(
+                            targetPid: extractFrontAppPid(from: metaJson),
+                            fallbackBundleId: metaJson["frontAppBundleId"] as? String
+                        ) ?? ""
+                    )
+                }
+
+                if value.isEmpty {
+                    result.replaceSubrange(fullMatchRange, with: "")
+                } else {
+                    let escapedValue = finalizePlaceholderValue(value)
+                    result.replaceSubrange(fullMatchRange, with: escapedValue)
+                }
+            }
             
             // Handle clipboardContext
             else if key == "clipboardContext" {

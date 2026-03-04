@@ -481,7 +481,7 @@ class SocketCommunication {
         return configuredModes.contains { $0.caseInsensitiveCompare(normalizedMode) == .orderedSame }
     }
 
-    private func captureFrontAppSnapshotForCLI() -> (name: String?, bundleId: String?, pid: Int32?) {
+    private func captureFrontAppSnapshotForCLI() -> (name: String?, bundleId: String?, pid: Int32?, url: String?) {
         var frontApp: NSRunningApplication?
         if Thread.isMainThread {
             frontApp = NSWorkspace.shared.frontmostApplication
@@ -492,21 +492,42 @@ class SocketCommunication {
         }
 
         globalState.lastDetectedFrontApp = frontApp
-        return (name: frontApp?.localizedName, bundleId: frontApp?.bundleIdentifier, pid: frontApp?.processIdentifier)
+        let appName = frontApp?.localizedName
+        let bundleId = frontApp?.bundleIdentifier
+        let pid = frontApp?.processIdentifier
+        let url = getActiveURL(targetPid: pid, fallbackBundleId: bundleId)
+        return (name: appName, bundleId: bundleId, pid: pid, url: url)
     }
 
     private func applyFrontAppSnapshotToMetaForCLI(
         metaJson: [String: Any],
         frontAppName: String?,
         frontAppBundleId: String?,
-        frontAppPid: Int32?
+        frontAppPid: Int32?,
+        frontAppUrl: String?,
+        overwriteExisting: Bool = true
     ) -> [String: Any] {
         var enhanced = metaJson
-        enhanced["frontAppName"] = frontAppName
-        enhanced["frontAppBundleId"] = frontAppBundleId
-        enhanced["frontApp"] = frontAppName
-        if let frontAppPid {
+        let existingFrontAppName = (enhanced["frontAppName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let existingFrontAppBundleId = (enhanced["frontAppBundleId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let existingFrontApp = (enhanced["frontApp"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let existingFrontAppUrl = (enhanced["frontAppUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if overwriteExisting || existingFrontAppName.isEmpty {
+            enhanced["frontAppName"] = frontAppName
+        }
+        if overwriteExisting || existingFrontAppBundleId.isEmpty {
+            enhanced["frontAppBundleId"] = frontAppBundleId
+        }
+        if overwriteExisting || existingFrontApp.isEmpty {
+            enhanced["frontApp"] = frontAppName
+        }
+        if let frontAppPid, (overwriteExisting || enhanced["frontAppPid"] == nil) {
             enhanced["frontAppPid"] = Int(frontAppPid)
+        }
+        if let frontAppUrl, !frontAppUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           (overwriteExisting || existingFrontAppUrl.isEmpty) {
+            enhanced["frontAppUrl"] = frontAppUrl
         }
         return enhanced
     }
@@ -3192,7 +3213,8 @@ class SocketCommunication {
                         metaJson: enhancedMetaJson,
                         frontAppName: frontApp.name,
                         frontAppBundleId: frontApp.bundleId,
-                        frontAppPid: frontApp.pid
+                        frontAppPid: frontApp.pid,
+                        frontAppUrl: frontApp.url
                     )
 
                     let modeName = enhancedMetaJson["modeName"] as? String
@@ -3226,7 +3248,8 @@ class SocketCommunication {
                             result: resultText,
                             metaJson: enhancedMetaJson,
                             frontAppName: frontApp.name,
-                            frontAppBundleId: frontApp.bundleId
+                            frontAppBundleId: frontApp.bundleId,
+                            frontAppUrl: frontApp.url
                         )
 
                         if let matched = matchedTriggerActions.first {
@@ -3331,8 +3354,17 @@ class SocketCommunication {
                             cancelScheduledActionTimeout()
                         }
                         
-                        // Enhance metaJson with CLI-specific data
-                        let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+                        // Enhance metaJson with CLI-specific data and freeze front app snapshot for this execution.
+                        var enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+                        let frontApp = captureFrontAppSnapshotForCLI()
+                        enhancedMetaJson = applyFrontAppSnapshotToMetaForCLI(
+                            metaJson: enhancedMetaJson,
+                            frontAppName: frontApp.name,
+                            frontAppBundleId: frontApp.bundleId,
+                            frontAppPid: frontApp.pid,
+                            frontAppUrl: frontApp.url,
+                            overwriteExisting: false
+                        )
 
                         let finalStep = try executeActionChainForCLI(
                             initialAction: action,
@@ -3386,8 +3418,17 @@ class SocketCommunication {
                         )
                         logInfo("Using meta source for get-action '\(actionName)': \(resolvedMetaSource.description)")
 
-                        // Enhance metaJson with CLI-specific data
-                        let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+                        // Enhance metaJson with CLI-specific data and freeze front app snapshot for this execution.
+                        var enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+                        let frontApp = captureFrontAppSnapshotForCLI()
+                        enhancedMetaJson = applyFrontAppSnapshotToMetaForCLI(
+                            metaJson: enhancedMetaJson,
+                            frontAppName: frontApp.name,
+                            frontAppBundleId: frontApp.bundleId,
+                            frontAppPid: frontApp.pid,
+                            frontAppUrl: frontApp.url,
+                            overwriteExisting: false
+                        )
 
                         if let processedAction = processedActionContent(
                             actionType: actionType,
@@ -3434,7 +3475,16 @@ class SocketCommunication {
                         )
                         logInfo("Using meta source for copy-action '\(actionName)': \(resolvedMetaSource.description)")
 
-                        let enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+                        var enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
+                        let frontApp = captureFrontAppSnapshotForCLI()
+                        enhancedMetaJson = applyFrontAppSnapshotToMetaForCLI(
+                            metaJson: enhancedMetaJson,
+                            frontAppName: frontApp.name,
+                            frontAppBundleId: frontApp.bundleId,
+                            frontAppPid: frontApp.pid,
+                            frontAppUrl: frontApp.url,
+                            overwriteExisting: false
+                        )
                         if let processedAction = processedActionContent(
                             actionType: actionType,
                             action: action,

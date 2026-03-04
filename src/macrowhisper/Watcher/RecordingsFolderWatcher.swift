@@ -725,6 +725,7 @@ class RecordingsFolderWatcher {
             let frontAppName = frontApp?.localizedName
             let frontAppBundleId = frontApp?.bundleIdentifier
             let frontAppPid = frontApp?.processIdentifier
+            let frontAppUrl = getActiveURL(targetPid: frontAppPid, fallbackBundleId: frontAppBundleId)
             
             // Create enhanced metaJson with app metadata captured at processing time
             var enhancedMetaJson = metaJson
@@ -732,6 +733,9 @@ class RecordingsFolderWatcher {
             enhancedMetaJson["frontAppBundleId"] = frontAppBundleId
             if let frontAppPid {
                 enhancedMetaJson["frontAppPid"] = Int(frontAppPid)
+            }
+            if let frontAppUrl, !frontAppUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                enhancedMetaJson["frontAppUrl"] = frontAppUrl
             }
             
             // Resolve session context from the root recording path so overlap chains
@@ -912,7 +916,8 @@ class RecordingsFolderWatcher {
                     result: resultText,
                     metaJson: enhancedMetaJson,
                     frontAppName: frontAppName,
-                    frontAppBundleId: frontAppBundleId
+                    frontAppBundleId: frontAppBundleId,
+                    frontAppUrl: frontAppUrl
                 )
             }
             

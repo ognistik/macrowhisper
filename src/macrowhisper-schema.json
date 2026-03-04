@@ -163,7 +163,7 @@
         },
         "muteTriggers": {
           "type": ["boolean", "null"],
-          "description": "Mute all trigger matching (triggerVoice/triggerApps/triggerModes) globally. When true, trigger evaluation is skipped and Macrowhisper continues with activeAction fallback logic. null or omitted = use built-in default (false).",
+          "description": "Mute all trigger matching (triggerVoice/triggerApps/triggerModes/triggerUrls) globally. When true, trigger evaluation is skipped and Macrowhisper continues with activeAction fallback logic. null or omitted = use built-in default (false).",
           "default": false
         },
         "autoUpdateConfig": {
@@ -309,6 +309,19 @@
           "type": ["string", "null"],
           "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Matching is case-insensitive by default; prefix a pattern with '(?-i)' to force case-sensitive matching. null or empty string means no trigger.",
           "examples": ["email", "writing|notes", "^(Email|Messages)$", "", null],
+          "default": null
+        },
+        "triggerUrls": {
+          "type": ["string", "null"],
+          "description": "Active URL trigger patterns. Use '|' for multiple tokens and '!' prefix for exceptions. Tokens without scheme (for example 'google.com' or 'www.google.com/docs') match by host suffix and include subdomains. Tokens with 'http://' or 'https://' use exact-host matching (scheme ignored). If a token includes path/query, candidate URL must start with that path/query prefix. null, empty string, or omitted means no URL trigger.",
+          "examples": [
+            "google.com",
+            "www.google.com/docs",
+            "https://google.com",
+            "https://www.google.com/other",
+            "!internal.example.com|google.com",
+            ""
+          ],
           "default": null
         },
         "triggerLogic": {

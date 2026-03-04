@@ -1452,6 +1452,7 @@ class ConfigurationManager {
             normalizeInputLike(&insert.triggerVoice)
             normalizeInputLike(&insert.triggerApps)
             normalizeInputLike(&insert.triggerModes)
+            normalizeInputLike(&insert.triggerUrls)
             config.inserts[name] = insert
         }
 
@@ -1464,6 +1465,7 @@ class ConfigurationManager {
             normalizeInputLike(&url.triggerVoice)
             normalizeInputLike(&url.triggerApps)
             normalizeInputLike(&url.triggerModes)
+            normalizeInputLike(&url.triggerUrls)
             normalizeInputLike(&url.openWith)
             config.urls[name] = url
         }
@@ -1477,6 +1479,7 @@ class ConfigurationManager {
             normalizeInputLike(&shortcut.triggerVoice)
             normalizeInputLike(&shortcut.triggerApps)
             normalizeInputLike(&shortcut.triggerModes)
+            normalizeInputLike(&shortcut.triggerUrls)
             config.shortcuts[name] = shortcut
         }
 
@@ -1489,6 +1492,7 @@ class ConfigurationManager {
             normalizeInputLike(&shell.triggerVoice)
             normalizeInputLike(&shell.triggerApps)
             normalizeInputLike(&shell.triggerModes)
+            normalizeInputLike(&shell.triggerUrls)
             config.scriptsShell[name] = shell
         }
 
@@ -1501,6 +1505,7 @@ class ConfigurationManager {
             normalizeInputLike(&ascript.triggerVoice)
             normalizeInputLike(&ascript.triggerApps)
             normalizeInputLike(&ascript.triggerModes)
+            normalizeInputLike(&ascript.triggerUrls)
             config.scriptsAS[name] = ascript
         }
 

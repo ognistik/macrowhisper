@@ -15,7 +15,8 @@ class TriggerEvaluator {
         result: String,
         metaJson: [String: Any],
         frontAppName: String?,
-        frontAppBundleId: String?
+        frontAppBundleId: String?,
+        frontAppUrl: String?
     ) -> [(action: Any, name: String, type: ActionType, strippedResult: String?)] {
         
         let modeName = metaJson["modeName"] as? String
@@ -33,14 +34,15 @@ class TriggerEvaluator {
         for (name, insert) in configManager.config.inserts {
             let insertWithName = InsertWithName(insert: insert, name: name)
             if isVerboseLogDetailEnabled() {
-                logDebug("[TriggerEval] Checking insert action: name=\(name), triggerVoice=\(summarizeForLogs(insert.triggerVoice)), triggerApps=\(summarizeForLogs(insert.triggerApps)), triggerModes=\(summarizeForLogs(insert.triggerModes)), triggerLogic=\(insert.triggerLogic ?? "nil")")
+                logDebug("[TriggerEval] Checking insert action: name=\(name), triggerVoice=\(summarizeForLogs(insert.triggerVoice)), triggerApps=\(summarizeForLogs(insert.triggerApps)), triggerModes=\(summarizeForLogs(insert.triggerModes)), triggerUrls=\(summarizeForLogs(insert.triggerUrls)), triggerLogic=\(insert.triggerLogic ?? "nil")")
             }
             let (matched, strippedResult) = triggersMatch(
                 for: insertWithName,
                 result: result,
                 modeName: modeName,
                 frontAppName: frontAppName,
-                frontAppBundleId: frontAppBundleId
+                frontAppBundleId: frontAppBundleId,
+                frontAppUrl: frontAppUrl
             )
             if matched {
                 matchedTriggerActions.append((action: insert, name: name, type: .insert, strippedResult: strippedResult))
@@ -51,14 +53,15 @@ class TriggerEvaluator {
         for (name, url) in configManager.config.urls {
             let urlWithName = UrlWithName(url: url, name: name)
             if isVerboseLogDetailEnabled() {
-                logDebug("[TriggerEval] Checking URL action: name=\(name), triggerVoice=\(summarizeForLogs(url.triggerVoice)), triggerApps=\(summarizeForLogs(url.triggerApps)), triggerModes=\(summarizeForLogs(url.triggerModes)), triggerLogic=\(url.triggerLogic ?? "nil")")
+                logDebug("[TriggerEval] Checking URL action: name=\(name), triggerVoice=\(summarizeForLogs(url.triggerVoice)), triggerApps=\(summarizeForLogs(url.triggerApps)), triggerModes=\(summarizeForLogs(url.triggerModes)), triggerUrls=\(summarizeForLogs(url.triggerUrls)), triggerLogic=\(url.triggerLogic ?? "nil")")
             }
             let (matched, strippedResult) = triggersMatch(
                 for: urlWithName,
                 result: result,
                 modeName: modeName,
                 frontAppName: frontAppName,
-                frontAppBundleId: frontAppBundleId
+                frontAppBundleId: frontAppBundleId,
+                frontAppUrl: frontAppUrl
             )
             if matched {
                 matchedTriggerActions.append((action: url, name: name, type: .url, strippedResult: strippedResult))
@@ -69,14 +72,15 @@ class TriggerEvaluator {
         for (name, shortcut) in configManager.config.shortcuts {
             let shortcutWithName = ShortcutWithName(shortcut: shortcut, name: name)
             if isVerboseLogDetailEnabled() {
-                logDebug("[TriggerEval] Checking shortcut action: name=\(name), triggerVoice=\(summarizeForLogs(shortcut.triggerVoice)), triggerApps=\(summarizeForLogs(shortcut.triggerApps)), triggerModes=\(summarizeForLogs(shortcut.triggerModes)), triggerLogic=\(shortcut.triggerLogic ?? "nil")")
+                logDebug("[TriggerEval] Checking shortcut action: name=\(name), triggerVoice=\(summarizeForLogs(shortcut.triggerVoice)), triggerApps=\(summarizeForLogs(shortcut.triggerApps)), triggerModes=\(summarizeForLogs(shortcut.triggerModes)), triggerUrls=\(summarizeForLogs(shortcut.triggerUrls)), triggerLogic=\(shortcut.triggerLogic ?? "nil")")
             }
             let (matched, strippedResult) = triggersMatch(
                 for: shortcutWithName,
                 result: result,
                 modeName: modeName,
                 frontAppName: frontAppName,
-                frontAppBundleId: frontAppBundleId
+                frontAppBundleId: frontAppBundleId,
+                frontAppUrl: frontAppUrl
             )
             if matched {
                 matchedTriggerActions.append((action: shortcut, name: name, type: .shortcut, strippedResult: strippedResult))
@@ -87,14 +91,15 @@ class TriggerEvaluator {
         for (name, shell) in configManager.config.scriptsShell {
             let shellWithName = ShellWithName(shell: shell, name: name)
             if isVerboseLogDetailEnabled() {
-                logDebug("[TriggerEval] Checking shell script action: name=\(name), triggerVoice=\(summarizeForLogs(shell.triggerVoice)), triggerApps=\(summarizeForLogs(shell.triggerApps)), triggerModes=\(summarizeForLogs(shell.triggerModes)), triggerLogic=\(shell.triggerLogic ?? "nil")")
+                logDebug("[TriggerEval] Checking shell script action: name=\(name), triggerVoice=\(summarizeForLogs(shell.triggerVoice)), triggerApps=\(summarizeForLogs(shell.triggerApps)), triggerModes=\(summarizeForLogs(shell.triggerModes)), triggerUrls=\(summarizeForLogs(shell.triggerUrls)), triggerLogic=\(shell.triggerLogic ?? "nil")")
             }
             let (matched, strippedResult) = triggersMatch(
                 for: shellWithName,
                 result: result,
                 modeName: modeName,
                 frontAppName: frontAppName,
-                frontAppBundleId: frontAppBundleId
+                frontAppBundleId: frontAppBundleId,
+                frontAppUrl: frontAppUrl
             )
             if matched {
                 matchedTriggerActions.append((action: shell, name: name, type: .shell, strippedResult: strippedResult))
@@ -105,14 +110,15 @@ class TriggerEvaluator {
         for (name, ascript) in configManager.config.scriptsAS {
             let ascriptWithName = AppleScriptWithName(ascript: ascript, name: name)
             if isVerboseLogDetailEnabled() {
-                logDebug("[TriggerEval] Checking AppleScript action: name=\(name), triggerVoice=\(summarizeForLogs(ascript.triggerVoice)), triggerApps=\(summarizeForLogs(ascript.triggerApps)), triggerModes=\(summarizeForLogs(ascript.triggerModes)), triggerLogic=\(ascript.triggerLogic ?? "nil")")
+                logDebug("[TriggerEval] Checking AppleScript action: name=\(name), triggerVoice=\(summarizeForLogs(ascript.triggerVoice)), triggerApps=\(summarizeForLogs(ascript.triggerApps)), triggerModes=\(summarizeForLogs(ascript.triggerModes)), triggerUrls=\(summarizeForLogs(ascript.triggerUrls)), triggerLogic=\(ascript.triggerLogic ?? "nil")")
             }
             let (matched, strippedResult) = triggersMatch(
                 for: ascriptWithName,
                 result: result,
                 modeName: modeName,
                 frontAppName: frontAppName,
-                frontAppBundleId: frontAppBundleId
+                frontAppBundleId: frontAppBundleId,
+                frontAppUrl: frontAppUrl
             )
             if matched {
                 matchedTriggerActions.append((action: ascript, name: name, type: .appleScript, strippedResult: strippedResult))
@@ -137,17 +143,20 @@ class TriggerEvaluator {
         result: String,
         modeName: String?,
         frontAppName: String?,
-        frontAppBundleId: String?
+        frontAppBundleId: String?,
+        frontAppUrl: String?
     ) -> (matched: Bool, strippedResult: String?) {
         let verbose = isVerboseLogDetailEnabled()
         var voiceMatched = false
         var modeMatched = false
         var appMatched = false
+        var urlMatched = false
         var strippedResult: String? = nil
         
         let triggerVoice = action.triggerVoice
         let triggerModes = action.triggerModes
         let triggerApps = action.triggerApps
+        let triggerUrls = action.triggerUrls
         let triggerLogic = action.triggerLogic
         let actionName = action.name
         
@@ -389,6 +398,87 @@ class TriggerEvaluator {
             // No app trigger set, will be handled in final logic determination
             appMatched = true
         }
+
+        // URL trigger
+        if let triggerUrls = triggerUrls, !triggerUrls.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let patterns = triggerUrls
+                .components(separatedBy: "|")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+
+            if patterns.isEmpty {
+                if verbose {
+                    logDebug("[TriggerEval] URL trigger set for action '\(actionName)' but all tokens are empty. Not matching.")
+                }
+                urlMatched = false
+            } else if frontAppUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                if verbose {
+                    logDebug("[TriggerEval] URL trigger set for action '\(actionName)' but frontAppUrl is empty. Not matching.")
+                }
+                urlMatched = false
+            } else if let rawCandidateUrl = frontAppUrl, let candidate = parseUrlTriggerCandidate(from: rawCandidateUrl) {
+                var matched = false
+                var exceptionMatched = false
+                var validPatternCount = 0
+
+                if verbose {
+                    if redactedLogsEnabled {
+                        logDebug("[TriggerEval] URL trigger check for action '\(actionName)': candidate=\(summarizeForLogs(rawCandidateUrl, maxPreview: 120)), patterns=[REDACTED count=\(patterns.count)]")
+                    } else {
+                        logDebug("[TriggerEval] URL trigger check for action '\(actionName)': candidate=\"\(rawCandidateUrl)\", patterns=\(patterns)")
+                    }
+                }
+
+                for pattern in patterns {
+                    let isException = pattern.hasPrefix("!")
+                    let actualPattern = isException ? String(pattern.dropFirst()) : pattern
+
+                    guard let parsedPattern = parseUrlTriggerPattern(from: actualPattern) else {
+                        logDebug("[TriggerEval] Invalid URL trigger pattern skipped for action '\(actionName)': \(summarizeForLogs(actualPattern, maxPreview: 120))")
+                        continue
+                    }
+
+                    validPatternCount += 1
+                    let found = urlTriggerPatternMatches(parsedPattern, candidate: candidate)
+                    if verbose || found {
+                        logDebug(
+                            "[TriggerEval] URL pattern \(summarizeForLogs(pattern, maxPreview: 120)) found=\(found) " +
+                            "candidate=\(summarizeForLogs(rawCandidateUrl, maxPreview: 120))"
+                        )
+                    }
+
+                    if isException && found { exceptionMatched = true }
+                    if !isException && found { matched = true }
+                }
+
+                if validPatternCount == 0 {
+                    urlMatched = false
+                } else {
+                    let hasPositive = patterns.contains { !$0.hasPrefix("!") }
+                    let hasException = patterns.contains { $0.hasPrefix("!") }
+
+                    if hasPositive {
+                        urlMatched = matched && !exceptionMatched
+                    } else if hasException {
+                        urlMatched = !exceptionMatched
+                    } else {
+                        urlMatched = false
+                    }
+                }
+
+                if verbose || urlMatched {
+                    logDebug("[TriggerEval] URL trigger result for action '\(actionName)': matched=\(urlMatched)")
+                }
+            } else {
+                if verbose {
+                    logDebug("[TriggerEval] URL trigger set for action '\(actionName)' but frontAppUrl is not parseable. Not matching.")
+                }
+                urlMatched = false
+            }
+        } else {
+            // No URL trigger set, will be handled in final logic determination
+            urlMatched = true
+        }
         
         // Determine logic
         let logic = (triggerLogic ?? "or").lowercased()
@@ -397,12 +487,13 @@ class TriggerEvaluator {
         let voiceTriggerSet = triggerVoice != nil && !triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modeTriggerSet = triggerModes != nil && !triggerModes!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let appTriggerSet = triggerApps != nil && !triggerApps!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let urlTriggerSet = triggerUrls != nil && !triggerUrls!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         
         let finalMatched: Bool
         if logic == "and" {
             // AND logic: all set triggers must match
             // If no triggers are set at all, don't match
-            if !voiceTriggerSet && !modeTriggerSet && !appTriggerSet {
+            if !voiceTriggerSet && !modeTriggerSet && !appTriggerSet && !urlTriggerSet {
                 finalMatched = false
             } else {
                 // All set triggers must match
@@ -410,6 +501,7 @@ class TriggerEvaluator {
                 if voiceTriggerSet && !voiceMatched { allMatch = false }
                 if modeTriggerSet && !modeMatched { allMatch = false }
                 if appTriggerSet && !appMatched { allMatch = false }
+                if urlTriggerSet && !urlMatched { allMatch = false }
                 finalMatched = allMatch
             }
         } else {
@@ -418,13 +510,14 @@ class TriggerEvaluator {
             if voiceTriggerSet && voiceMatched { anyMatch = true }
             if modeTriggerSet && modeMatched { anyMatch = true }
             if appTriggerSet && appMatched { anyMatch = true }
+            if urlTriggerSet && urlMatched { anyMatch = true }
             finalMatched = anyMatch
         }
 
         if verbose || finalMatched {
             logDebug(
                 "[TriggerEval] Action '\(actionName)' final matched=\(finalMatched) " +
-                "logic=\(logic) voice=\(voiceMatched) mode=\(modeMatched) app=\(appMatched)"
+                "logic=\(logic) voice=\(voiceMatched) mode=\(modeMatched) app=\(appMatched) url=\(urlMatched)"
             )
         }
 
@@ -435,6 +528,131 @@ class TriggerEvaluator {
 // MARK: - Supporting Types and Protocols
 
 extension TriggerEvaluator {
+    private struct UrlTriggerPattern {
+        let rawPattern: String
+        let isFullURLToken: Bool
+        let host: String
+        let port: Int?
+        let pathQueryPrefix: String?
+    }
+
+    private struct UrlTriggerCandidate {
+        let host: String
+        let port: Int?
+        let pathQuery: String
+    }
+
+    private func parseUrlTriggerCandidate(from rawUrl: String) -> UrlTriggerCandidate? {
+        let trimmed = rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let lowercased = trimmed.lowercased()
+        let normalizedInput: String
+        if lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://") {
+            normalizedInput = trimmed
+        } else {
+            normalizedInput = "https://\(trimmed)"
+        }
+
+        guard let components = URLComponents(string: normalizedInput),
+              let host = components.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !host.isEmpty else {
+            return nil
+        }
+
+        let normalizedHost = host.hasSuffix(".") ? String(host.dropLast()) : host
+        let pathQuery = normalizedPathQuery(path: components.percentEncodedPath, query: components.percentEncodedQuery)
+        return UrlTriggerCandidate(host: normalizedHost, port: components.port, pathQuery: pathQuery)
+    }
+
+    private func parseUrlTriggerPattern(from rawPattern: String) -> UrlTriggerPattern? {
+        let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // Explicit wildcard syntax is unsupported by design for URL triggers.
+        guard !trimmed.contains("*") else { return nil }
+
+        let lowercased = trimmed.lowercased()
+        let isFullURLToken = lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://")
+        let normalizedInput = isFullURLToken ? trimmed : "https://\(trimmed)"
+
+        guard let components = URLComponents(string: normalizedInput),
+              let host = components.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !host.isEmpty else {
+            return nil
+        }
+
+        let normalizedHost = host.hasSuffix(".") ? String(host.dropLast()) : host
+        let pathQueryPrefix = normalizedPathQueryPrefix(path: components.percentEncodedPath, query: components.percentEncodedQuery)
+        return UrlTriggerPattern(
+            rawPattern: trimmed,
+            isFullURLToken: isFullURLToken,
+            host: normalizedHost,
+            port: components.port,
+            pathQueryPrefix: pathQueryPrefix
+        )
+    }
+
+    private func urlTriggerPatternMatches(_ pattern: UrlTriggerPattern, candidate: UrlTriggerCandidate) -> Bool {
+        let hostMatches: Bool
+        if pattern.isFullURLToken {
+            hostMatches = candidate.host.caseInsensitiveCompare(pattern.host) == .orderedSame
+        } else {
+            let host = candidate.host.lowercased()
+            let patternHost = pattern.host.lowercased()
+            hostMatches = host == patternHost || host.hasSuffix(".\(patternHost)")
+        }
+
+        guard hostMatches else { return false }
+
+        if let patternPort = pattern.port, candidate.port != patternPort {
+            return false
+        }
+
+        if let pathQueryPrefix = pattern.pathQueryPrefix {
+            return candidate.pathQuery.hasPrefix(pathQueryPrefix)
+        }
+
+        return true
+    }
+
+    private func normalizedPathQueryPrefix(path: String?, query: String?) -> String? {
+        let normalizedPath = normalizedPath(path)
+        let normalizedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let hasExplicitPath = !normalizedPath.isEmpty && normalizedPath != "/"
+        let hasExplicitQuery = normalizedQuery?.isEmpty == false
+        guard hasExplicitPath || hasExplicitQuery else {
+            return nil
+        }
+
+        var prefix = normalizedPath.isEmpty ? "/" : normalizedPath
+        if let normalizedQuery, !normalizedQuery.isEmpty {
+            prefix += "?\(normalizedQuery)"
+        }
+        return prefix.lowercased()
+    }
+
+    private func normalizedPathQuery(path: String?, query: String?) -> String {
+        let normalizedPath = normalizedPath(path)
+        let normalizedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var pathQuery = normalizedPath.isEmpty ? "/" : normalizedPath
+        if let normalizedQuery, !normalizedQuery.isEmpty {
+            pathQuery += "?\(normalizedQuery)"
+        }
+        return pathQuery.lowercased()
+    }
+
+    private func normalizedPath(_ path: String?) -> String {
+        guard let path else { return "/" }
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "/"
+        }
+        return trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
+    }
+
     /// Splits a triggerVoice string into individual patterns, using '|' as separator,
     /// but ignoring '|' inside raw regex blocks delimited by '==' ... '=='.
     /// Trims whitespace around each part and removes empty parts.
@@ -504,6 +722,7 @@ protocol TriggerProtocol {
     var triggerVoice: String? { get }
     var triggerApps: String? { get }
     var triggerModes: String? { get }
+    var triggerUrls: String? { get }
     var triggerLogic: String? { get }
     var name: String { get }
 }
@@ -516,6 +735,7 @@ struct InsertWithName: TriggerProtocol {
     var triggerVoice: String? { insert.triggerVoice }
     var triggerApps: String? { insert.triggerApps }
     var triggerModes: String? { insert.triggerModes }
+    var triggerUrls: String? { insert.triggerUrls }
     var triggerLogic: String? { insert.triggerLogic }
 }
 
@@ -526,6 +746,7 @@ struct UrlWithName: TriggerProtocol {
     var triggerVoice: String? { url.triggerVoice }
     var triggerApps: String? { url.triggerApps }
     var triggerModes: String? { url.triggerModes }
+    var triggerUrls: String? { url.triggerUrls }
     var triggerLogic: String? { url.triggerLogic }
 }
 
@@ -536,6 +757,7 @@ struct ShortcutWithName: TriggerProtocol {
     var triggerVoice: String? { shortcut.triggerVoice }
     var triggerApps: String? { shortcut.triggerApps }
     var triggerModes: String? { shortcut.triggerModes }
+    var triggerUrls: String? { shortcut.triggerUrls }
     var triggerLogic: String? { shortcut.triggerLogic }
 }
 
@@ -546,6 +768,7 @@ struct ShellWithName: TriggerProtocol {
     var triggerVoice: String? { shell.triggerVoice }
     var triggerApps: String? { shell.triggerApps }
     var triggerModes: String? { shell.triggerModes }
+    var triggerUrls: String? { shell.triggerUrls }
     var triggerLogic: String? { shell.triggerLogic }
 }
 
@@ -556,5 +779,6 @@ struct AppleScriptWithName: TriggerProtocol {
     var triggerVoice: String? { ascript.triggerVoice }
     var triggerApps: String? { ascript.triggerApps }
     var triggerModes: String? { ascript.triggerModes }
+    var triggerUrls: String? { ascript.triggerUrls }
     var triggerLogic: String? { ascript.triggerLogic }
 } 

@@ -9,7 +9,7 @@
 5. Configuration File Fundamentals
 6. Global Defaults Reference
 7. Action Types (Insert, URL, Shortcut, Shell, AppleScript)
-8. Trigger System (Voice, App, Mode)
+8. Trigger System (Voice, App, Mode, URL)
 9. Input Conditions (`inputCondition`) Deep Dive
 10. Chaining Actions (`nextAction`) Deep Dive
 11. Placeholders Deep Dive
@@ -192,7 +192,7 @@ Priority order:
 
 1. One-time `--auto-return`
 2. One-time `--schedule-action`
-3. Trigger matches (`triggerVoice`, `triggerApps`, `triggerModes`)
+3. Trigger matches (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerUrls`)
 4. `defaults.activeAction`
 5. No action
 
@@ -544,7 +544,7 @@ These values simulate the exact behavior of Superwhisper's auto-paste.
 | `defaults.nextAction` | No global first-step chain override |
 | `defaults.bypassModes` | Bypass-mode feature off |
 | `defaults.clipboardIgnore` | No app-ignore regex for clipboard capture |
-| `triggerVoice` / `triggerApps` / `triggerModes` | That trigger type is not configured for this action |
+| `triggerVoice` / `triggerApps` / `triggerModes` / `triggerUrls` | That trigger type is not configured for this action |
 
 ### 5.6 Quick real-world examples
 
@@ -619,7 +619,7 @@ Null behavior at `defaults` level:
 | `clipboardBuffer` | number/null | `5.0` | Pre-recording clipboard capture window in seconds. `0` disables buffer capture. `null` = built-in default (`5.0`). |
 | `clipboardIgnore` | string/null | `null` | Regex for apps ignored in clipboard capture. |
 | `bypassModes` | string/null | `null` | Pipe-separated Superwhisper mode names that bypass Macrowhisper entirely (case-insensitive). |
-| `muteTriggers` | bool/null | `false` | Mute all trigger matching (`triggerVoice`, `triggerApps`, `triggerModes`) globally. |
+| `muteTriggers` | bool/null | `false` | Mute all trigger matching (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerUrls`) globally. |
 | `autoUpdateConfig` | bool/null | `true` | Auto-refresh config format/schema fields at startup. `null` = built-in default (`true`). |
 | `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
 | `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
@@ -675,6 +675,7 @@ Section 5.4 has the full behavior details.
 | `triggerVoice`     | string/null | Voice trigger patterns                                                          |
 | `triggerApps`      | string/null | Front app name/bundle regex trigger                                             |
 | `triggerModes`     | string/null | Superwhisper mode trigger                                                       |
+| `triggerUrls`      | string/null | Active URL trigger (domain suffix or strict full URL rules)                     |
 | `triggerLogic`     | string/null | `or` or `and`                                                                   |
 
 How to read these fields in practice:
@@ -880,11 +881,7 @@ Example:
 
 ---
 
-## 8) Trigger System (Voice, App, Mode)
-Triggers are evaluated across all action types. Matched actions are sorted by name; only the first match executes.
-
-#### Important priority reminder:
-
+## 8) Trigger System (Voice, App, Mode, URL)
 Triggers are evaluated across all action types. Matched actions are sorted by name; only the first match executes.
 
 #### Important priority reminder:
@@ -894,20 +891,12 @@ If `defaults.muteTriggers` is enabled (or a temporary CLI mute is active), this 
 
 ### 8.1 `triggerVoice`
 
-#### Default behavior (plain patterns)
-
 #### Plain voice patterns are:
 
 - Prefix-only (start of transcript)
 - Case-insensitive
 - Treated as literal text (escaped), not raw regex
 - `|` splits multiple voice patterns.
-
-#### Examples:
-
-- `"search"`
-- `"search|google|ask"`
-- `"!test"` (exception means "match all except")
 
 #### Raw regex behavior
 
@@ -916,34 +905,36 @@ If `defaults.muteTriggers` is enabled (or a temporary CLI mute is active), this 
 - Raw regex triggers **do not** have automatic prefix stripping
     - *You can remove the actual trigger with a placeholder-level regex replacement*
 
+#### Exception logic
+
+Exception patterns use `!` prefix.
+
+**Important: if a trigger list has only exceptions, it matches when none of the exceptions match.**
 
 #### Examples:
 
 ```json
-"triggerVoice": "==^translate\\s+(.+)$=="
+"triggerVoice": "search|google|ask"
 ```
 
 ```json
 "triggerVoice": "==^(search|google)\\s+(.+)$=="
 ```
 
-#### Exception logic
-
-Exception patterns use `!` prefix.
-
-**Important: if a trigger list has only exceptions, it matches when none of the exceptions match.** Watch out for this because you could accidentally create one action that kicks in with everything except one trigger.
-
-#### Example:
-
 ```json
 "triggerVoice": "!test|!debug"
 ```
 
-This will match every voice input except ones matching `test` or `debug` at the start.
-
 ### 8.2 `triggerApps`
 
 Regex against front app name and bundle ID.
+
+#### Rules:
+
+- Direct regex (no `==...==` wrapper needed)
+- Case-insensitive by default
+- `!` exception patterns are supported
+- If only exception patterns are configured, app trigger passes when none match
 
 #### Example:
 
@@ -951,16 +942,9 @@ Regex against front app name and bundle ID.
 "triggerApps": "Mail|com.apple.mail"
 ```
 
-#### Rules:
-
-- Direct regex (no `==...==` wrapper needed)
-- Case-insensitive by default
-- `!` exception patterns are supported here too
-- If only exception patterns are configured, the app trigger passes when none of those exception patterns match
-
 ### 8.3 `triggerModes`
 
-Regex against Superwhisper `modeName`. Rules are same as triggerApps.
+Regex against Superwhisper `modeName`. Rules are same as `triggerApps`.
 
 #### Example:
 
@@ -968,15 +952,75 @@ Regex against Superwhisper `modeName`. Rules are same as triggerApps.
 "triggerModes": "dictation|Super|Custom"
 ```
 
-### 8.4 `triggerLogic`
+### 8.4 `triggerUrls` (Experimental)
+
+Matches against the active URL captured at trigger-evaluation time.
+
+#### Token format
+
+- `|` splits multiple URL tokens
+- `!` creates exception tokens
+- Empty tokens are ignored
+
+#### Token types
+
+- **Domain token**: no scheme (e.g., `google.com`, `www.google.com/docs`)
+- **Full URL token**: starts with `http://` or `https://`
+
+#### Domain token behavior (broad)
+
+- Host match is suffix-based by label boundary:
+  - exact host OR host ending in `.<tokenHost>`
+- Subdomains are included by default.
+
+Examples:
+
+- `google.com` matches `google.com`, `www.google.com`, `docs.google.com`
+- `www.google.com` matches `www.google.com`, `x.www.google.com`
+- `www.google.com` does **not** match `maps.google.com`
+
+#### Full URL token behavior (strict host)
+
+- Host match is exact only (case-insensitive).
+- Scheme is ignored for matching (`http`/`https` both accepted).
+- If token defines a port, candidate port must match.
+
+Examples:
+
+- `https://google.com` matches `http://google.com/maps`
+- `https://google.com` does **not** match `docs.google.com`
+
+#### Path/query behavior
+
+- If token has no path/query, host match is enough.
+- If token includes path/query, candidate URL must start with that path/query prefix.
+- Fragment is ignored.
+
+Examples:
+
+- `https://www.google.com` matches `/maps`
+- `https://www.google.com/other` matches `/other...` only
+
+#### Wildcard note
+
+- Explicit `*` wildcard syntax is **not supported** for `triggerUrls`.
+- Use domain tokens (without scheme) to cover subdomains.
+
+#### Browser support note
+
+URL trigger capture is experimental. It is validated against a known set of browsers and also attempts best-effort AX URL extraction for other apps/browsers.
+If URL capture fails for a browser, please open an issue with browser/version details.
+
+### 8.5 `triggerLogic`
 
 - `or` (default): any configured trigger type can match
 - `and`: all configured trigger types must match
 
-If all trigger fields are empty, action does not trigger unless it's set as the activeAction or scheduled with --schedule-action
+If all trigger fields are empty, action does not trigger unless it's set as the activeAction or scheduled with `--schedule-action`.
 
-### 8.5 Voice trigger stripping behavior
-#### For non-raw voice triggers that match:
+### 8.6 Voice trigger stripping behavior
+
+For non-raw voice triggers that match:
 
 - Matched prefix is stripped from `result`
 - In trigger-executed flows, equivalent stripping is also attempted for `llmResult`
@@ -1123,6 +1167,7 @@ Context placeholders use content captured by Macrowhisper, not Superwhisper. Thi
 - `{{appContext}}`
 - `{{appVocabulary}}`
 - `{{frontApp}}`
+- `{{frontAppUrl}}`
 
 *Detailed timing is covered in Section 12.*
 
@@ -1274,7 +1319,7 @@ Stacking output format for multiple items:
 - extracts comma-separated terms from app accessibility text (window/focused elements)
 - tuned for names/identifiers/noun-like tokens
 
-### 12.5 `{{frontApp}}`
+### 12.5 `{{frontApp}}` & `{{frontAppUrl}}`
 
 - watcher flow: resolved from the same anchored app snapshot used for triggers/chains
 - stays stable across all steps in a chain, even if user focus changes mid-chain

@@ -50,6 +50,7 @@
       "triggerApps" : "Alter",
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "autoPaste" : {
@@ -70,6 +71,28 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
+      "triggerVoice" : null
+    },
+    "email" : {
+      "action" : "Hey,\n\n{{swResult::ensureSentence||(?i)\\s*\\bline\\s*br(?:eak|eek|eik|iek|ick|ake)\\b[\\s.,;!?]*||\n||(?m)([^\\s.!?])(\n+)||$1.$2||(?m)(\n+)([a-z])||$1${2::uppercase}}}\n\nThanks,\nRobert",
+      "actionDelay" : null,
+      "icon" : null,
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "pressReturn" : null,
+      "restoreClipboard" : null,
+      "restoreClipboardDelay" : null,
+      "simEsc" : null,
+      "simKeypress" : null,
+      "smartCasing" : null,
+      "smartPunctuation" : null,
+      "smartSpacing" : null,
+      "triggerApps" : null,
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerUrls" : "mail.yahoo.com",
       "triggerVoice" : null
     },
     "pasteChat" : {
@@ -89,7 +112,8 @@
       "smartSpacing" : null,
       "triggerApps" : null,
       "triggerLogic" : "or",
-      "triggerModes" : "",
+      "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "pasteResult" : {
@@ -110,10 +134,11 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{appContext}}\n\nSELECTED: {{selectedText}}",
+      "action" : "{{appVocabulary}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,
@@ -130,6 +155,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "terminals" : {
@@ -150,6 +176,7 @@
       "triggerApps" : "Terminal|Ghostty",
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "titleCase" : {
@@ -170,6 +197,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "title"
     }
   },
@@ -189,6 +217,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "swWebView" : {
@@ -206,6 +235,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     }
   },
@@ -225,6 +255,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     }
   },
@@ -244,6 +275,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "Make note"
     }
   },
@@ -263,6 +295,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "==^search film\\.?$=="
     },
     "Alter AI Humanizer" : {
@@ -280,6 +313,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Answerer ★" : {
@@ -297,6 +331,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Coder (★)" : {
@@ -314,6 +349,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Editor (★)" : {
@@ -331,6 +367,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Helper" : {
@@ -348,6 +385,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Helper ★" : {
@@ -365,6 +403,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Prompter MD (★)" : {
@@ -382,6 +421,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : "",
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Prompter XML (★)" : {
@@ -399,6 +439,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : "",
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Remote" : {
@@ -416,6 +457,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Alter Translate" : {
@@ -433,6 +475,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : null
     },
     "Google" : {
@@ -450,6 +493,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "ask google|as google"
     },
     "Google This" : {
@@ -467,6 +511,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "==^google this[[:punct:]]?$=="
     },
     "Letterboxd" : {
@@ -484,6 +529,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "ask letterboxd|ask letterboxed|ask, letterboxed"
     },
     "Rotten Tomatoes" : {
@@ -501,6 +547,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "ask rotten|ask roten"
     },
     "TypingMind" : {
@@ -518,6 +565,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "ask ai"
     },
     "YouTube" : {
@@ -535,6 +583,7 @@
       "triggerApps" : null,
       "triggerLogic" : "or",
       "triggerModes" : null,
+      "triggerUrls" : null,
       "triggerVoice" : "ask youtube"
     }
   }
