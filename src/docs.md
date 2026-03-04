@@ -237,10 +237,8 @@ macrowhisper --update-config
 macrowhisper --schema-info
 ```
 
-These commands are the most basic. They do not execute your actions and they do not modify recordings.
-
 - `--set-config` saves your preferred config path for future runs.
-- If you pass a directory, Macrowhisper uses `<dir>/macrowhisper.json`.
+    - If you pass a directory, Macrowhisper uses `<dir>/macrowhisper.json`.
 - `--validate-config` checks whether your config is valid and prints exact issues if something is wrong.
 - `--update-config` refreshes config formatting/schema-compatible fields.
 
@@ -307,7 +305,22 @@ Before using these commands, make sure Macrowhisper is running (`macrowhisper --
 - `--schedule-action` (no name): cancels any queued scheduled action.
 - `--auto-return [true|false]`: one-time "paste + return" behavior for next recording (`--auto-return` without a value means `true`).
 
-### Important details and edge cases
+#### Behavior notes:
+
+- `--status`: confirms whether the daemon is running.
+- `--action <name>`: sets your default active action.
+- `--action` (no name): clears the active action.
+- `--get-action`: shows the current active action name.
+- `--exec-action <name>`: runs one specific action now.
+- `--run-auto`: runs runtime-style automatic selection (bypass mode check, trigger mute check, trigger evaluation, then active-action fallback).
+- `--copy-action <name>`: renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).
+- `--schedule-action <name>`: queue one action for your next recording.
+- `--schedule-action` (no name): cancels any queued scheduled action.
+- `--auto-return [true|false]`: one-time "paste + return" behavior for next recording (`--auto-return` without a value means `true`).
+
+---
+
+#### Important details and edge cases
 
 - `--get-action <name>` returns processed content for that action (latest valid result by default, or `--meta` if provided).
 - `--get-action --meta ...` without `<name>` returns an error (`--meta` needs a specific action here).
@@ -315,18 +328,20 @@ Before using these commands, make sure Macrowhisper is running (`macrowhisper --
 - `--run-auto` does not consume or clear one-shot runtime state (`--auto-return`, `--schedule-action`).
 - `--folder-name [<index>]` and `--folder-path [<index>]` read recordings by recency (`0` = active recording if present, otherwise latest completed valid recording).
 
-### Trigger mute (`--mute-triggers`)
+---
+
+#### Trigger mute (`--mute-triggers`)
 
 - `--mute-triggers true|false`: saves persistent mute on/off in config.
 - `--mute-triggers <duration>`: temporary runtime mute only (`30`, `30s`, `5m`, `1h`).
 - `--mute-triggers` with no value: prints current mute status.
 - If persistent mute is already `true`, duration mode is ignored.
 
-How to read status output:
+#### *How to read `--mute-triggers` status:*
 
-- `persistentMuteTriggers`: saved config preference.
-- `runtimeMuteTriggers`: temporary timer set by CLI.
-- `effectiveMuteTriggers`: final current state (what the app is actually using now).
+- *`persistentMuteTriggers`: saved config preference.*
+- *`runtimeMuteTriggers`: temporary timer set by CLI.*
+- *`effectiveMuteTriggers`: final current state (what the app is actually using now).*
 
 ### `--meta` (choose a different `meta.json` source)
 
@@ -384,7 +399,7 @@ For `--exec-action` and `--run-auto`, `moveTo` behaves like this:
 - If `--meta` points to a recording folder name/path, `moveTo` applies normally.
 - If `--meta` points to a direct JSON file, `moveTo` is skipped (no recording folder to move/delete).
 
-### Advanced behavior matrix (for power users)
+### CLI Behavior Matrix
 
 | Behavior | `--exec-action <name> [--meta <value>]` | `--run-auto [--meta <value>]` | `--get-action <name> [--meta <value>]` | `--copy-action <name> [--meta <value>]` |
 |---|---|---|---|---|

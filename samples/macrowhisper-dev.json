@@ -113,7 +113,7 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{frontApp||(?s)^(.*)$||\n\n<active-app>\n$1\n</active-app>\n\n}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>\n\n}}{{appVocabulary||(?s)^(.*)$||<usernames-vocabulary>\n$1\n</usernames-vocabulary>}}",
+      "action" : "{{appContext}}{{selectedText}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,

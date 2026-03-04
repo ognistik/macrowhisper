@@ -784,31 +784,40 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
     
     let windowElement = focusedWindow as! AXUIElement
     
-    // Special handling for Arc browser - prioritize AppleScript for full URL
+    // First pass: use accessibility-only extraction for all browsers.
+    if let axURL = getBrowserURLViaAccessibility(windowElement: windowElement, bundleId: bundleId) {
+        logDebug("[AppContext] Found browser URL via accessibility: \(redactForLogs(axURL))")
+        return axURL
+    }
+
+    // Arc-only fallback: AppleScript can provide full URL when AX cannot.
     if bundleId == "company.thebrowser.Browser" {
-        // Try AppleScript first to get the complete URL with path/parameters
         if let scriptUrl = getArcURLViaAppleScript() {
             logDebug("[AppContext] Successfully found full Arc URL via AppleScript: \(redactForLogs(scriptUrl))")
             return scriptUrl
-        } else {
-            // Fallback to accessibility method for basic domain
-            if let arcUrl = findArcBrowserURL(windowElement) {
-                logDebug("[AppContext] AppleScript failed, using accessibility Arc URL: \(redactForLogs(arcUrl))")
-                return arcUrl
-            }
         }
     }
     
-    // Look for URL in address bar for other browsers
-    let urlString = findAddressBarURL(windowElement)
-    
-    if let url = urlString, !url.isEmpty {
-        logDebug("[AppContext] Successfully found URL: \(redactForLogs(url))")
-    } else {
-        logDebug("[AppContext] No URL found in browser window")
+    logDebug("[AppContext] No URL found in browser window")
+    return nil
+}
+
+/// Browser-agnostic URL extraction using accessibility only.
+/// Order matters: prioritize browser chrome (address bar), then web content attributes.
+private func getBrowserURLViaAccessibility(windowElement: AXUIElement, bundleId: String) -> String? {
+    if bundleId == "company.thebrowser.Browser", let arcUrl = findArcBrowserURL(windowElement) {
+        return arcUrl
     }
-    
-    return urlString?.isEmpty == false ? urlString : nil
+
+    if let addressBarUrl = findAddressBarURL(windowElement) {
+        return addressBarUrl
+    }
+
+    if let webAreaUrl = findWebAreaURL(windowElement) {
+        return webAreaUrl
+    }
+
+    return nil
 }
 
 /// Specifically searches for Arc browser URL using the commandBarPlaceholderTextField identifier
@@ -989,6 +998,52 @@ private func findAddressBarRecursively(_ element: AXUIElement, depth: Int) -> St
         }
     }
     
+    return nil
+}
+
+/// Attempts to read URL-like values from the active AXWebArea subtree.
+/// This complements address-bar scraping for browsers that expose location on web content.
+private func findWebAreaURL(_ root: AXUIElement) -> String? {
+    return findWebAreaURLRecursively(root, depth: 0)
+}
+
+private func findWebAreaURLRecursively(_ element: AXUIElement, depth: Int) -> String? {
+    guard depth < 12 else { return nil }
+
+    var roleRef: CFTypeRef?
+    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+    if roleError == .success, let role = roleRef as? String, role == "AXWebArea" {
+        let urlAttributes = [
+            "AXURL",
+            "AXDocument",
+            kAXValueAttribute as String
+        ]
+        for attribute in urlAttributes {
+            var valueRef: CFTypeRef?
+            let valueError = AXUIElementCopyAttributeValue(element, attribute as CFString, &valueRef)
+            guard valueError == .success, let valueRef = valueRef else { continue }
+
+            if let valueString = valueRef as? String {
+                let trimmed = valueString.trimmingCharacters(in: .whitespacesAndNewlines)
+                if isValidURL(trimmed) {
+                    return trimmed
+                }
+            } else if let valueURL = valueRef as? URL {
+                let urlString = valueURL.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+                if isValidURL(urlString) {
+                    return urlString
+                }
+            }
+        }
+    }
+
+    let children = getAXTraversalChildren(of: element)
+    for child in children {
+        if let found = findWebAreaURLRecursively(child, depth: depth + 1) {
+            return found
+        }
+    }
+
     return nil
 }
 
