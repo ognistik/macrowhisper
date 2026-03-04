@@ -10,6 +10,8 @@ private let contextIgnorableScalarValues: Set<UInt32> = [
     0xFEFF  // zero-width no-break space / BOM
 ]
 
+let runtimeClipboardContextLockedKey = "_mwClipboardContextLocked"
+
 func sanitizeContextPlaceholderValue(_ value: String) -> String {
     let filteredScalars = value.unicodeScalars.filter { scalar in
         if contextIgnorableScalarValues.contains(scalar.value) {
@@ -1332,6 +1334,7 @@ func processDynamicPlaceholders(
             // Handle clipboardContext
             else if key == "clipboardContext" {
                 var value = sanitizeContextPlaceholderValue(metaJson["clipboardContext"] as? String ?? "")
+                let isClipboardContextLocked = (metaJson[runtimeClipboardContextLockedKey] as? Bool) ?? false
                 let enableStacking = (metaJson["clipboardStacking"] as? Bool)
                     ?? globalConfigManager?.config.defaults.clipboardStacking
                     ?? false
@@ -1340,7 +1343,7 @@ func processDynamicPlaceholders(
                     logDebug("[ClipboardContextPlaceholder] Using clipboard context from metaJson session snapshot")
                 }
 
-                if value.isEmpty, let watcher = recordingsWatcher {
+                if !isClipboardContextLocked, value.isEmpty, let watcher = recordingsWatcher {
                     let clipboardMonitor = watcher.getClipboardMonitor()
 
                     if watcher.hasActiveRecordingSessions() {

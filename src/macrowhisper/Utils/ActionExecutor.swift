@@ -1023,7 +1023,8 @@ class ActionExecutor {
         
         let existingClipboardContext = (metaJson["clipboardContext"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if existingClipboardContext.isEmpty {
+        let isClipboardContextLocked = (metaJson[runtimeClipboardContextLockedKey] as? Bool) ?? false
+        if !isClipboardContextLocked && existingClipboardContext.isEmpty {
             // Get clipboard content for the clipboardContext placeholder with stacking support
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
             let enableStacking = configManager.config.defaults.clipboardStacking

@@ -24,15 +24,23 @@ final class ConfigurationManager {
 }
 
 final class ClipboardMonitor {
-    func getActiveSessionSelectedText() -> String { "" }
-    func getActiveSessionClipboardContentWithStacking(enableStacking: Bool) -> String { "" }
-    func getRecentClipboardContent() -> String { "" }
-    func getRecentClipboardContentWithStacking(enableStacking: Bool) -> String { "" }
+    var activeSessionSelectedText: String = ""
+    var activeSessionClipboardContentWithStacking: String = ""
+    var recentClipboardContent: String = ""
+    var recentClipboardContentWithStacking: String = ""
+
+    func getActiveSessionSelectedText() -> String { activeSessionSelectedText }
+    func getActiveSessionClipboardContentWithStacking(enableStacking: Bool) -> String { activeSessionClipboardContentWithStacking }
+    func getRecentClipboardContent() -> String { recentClipboardContent }
+    func getRecentClipboardContentWithStacking(enableStacking: Bool) -> String { recentClipboardContentWithStacking }
 }
 
 final class RecordingsFolderWatcher {
-    func hasActiveRecordingSessions() -> Bool { false }
-    func getClipboardMonitor() -> ClipboardMonitor { ClipboardMonitor() }
+    var activeRecordingSessions = false
+    var clipboardMonitor = ClipboardMonitor()
+
+    func hasActiveRecordingSessions() -> Bool { activeRecordingSessions }
+    func getClipboardMonitor() -> ClipboardMonitor { clipboardMonitor }
 }
 
 final class GlobalStateManager {

@@ -64,6 +64,11 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * This CLI flag runs Macrowhisper on the last valid meta JSON file with action validation as if running live (respects triggers, active action, bypassModes, muteTriggers, etc)
   * Ignores one-time executions set by `--schedule-action` and/or `--auto-return`
 * **New.** `--validate-config` flag and improved config file error noifications.
+* **Improvement.** `{{clipboardContext}}` is now frozen at meta.json validation time for recording-triggered actions, so delayed or chained steps use a stable value.
+  * The freeze applies consistently across all action types (Insert, URL, Shortcut, Shell, AppleScript).
+  * If session clipboard is empty, clipboardBuffer pre-recording content is still used (including stacking behavior).
+  * When frozen, Macrowhisper no longer falls back to live clipboard reads later in the chain.
+  * Superwhisper sync filtering behavior remains unchanged: only the most recent clipboard change in the recent sync window is excluded.
 * **Improvement.** cleaned up the logs to make them more readable and less noisy.
 * **Improvement.** `inputCondition` has been expanded to all action types
   * You can now have any action behave differently depending on user being in an input field or not.

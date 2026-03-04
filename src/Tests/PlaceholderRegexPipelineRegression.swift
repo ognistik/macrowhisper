@@ -101,6 +101,51 @@ private func runPlaceholderRegexPipelineRegressionTests() {
             "randomCase preserves letters and non-letters while randomizing case",
             details: "actual: \(result16)"
         )
+
+        let watcher = RecordingsFolderWatcher()
+        watcher.activeRecordingSessions = true
+        watcher.clipboardMonitor.activeSessionClipboardContentWithStacking = "session-fallback"
+        watcher.clipboardMonitor.recentClipboardContent = "global-fallback"
+        watcher.clipboardMonitor.recentClipboardContentWithStacking = "<clipboard-context-1>\nglobal-stacking\n</clipboard-context-1>"
+        recordingsWatcher = watcher
+
+        let action17 = "{{clipboardContext}}"
+        let meta17: [String: Any] = [
+            "clipboardContext": "",
+            runtimeClipboardContextLockedKey: true
+        ]
+        let result17 = processDynamicPlaceholders(action: action17, metaJson: meta17, actionType: .insert).text
+        assertEqual(result17, "", "clipboardContext lock preserves explicit empty snapshot (no fallback)")
+
+        let action18 = "{{clipboardContext}}"
+        let meta18: [String: Any] = [
+            "clipboardContext": "frozen-snapshot",
+            runtimeClipboardContextLockedKey: true
+        ]
+        let result18 = processDynamicPlaceholders(action: action18, metaJson: meta18, actionType: .insert).text
+        assertEqual(result18, "frozen-snapshot", "clipboardContext lock preserves frozen non-empty snapshot")
+
+        let action19 = "{{clipboardContext}}"
+        let meta19: [String: Any] = ["clipboardContext": ""]
+        let result19 = processDynamicPlaceholders(action: action19, metaJson: meta19, actionType: .insert).text
+        assertEqual(result19, "session-fallback", "unlocked clipboardContext falls back to active session content")
+
+        watcher.activeRecordingSessions = false
+
+        let action20 = "{{clipboardContext}}"
+        let meta20: [String: Any] = ["clipboardContext": ""]
+        let result20 = processDynamicPlaceholders(action: action20, metaJson: meta20, actionType: .insert).text
+        assertEqual(result20, "global-fallback", "unlocked clipboardContext falls back to global clipboard content")
+
+        let action21 = "{{clipboardContext}}"
+        let meta21: [String: Any] = [
+            "clipboardContext": "",
+            "clipboardStacking": true
+        ]
+        let result21 = processDynamicPlaceholders(action: action21, metaJson: meta21, actionType: .insert).text
+        assertEqual(result21, "<clipboard-context-1>\nglobal-stacking\n</clipboard-context-1>", "unlocked clipboardContext stacking fallback stays intact")
+
+        recordingsWatcher = nil
     }
 }
 

@@ -755,9 +755,9 @@ class RecordingsFolderWatcher {
                 swResult: swResult,
                 enableStacking: enableStacking
             )
-            if !sessionClipboardContent.isEmpty {
-                enhancedMetaJson["clipboardContext"] = sessionClipboardContent
-            }
+            // Freeze clipboardContext at meta validation time (including explicit empty snapshot).
+            enhancedMetaJson["clipboardContext"] = sessionClipboardContent
+            enhancedMetaJson[runtimeClipboardContextLockedKey] = true
 
             // Bypass processing entirely for configured Superwhisper modes.
             let modeName = metaJson["modeName"] as? String
