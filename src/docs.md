@@ -231,15 +231,17 @@ macrowhisper --version
 macrowhisper --reveal-config
 macrowhisper --get-config
 macrowhisper --set-config "/path/to/folder-or-file"
+macrowhisper --validate-config
 macrowhisper --reset-config
 macrowhisper --update-config
 macrowhisper --schema-info
 ```
 
-Notes:
+These commands are the most basic. They do not execute your actions and they do not modify recordings.
 
-- `--set-config` persists the path.
+- `--set-config` saves your preferred config path for future runs.
 - If you pass a directory, Macrowhisper uses `<dir>/macrowhisper.json`.
+- `--validate-config` checks whether your config is valid and prints exact issues if something is wrong.
 - `--update-config` refreshes config formatting/schema-compatible fields.
 
 ### Service management
@@ -272,7 +274,7 @@ macrowhisper --add-as <name>
 macrowhisper --remove-action <name>
 ```
 
-### Runtime commands (require running daemon)
+### Runtime commands (use with running daemon)
 
 ```bash
 macrowhisper --status
@@ -290,45 +292,46 @@ macrowhisper --get-icon
 macrowhisper --check-updates
 ```
 
-Behavior notes:
+Before using these commands, make sure Macrowhisper is running (`macrowhisper --start-service`).
 
-- `--action <name>` sets `defaults.activeAction`.
-- `--action` with no name clears active action.
-- `--get-action` with no name returns active action name.
-- `--get-action <name>` returns the processed action content using the latest valid result (or the source passed with `--meta`).
-- `--get-action --meta ...` without `<name>` returns an error, because `--meta` needs a specific action to process.
-- `--copy-action <name>` processes action content and copies it to clipboard (without polluting `clipboardContext` capture), using latest valid result by default (or `--meta`).
-- `--exec-action <name>` runs the action once using latest valid result by default (or `--meta`).
-- `--run-auto` runs watcher-style action resolution once using latest valid result by default (or `--meta`):
-  bypass mode check, trigger mute check, trigger evaluation, then active action fallback.
-- `--run-auto` does not accept an action name and does not consume or clear one-shot runtime state (`--auto-return` / `--schedule-action`).
-- `--folder-name [<index>]` returns recording folder name by recency (`0` = current active recording if any, otherwise latest valid completed).
-- `--folder-path [<index>]` returns recording folder path by recency (`0` = current active recording if any, otherwise latest valid completed).
-- `--schedule-action <name>` schedules one action for the next recording.
-- `--schedule-action` (no name) cancels scheduled action.
-- `--auto-return true` schedules one-time "paste result + return behavior" for the next recording.
-- `--auto-return` with no value behaves like `true`.
-- `--mute-triggers true|false` persistently updates `defaults.muteTriggers` in config.
-- `--mute-triggers <duration>` temporarily mutes trigger matching at runtime only (`30`, `30s`, `5m`, `1h`).
-- `--mute-triggers` with no value prints persistent/runtime/effective mute status.
-- If `defaults.muteTriggers` is already `true`, duration mode is ignored (no temporary timer is set).
+### Most-used runtime commands
 
-How to read --mute-triggers status:
+- `--status`: confirms whether the daemon is running.
+- `--action <name>`: sets your default active action.
+- `--action` (no name): clears the active action.
+- `--get-action`: shows the current active action name.
+- `--exec-action <name>`: runs one specific action now.
+- `--run-auto`: runs runtime-style automatic selection (bypass mode check, trigger mute check, trigger evaluation, then active-action fallback).
+- `--copy-action <name>`: renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).
+- `--schedule-action <name>`: queue one action for your next recording.
+- `--schedule-action` (no name): cancels any queued scheduled action.
+- `--auto-return [true|false]`: one-time "paste + return" behavior for next recording (`--auto-return` without a value means `true`).
 
-- `persistentMuteTriggers`: Your saved preference in the config file.  
-  `yes` = triggers stay muted until you change the setting.  
-  `no` = your saved preference is not muting triggers.
-- `runtimeMuteTriggers`: A temporary mute timer from CLI.  
-  `active` = muted for a short time right now.  
-  `inactive` = no temporary timer is running.
-- `effectiveMuteTriggers`: The final result right now.  
-  `yes` = triggers are currently muted (by saved setting or temporary timer).  
-  `no` = triggers are currently active.
+### Important details and edge cases
+
+- `--get-action <name>` returns processed content for that action (latest valid result by default, or `--meta` if provided).
+- `--get-action --meta ...` without `<name>` returns an error (`--meta` needs a specific action here).
+- `--run-auto` does not accept an action name.
+- `--run-auto` does not consume or clear one-shot runtime state (`--auto-return`, `--schedule-action`).
+- `--folder-name [<index>]` and `--folder-path [<index>]` read recordings by recency (`0` = active recording if present, otherwise latest completed valid recording).
+
+### Trigger mute (`--mute-triggers`)
+
+- `--mute-triggers true|false`: saves persistent mute on/off in config.
+- `--mute-triggers <duration>`: temporary runtime mute only (`30`, `30s`, `5m`, `1h`).
+- `--mute-triggers` with no value: prints current mute status.
+- If persistent mute is already `true`, duration mode is ignored.
+
+How to read status output:
+
+- `persistentMuteTriggers`: saved config preference.
+- `runtimeMuteTriggers`: temporary timer set by CLI.
+- `effectiveMuteTriggers`: final current state (what the app is actually using now).
 
 ### `--meta` (choose a different `meta.json` source)
 
-By default, action commands use the latest valid Superwhisper result.  
-Use `--meta` when you want to target a different recording or a custom metadata file.
+By default, action commands use the latest valid Superwhisper result.
+Use `--meta` when you want to run against a different recording or a custom metadata file.
 
 You can pass:
 
@@ -336,7 +339,7 @@ You can pass:
 - A folder path (Macrowhisper looks for `meta.json` inside that folder)
 - A direct JSON file path (must have compatible `meta.json` content)
 
-Path handling notes:
+How Macrowhisper interprets your `--meta` value:
 
 - `~` is supported.
 - If the value looks like a path (`/`, `~`, `.`, or contains `/`), Macrowhisper treats it as a path.
@@ -360,30 +363,28 @@ macrowhisper --exec-action summarizeEmail --meta ~/tmp/custom-meta.json
 ```
 
 ```bash
-# 4) Use active action name retrieval (no meta allowed here)
+# 4) Get active action name (no meta allowed in this mode)
 macrowhisper --get-action
 ```
 
 ```bash
-# 5) This returns an error (meta requires a specific action name)
+# 5) This returns an error (`--meta` needs a specific action name here)
 macrowhisper --get-action --meta 2026-03-01_10-00-00
 ```
 
 ```bash
-# 6) Resolve and execute automatically (triggers -> active fallback)
+# 6) Resolve and execute automatically (runtime-style selection)
 macrowhisper --run-auto --meta 2026-03-01_10-00-00
 ```
 
 ### `moveTo` behavior when using `--meta`
 
-For `--exec-action` and `--run-auto`, `moveTo` works like this:
+For `--exec-action` and `--run-auto`, `moveTo` behaves like this:
 
-- If `--meta` points to a recording folder name or a recording folder path:
-  Macrowhisper can identify the recording folder, so `moveTo` still applies normally.
-- If `--meta` points to a direct JSON file:
-  Macrowhisper skips `moveTo` (there is no recording folder to move/delete) and logs that it was skipped.
+- If `--meta` points to a recording folder name/path, `moveTo` applies normally.
+- If `--meta` points to a direct JSON file, `moveTo` is skipped (no recording folder to move/delete).
 
-### CLI action behavior matrix
+### Advanced behavior matrix (for power users)
 
 | Behavior | `--exec-action <name> [--meta <value>]` | `--run-auto [--meta <value>]` | `--get-action <name> [--meta <value>]` | `--copy-action <name> [--meta <value>]` |
 |---|---|---|---|---|
