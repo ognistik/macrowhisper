@@ -116,6 +116,27 @@
       "triggerUrls" : null,
       "triggerVoice" : null
     },
+    "random" : {
+      "action" : "{{swResult||example(.*)$||example \"${1::randomCase}\"||(,|:) ||\" ||}}",
+      "actionDelay" : null,
+      "icon" : null,
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "restoreClipboard" : null,
+      "restoreClipboardDelay" : null,
+      "simEsc" : null,
+      "simKeypress" : null,
+      "simReturn" : null,
+      "smartCasing" : null,
+      "smartPunctuation" : null,
+      "smartSpacing" : null,
+      "triggerApps" : null,
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerUrls" : null,
+      "triggerVoice" : "random"
+    },
     "smartClip" : {
       "action" : "URL: {{frontAppUrl}}\n\nSelected Text: {{selectedText}}\n\nAppContext: {{appContext}}",
       "actionDelay" : 0,
