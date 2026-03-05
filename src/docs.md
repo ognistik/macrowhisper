@@ -303,7 +303,8 @@ Before using these commands, make sure Macrowhisper is running (`macrowhisper --
 - `--copy-action <name>`: renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).
 - `--schedule-action <name>`: queue one action for your next recording.
 - `--schedule-action` (no name): cancels any queued scheduled action.
-- `--auto-return [true|false]`: one-time "paste + return" behavior for next recording (`--auto-return` without a value means `true`).
+- `--auto-return [true|false]`: one-time auto-send behavior for next recording (`--auto-return` without a value means `true`).
+  It resolves trigger/active selection; insert actions use resolved insert content with forced Return, and non-insert/empty outcomes fall back to plain `{{swResult}}` + forced Return.
 
 #### Behavior notes:
 
@@ -316,7 +317,8 @@ Before using these commands, make sure Macrowhisper is running (`macrowhisper --
 - `--copy-action <name>`: renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).
 - `--schedule-action <name>`: queue one action for your next recording.
 - `--schedule-action` (no name): cancels any queued scheduled action.
-- `--auto-return [true|false]`: one-time "paste + return" behavior for next recording (`--auto-return` without a value means `true`).
+- `--auto-return [true|false]`: one-time auto-send behavior for next recording (`--auto-return` without a value means `true`).
+  It resolves trigger/active selection; insert actions use resolved insert content with forced Return, and non-insert/empty outcomes fall back to plain `{{swResult}}` + forced Return.
 
 ---
 
@@ -1521,6 +1523,18 @@ Supported values:
 After use (or cancellation), they are cleared.
 
 `--run-auto` does not consume or clear one-shot runtime state. It ignores those flags and only applies bypass/trigger/active resolution for the selected meta source.
+
+#### Auto-return execution details
+
+- Auto-return keeps runtime priority (`auto-return` > `schedule-action` > triggers > active action).
+- It resolves the same trigger/active candidate that would normally run.
+- If that candidate is an insert action, Macrowhisper resolves placeholders and insert settings from that insert.
+- For insert actions with `inputCondition`, auto-return resolves them as if `isInInputField = true`.
+- `nextAction` is ignored in auto-return (single insert only).
+- If resolved insert output is empty, `.none`, or `.autoPaste`, auto-return inserts `{{swResult}}` instead.
+- If resolved candidate is non-insert (URL/Shortcut/Shell/AppleScript) or missing, non-insert execution is skipped and auto-return uses fallback insert `{{swResult}}`.
+- In non-insert/missing fallback, non-insert action settings are ignored and defaults are used.
+- Auto-return always forces one Return key simulation for that one-shot run.
 
 ### 17.2 Timeout behavior
 

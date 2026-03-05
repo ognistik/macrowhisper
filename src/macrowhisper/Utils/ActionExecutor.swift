@@ -300,6 +300,20 @@ class ActionExecutor {
         )
     }
 
+    /// Resolves insert templates for auto-return mode with deterministic in-input behavior.
+    /// Auto-return always evaluates inputCondition as if the user is in an input field.
+    func resolveInsertForAutoReturn(_ insert: AppConfiguration.Insert) -> AppConfiguration.Insert {
+        let (templateInsert, isLegacyAutoPasteTemplate) = applyLegacyInsertTemplateOverrides(insert)
+        let shouldEvaluateInputCondition = isLegacyAutoPasteTemplate || !((templateInsert.inputCondition ?? "").isEmpty)
+        var resolvedInsert = templateInsert
+        if shouldEvaluateInputCondition {
+            resolvedInsert = applyInputCondition(to: templateInsert, isInInputField: true)
+        }
+        // Auto-return executes a single insert only and must not chain.
+        resolvedInsert.nextAction = nil
+        return resolvedInsert
+    }
+
     private func applyLegacyInsertTemplateOverrides(_ insert: AppConfiguration.Insert) -> (AppConfiguration.Insert, Bool) {
         var resolved = insert
 

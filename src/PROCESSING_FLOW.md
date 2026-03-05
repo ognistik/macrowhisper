@@ -247,19 +247,30 @@ Actions are evaluated in strict priority order. **Higher priority actions comple
 
 #### 1. Auto-Return (Highest Priority)
 - **Condition**: `autoReturnEnabled == true`
-- **Purpose**: Immediately return the transcribed result without any processing
-- **Behavior**: Uses the raw result (`result` or `llmResult`) directly
+- **Purpose**: One-shot auto-send behavior for the next recording
+- **Behavior**:
+  - Resolves trigger/active candidate using normal selection rules
+  - If resolved candidate is insert: resolves insert payload/settings, forcing `inputCondition` as in-input
+  - Ignores `nextAction` (single insert only)
+  - If resolved insert is empty/`.none`/`.autoPaste`, or candidate is non-insert/missing: falls back to `swResult`
+  - Non-insert fallback ignores non-insert action settings and uses defaults
+  - Forces one Return key simulation for the one-shot run
 - **Reset**: `autoReturnEnabled` is set to `false` after use (single-use)
 
-#### 2. Trigger Actions (Medium Priority)
+#### 2. Scheduled Action
+- **Condition**: `scheduledActionName != nil`
+- **Behavior**: Runs exactly the scheduled action once, then clears the schedule
+- **Override**: Higher priority than trigger and active action
+
+#### 3. Trigger Actions (Medium Priority)
 - **Evaluation**: `TriggerEvaluator.evaluateTriggersForAllActions()`
 - **Types**: Insert, URL, Shortcut, Shell Script, AppleScript actions with triggers
 - **Selection**: First matched action (sorted alphabetically by name)
 - **Override**: Completely overrides active action if any triggers match
 
-#### 3. Active Action (Lowest Priority)
+#### 4. Active Action (Lowest Priority)
 - **Condition**: `config.defaults.activeAction` is set and not empty
-- **Fallback**: Only executed if no auto-return and no trigger actions match
+- **Fallback**: Only executed if no auto-return, no scheduled action, and no trigger actions match
 - **Special Cases**: 
   - `.autoPaste`: Hard compatibility template for insert actions
   - `.none`: Hard compatibility template for insert actions
@@ -719,7 +730,7 @@ Insert-only settings:
 ### When Making Changes:
 
 1. **Clipboard Logic**: Be extremely careful with clipboard synchronization timing
-2. **Action Priority**: Understand the strict priority system (auto-return > triggers > active insert)
+2. **Action Priority**: Understand the strict priority system (auto-return > scheduled action > triggers > active action)
 3. **ActionDelay**: Test with various delay values, especially around the 0.1s threshold
 4. **Thread Safety**: ClipboardMonitor uses concurrent queues with barrier writes
 5. **Error Handling**: Always handle missing files, invalid JSON, and permission errors

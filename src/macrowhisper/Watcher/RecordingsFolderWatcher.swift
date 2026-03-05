@@ -802,37 +802,101 @@ class RecordingsFolderWatcher {
             
             // FIRST: Check for auto-return (highest priority - overrides everything)
             if globalState.autoReturnEnabled {
-                // Apply the result directly using {{swResult}}
-                let swResult = (enhancedMetaJson["llmResult"] as? String) ?? (enhancedMetaJson["result"] as? String) ?? ""
-                
-                // Use enhanced clipboard monitoring for auto-return to handle Superwhisper interference
-                let actionDelay = configManager.config.defaults.actionDelay
-                let shouldEsc = configManager.config.defaults.simEsc
-                
+                let resolvedCandidate = resolveAutoReturnActionCandidate(
+                    metaJson: enhancedMetaJson,
+                    frontAppName: frontAppName,
+                    frontAppBundleId: frontAppBundleId,
+                    frontAppUrl: frontAppUrl
+                )
+                let autoReturnMetaJson = resolvedCandidate?.metaJson ?? enhancedMetaJson
+                let fallbackSwResult = (autoReturnMetaJson["llmResult"] as? String) ?? (autoReturnMetaJson["result"] as? String) ?? ""
+
+                var textToInsert = fallbackSwResult
+                var autoReturnInsert: AppConfiguration.Insert? = nil
+                var shouldUseDefaultsOnlyPostProcessing = true
+                var resolvedAutoReturnActionName: String? = nil
+
+                if let candidate = resolvedCandidate, candidate.type == .insert, let rawInsert = candidate.action as? AppConfiguration.Insert {
+                    let resolvedInsert = actionExecutor.resolveInsertForAutoReturn(rawInsert)
+                    let processedInsert = socketCommunication.processInsertAction(
+                        resolvedInsert.action,
+                        metaJson: autoReturnMetaJson,
+                        activeInsert: resolvedInsert
+                    )
+
+                    let shouldFallbackToSwResult = processedInsert.isAutoPaste
+                        || processedInsert.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || processedInsert.text == ".none"
+
+                    if shouldFallbackToSwResult {
+                        textToInsert = fallbackSwResult
+                        logDebug("[AutoReturn] Resolved insert '\(candidate.name)' produced empty/.none/.autoPaste payload. Falling back to swResult.")
+                    } else {
+                        textToInsert = processedInsert.text
+                    }
+
+                    autoReturnInsert = resolvedInsert
+                    shouldUseDefaultsOnlyPostProcessing = false
+                    resolvedAutoReturnActionName = candidate.name
+                    logDebug("[AutoReturn] Using resolved insert '\(candidate.name)' for one-shot auto-return.")
+                } else if let candidate = resolvedCandidate {
+                    logDebug("[AutoReturn] Resolved non-insert action '\(candidate.name)' (type: \(candidate.type)); using fallback swResult insert.")
+                } else {
+                    logDebug("[AutoReturn] No trigger/active insert candidate resolved; using fallback swResult insert.")
+                }
+
+                let actionDelay = autoReturnInsert?.actionDelay ?? configManager.config.defaults.actionDelay
+                let shouldEsc = autoReturnInsert?.simEsc ?? configManager.config.defaults.simEsc
+                let restoreClipboard = autoReturnInsert?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+                let restoreClipboardDelay = autoReturnInsert?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
+
                 clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                     insertAction: { [weak self] in
-                        // Apply the result without ESC (handled by clipboard monitor)
-                        let success = self?.socketCommunication.applyInsertWithoutEsc(swResult, activeInsert: nil) ?? false
-                        // Reset the flag after using it once
+                        let success = self?.socketCommunication.applyInsertWithoutEsc(
+                            textToInsert,
+                            activeInsert: autoReturnInsert,
+                            isAutoPaste: false
+                        ) ?? false
                         globalState.autoReturnEnabled = false
-                        // Cancel timeout since auto-return was used
                         cancelAutoReturnTimeout()
                         return success
                     },
                     actionDelay: actionDelay,
                     shouldEsc: shouldEsc,
-                    isAutoPaste: false,  // Auto-return is not autoPaste
+                    isAutoPaste: false,
                     recordingPath: recordingPath,
-                    metaJson: enhancedMetaJson,
-                    restoreClipboard: configManager.config.defaults.restoreClipboard,
-                    restoreClipboardDelay: configManager.config.defaults.restoreClipboardDelay ?? 0.3,
-                    onCompletion: { _ in
-                        finalizeAfterAction(nil)
+                    metaJson: autoReturnMetaJson,
+                    restoreClipboard: restoreClipboard,
+                    restoreClipboardDelay: restoreClipboardDelay,
+                    onCompletion: { success in
+                        if shouldUseDefaultsOnlyPostProcessing {
+                            // Non-insert/no-candidate fallback must ignore resolved action settings.
+                            let defaultsFallbackInsert = AppConfiguration.Insert(action: "{{swResult}}")
+                            let result = ActionExecutor.ChainExecutionResult(
+                                success: success,
+                                finalActionName: nil,
+                                finalActionType: .insert,
+                                finalAction: defaultsFallbackInsert,
+                                errorMessage: success ? nil : "Auto-return fallback insert execution failed."
+                            )
+                            finalizeAfterAction(result)
+                        } else if let resolvedInsert = autoReturnInsert {
+                            let result = ActionExecutor.ChainExecutionResult(
+                                success: success,
+                                finalActionName: resolvedAutoReturnActionName,
+                                finalActionType: .insert,
+                                finalAction: resolvedInsert,
+                                errorMessage: success ? nil : "Auto-return resolved insert execution failed."
+                            )
+                            finalizeAfterAction(result)
+                        } else {
+                            finalizeAfterAction(nil)
+                        }
                     }
                 )
-                
-                logDebug("Applied auto-return with enhanced clipboard monitoring")
-                
+
+                logDebug("Applied auto-return with resolved insert behavior and forced one-time return.")
+
                 // Early monitoring will be stopped by ClipboardMonitor when done
                 return
             }
@@ -882,95 +946,24 @@ class RecordingsFolderWatcher {
             }
             
             // THIRD: Evaluate triggers for all actions - this has precedence over active inserts
-            let runtimeMuteActive = globalState.isRuntimeMuteTriggersActive()
-            let persistentMuteEnabled = configManager.config.defaults.muteTriggers
-            let effectiveMuteTriggers = persistentMuteEnabled || runtimeMuteActive
-            let matchedTriggerActions: [(action: Any, name: String, type: ActionType, strippedResult: String?)]
-            if effectiveMuteTriggers {
-                matchedTriggerActions = []
-                if persistentMuteEnabled {
-                    logInfo("[TriggerEval] Skipping trigger evaluation because defaults.muteTriggers is enabled.")
-                } else {
-                    logInfo("[TriggerEval] Skipping trigger evaluation because runtime temporary mute is active.")
-                }
-            } else {
-                // Extract result text for trigger evaluation (can be empty, that's fine for triggers)
-                let resultText = enhancedMetaJson["result"] as? String ?? ""
-
-                // Diagnostic logging for trigger evaluation
-                if isVerboseLogDetailEnabled() {
-                    logDebug(
-                        "[TriggerEval] Inputs resultText=\(summarizeForLogs(resultText, maxPreview: 120)) " +
-                        "resultField=\(summarizeAnyForLogs(enhancedMetaJson["result"], maxPreview: 120)) " +
-                        "llmResultField=\(summarizeAnyForLogs(enhancedMetaJson["llmResult"], maxPreview: 120))"
-                    )
-                } else {
-                    logDebug(
-                        "[TriggerEval] Input summary resultTextLen=\(resultText.count) " +
-                        "hasResult=\(enhancedMetaJson["result"] != nil) hasLlmResult=\(enhancedMetaJson["llmResult"] != nil)"
-                    )
-                }
-
-                matchedTriggerActions = triggerEvaluator.evaluateTriggersForAllActions(
-                    configManager: configManager,
-                    result: resultText,
-                    metaJson: enhancedMetaJson,
-                    frontAppName: frontAppName,
-                    frontAppBundleId: frontAppBundleId,
-                    frontAppUrl: frontAppUrl
-                )
-            }
+            let matchedTriggerActions = evaluateMatchedTriggerActions(
+                metaJson: enhancedMetaJson,
+                frontAppName: frontAppName,
+                frontAppBundleId: frontAppBundleId,
+                frontAppUrl: frontAppUrl
+            )
             
             if !matchedTriggerActions.isEmpty {
                 // Execute the first matched trigger action (they're already sorted by name)
                 let (action, name, type, strippedResult) = matchedTriggerActions.first!
                 
                 // Prepare metaJson with updated result if voice trigger matched and stripped result
-                var updatedJson = enhancedMetaJson
-                if let stripped = strippedResult {
-                    updatedJson["result"] = stripped
-                    
-                    // Also strip the trigger from llmResult if it exists
-                    // This ensures {{swResult}} doesn't contain the trigger string when using llmResult
-                    if let llmResult = enhancedMetaJson["llmResult"] as? String, !llmResult.isEmpty {
-                        // Get the triggerVoice pattern from the matched action
-                        var triggerVoice: String? = nil
-                        switch type {
-                        case .insert:
-                            if let insert = action as? AppConfiguration.Insert {
-                                triggerVoice = insert.triggerVoice
-                            }
-                        case .url:
-                            if let url = action as? AppConfiguration.Url {
-                                triggerVoice = url.triggerVoice
-                            }
-                        case .shortcut:
-                            if let shortcut = action as? AppConfiguration.Shortcut {
-                                triggerVoice = shortcut.triggerVoice
-                            }
-                        case .shell:
-                            if let shell = action as? AppConfiguration.ScriptShell {
-                                triggerVoice = shell.triggerVoice
-                            }
-                        case .appleScript:
-                            if let ascript = action as? AppConfiguration.ScriptAppleScript {
-                                triggerVoice = ascript.triggerVoice
-                            }
-                        }
-                        
-                        // Apply the same trigger stripping logic to llmResult
-                        if let triggerVoicePattern = triggerVoice, !triggerVoicePattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            let strippedLlmResult = stripTriggerFromText(
-                                text: llmResult,
-                                triggerVoice: triggerVoicePattern
-                            )
-                            if let strippedLlm = strippedLlmResult {
-                                updatedJson["llmResult"] = strippedLlm
-                                logDebug("[TriggerAction] Stripped trigger from llmResult: \(summarizeForLogs(llmResult, maxPreview: 120)) -> \(summarizeForLogs(strippedLlm, maxPreview: 120))")
-                            }
-                        }
-                    }
-                }
+                let updatedJson = applyTriggerStrippingIfNeeded(
+                    metaJson: enhancedMetaJson,
+                    action: action,
+                    type: type,
+                    strippedResult: strippedResult
+                )
                 
                 // Execute the action on the main thread with cleanup callback
                 DispatchQueue.main.async { [weak self] in
@@ -1143,6 +1136,140 @@ class RecordingsFolderWatcher {
         }
         
         return (.insert, nil) // Default type for not found
+    }
+
+    private typealias MatchedTriggerAction = (action: Any, name: String, type: ActionType, strippedResult: String?)
+
+    private struct AutoReturnActionCandidate {
+        let action: Any
+        let name: String
+        let type: ActionType
+        let metaJson: [String: Any]
+    }
+
+    private func evaluateMatchedTriggerActions(
+        metaJson: [String: Any],
+        frontAppName: String?,
+        frontAppBundleId: String?,
+        frontAppUrl: String?
+    ) -> [MatchedTriggerAction] {
+        let runtimeMuteActive = globalState.isRuntimeMuteTriggersActive()
+        let persistentMuteEnabled = configManager.config.defaults.muteTriggers
+        let effectiveMuteTriggers = persistentMuteEnabled || runtimeMuteActive
+        if effectiveMuteTriggers {
+            if persistentMuteEnabled {
+                logInfo("[TriggerEval] Skipping trigger evaluation because defaults.muteTriggers is enabled.")
+            } else {
+                logInfo("[TriggerEval] Skipping trigger evaluation because runtime temporary mute is active.")
+            }
+            return []
+        }
+
+        // Extract result text for trigger evaluation (can be empty, that's fine for triggers)
+        let resultText = metaJson["result"] as? String ?? ""
+
+        if isVerboseLogDetailEnabled() {
+            logDebug(
+                "[TriggerEval] Inputs resultText=\(summarizeForLogs(resultText, maxPreview: 120)) " +
+                "resultField=\(summarizeAnyForLogs(metaJson["result"], maxPreview: 120)) " +
+                "llmResultField=\(summarizeAnyForLogs(metaJson["llmResult"], maxPreview: 120))"
+            )
+        } else {
+            logDebug(
+                "[TriggerEval] Input summary resultTextLen=\(resultText.count) " +
+                "hasResult=\(metaJson["result"] != nil) hasLlmResult=\(metaJson["llmResult"] != nil)"
+            )
+        }
+
+        return triggerEvaluator.evaluateTriggersForAllActions(
+            configManager: configManager,
+            result: resultText,
+            metaJson: metaJson,
+            frontAppName: frontAppName,
+            frontAppBundleId: frontAppBundleId,
+            frontAppUrl: frontAppUrl
+        )
+    }
+
+    private func resolveAutoReturnActionCandidate(
+        metaJson: [String: Any],
+        frontAppName: String?,
+        frontAppBundleId: String?,
+        frontAppUrl: String?
+    ) -> AutoReturnActionCandidate? {
+        let matchedTriggerActions = evaluateMatchedTriggerActions(
+            metaJson: metaJson,
+            frontAppName: frontAppName,
+            frontAppBundleId: frontAppBundleId,
+            frontAppUrl: frontAppUrl
+        )
+        if let (action, name, type, strippedResult) = matchedTriggerActions.first {
+            let updatedMetaJson = applyTriggerStrippingIfNeeded(
+                metaJson: metaJson,
+                action: action,
+                type: type,
+                strippedResult: strippedResult
+            )
+            return AutoReturnActionCandidate(action: action, name: name, type: type, metaJson: updatedMetaJson)
+        }
+
+        if let activeActionName = configManager.config.defaults.activeAction, !activeActionName.isEmpty {
+            let (actionType, action) = findActionByName(activeActionName, configManager: configManager)
+            if let action {
+                return AutoReturnActionCandidate(action: action, name: activeActionName, type: actionType, metaJson: metaJson)
+            }
+            logDebug("[AutoReturn] Active action '\(activeActionName)' not found; using fallback swResult insert.")
+        }
+
+        return nil
+    }
+
+    private func applyTriggerStrippingIfNeeded(
+        metaJson: [String: Any],
+        action: Any,
+        type: ActionType,
+        strippedResult: String?
+    ) -> [String: Any] {
+        guard let stripped = strippedResult else {
+            return metaJson
+        }
+
+        var updatedJson = metaJson
+        updatedJson["result"] = stripped
+
+        // Also strip the trigger from llmResult if it exists
+        // This ensures {{swResult}} doesn't contain the trigger string when using llmResult
+        guard let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty else {
+            return updatedJson
+        }
+
+        // Get the triggerVoice pattern from the matched action
+        var triggerVoice: String? = nil
+        switch type {
+        case .insert:
+            triggerVoice = (action as? AppConfiguration.Insert)?.triggerVoice
+        case .url:
+            triggerVoice = (action as? AppConfiguration.Url)?.triggerVoice
+        case .shortcut:
+            triggerVoice = (action as? AppConfiguration.Shortcut)?.triggerVoice
+        case .shell:
+            triggerVoice = (action as? AppConfiguration.ScriptShell)?.triggerVoice
+        case .appleScript:
+            triggerVoice = (action as? AppConfiguration.ScriptAppleScript)?.triggerVoice
+        }
+
+        if let triggerVoicePattern = triggerVoice, !triggerVoicePattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let strippedLlmResult = stripTriggerFromText(
+                text: llmResult,
+                triggerVoice: triggerVoicePattern
+            )
+            if let strippedLlm = strippedLlmResult {
+                updatedJson["llmResult"] = strippedLlm
+                logDebug("[TriggerAction] Stripped trigger from llmResult: \(summarizeForLogs(llmResult, maxPreview: 120)) -> \(summarizeForLogs(strippedLlm, maxPreview: 120))")
+            }
+        }
+
+        return updatedJson
     }
     
     /// Provides access to the ClipboardMonitor for CLI commands that need recent clipboard content
