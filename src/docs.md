@@ -976,8 +976,19 @@ Examples:
 - `https://google.com` does **not** match `docs.google.com`
 - `https://www.google.com/other` matches `/other...` only
 
-*URL trigger capture is validated against a known set of browsers and also attempts best-effort AX URL extraction for other apps/browsers.
-If URL capture fails for a browser, please open an issue with browser/version details.
+URL capture is strict-allowlist for supported browsers only:
+
+- Safari (`com.apple.Safari`)
+- Chrome (`com.google.Chrome`)
+- Firefox (`org.mozilla.firefox`)
+- Edge (`com.microsoft.edgemac`)
+- Opera (`com.operasoftware.Opera`)
+- Brave (`com.brave.Browser`)
+- Vivaldi (`com.vivaldi.Vivaldi`)
+- Arc (`company.thebrowser.Browser`)
+- Chromium (`org.chromium.Chromium`)
+
+Unknown apps/browsers return empty URL immediately (no fallback crawling). If your browser is not listed, open a GitHub issue with browser/version details.
 
 ### 8.5 `triggerLogic`
 
@@ -1279,6 +1290,7 @@ Stacking output format for multiple items:
 - watcher flow: anchored to the app that was frontmost when recording finished (before first action step)
 - computed lazily only when used, then cached for the whole chain
 - captures richer app/window/text-field context
+- `ACTIVE URL` is included only for supported browsers (same allowlist used by `triggerUrls` and `{{frontAppUrl}}`)
 
 ### 12.4 `{{appVocabulary}}`
 
@@ -1291,6 +1303,7 @@ Stacking output format for multiple items:
 
 - watcher flow: resolved from the same anchored app snapshot used for triggers/chains
 - stays stable across all steps in a chain, even if user focus changes mid-chain
+- `{{frontAppUrl}}` resolves only for supported browsers; unsupported apps return empty quickly
 
 ### 12.6 On CLI Execution
 
