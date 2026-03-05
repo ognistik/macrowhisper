@@ -976,21 +976,7 @@ Examples:
 - `https://google.com` does **not** match `docs.google.com`
 - `https://www.google.com/other` matches `/other...` only
 
-URL capture is strict-allowlist for supported browsers only:
-
-- Safari (`com.apple.Safari`)
-- Chrome (`com.google.Chrome`)
-- Firefox (`org.mozilla.firefox`)
-- Edge (`com.microsoft.edgemac`)
-- Opera (`com.operasoftware.Opera`)
-- Brave (`com.brave.Browser`)
-- Vivaldi (`com.vivaldi.Vivaldi`)
-- Arc (`company.thebrowser.Browser`)
-- Chromium (`org.chromium.Chromium`)
-
-Unknown apps/browsers return empty URL immediately (no fallback crawling). If your browser is not listed, open a GitHub issue with browser/version details.
-
-Arc URL capture is accessibility-only. If Macrowhisper cannot read a reliable Arc URL quickly, it returns empty (no AppleScript fallback and no host-only fallback from Arc placeholder fields).
+URL capture is strict-allowlist for supported browsers only. If your browser is not working properly with triggerUrls, open a GitHub issue with details.
 
 ### 8.5 `triggerLogic`
 

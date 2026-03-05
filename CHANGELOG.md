@@ -65,7 +65,7 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * Ignores one-time executions set by `--schedule-action` and/or `--auto-return`
 * **New.** `--validate-config` flag and improved config file error noifications.
 * **New.** `triggerUrls` is now possible! This also introduced the new placeholder `{{frontAppUrl}}`
-  * NOTE: consider this an experimental feature. Not all the browsers are supported. If yours is not, open an issue on Github and I'll be happy to look into it.
+  * NOTE: consider this an experimental feature. **Not all the browsers are supported.** If yours is not, open an issue on Github (give me the bundle ID if possible) and I'll be happy to look into adding it.
 * **Improvement.** `{{clipboardContext}}` is now frozen at meta.json validation time for recording-triggered actions, so delayed or chained steps use a stable value.
   * The freeze applies consistently across all action types (Insert, URL, Shortcut, Shell, AppleScript).
   * If session clipboard is empty, clipboardBuffer pre-recording content is still used (including stacking behavior).
