@@ -117,7 +117,7 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{appVocabulary}}",
+      "action" : "{{appContext}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,
