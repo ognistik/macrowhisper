@@ -952,11 +952,11 @@ Regex against Superwhisper `modeName`. Rules are same as `triggerApps`.
 "triggerModes": "dictation|Super|Custom"
 ```
 
-### 8.4 `triggerUrls` (Experimental)
+### 8.4 `triggerUrls`
 
 Matches against the active URL captured at trigger-evaluation time.
 
-#### Token format
+#### Rules
 
 - `|` splits multiple URL tokens
 - `!` creates exception tokens
@@ -967,48 +967,16 @@ Matches against the active URL captured at trigger-evaluation time.
 - **Domain token**: no scheme (e.g., `google.com`, `www.google.com/docs`)
 - **Full URL token**: starts with `http://` or `https://`
 
-#### Domain token behavior (broad)
-
-- Host match is suffix-based by label boundary:
-  - exact host OR host ending in `.<tokenHost>`
-- Subdomains are included by default.
-
 Examples:
 
 - `google.com` matches `google.com`, `www.google.com`, `docs.google.com`
 - `www.google.com` matches `www.google.com`, `x.www.google.com`
 - `www.google.com` does **not** match `maps.google.com`
-
-#### Full URL token behavior (strict host)
-
-- Host match is exact only (case-insensitive).
-- Scheme is ignored for matching (`http`/`https` both accepted).
-- If token defines a port, candidate port must match.
-
-Examples:
-
 - `https://google.com` matches `http://google.com/maps`
 - `https://google.com` does **not** match `docs.google.com`
-
-#### Path/query behavior
-
-- If token has no path/query, host match is enough.
-- If token includes path/query, candidate URL must start with that path/query prefix.
-- Fragment is ignored.
-
-Examples:
-
-- `https://www.google.com` matches `/maps`
 - `https://www.google.com/other` matches `/other...` only
 
-#### Wildcard note
-
-- Explicit `*` wildcard syntax is **not supported** for `triggerUrls`.
-- Use domain tokens (without scheme) to cover subdomains.
-
-#### Browser support note
-
-URL trigger capture is experimental. It is validated against a known set of browsers and also attempts best-effort AX URL extraction for other apps/browsers.
+*URL trigger capture is validated against a known set of browsers and also attempts best-effort AX URL extraction for other apps/browsers.
 If URL capture fails for a browser, please open an issue with browser/version details.
 
 ### 8.5 `triggerLogic`
@@ -1353,7 +1321,7 @@ ${N::transformName}
 
 *Where `N` is the capture index (`0` = full match, `1+` = capture groups). Use this to perform transforms within the regex pipieline.
 
-13.1) Examples:
+13.1 Examples:
 
 Remove filler words:
 
@@ -1385,13 +1353,47 @@ Mixed replacements with transformed and raw captures:
 {{swResult||(foo)\\s+(bar)||${1} ${2::titleCase}}}
 ```
 
-13.2) Behavior details:
+13.2 Behavior details:
 
 - Multiple replacements execute in order
 - Invalid regex patterns are logged and skipped
 - Unknown transforms are logged and ignored (fail-open)
 - Capture transforms are optional and only affect the referenced capture token
 - Standard replacement template syntax (for example `${1}` or `$1`) remains supported
+
+13.3 AI Help for Regex
+
+If you want help from any AI (ChatGPT, Claude, Gemini, etc.), use this template so it returns syntax that works in Macrowhisper placeholders:
+
+```text
+Output requirements (strict):
+1) Return ONLY Macrowhisper placeholder snippets (no explanation text).
+2) Prefer this full format when needed:
+   {{swResult::transformName||pattern||replacement||pattern2||replacement2}}
+3) If no placeholder-level transform is needed, use:
+   {{swResult||pattern||replacement}}
+4) Use regex syntax compatible with Apple NSRegularExpression.
+5) Do NOT use JavaScript regex literals like /pattern/gi.
+6) If case-insensitive matching is needed, use inline options in pattern (for example (?i), (?-i), (?m), (?s)).
+7) Assume replacements are already global; do not add g flags.
+8) Escape backslashes correctly for Macrowhisper placeholder text (example: \\b, \\s, \\n).
+9) Capture references in replacement can use $1 or ${1}.
+10) If capture transforms are useful, use this syntax in replacement:
+    ${N::transformName}
+
+Available transformName values:
+uppercase, lowercase, uppercaseFirst, lowercaseFirst, camelCase, pascalCase,
+snakeCase, kebabCase, altCase, altCase:upperFirst, randomCase, trim,
+titleCase, titleCase:en, titleCase:es, titleCase:fr, titleCase:all, ensureSentence
+
+Goal:
+[Describe what should be matched/removed/replaced]
+
+Input examples to handle:
+[Paste 3-10 realistic phrases/transcriptions]
+```
+
+*Replace `swResult` with any other placeholder (for example `clipboardContext`) when needed. Macrowhisper applies at most one placeholder-level transform (`::...`) before regex replacements.*
 
 ---
 
@@ -1544,7 +1546,7 @@ Example:
 
 ## 18) Config Examples
 
-### 18.1 Beginner-friendly everyday config
+### 18.1 Simple Everyday config
 
 ```json
 {
@@ -1569,14 +1571,14 @@ Example:
       "action": ".autoPaste",
       "icon": "•"
     },
-    "emailDraft": {
-      "action": "Hi,\n\n{{swResult}}\n\nThanks,",
-      "triggerModes": "email"
+    "emailWithDictatedLineBreaks": {
+      "action": "Hey,\n\n{{swResult::ensureSentence||(?i)\\s*\\bline\\s*br(?:eak|eek|eik|iek|ick|ake)\\b[\\s.,;!?]*||\n||(?m)([^\\s.!?])(\\n+)||$1.$2||(?m)(\\n+)([a-z])||$1${2::uppercase}}}\n\nThanks,\nRobert",
+      "triggerUrls": "mail.yahoo.com"
     }
   },
   "urls": {
     "google": {
-      "action": "https://www.google.com/search?q={{swResult||\.$||}}",
+      "action": "https://www.google.com/search?q={{swResult||\\.$||}}",
       "triggerVoice": "google|search",
       "triggerLogic": "or",
       "openWith": "Safari",

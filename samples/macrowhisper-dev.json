@@ -74,27 +74,6 @@
       "triggerUrls" : null,
       "triggerVoice" : null
     },
-    "email" : {
-      "action" : "Hey,\n\n{{swResult::ensureSentence||(?i)\\s*\\bline\\s*br(?:eak|eek|eik|iek|ick|ake)\\b[\\s.,;!?]*||\n||(?m)([^\\s.!?])(\n+)||$1.$2||(?m)(\n+)([a-z])||$1${2::uppercase}}}\n\nThanks,\nRobert",
-      "actionDelay" : null,
-      "icon" : null,
-      "inputCondition" : null,
-      "moveTo" : null,
-      "nextAction" : null,
-      "pressReturn" : null,
-      "restoreClipboard" : null,
-      "restoreClipboardDelay" : null,
-      "simEsc" : null,
-      "simKeypress" : null,
-      "smartCasing" : null,
-      "smartPunctuation" : null,
-      "smartSpacing" : null,
-      "triggerApps" : null,
-      "triggerLogic" : "or",
-      "triggerModes" : null,
-      "triggerUrls" : "mail.yahoo.com",
-      "triggerVoice" : null
-    },
     "pasteChat" : {
       "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
       "actionDelay" : 0,
