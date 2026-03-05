@@ -1214,7 +1214,7 @@ What each transform does:
 - `titleCase:es`: Spanish title case rules.
 - `titleCase:fr`: French title case rules.
 - `titleCase:all`: capitalizes the first letter of every word (including minor words like "and", "of", "de", etc.).
-- `ensureSentence`: makes sure the text starts with a capital letter and ends with `.`, `!`, or `?`. If ending punctuation is missing, it adds a period (`.`).
+- `ensureSentence`: makes sure the text starts with a capital letter and ends with closing punctuation. If ending punctuation is missing, it adds a period (`.`). Existing terminal `.`, `!`, `?`, `,`, `;`, or `:` is preserved.
   
 Examples:
 

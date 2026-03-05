@@ -145,6 +145,21 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let result21 = processDynamicPlaceholders(action: action21, metaJson: meta21, actionType: .insert).text
         assertEqual(result21, "<clipboard-context-1>\nglobal-stacking\n</clipboard-context-1>", "unlocked clipboardContext stacking fallback stays intact")
 
+        let action22 = "{{swResult::ensureSentence}}"
+        let meta22: [String: Any] = ["llmResult": "in this case,"]
+        let result22 = processDynamicPlaceholders(action: action22, metaJson: meta22, actionType: .insert).text
+        assertEqual(result22, "In this case,", "ensureSentence preserves trailing comma")
+
+        let action23 = "{{swResult::ensureSentence}}"
+        let meta23: [String: Any] = ["llmResult": "in this case;"]
+        let result23 = processDynamicPlaceholders(action: action23, metaJson: meta23, actionType: .insert).text
+        assertEqual(result23, "In this case;", "ensureSentence preserves trailing semicolon")
+
+        let action24 = "{{swResult::ensureSentence}}"
+        let meta24: [String: Any] = ["llmResult": "in this case:"]
+        let result24 = processDynamicPlaceholders(action: action24, metaJson: meta24, actionType: .insert).text
+        assertEqual(result24, "In this case:", "ensureSentence preserves trailing colon")
+
         recordingsWatcher = nil
     }
 }
