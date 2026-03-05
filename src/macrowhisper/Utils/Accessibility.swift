@@ -877,7 +877,19 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
         "com.microsoft.edgemac",
         "com.operasoftware.Opera",
         "com.brave.Browser",
+        "company.thebrowser.dia",
+        "com.openai.atlas",
         "com.vivaldi.Vivaldi",
+        "com.kagi.kagimacOS",
+        "org.mozilla.librewolf",
+        "ai.perplexity.comet",
+        "org.torproject.torbrowser",
+        "net.mullvad.mullvadbrowser",
+        "net.waterfox.waterfox",
+        "com.sigmaos.sigmaos.macos",
+        "com.duckduckgo.macos.browser",
+        "app.zen-browser.zen",
+        "net.imput.helium",
         arcBrowserBundleId,  // Arc Browser
         "org.chromium.Chromium"
     ]
