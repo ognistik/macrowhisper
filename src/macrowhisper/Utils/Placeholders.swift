@@ -53,6 +53,43 @@ private enum PlaceholderTransform: String {
     case ensureSentence
 }
 
+private extension PlaceholderTransform {
+    static func fromUserInput(_ raw: String) -> PlaceholderTransform? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return Self.allCasesByNormalizedName[normalized]
+    }
+
+    private static let allCasesByNormalizedName: [String: PlaceholderTransform] = {
+        let allCases: [PlaceholderTransform] = [
+            .uppercase,
+            .lowercase,
+            .uppercaseFirst,
+            .lowercaseFirst,
+            .camelCase,
+            .pascalCase,
+            .snakeCase,
+            .kebabCase,
+            .altCase,
+            .altCaseUpperFirst,
+            .randomCase,
+            .trim,
+            .titleCase,
+            .titleCaseEn,
+            .titleCaseEs,
+            .titleCaseFr,
+            .titleCaseAll,
+            .ensureSentence
+        ]
+        var lookup: [String: PlaceholderTransform] = [:]
+        for transform in allCases {
+            lookup[transform.rawValue.lowercased()] = transform
+        }
+        return lookup
+    }()
+}
+
 private func lowercasingFirstLetterForPlaceholder(_ text: String) -> String {
     var result = text
     for index in result.indices {
@@ -237,7 +274,7 @@ private func applyPlaceholderTransform(_ value: String, transformName: String, p
         return value
     }
 
-    guard let transform = PlaceholderTransform(rawValue: transformName) else {
+    guard let transform = PlaceholderTransform.fromUserInput(transformName) else {
         logWarning("[PlaceholderTransform] Unsupported transform '\(transformName)' for placeholder '\(placeholderKey)' - skipping")
         return value
     }

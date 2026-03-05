@@ -1195,6 +1195,8 @@ Basic format:
 {{placeholder::transformName}}
 ```
 
+Transform names are case-insensitive (`titleCase`, `TITLECASE`, and `TitleCase` are equivalent).
+
 What each transform does:
 
 - `uppercase`: makes the whole value UPPERCASE.
@@ -1323,7 +1325,8 @@ Capture transform format inside replacement templates:
 ${N::transformName}
 ```
 
-*Where `N` is the capture index (`0` = full match, `1+` = capture groups). Use this to perform transforms within the regex pipieline.
+*Where `N` is the capture index (`0` = full match, `1+` = capture groups). Use this to perform transforms within the regex pipieline.*
+`transformName` is also case-insensitive in capture templates.
 
 13.1 Examples:
 
@@ -1389,6 +1392,7 @@ Available transformName values:
 uppercase, lowercase, uppercaseFirst, lowercaseFirst, camelCase, pascalCase,
 snakeCase, kebabCase, altCase, altCase:upperFirst, randomCase, trim,
 titleCase, titleCase:en, titleCase:es, titleCase:fr, titleCase:all, ensureSentence
+(Names are case-insensitive.)
 
 Goal:
 [Describe what should be matched/removed/replaced]
