@@ -990,6 +990,8 @@ URL capture is strict-allowlist for supported browsers only:
 
 Unknown apps/browsers return empty URL immediately (no fallback crawling). If your browser is not listed, open a GitHub issue with browser/version details.
 
+Arc URL capture is accessibility-only. If Macrowhisper cannot read a reliable Arc URL quickly, it returns empty (no AppleScript fallback and no host-only fallback from Arc placeholder fields).
+
 ### 8.5 `triggerLogic`
 
 - `or` (default): any configured trigger type can match
@@ -1304,6 +1306,7 @@ Stacking output format for multiple items:
 - watcher flow: resolved from the same anchored app snapshot used for triggers/chains
 - stays stable across all steps in a chain, even if user focus changes mid-chain
 - `{{frontAppUrl}}` resolves only for supported browsers; unsupported apps return empty quickly
+- for Arc specifically, unresolved or host-only placeholder values return empty to avoid false positive URL matches
 
 ### 12.6 On CLI Execution
 

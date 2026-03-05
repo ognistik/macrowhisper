@@ -764,6 +764,23 @@ func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> S
     return getBrowserURL(appElement: appElement, frontApp: targetApp, fallbackBundleId: fallbackBundleId)
 }
 
+private let arcBrowserBundleId = "company.thebrowser.Browser"
+private let arcURLWebAreaAttributes: [String] = [
+    "AXURL",
+    "AXDocument",
+    kAXValueAttribute as String
+]
+
+private enum ArcURLSourceKind: String {
+    case webArea
+    case commandBar
+}
+
+private struct ArcURLSourceRef {
+    let kind: ArcURLSourceKind
+    let attribute: String
+    let element: AXUIElement
+}
 
 /// Gets the current URL from browser applications
 private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplication, fallbackBundleId: String? = nil) -> String? {
@@ -776,7 +793,7 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
         "com.operasoftware.Opera",
         "com.brave.Browser",
         "com.vivaldi.Vivaldi",
-        "company.thebrowser.Browser",  // Arc Browser
+        arcBrowserBundleId,  // Arc Browser
         "org.chromium.Chromium"
     ]
     
@@ -799,18 +816,19 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
     
     let windowElement = focusedWindow as! AXUIElement
 
-    // First pass: use accessibility-only extraction for known browsers.
-    if let axURL = getBrowserURLViaAccessibility(windowElement: windowElement, bundleId: bundleId) {
-        logDebug("[AppContext] Found browser URL via accessibility: \(redactForLogs(axURL))")
-        return axURL
+    if bundleId == arcBrowserBundleId {
+        if let arcURL = getArcURLViaAccessibility(windowElement: windowElement, bundleId: bundleId) {
+            logDebug("[AppContext] Found Arc URL via accessibility: \(redactForLogs(arcURL))")
+            return arcURL
+        }
+        logDebug("[AppContext] Arc URL not found via accessibility")
+        return nil
     }
 
-    // Arc-only fallback: AppleScript can provide full URL when AX cannot.
-    if bundleId == "company.thebrowser.Browser" {
-        if let scriptUrl = getArcURLViaAppleScript() {
-            logDebug("[AppContext] Successfully found full Arc URL via AppleScript: \(redactForLogs(scriptUrl))")
-            return scriptUrl
-        }
+    // Accessibility-only extraction for known non-Arc browsers.
+    if let axURL = getBrowserURLViaAccessibility(windowElement: windowElement) {
+        logDebug("[AppContext] Found browser URL via accessibility: \(redactForLogs(axURL))")
+        return axURL
     }
     
     logDebug("[AppContext] No URL found in browser window")
@@ -819,11 +837,7 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
 
 /// Browser-agnostic URL extraction using accessibility only.
 /// Order matters: prioritize browser chrome (address bar), then web content attributes.
-private func getBrowserURLViaAccessibility(windowElement: AXUIElement, bundleId: String) -> String? {
-    if bundleId == "company.thebrowser.Browser", let arcUrl = findArcBrowserURL(windowElement) {
-        return arcUrl
-    }
-
+private func getBrowserURLViaAccessibility(windowElement: AXUIElement) -> String? {
     if let addressBarUrl = findAddressBarURL(windowElement) {
         return addressBarUrl
     }
@@ -835,130 +849,124 @@ private func getBrowserURLViaAccessibility(windowElement: AXUIElement, bundleId:
     return nil
 }
 
-/// Specifically searches for Arc browser URL using the commandBarPlaceholderTextField identifier
-private func findArcBrowserURL(_ element: AXUIElement) -> String? {
-    return findArcURLRecursively(element, depth: 0)
+private func getArcURLViaAccessibility(windowElement: AXUIElement, bundleId: String) -> String? {
+    let startedAt = CFAbsoluteTimeGetCurrent()
+
+    guard let resolved = resolveArcURLSource(windowElement: windowElement) else {
+        logArcURLResolution(
+            bundleId: bundleId,
+            sourceKind: nil,
+            attribute: nil,
+            cacheHit: false,
+            url: nil,
+            startedAt: startedAt
+        )
+        return nil
+    }
+
+    logArcURLResolution(
+        bundleId: bundleId,
+        sourceKind: resolved.source.kind,
+        attribute: resolved.source.attribute,
+        cacheHit: false,
+        url: resolved.url,
+        startedAt: startedAt
+    )
+    return resolved.url
 }
 
-/// Recursively searches for Arc browser URL with the specific identifier
-private func findArcURLRecursively(_ element: AXUIElement, depth: Int) -> String? {
-    // Limit recursion depth for performance
-    guard depth < 10 else { return nil }
-    
-    // Check if this element has the Arc URL identifier
-    var identifier: CFTypeRef?
-    let identifierError = AXUIElementCopyAttributeValue(element, "AXIdentifier" as CFString, &identifier)
-    
-    if identifierError == .success, let identifier = identifier, let identifierString = identifier as? String {
-        if identifierString == "commandBarPlaceholderTextField" {
-            // This is Arc's URL element - get its value
-            var value: CFTypeRef?
-            let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
-            
-            if valueError == .success, let value = value, let urlText = value as? String {
-                let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty && trimmed != "Search…" { // Ignore placeholder text
-                    // Arc stores URL without protocol most of the time, so add https:// if it looks like a domain
-                    if trimmed.contains(".") && !trimmed.hasPrefix("http") {
-                        logDebug("[ARC URL] Found Arc domain: \(redactForLogs(trimmed)), adding https://")
-                        return "https://\(trimmed)"
-                    } else if trimmed.hasPrefix("http") {
-                        logDebug("[ARC URL] Found Arc URL with protocol: \(redactForLogs(trimmed))")
-                        return trimmed
-                    }
-                }
+private func resolveArcURLSource(windowElement: AXUIElement) -> (url: String, source: ArcURLSourceRef)? {
+    if let webArea = findBestWebArea(from: windowElement, maxDepth: 10, maxNodes: 2200) {
+        for attribute in arcURLWebAreaAttributes {
+            let source = ArcURLSourceRef(kind: .webArea, attribute: attribute, element: webArea)
+            if let url = readArcURLFromSource(source) {
+                return (url, source)
             }
         }
     }
-    
-    let children = getAXTraversalChildren(of: element)
-    for child in children {
-        if let foundURL = findArcURLRecursively(child, depth: depth + 1) {
-            return foundURL
+
+    if let commandBarElement = findElementByAXIdentifier(
+        "commandBarPlaceholderTextField",
+        from: windowElement,
+        maxDepth: 10,
+        maxNodes: 1800
+    ) {
+        let source = ArcURLSourceRef(kind: .commandBar, attribute: kAXValueAttribute as String, element: commandBarElement)
+        if let url = readArcURLFromSource(source) {
+            return (url, source)
         }
     }
-    
+
     return nil
 }
 
-/// Gets the current URL from Arc browser using AppleScript as a fallback
-/// This provides the full URL including path, query parameters, etc.
-private func getArcURLViaAppleScript() -> String? {
-    // Try multiple AppleScript approaches for Arc
-    let scripts = [
-        // Standard approach
-        """
-        tell application "Arc"
-            try
-                set currentURL to URL of active tab of front window
-                return currentURL
-            on error
-                return ""
-            end try
-        end tell
-        """,
-        // Alternative approach using document
-        """
-        tell application "Arc"
-            try
-                set currentURL to URL of active tab of document 1
-                return currentURL
-            on error
-                return ""
-            end try
-        end tell
-        """,
-        // Direct window approach
-        """
-        tell application "Arc"
-            try
-                tell front window
-                    set currentURL to URL of active tab
-                    return currentURL
-                end tell
-            on error
-                return ""
-            end try
-        end tell
-        """
-    ]
-    
-    for (index, script) in scripts.enumerated() {
-        logDebug("[ARC APPLESCRIPT] Trying approach \(index + 1)")
-        
-        let task = Process()
-        task.launchPath = "/usr/bin/osascript"
-        task.arguments = ["-e", script]
-        
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-            
-            if task.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let output = String(data: data, encoding: .utf8) {
-                    let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty && trimmed != "" && isValidURL(trimmed) {
-                        logDebug("[ARC APPLESCRIPT] Successfully retrieved full URL (approach \(index + 1)): \(redactForLogs(trimmed))")
-                        return trimmed
-                    } else {
-                        logDebug("[ARC APPLESCRIPT] Approach \(index + 1) returned empty/invalid: '\(trimmed)'")
-                    }
-                }
-            } else {
-                logDebug("[ARC APPLESCRIPT] Approach \(index + 1) failed with exit code: \(task.terminationStatus)")
-            }
-        } catch {
-            logDebug("[ARC APPLESCRIPT] Approach \(index + 1) error: \(error)")
+private func readArcURLFromSource(_ source: ArcURLSourceRef) -> String? {
+    var valueRef: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(source.element, source.attribute as CFString, &valueRef)
+    guard error == .success, let valueRef = valueRef else {
+        return nil
+    }
+
+    switch source.kind {
+    case .webArea:
+        return normalizeBrowserURLCandidate(valueRef)
+    case .commandBar:
+        return normalizeArcCommandBarURLCandidate(valueRef)
+    }
+}
+
+private func findElementByAXIdentifier(_ identifier: String, from root: AXUIElement, maxDepth: Int, maxNodes: Int) -> AXUIElement? {
+    var queue: [(element: AXUIElement, depth: Int)] = [(root, 0)]
+    var visited = 0
+    var seenHashes = Set<CFHashCode>()
+
+    while !queue.isEmpty && visited < maxNodes {
+        let current = queue.removeFirst()
+        visited += 1
+
+        let currentHash = CFHash(current.element)
+        if !seenHashes.insert(currentHash).inserted {
+            continue
+        }
+
+        var identifierRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(current.element, "AXIdentifier" as CFString, &identifierRef) == .success,
+           let currentIdentifier = identifierRef as? String,
+           currentIdentifier == identifier {
+            return current.element
+        }
+
+        guard current.depth < maxDepth else { continue }
+        for child in getAXTraversalChildren(of: current.element) {
+            queue.append((child, current.depth + 1))
         }
     }
-    
-    logDebug("[ARC APPLESCRIPT] All approaches failed")
+
     return nil
+}
+
+private func shouldLogArcURLDiagnostics() -> Bool {
+    return verboseLogging || !redactedLogsEnabled
+}
+
+private func logArcURLResolution(
+    bundleId: String,
+    sourceKind: ArcURLSourceKind?,
+    attribute: String?,
+    cacheHit: Bool,
+    url: String?,
+    startedAt: CFAbsoluteTime
+) {
+    guard shouldLogArcURLDiagnostics() else { return }
+
+    let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
+    let sourceDescription = sourceKind?.rawValue ?? "none"
+    let attributeDescription = attribute ?? "none"
+    let urlDescription = url.map { redactForLogs($0) } ?? "nil"
+    logDebug(
+        "[ArcURL] bundle=\(bundleId) source=\(sourceDescription) attribute=\(attributeDescription) " +
+        "cacheHit=\(cacheHit) elapsedMs=\(elapsedMs) url=\(urlDescription)"
+    )
 }
 
 /// Specifically searches for address bar URLs in browser windows
@@ -1038,16 +1046,8 @@ private func findWebAreaURLRecursively(_ element: AXUIElement, depth: Int) -> St
             let valueError = AXUIElementCopyAttributeValue(element, attribute as CFString, &valueRef)
             guard valueError == .success, let valueRef = valueRef else { continue }
 
-            if let valueString = valueRef as? String {
-                let trimmed = valueString.trimmingCharacters(in: .whitespacesAndNewlines)
-                if isValidURL(trimmed) {
-                    return trimmed
-                }
-            } else if let valueURL = valueRef as? URL {
-                let urlString = valueURL.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
-                if isValidURL(urlString) {
-                    return urlString
-                }
+            if let normalizedURL = normalizeBrowserURLCandidate(valueRef) {
+                return normalizedURL
             }
         }
     }
