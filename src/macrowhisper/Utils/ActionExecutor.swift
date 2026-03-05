@@ -427,9 +427,6 @@ class ActionExecutor {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
-            resolved.pressReturn = nil
-        }
         if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.simEsc = nil
         }

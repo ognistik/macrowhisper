@@ -496,7 +496,7 @@ Quick rules (what wins?)
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
-| Boolean/number overrides (`simEsc`, `restoreClipboard`, `actionDelay`, `pressReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing`) | Use `defaults.<sameField>` | Action value wins |
+| Boolean/number overrides (`simEsc`, `restoreClipboard`, `actionDelay`, `simReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing`) | Use `defaults.<sameField>` | Action value wins |
 | `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
 | `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
 | `nextAction` | `null` -> use `defaults.nextAction` (first chain step only) | Action value wins (`""` = explicit no next action) |
@@ -608,7 +608,7 @@ Null behavior at `defaults` level:
 | `smartSpacing` | bool/null | `true` | Smart boundary spacing normalization for insert actions. `null` = built-in default (`true`). |
 | `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
 | `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
-| `pressReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
+| `simReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
 | `returnDelay` | number/null | `0.1` | Delay before Return press. `null` = built-in default (`0.1`). |
 | `restoreClipboard` | bool/null | `true` | Restore original clipboard at end of action flow. `null` = built-in default (`true`). |
 | `restoreClipboardDelay` | number/null | `0.3` | Delay before clipboard restoration at end of action flow. `null` = built-in default (`0.3`). |
@@ -718,7 +718,7 @@ Insert-only extra fields:
 - `smartCasing` (bool/null)
 - `smartPunctuation` (bool/null)
 - `smartSpacing` (bool/null)
-- `pressReturn` (bool/null)
+- `simReturn` (bool/null)
 
 Insert field reference:
 
@@ -729,7 +729,7 @@ Insert field reference:
 | `smartCasing` | bool/null | `true`, `false`, `null` | First-letter case normalization at insertion boundaries (lowercase mid-sentence, uppercase at strong sentence/line starts). |
 | `smartPunctuation` | bool/null | `true`, `false`, `null` | Punctuation conflict cleanup at boundaries (removal only; no punctuation insertion). |
 | `smartSpacing` | bool/null | `true`, `false`, `null` | Boundary spacing normalization around inserted text. |
-| `pressReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
+| `simReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
 
 
 *AX guard behavior: if Accessibility is unavailable or insertion context is low-confidence, smart casing, smart punctuation, and smart spacing are all skipped for that insertion.*
@@ -739,7 +739,7 @@ Examples:
 ```json
 "emailDraft": {
   "action": "Hi,\n\n{{swResult}}\n\nThanks,",
-  "pressReturn": false,
+  "simReturn": false,
   "actionDelay": 0,
   "triggerModes": "email"
 }
@@ -1558,7 +1558,7 @@ Example:
     "activeAction": "autoPaste",
     "actionDelay": 0,
     "restoreClipboard": true,
-    "pressReturn": false,
+    "simReturn": false,
     "smartCasing": true,
     "smartPunctuation": true,
     "smartSpacing": true,

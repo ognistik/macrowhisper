@@ -546,7 +546,7 @@ Determines where to move or how to handle the processed recording folder:
 - `restoreClipboard: Bool` - Enable clipboard restoration (default: true)
 - `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
-- `pressReturn: Bool` - Auto-press return after actions (default: false)
+- `simReturn: Bool` - Auto-press return after actions (default: false)
 - `smartCasing: Bool` - Smart first-letter case normalization at insertion boundaries (default: true)
 - `smartPunctuation: Bool` - Smart punctuation conflict cleanup at insertion boundaries (default: true)
 - `smartSpacing: Bool` - Smart boundary spacing normalization (default: true)

@@ -99,14 +99,14 @@
           "minimum": 0,
           "examples": [7, 30, 0, null]
         },
-        "pressReturn": {
+        "simReturn": {
           "type": ["boolean", "null"],
           "description": "Automatically press Return/Enter after action execution. This action can be scheduled with --auto-return <true/false> CLI flag. null or omitted = use built-in default (false).",
           "default": false
         },
         "returnDelay": {
           "type": ["number", "null"],
-          "description": "Delay in seconds before pressing Return (if pressReturn is enabled). null or omitted = use built-in default (0.1).",
+          "description": "Delay in seconds before pressing Return (if simReturn is enabled). null or omitted = use built-in default (0.1).",
           "minimum": 0,
           "default": 0.1
         },
@@ -372,7 +372,7 @@
               "description": "Enable smart boundary spacing normalization for this insert. null = use global default, true/false = explicit override.",
               "default": null
             },
-            "pressReturn": {
+            "simReturn": {
               "type": ["boolean", "null"],
               "description": "Automatically press Return after this action. null = use global default, true/false = explicit override.",
               "default": null

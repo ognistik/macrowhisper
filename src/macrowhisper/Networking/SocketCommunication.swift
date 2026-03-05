@@ -1174,9 +1174,6 @@ class SocketCommunication {
         if !shouldApplyToken("restoreClipboardDelay", tokens: tokens, isInInputField: isInInputField) {
             resolved.restoreClipboardDelay = nil
         }
-        if !shouldApplyToken("pressReturn", tokens: tokens, isInInputField: isInInputField) {
-            resolved.pressReturn = nil
-        }
         if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.simEsc = nil
         }
@@ -2260,12 +2257,12 @@ class SocketCommunication {
                 suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulatePressReturn(activeInsert: activeInsert); return
+                checkAndSimulateSimReturn(activeInsert: activeInsert); return
             }
         }
         simulateEscKeyPress(activeInsert: activeInsert)
         pasteText(resolvedText, activeInsert: activeInsert)
-        checkAndSimulatePressReturn(activeInsert: activeInsert)
+        checkAndSimulateSimReturn(activeInsert: activeInsert)
     }
     
     // This version is for CLI action execution and does NOT press ESC.
@@ -2298,7 +2295,7 @@ class SocketCommunication {
                 suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulatePressReturn(activeInsert: activeInsert); return
+                checkAndSimulateSimReturn(activeInsert: activeInsert); return
             }
         }
         // No ESC key press for CLI execution
@@ -2307,7 +2304,7 @@ class SocketCommunication {
         } else {
             pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
         }
-        checkAndSimulatePressReturn(activeInsert: activeInsert)
+        checkAndSimulateSimReturn(activeInsert: activeInsert)
     }
     
     // This version is for clipboard-monitored insert actions and does NOT press ESC or apply actionDelay
@@ -2334,13 +2331,13 @@ class SocketCommunication {
                 suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulatePressReturn(activeInsert: activeInsert); return true
+                checkAndSimulateSimReturn(activeInsert: activeInsert); return true
             }
         }
         
         // No ESC key press or actionDelay - these are handled by ClipboardMonitor
         pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
-        checkAndSimulatePressReturn(activeInsert: activeInsert)
+        checkAndSimulateSimReturn(activeInsert: activeInsert)
         return true
     }
     
@@ -2534,20 +2531,20 @@ class SocketCommunication {
         }
     }
     
-    private func checkAndSimulatePressReturn(activeInsert: AppConfiguration.Insert?) {
-        let shouldPressReturn = activeInsert?.pressReturn ?? globalConfigManager?.config.defaults.pressReturn ?? false
+    private func checkAndSimulateSimReturn(activeInsert: AppConfiguration.Insert?) {
+        let shouldSimReturn = activeInsert?.simReturn ?? globalConfigManager?.config.defaults.simReturn ?? false
         if globalState.autoReturnEnabled {
-            if shouldPressReturn {
-                // If both autoReturn and pressReturn are set, treat as pressReturn (simulate once, clear globalState.autoReturnEnabled)
-                logInfo("Simulating return key press due to pressReturn setting (auto-return was also set)")
+            if shouldSimReturn {
+                // If both autoReturn and simReturn are set, treat as simReturn (simulate once, clear globalState.autoReturnEnabled)
+                logInfo("Simulating return key press due to simReturn setting (auto-return was also set)")
                 simulateReturnKeyPress()
             } else {
                 logInfo("Simulating return key press due to auto-return")
                 simulateReturnKeyPress()
             }
             globalState.autoReturnEnabled = false
-        } else if shouldPressReturn {
-            logInfo("Simulating return key press due to pressReturn setting")
+        } else if shouldSimReturn {
+            logInfo("Simulating return key press due to simReturn setting")
             simulateReturnKeyPress()
         }
     }
@@ -2770,7 +2767,7 @@ class SocketCommunication {
                 lines.append("simKeypress: \(defaults.simKeypress ? "yes" : "no")")
                 lines.append("redactedLogs: \(defaults.redactedLogs ? "yes" : "no")")
                 lines.append(String(format: "actionDelay: %.2fs", defaults.actionDelay))
-                lines.append("pressReturn: \(defaults.pressReturn ? "yes" : "no")")
+                lines.append("simReturn: \(defaults.simReturn ? "yes" : "no")")
                 lines.append(String(format: "returnDelay: %.2fs", defaults.returnDelay))
                 if let history = defaults.history {
                     lines.append("history retention: \(history == 0 ? "keep only most recent" : "\(history) days")")
