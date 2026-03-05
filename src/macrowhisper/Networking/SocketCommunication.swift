@@ -1646,18 +1646,22 @@ class SocketCommunication {
             leftCharacter: leftCharacter,
             leftLinePrefix: leftLinePrefix
         )
+        let isImmediatelyAfterOpeningWrapper = leftCharacter.map {
+            isOpeningWrapperBoundaryCharacter($0, leftLinePrefix: leftLinePrefix)
+        } ?? false
 
         if let first = updated.first {
             let shouldInsertLeadingSpaceForMarkdownList =
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
                 !(leftCharacter?.isWhitespace ?? false)
             let shouldInsertLeadingSpaceAfterWord = effectiveLeft.map { isWordCharacter($0) } ?? false
-            let punctuationNeedingTrailingSpace = ".,;:!?)]}\""
+            let punctuationNeedingTrailingSpace = ".,;:!?)]}\"”’»›"
             let shouldInsertLeadingSpaceAfterPunctuation = effectiveLeft.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
             let startsWithBoundaryNeedingLeadingSpace = isWordCharacter(first) || isOpeningWrapperCharacter(first)
             let shouldInsertLeadingSpaceBeforeOpeningWrapper = (effectiveLeft.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
 
             if startsWithBoundaryNeedingLeadingSpace &&
+                !isImmediatelyAfterOpeningWrapper &&
                 (shouldInsertLeadingSpaceForMarkdownList ||
                  shouldInsertLeadingSpaceAfterWord ||
                  shouldInsertLeadingSpaceAfterPunctuation ||
@@ -1721,7 +1725,10 @@ class SocketCommunication {
         let effectiveLeft = effectiveLeftContextCharacter(
             leftCharacter: leftCharacter,
             leftLinePrefix: leftLinePrefix
-        ) ?? leftCharacter
+        )
+        guard let effectiveLeft else {
+            return false
+        }
         return !".!?".contains(effectiveLeft)
     }
 
@@ -1771,7 +1778,10 @@ class SocketCommunication {
         let effectiveLeft = effectiveLeftContextCharacter(
             leftCharacter: leftCharacter,
             leftLinePrefix: leftLinePrefix
-        ) ?? leftCharacter
+        )
+        guard let effectiveLeft else {
+            return true
+        }
         if isIgnorableBoundaryCharacter(effectiveLeft) {
             return true
         }
@@ -1851,11 +1861,91 @@ class SocketCommunication {
             return character
         }
 
-        return leftCharacter
+        return nil
+    }
+
+    private func isOpeningWrapperBoundaryCharacter(_ character: Character, leftLinePrefix: String) -> Bool {
+        guard isOpeningWrapperCharacter(character) else {
+            return false
+        }
+
+        if character == "\"" {
+            return isLikelyOpeningStraightDoubleQuoteBoundary(in: leftLinePrefix)
+        }
+
+        if character == "'" {
+            return isLikelyOpeningStraightSingleQuoteBoundary(in: leftLinePrefix)
+        }
+
+        return true
+    }
+
+    private func isLikelyOpeningStraightDoubleQuoteBoundary(in leftLinePrefix: String) -> Bool {
+        let characters = Array(leftLinePrefix)
+        guard let last = characters.last, last == "\"" else {
+            return false
+        }
+
+        let previous = characterBeforeLast(in: characters)
+        // A quote after a word/digit is almost always closing (e.g. end quote or 6").
+        if let previous, isWordCharacter(previous) {
+            return false
+        }
+
+        // Count straight double quotes before current one, ignoring escaped quotes (\").
+        var priorQuoteCount = 0
+        var index = 0
+        while index < characters.count - 1 {
+            if characters[index] == "\"" {
+                let escaped = index > 0 && characters[index - 1] == "\\"
+                if !escaped {
+                    priorQuoteCount += 1
+                }
+            }
+            index += 1
+        }
+
+        if priorQuoteCount % 2 == 0 {
+            return true
+        }
+
+        return false
+    }
+
+    private func isLikelyOpeningStraightSingleQuoteBoundary(in leftLinePrefix: String) -> Bool {
+        let characters = Array(leftLinePrefix)
+        guard let last = characters.last, last == "'" else {
+            return false
+        }
+
+        guard let previous = characterBeforeLast(in: characters) else {
+            return true
+        }
+
+        // Avoid treating contractions/possessives as opening quote boundaries.
+        if isWordCharacter(previous) {
+            return false
+        }
+
+        if previous.isWhitespace || isIgnorableBoundaryCharacter(previous) {
+            return true
+        }
+        if isOpeningWrapperCharacter(previous) {
+            return true
+        }
+        return ",;:.!?-–—/".contains(previous)
+    }
+
+    private func characterBeforeLast(in characters: [Character]) -> Character? {
+        guard characters.count >= 2 else {
+            return nil
+        }
+        return characters[characters.count - 2]
     }
 
     private func isSkippableTrailingDelimiterForBoundary(_ character: Character) -> Bool {
-        "*_~`)]}\"'".contains(character)
+        let delimiters = "*_~`()[]{}<>\"'“”‘’«»‹›"
+        return delimiters.contains(character)
     }
 
     private func isMarkdownHeadingLineStart(_ leftLinePrefix: String) -> Bool {
@@ -2220,11 +2310,11 @@ class SocketCommunication {
     }
 
     private func isOpeningWrapperCharacter(_ character: Character) -> Bool {
-        "([{\"".contains(character)
+        "([{<\"'“‘«‹".contains(character)
     }
 
     private func isClosingWrapperCharacter(_ character: Character) -> Bool {
-        ")]}\"".contains(character)
+        ")]}>\"'”’»›".contains(character)
     }
 
     private func isInlineContinuationDelimiter(_ character: Character) -> Bool {

@@ -68,6 +68,7 @@ func escapeUrlPlaceholder(_ value: String) -> String { value }
 func getSelectedText() -> String { "" }
 func getAppContext(targetPid: Int32?, fallbackAppName: String?) -> String { "" }
 func getAppVocabulary(targetPid: Int32?, fallbackAppName: String?, fallbackBundleId: String?) -> String { "" }
+func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> String? { nil }
 
 func resolveRecordingFolderPath(
     configManager: ConfigurationManager?,
