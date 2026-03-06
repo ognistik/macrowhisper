@@ -1,144 +1,190 @@
-# Macrowhisper Complete Documentation
+# Macrowhisper User Guide
+
+Macrowhisper works with [Superwhisper](https://superwhisper.com/?via=robert). Superwhisper turns your voice into text. Macrowhisper decides what should happen next.
+
+That "next step" can be as simple as pasting your text, or as advanced as opening a website, running a Shortcut, launching a shell command, or chaining several actions together.
+
+If you are new, start with these sections:
+
+1. What Macrowhisper Does
+2. Quick Start
+3. What Happens After You Dictate
+4. Configuration Basics
+5. Action Types
+6. Triggers
+7. Config Examples
+8. Troubleshooting
+
+Everything else is there when you want more control.
 
 ## Table of Contents
 
-1. What Macrowhisper Is
+1. What Macrowhisper Does
 2. Quick Start
-3. How Macrowhisper Processes a Dictation (Execution Flow)
+3. What Happens After You Dictate
 4. Command Reference
-5. Configuration File Fundamentals
+5. Configuration Basics
 6. Global Defaults Reference
-7. Action Types (Insert, URL, Shortcut, Shell, AppleScript)
-8. Trigger System (Voice, App, Mode, URL)
-9. Input Conditions (`inputCondition`) Deep Dive
-10. Chaining Actions (`nextAction`) Deep Dive
-11. Placeholders Deep Dive
-12. Context Capture Timing (selected text, clipboard, app context)
+7. Action Types
+8. Triggers
+9. Conditional Behavior with `inputCondition`
+10. Chaining Actions with `nextAction`
+11. Placeholders
+12. When Context Is Captured
 13. Regex Replacements
-14. Contextual Escaping
-15. Clipboard System Deep Dive
-16. Recording File Handling (`moveTo`, `history`)
-17. Advanced Runtime Behavior Notes
-18. Full Config Examples
+14. Escaping Rules
+15. Clipboard Behavior
+16. Recording File Handling
+17. Advanced Runtime Notes
+18. Config Examples
 19. Troubleshooting
 20. Updating and Version Checks
 21. Full Uninstall
-22. Final Learning Path
 
 ---
 
-## 1) What Macrowhisper Is
+## 1) What Macrowhisper Does
 
-Macrowhisper is an automation helper for [Superwhisper](https://superwhisper.com/?via=robert). It watches Superwhisper recordings and executes automations based on a configuration file. It's a layer that turns your dictation into repeatable workflows.
+Macrowhisper is an automation layer for Superwhisper.
 
-  - Superwhisper is excellent at capturing voice and processing it with AI.
-  - Macrowhisper makes the results useful beyond pasting your dictations.
+Superwhisper is great at turning speech into text. Macrowhisper makes that text useful by sending it where you want it to go, in the format you want, with the rules you choose.
 
-### Action types it can execute
+In practice, that means you can:
 
-  - Insert actions (paste/type text)
-  - URL actions (open links/apps)
-  - Shortcut actions (run macOS Shortcuts)
-  - Shell actions
-  - AppleScript actions
+- paste your dictated text into the current app
+- open a search or a website
+- send the text into a macOS Shortcut
+- run a shell command
+- run an AppleScript
+- decide different behavior by phrase, app, mode, or browser URL
+- chain several actions together
 
-> You can also set triggers per action (phrases, active app, used Superwhisper mode) or chain multiple actions one after another one.
+### The action types
 
-### Macrowhisper
+Macrowhisper can run five kinds of actions:
 
-  - Removes repetitive post-dictation steps.
-  - Makes voice workflows predictable and repeatable.
-  - It lets you decide different behavior by phrase, app, and mode.
-  - It scales from simple setup to advanced automations without changing tools.
+- Insert actions: paste or type text
+- URL actions: open websites or apps
+- Shortcut actions: run macOS Shortcuts
+- Shell actions: run Terminal commands
+- AppleScript actions: run AppleScript code
 
-### What actually happens
+### What it helps with
 
-  1. Superwhisper writes a recording folder and `meta.json`.
-  2. Macrowhisper validates required result fields.
-  3. Macrowhisper captures and enriches context (front app, selected text, clipboard context).
-  4. Macrowhisper resolves action priority (auto-return, scheduled, triggers, active action).
-  5. Macrowhisper executes action(s), handles clipboard restoration rules, and applies post-processing.
-   
-### Quick Examples
+Without Macrowhisper, a normal voice workflow often looks like this:
 
-  #### **Without Macrowhisper:**
-    1. Dictate text.
-    2. Manually edit/clean it/copy.
-    3. Switch apps to copy and paste results.
-    4. Run shortcuts/scripts/macros manually.
-    5. Repeat that process many times per day.
+1. Dictate text.
+2. Clean it up manually.
+3. Switch to another app.
+4. Copy and paste it somewhere else.
+5. Run a shortcut, script, or macro by hand.
+6. Repeat that many times a day.
 
-  #### **With Macrowhisper:**
-    1. Dictate once.
-    2. Matching logic picks the right action.
-    3. Action runs immediately (insert, URL, shortcut, shell, or AppleScript).
-    4. Optional chained steps run automatically.
-    5. Clipboard and post-processing are handled consistently.
+With Macrowhisper, the flow can become:
 
-  #### Example 1: Voice command -> web action
-    - You say: `google best mechanical keyboard for mac`.
-    - `triggerVoice` matches `google`.
-    - Macrowhisper strips the trigger word and opens: `https://www.google.com/search?q=best mechanical keyboard for mac`
+1. Dictate once.
+2. Macrowhisper chooses the right action.
+3. The action runs right away.
+4. Any follow-up steps run automatically.
+5. Clipboard handling stays consistent.
 
-  #### Example 2: Dictation -> structured writing template
-    - You dictate in a cleanup Superwhisper mode.
-    - Insert action pastes a consistent structure: opening text/heading, your dictation (`{{swResult}}`), and closing/signature text.
-    - Result: consistent output format every time in a specific app, mode, or with a voice trigger.
+### A simple mental model
 
-  #### Example 3: Dictation -> shortcut pipeline
-    - You dictate task details. AI transforms it into a dictionary.
-    - Shortcut action sends `{{swResult}}` to a macOS Shortcut.
-    - Shortcut creates a task in your task app parsing the details from the dictionary.
-    - Optional `nextAction` opens the app to review the task.
+Think of Macrowhisper like this:
 
-  #### Example 4: Dictation -> script execution
-    - You dictate: `log this release note`.
-    - Shell action writes processed text to a file.
-    - Same format, same destination, no manual copy/paste.
+- Superwhisper gives you the text.
+- Macrowhisper decides what to do with the text.
+
+### What happens behind the scenes
+
+At a high level, Macrowhisper:
+
+1. Detects a new Superwhisper recording.
+2. Waits until the result is ready.
+3. Collects useful context such as the front app, selected text, and clipboard context.
+4. Chooses which action should run.
+5. Runs that action, plus any chained actions.
+6. Cleans up afterward.
+
+You do not need to memorize that to use the app, but it helps when setting up more advanced behavior.
+
+### Quick examples
+
+#### Example 1: Voice command -> web search
+
+- You say: `google best mechanical keyboard for mac`
+- `triggerVoice` matches `google`
+- Macrowhisper removes the trigger word and opens:
+  `https://www.google.com/search?q=best mechanical keyboard for mac`
+
+#### Example 2: Dictation -> writing template
+
+- You dictate in a specific Superwhisper mode
+- an insert action pastes a template around your text
+- your dictation appears inside the template by using `{{swResult}}`
+
+Result: the output keeps the same format every time.
+
+#### Example 3: Dictation -> Shortcut
+
+- You dictate a task
+- a Shortcut action sends the text to a macOS Shortcut
+- the Shortcut creates or updates something in another app
+
+#### Example 4: Dictation -> script
+
+- You say: `log this release note`
+- a shell action writes the processed text to a file
+- the format and destination stay consistent
 
 ---
 
 ## 2) Quick Start
 
-### Install Option 1 (Homebrew)
+This is the fastest path to a working setup.
+
+### Install option 1: Homebrew
 
 ```bash
 brew install ognistik/formulae/macrowhisper
 ```
 
-### Install Option 2 (Script)
+### Install option 2: Install script
 
 ```bash
 curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 ```
 
-*Note: installing via the script allows you to skip giving accessibility permissions after every update.*
+Note: the script install can be more convenient if you want to avoid re-granting accessibility permissions after every update.
 
-### Configure Superwhisper (IMPORTANT)
+### Set up Superwhisper
+
+These settings matter:
 
 - Recording Window: ON
 - Paste Result Text: OFF
 - Restore Clipboard After Paste: OFF
 - Simulate Key Presses: OFF
 
-*Macrowhisper should be the single source of truth for paste/clipboard/key behavior.*
+Macrowhisper should be the one handling paste, clipboard, and key behavior.
 
-### Open or create config
+### Open or create your config
 
 ```bash
 macrowhisper --reveal-config
 ```
 
 Default path:
+
 `~/.config/macrowhisper/macrowhisper.json`
 
-### Start service
+### Start the background service
 
 ```bash
 macrowhisper --start-service
 ```
 
-Check service:
+Check that it is running:
 
 ```bash
 macrowhisper --service-status
@@ -146,86 +192,107 @@ macrowhisper --service-status
 
 ### First test
 
-Dictate once in a normal text field. By default, Macrowhisper creates `autoPaste` and sets it as `defaults.activeAction`. Paste behavior will be exactly as Superwhisper out of the box.
+Dictate once in a normal text field.
+
+By default, Macrowhisper creates an `autoPaste` action and sets it as `defaults.activeAction`, so the starting behavior should feel very close to normal Superwhisper paste behavior.
+
+If that works, the basic setup is done.
 
 ---
 
-## 3) The Execution Flow
+## 3) What Happens After You Dictate
 
-This section is the most important mental model.
+This section gives you the best overall picture of how Macrowhisper behaves.
 
-### Step A: Recording session starts
+### Step A: A recording starts
 
-When a recording folder appears, Macrowhisper starts early monitoring and captures context:
+When a new recording folder appears, Macrowhisper begins tracking that session.
 
-- Selected text at session start
-- Clipboard state at session start (to optionally restore later)
-- Clipboard captured in the pre-recording buffer window for use in `{{clipboardContext}}` (`clipboardBuffer` seconds before session)
+At this stage it can capture:
 
-### Step B: Wait for valid result data
+- selected text at the start of the session
+- the clipboard state at the start of the session
+- recent clipboard context from the pre-recording buffer window
 
-Macrowhisper waits until `meta.json` has valid result fields:
+### Step B: It waits for a usable result
 
-- If `languageModelName` exists and is non-empty, it requires `llmResult` (voice trigger matching still uses `result` when present)
-- Otherwise, it requires `result`
+Macrowhisper waits until `meta.json` contains the result it needs.
 
-*This allows MacroWhisper to be triggered with correct timing for both voice-only modes or modes with AI processing.*
+The short version:
 
-### Step C: Add runtime context
+- if Superwhisper produced an AI-processed result, Macrowhisper waits for that
+- otherwise, it uses the regular result field
 
-Before action evaluation/execution, Macrowhisper enriches metadata with:
-- Front app name / bundle ID
-- Session selected text
-- Session clipboard context
-- Front app PID (used to keep context placeholders anchored to the same app during chains)
-- If `{{appContext}}` or `{{appVocabulary}}` are used, gather accessibility context lazily on first use and reuse it for the rest of the chain
+This prevents actions from firing too early.
 
-### Step D: Optional bypass by mode
+### Step C: It gathers runtime context
 
-If `defaults.bypassModes` matches the current mode (`modeName`, case-insensitive), Macrowhisper skips all processing.
+Before running an action, Macrowhisper can gather:
 
-*If for some reason you want to bypass Macrowhisper for a specific Superwhisper mode, you can set that here. It is still important that you set auto-paste off in Superwhisper's default configuration, but you can override that option at the mode level.*
+- front app name
+- front app bundle ID
+- selected text
+- clipboard context
+- front app PID
 
-### Step E: Priority-based action selection
+If you use `{{appContext}}` or `{{appVocabulary}}`, those are only collected when needed and then reused during the rest of the action chain.
 
-Priority order:
+### Step D: It can skip processing for some modes
 
-1. One-time `--auto-return`
-2. One-time `--schedule-action`
-3. Trigger matches (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerUrls`)
+If `defaults.bypassModes` matches the current Superwhisper mode, Macrowhisper skips all action processing for that recording.
+
+This is useful when you want certain modes to behave as if Macrowhisper were not involved.
+
+### Step E: It chooses which action should run
+
+Macrowhisper chooses actions in this order:
+
+1. one-time `--auto-return`
+2. one-time `--schedule-action`
+3. trigger matches (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerUrls`)
 4. `defaults.activeAction`
-5. No action
+5. no action
 
-*`--auto-return` and `--schedule-action` are CLI commands that allow for one-time Macrowhisper triggers. These are useful to set via other automation apps like Keyboard Maestro.*
+That order matters. A scheduled action can override triggers, and a trigger can override your normal active action.
 
-### Step F: Action execution + chain resolution
+### Step F: It runs the action, then any chained actions
 
-If an action runs, Macrowhisper can chain to next actions with `nextAction` rules.
+If the chosen action has a `nextAction`, Macrowhisper can continue into the next step automatically.
 
-Important runtime note:
-- Action flows are designed to stay responsive. Script-like actions (Shortcut/Shell/AppleScript) default to async launch-and-continue, but can opt into synchronous wait mode with `scriptAsync: false` and `scriptWaitTimeout`.
+Shortcut, shell, and AppleScript actions are asynchronous by default so Macrowhisper stays responsive. If you want Macrowhisper to wait for the script to finish, set:
 
-### Step G: Post-processing
+- `scriptAsync: false`
+- `scriptWaitTimeout`
 
-After action completion:
+### Step G: It finishes cleanup
 
-- recording folder move/delete behavior according to resolved `moveTo`
-- cleanup of monitoring state
-- clipboard cleanup protections to avoid cross-session contamination
-- periodic history cleanup (if enabled)
+After the action flow ends, Macrowhisper may:
+
+- move or delete the recording folder according to `moveTo`
+- clean up temporary monitoring state
+- restore the clipboard if needed
+- run retention cleanup if `history` is enabled
 
 ---
 
 ## 4) Command Reference
 
-### General commands
+This section lists the main terminal commands. You do not need all of them to get started.
+
+### Everyday commands
 
 ```bash
 macrowhisper --help
 macrowhisper --version
+macrowhisper --reveal-config
+macrowhisper --validate-config
+macrowhisper --service-status
+macrowhisper --list-actions
 ```
 
-### Configuration management (no running daemon required)
+### Config commands
+
+These do not require the running background service.
 
 ```bash
 macrowhisper --reveal-config
@@ -237,12 +304,14 @@ macrowhisper --update-config
 macrowhisper --schema-info
 ```
 
-- `--set-config` saves your preferred config path for future runs.
-    - If you pass a directory, Macrowhisper uses `<dir>/macrowhisper.json`.
-- `--validate-config` checks whether your config is valid and prints exact issues if something is wrong.
-- `--update-config` refreshes config formatting/schema-compatible fields.
+Useful notes:
 
-### Service management
+- `--set-config` saves the config path for future runs
+- if you pass a directory, Macrowhisper uses `<dir>/macrowhisper.json`
+- `--validate-config` checks both JSON validity and config rules
+- `--update-config` refreshes formatting and schema-related fields
+
+### Service commands
 
 ```bash
 macrowhisper --install-service
@@ -272,165 +341,172 @@ macrowhisper --add-as <name>
 macrowhisper --remove-action <name>
 ```
 
-### Runtime commands (use with running daemon)
+### Runtime commands
+
+These are for use while the background service is running.
 
 ```bash
-# 1) Inspect state
+# Check runtime state
 macrowhisper --status
 macrowhisper --get-action [<name>] [--meta <value>]
 macrowhisper --get-icon
 macrowhisper --folder-name [<index>]
 macrowhisper --folder-path [<index>]
 
-# 2) Set defaults
+# Set or clear the default action
 macrowhisper --action [<name>]
 
-# 3) One-shot runtime controls
+# One-time controls
 macrowhisper --auto-return [<true|false>]
 macrowhisper --schedule-action [<name>]
 macrowhisper --mute-triggers [<true|false|duration>]
 
-# 4) Execute actions
+# Execute actions
 macrowhisper --copy-action <name> [--meta <value>]
 macrowhisper --exec-action <name> [--meta <value>]
 macrowhisper --run-auto [--meta <value>]
 
-# 5) Other runtime
+# Other runtime tasks
 macrowhisper --check-updates
 ```
 
-Before using these commands, make sure Macrowhisper is running (`macrowhisper --start-service`).
+Before using runtime commands, make sure the service is running:
+
+```bash
+macrowhisper --start-service
+```
 
 ### Runtime command reference
 
 #### 1) Inspect state
-| **Flag/Command**                                      | **Description**                                                                                             |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `--status`                                            | Confirms whether the daemon is running and shows runtime state (including trigger mute status).             |
-| `--get-action`                                        | Shows the current active action name.                                                                       |
-| `--get-action <name>`                                 | Returns processed content for that action (latest valid result by default, or `--meta` if provided).        |
-| `--get-icon`                                          | Returns the icon for the active action.                                                                     |
-| `--folder-name [<index>]` / `--folder-path [<index>]` | Read recordings by recency (`0` = active recording if present, otherwise latest completed valid recording). |
+
+| Command | What it does |
+| --- | --- |
+| `--status` | Shows whether the daemon is running and includes trigger mute state. |
+| `--get-action` | Shows the current active action name. |
+| `--get-action <name>` | Shows the processed output for that action. |
+| `--get-icon` | Shows the icon for the active action. |
+| `--folder-name [<index>]` / `--folder-path [<index>]` | Looks up recent recording folders by recency. |
 
 #### 2) Set defaults
 
-| **Flag/Command**     | **Description**                  |
-| -------------------- | -------------------------------- |
-| `--action <name>`    | Sets your default active action. |
-| `--action` (no name) | Clears the active action.        |
+| Command | What it does |
+| --- | --- |
+| `--action <name>` | Sets the default active action. |
+| `--action` | Clears the default active action. |
 
-#### 3) One-shot runtime controls
+#### 3) One-time runtime controls
 
-| **Flag/Command**                | **Description**                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------- |
-| `--schedule-action <name>`      | Queue one action for your next recording.                                       |
-| `--schedule-action` (no name)   | Cancels any queued scheduled action.                                            |
-| `--auto-return  true\|false`     | One-time auto-send behavior for next recording.                                 |
-| `--auto-return` (no value)      | Disables one-shot auto-return.                                                  |
-| `--mute-triggers  true\|false`   | Saves persistent mute on/off in config.                                         |
-| `--mute-triggers <duration>`    | Temporary runtime mute only (`30`, `30s`, `5m`, `1h`).                          |
-| `--mute-triggers` (no value)    | Unmutes (`false`) and clears runtime mute timer.                                |
-| Check mute state via `--status` | Shows `persistentMuteTriggers`, `runtimeMuteTriggers`, `effectiveMuteTriggers`. |
+| Command | What it does |
+| --- | --- |
+| `--schedule-action <name>` | Uses that action for the next recording. |
+| `--schedule-action` | Clears the scheduled action. |
+| `--auto-return true|false` | Turns one-time auto-return on or off for the next recording. |
+| `--auto-return` | Clears one-time auto-return. |
+| `--mute-triggers true|false` | Saves trigger muting on or off in config. |
+| `--mute-triggers <duration>` | Temporarily mutes triggers for a runtime duration such as `30s`, `5m`, or `1h`. |
+| `--mute-triggers` | Unmutes and clears any temporary mute timer. |
+
+You can check mute state through `--status`.
 
 #### 4) Execute actions
 
-| **Flag/Command**       | **Description**                                                                                                                  |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `--exec-action <name>` | Runs one specific action now.                                                                                                    |
-| `--run-auto`           | Runs runtime-style automatic selection (bypass mode check, trigger mute check, trigger evaluation, then active-action fallback). |
-| `--copy-action <name>` | Renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).                             |
+| Command | What it does |
+| --- | --- |
+| `--exec-action <name>` | Runs one specific action right now. |
+| `--run-auto` | Runs automatic selection logic against the current or chosen recording. |
+| `--copy-action <name>` | Renders an action and copies the result without affecting `clipboardContext` capture. |
 
-#### 5) Other runtime
+#### 5) Other runtime commands
 
-- `--check-updates`: forces an update check.
+- `--check-updates` forces an update check
 
----
+### Important runtime details
 
-#### Important details and edge cases
+- `--run-auto` does not take an action name
+- `--run-auto` does not consume or clear one-time runtime state such as `--auto-return` or `--schedule-action`
+- if persistent trigger muting is already `true`, then `--mute-triggers <duration>` is ignored
 
-- `--run-auto` does not accept an action name.
-- `--run-auto` does not consume or clear one-shot runtime state (`--auto-return`, `--schedule-action`).
-- If persistent mute is already `true`, `--mute-triggers <duration>` is ignored.
-
-### `--meta` (choose a different `meta.json` source)
+### `--meta`: use a different `meta.json`
 
 By default, action commands use the latest valid Superwhisper result.
-Use `--meta` when you want to run against a different recording or a custom metadata file.
 
-You can pass:
+Use `--meta` when you want to point Macrowhisper to:
 
-- A recording folder name (inside your Superwhisper `recordings` folder)
-- A folder path (Macrowhisper looks for `meta.json` inside that folder)
-- A direct JSON file path (must have compatible `meta.json` content)
+- a specific recording folder name
+- a specific recording folder path
+- a direct JSON file with compatible `meta.json` content
 
-How Macrowhisper interprets your `--meta` value:
+How Macrowhisper reads the value:
 
-- `~` is supported.
-- If the value looks like a path (`/`, `~`, `.`, or contains `/`), Macrowhisper treats it as a path.
-- Otherwise, it is treated as a recording folder name.
+- `~` is supported
+- if the value looks like a path, Macrowhisper treats it as a path
+- otherwise, it treats the value as a recording folder name
 
 Examples:
 
 ```bash
-# 1) Folder name inside recordings
+# Recording folder name inside the recordings directory
 macrowhisper --get-action summarizeEmail --meta 2026-03-01_10-00-00
 ```
 
 ```bash
-# 2) Folder path (meta.json inside the folder)
+# Folder path that contains meta.json
 macrowhisper --copy-action summarizeEmail --meta ~/Documents/superwhisper/recordings/2026-03-01_10-00-00
 ```
 
 ```bash
-# 3) Direct JSON file
+# Direct JSON file
 macrowhisper --exec-action summarizeEmail --meta ~/tmp/custom-meta.json
 ```
 
 ```bash
-# 4) Get active action name (no meta allowed in this mode)
+# Show the active action name
 macrowhisper --get-action
 ```
 
 ```bash
-# 5) This returns an error (`--meta` needs a specific action name here)
+# This is invalid because --meta needs a specific action name here
 macrowhisper --get-action --meta 2026-03-01_10-00-00
 ```
 
 ```bash
-# 6) Resolve and execute automatically (runtime-style selection)
+# Let Macrowhisper choose the action automatically
 macrowhisper --run-auto --meta 2026-03-01_10-00-00
 ```
 
-### `moveTo` behavior when using `--meta`
+### `moveTo` when using `--meta`
 
-For `--exec-action` and `--run-auto`, `moveTo` behaves like this:
+For `--exec-action` and `--run-auto`:
 
-- If `--meta` points to a recording folder name/path, `moveTo` applies normally.
-- If `--meta` points to a direct JSON file, `moveTo` is skipped (no recording folder to move/delete).
+- if `--meta` points to a recording folder, `moveTo` works normally
+- if `--meta` points to a direct JSON file, `moveTo` is skipped because there is no recording folder to move or delete
 
-### CLI Behavior Matrix
+### Behavior matrix
 
 | Behavior | `--exec-action <name> [--meta <value>]` | `--run-auto [--meta <value>]` | `--get-action <name> [--meta <value>]` | `--copy-action <name> [--meta <value>]` |
-|---|---|---|---|---|
-| Processes placeholders (`{{...}}`) | Yes | Yes | Yes | Yes |
-| Uses latest valid recording result (default) | Yes | Yes | Yes | Yes |
-| Can use custom metadata source via `--meta` | Yes | Yes | Yes | Yes |
+| --- | --- | --- | --- | --- |
+| Processes placeholders | Yes | Yes | Yes | Yes |
+| Uses latest valid recording by default | Yes | Yes | Yes | Yes |
+| Can use `--meta` | Yes | Yes | Yes | Yes |
 | Evaluates `inputCondition` | Yes | Yes | No | No |
-| Executes action side effects (open URL/run shortcut/shell/AppleScript/paste) | Yes | Yes | No | No |
+| Runs side effects such as open, paste, or scripts | Yes | Yes | No | No |
 | Applies `actionDelay` | Yes | Yes | No | No |
-| Applies `nextAction` chain | Yes | Yes | No | No |
-| Applies watcher-style selection (`bypassModes`, trigger mute, triggers, active fallback) | No (explicit action name only) | Yes | No | No |
-| Applies `moveTo` post-processing | Yes for latest/default or folder-based `--meta`; skipped for direct JSON file `--meta` | Yes for latest/default or folder-based `--meta`; skipped for direct JSON file `--meta` | No | No |
-| Handles ESC behavior (`simEsc`) | CLI exec path never simulates ESC; `simEsc` has no practical effect here | CLI exec path never simulates ESC; `simEsc` has no practical effect here | N/A | N/A |
-| Clipboard restore behavior (`restoreClipboard`) | Insert actions only | Insert actions only | No | No |
-| Writes to clipboard | Insert action behavior only (when action itself pastes) | Insert action behavior only (when action itself pastes) | No | Yes (writes processed content) |
-| Consumes or clears one-shot runtime state (`--auto-return`, `--schedule-action`) | No | No | No | No |
+| Applies `nextAction` | Yes | Yes | No | No |
+| Uses watcher-style auto selection | No | Yes | No | No |
+| Applies `moveTo` | Yes, except direct JSON `--meta` | Yes, except direct JSON `--meta` | No | No |
+| Simulates ESC with `simEsc` | No practical effect in CLI execution | No practical effect in CLI execution | N/A | N/A |
+| Restores clipboard | Insert actions only | Insert actions only | No | No |
+| Writes to clipboard | Only if the action itself does so | Only if the action itself does so | No | Yes |
+| Consumes one-time runtime state | No | No | No | No |
 
 ---
 
-## 5) Configuration File Fundamentals
+## 5) Configuration Basics
 
-### 5.1 Top-level shape
+This section is the best place to start if you want to customize behavior.
+
+### 5.1 The top-level structure
 
 ```json
 {
@@ -447,205 +523,213 @@ For `--exec-action` and `--run-auto`, `moveTo` behaves like this:
 
 About `$schema`:
 
-- Macrowhisper manages this automatically when saving config.
-- It helps editors/IDEs validate JSON and suggest keys.
-- In normal use, you should not need to edit this manually.
+- Macrowhisper manages it automatically
+- it helps editors validate the JSON and suggest keys
+- most users never need to edit it the schema path hand
 
-### 5.2 Recommended workflow
+### 5.2 The recommended workflow
 
-For most people, the safest and simplest approach is:
+For most people, the safest setup is:
 
-- Keep `"autoUpdateConfig": true` (default).
-- Let Macrowhisper normalize/migrate config automatically on startup.
-- Add/edit/remove actions with CLI commands (section 4), not by hand-editing JSON.
-  - Examples: `--add-insert`, `--add-url`, `--add-shortcut`, `--add-shell`, `--add-as`, `--remove-action`.
+- keep `"autoUpdateConfig": true`
+- let Macrowhisper normalize the config on startup
+- create or remove actions with CLI commands instead of always adding everything in the JSON by hand
 
-Why this is recommended:
+Examples:
 
-- It avoids common JSON mistakes.
-- It keeps values aligned with current semantics (`configVersion: 2`).
-- It reduces confusion around `null` vs `""` and special template strings.
+- `--add-insert`
+- `--add-url`
+- `--add-shortcut`
+- `--add-shell`
+- `--add-as`
+- `--remove-action`
 
-Use manual JSON editing only only for inserting setting values. You'll receive hints from the schema to understand the semantics.
+Why this is easier:
 
-#### For Advanced Users
-**If you prefer manually editing everything**
-  - Top level: `defaults` is required.
-  - Under `defaults`: `watch` is required.
-  - Any action you define (`inserts`, `urls`, `shortcuts`, `scriptsShell`, `scriptsAS`) must include `action`.
-  - `defaults.autoUpdateConfig` defaults to `true`. You must define it as `false` if you do not want the file to update itself.
+- it avoids JSON mistakes
+- it keeps the config aligned with the current format
+- it reduces confusion around `null`, empty strings, and template values
 
-**Versioning and auto-update**
-  - `configVersion` controls semantics. Current semantics are `configVersion: 2`.
-  - If `configVersion` is missing, runtime treats it as legacy (`1`) for semantics checks.
-  - With `autoUpdateConfig: true`, startup can rewrite config for migration and normalization.
-  - If `configVersion` is missing and auto-update is enabled, startup can update it to current.
+Manual JSON editing is still fine when you want to adjust settings and action content. The schema exists to help.
 
-**Practical guidance**
-  - Most users should keep `autoUpdateConfig` enabled.
-  - Set `autoUpdateConfig: false` only if you intentionally manage config updates yourself.
-  - Even with `autoUpdateConfig: false`, you can still run `macrowhisper --update-config` manually.
-  
-### 5.3 Value semantics: defaults vs action-level overrides
+### 5.3 A simple way to think about defaults and overrides
 
-Mental model
+Use this mental model:
 
-- `defaults` = normal behavior.
-- Action-level values = per-action overrides.
-- In `configVersion: 2`, inheritance is uniform: `null` means "inherit/use default".
-- `""` is explicit empty for supported string fields; it is not inheritance.
+- `defaults` = your normal behavior
+- action-level values = exceptions for one specific action
 
-Defaults-level note
+In `configVersion: 2`:
 
-- For nullable scalar defaults fields (most bool/number toggles), `null` means "use built-in Macrowhisper default".
-- For action-level overrides, `null` means "inherit from `defaults`".
-- `activeAction` is special: starter configs set it to `autoPaste`, but explicit `null` or `""` means no fallback action.
+- action-level `null` usually means "inherit from `defaults`"
+- `""` usually means "intentionally empty"
 
-Quick rules (what wins?)
+Important exceptions:
+
+- `defaults.activeAction`: `null` or `""` means there is no fallback action
+- `action`: empty string means "run this action with an empty payload"
+
+Quick reference:
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
-| Boolean/number overrides (`simEsc`, `restoreClipboard`, `actionDelay`, `simReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing`) | Use `defaults.<sameField>` | Action value wins |
-| `moveTo` | `null` -> use `defaults.moveTo` | Action value wins (`""` = explicit no move, `.delete`, or a path) |
-| `icon` | `null` -> use `defaults.icon` | Action value wins (`""` = explicit no icon) |
-| `nextAction` | `null` -> use `defaults.nextAction` (first chain step only) | Action value wins (`""` = explicit no next action) |
-| `action` payload | No fallback to defaults | `""` = empty payload; non-empty executes after placeholders |
+| Boolean and number overrides such as `simEsc`, `restoreClipboard`, `actionDelay`, `simReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing` | Use the matching value from `defaults` | The action value wins |
+| `moveTo` | Use `defaults.moveTo` | The action value wins |
+| `icon` | Use `defaults.icon` | The action value wins |
+| `nextAction` | Use `defaults.nextAction` on the first step only | The action value wins |
+| `action` | No fallback from `defaults` | The action payload is used directly |
 
-### 5.4 Special `action` values (advanced, exact behavior)
+### 5.4 Special `action` values
 
-*Macrowhisper has a few built-in templates meant to simplify common behaviors.*
+Macrowhisper includes a few built-in action shortcuts.
 
-#### For all action types
+#### All action types
 
-- `action: ".none"` applies:
-    - `action = ""`
-    - `inputCondition = ""`
-    - `simEsc = false`
-    - `restoreClipboard = false`
+- `action: ".none"`
 
----
+This applies:
 
-#### For insert actions
+- `action = ""`
+- `inputCondition = ""`
+- `simEsc = false`
+- `restoreClipboard = false`
 
-- `action: ".autoPaste"` applies:
-    - `inputCondition = "!restoreClipboard|!simEsc"`
-    - `simEsc = false`
-    - `restoreClipboard = false`
+Use it when you want a safe do-nothing template with no payload.
 
-These values simulate the exact behavior of Superwhisper's auto-paste.
+#### Insert actions
 
-- Outside input fields: Esc-press is not simulated, clipboard is not restored.
-- Inside input fields: those values are cleared and fall back to defaults.
+- `action: ".autoPaste"`
 
-`.autoPaste` and `.none` are not just labels. They apply both template values and conditional fallback behavior. Knowing how this works can allow you to customize the behavior.
+This applies:
 
----
+- `inputCondition = "!restoreClipboard|!simEsc"`
+- `simEsc = false`
+- `restoreClipboard = false`
 
-#### For Shortcut actions
+It is designed to feel like Superwhisper's normal auto-paste behavior.
 
-- Shortcut only: `action: ".run"` -> run shortcut with no input payload
+Simple summary:
 
-### 5.5 Empty/null values that disable behavior
+- inside text fields, Macrowhisper behaves like a normal insert flow
+- outside text fields, it avoids ESC simulation and clipboard restoration
 
-| Field | Empty/`null` means |
+#### Shortcut actions
+
+- `action: ".run"`
+
+This runs the Shortcut without sending any input payload.
+
+### 5.5 Empty and `null` values that turn things off
+
+| Field | Empty or `null` means |
 | --- | --- |
 | `defaults.activeAction` | No fallback action |
-| `defaults.nextAction` | No global first-step chain override |
-| `defaults.bypassModes` | Bypass-mode feature off |
-| `defaults.clipboardIgnore` | No app-ignore regex for clipboard capture |
-| `triggerVoice` / `triggerApps` / `triggerModes` / `triggerUrls` | That trigger type is not configured for this action |
+| `defaults.nextAction` | No default next step |
+| `defaults.bypassModes` | Bypass behavior is off |
+| `defaults.clipboardIgnore` | No clipboard ignore rules |
+| `triggerVoice` / `triggerApps` / `triggerModes` / `triggerUrls` | That trigger type is not configured |
 
-### 5.6 Quick real-world examples
+### 5.6 Quick examples
 
 ```json
 "action": ""
 ```
-Meaning: this action runs with no payload.
 
----
+Meaning: the action runs with an empty payload.
 
 ```json
 "action": ".none"
 ```
-Meaning: no-op template (`action=""`, `simEsc=false`, `restoreClipboard=false`).
 
----
+Meaning: use the built-in do-nothing template.
 
 ```json
 "restoreClipboard": null
 ```
-Meaning: inherit `defaults.restoreClipboard`.
 
----
+Meaning: inherit `defaults.restoreClipboard`.
 
 ```json
 "icon": null
 ```
-Meaning: inherit `defaults.icon`.
 
----
+Meaning: inherit `defaults.icon`.
 
 ```json
 "icon": ""
 ```
-Meaning: explicit no icon for this action.
+
+Meaning: explicitly show no icon for this action.
+
+### 5.7 For advanced users
+
+If you prefer editing everything by hand:
+
+- `defaults` is required
+- `defaults.watch` is required
+- any action you define must include `action`
+- `autoUpdateConfig` defaults to `true`, so set it to `false` only if you want to manage format updates yourself
+
+Versioning notes:
+
+- `configVersion: 2` is the current format
+- if `configVersion` is missing, Macrowhisper treats it as legacy behavior
+- with `autoUpdateConfig: true`, startup can rewrite the config to keep it current
 
 ---
 
 ## 6) Global Defaults Reference
 
-These live under `defaults`.
+These settings live under `defaults`.
 
-Null behavior at `defaults` level:
+For defaults-level boolean and number fields, `null` usually means "use Macrowhisper's built-in default."
 
-- For nullable bool/number defaults fields, `null` means "use built-in default."
-- `actionDelay` can be omitted or set to `null`; both resolve to built-in default `0`.
-- `activeAction` is nullable, but `null`/`""` explicitly disables fallback action.
-
-| Key | Type | Default | Meaning |
+| Key | Type | Default | What it controls |
 | --- | --- | --- | --- |
-| `watch` | string | `~/Documents/superwhisper` | Path to Superwhisper folder (the one containing `recordings`). |
-| `disableUpdateCheck` | bool/null | `false` | Disable periodic update checks. `null` = built-in default (`false`). |
-| `muteNotifications` | bool/null | `false` | Disable notifications. `null` = built-in default (`false`). |
-| `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty/null means none. |
+| `watch` | string | `~/Documents/superwhisper` | Path to the Superwhisper folder that contains `recordings`. |
+| `disableUpdateCheck` | bool/null | `false` | Turns periodic update checks off. |
+| `muteNotifications` | bool/null | `false` | Turns notifications off. |
+| `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty or `null` means none. |
 | `icon` | string/null | `null` | Default icon for actions. |
-| `moveTo` | string/null | `null` | Default post-processing path (`.delete`, a path, or empty). |
-| `simEsc` | bool/null | `true` | Simulate ESC before actions. `null` = built-in default (`true`). |
-| `simKeypress` | bool/null | `false` | Insert by typing instead of clipboard paste (insert actions). `null` = built-in default (`false`). |
-| `smartCasing` | bool/null | `true` | Smart first-letter casing normalization for insert actions. `null` = built-in default (`true`). |
-| `smartPunctuation` | bool/null | `true` | Smart punctuation conflict cleanup for insert actions. `null` = built-in default (`true`). |
-| `smartSpacing` | bool/null | `true` | Smart boundary spacing normalization for insert actions. `null` = built-in default (`true`). |
-| `actionDelay` | number/null | `0` | Delay before action execution. `null` or omitted = built-in default (`0`). |
-| `history` | int/null | `null` | History retention in days. `0` keeps only newest recording folder. |
-| `simReturn` | bool/null | `false` | Press Return after insert execution. `null` = built-in default (`false`). |
-| `returnDelay` | number/null | `0.1` | Delay before Return press. `null` = built-in default (`0.1`). |
-| `restoreClipboard` | bool/null | `true` | Restore original clipboard at end of action flow. `null` = built-in default (`true`). |
-| `restoreClipboardDelay` | number/null | `0.3` | Delay before clipboard restoration at end of action flow. `null` = built-in default (`0.3`). |
-| `scheduledActionTimeout` | number/null | `5` | Timeout (seconds) for pending auto-return/scheduled action when no recording starts. `0` means no timeout. `null` = built-in default (`5`). |
-| `scriptAsync` | bool/null | `true` | Default script execution mode for Shortcut/Shell/AppleScript. `false` waits for completion. |
-| `scriptWaitTimeout` | number/null | `3.0` | Max wait time (seconds) when `scriptAsync` is `false`. |
-| `clipboardStacking` | bool/null | `false` | Capture multiple clipboard events for `{{clipboardContext}}`. `null` = built-in default (`false`). |
-| `clipboardBuffer` | number/null | `5.0` | Pre-recording clipboard capture window in seconds. `0` disables buffer capture. `null` = built-in default (`5.0`). |
-| `clipboardIgnore` | string/null | `null` | Regex for apps ignored in clipboard capture. |
-| `bypassModes` | string/null | `null` | Pipe-separated Superwhisper mode names that bypass Macrowhisper entirely (case-insensitive). |
-| `muteTriggers` | bool/null | `false` | Mute all trigger matching (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerUrls`) globally. |
-| `autoUpdateConfig` | bool/null | `true` | Auto-refresh config format/schema fields at startup. `null` = built-in default (`true`). |
-| `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
-| `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
+| `moveTo` | string/null | `null` | What to do with processed recording folders: move them, delete them, or do nothing. |
+| `simEsc` | bool/null | `true` | Simulate ESC before actions. |
+| `simKeypress` | bool/null | `false` | Type characters instead of pasting for insert actions. |
+| `smartCasing` | bool/null | `true` | Adjust capitalization at insert boundaries. |
+| `smartPunctuation` | bool/null | `true` | Clean punctuation conflicts at insert boundaries. |
+| `smartSpacing` | bool/null | `true` | Clean spacing at insert boundaries. |
+| `actionDelay` | number/null | `0` | Delay before the action starts. |
+| `history` | int/null | `null` | How long to keep old recording folders. |
+| `simReturn` | bool/null | `false` | Press Return after an insert action. |
+| `returnDelay` | number/null | `0.1` | Delay before pressing Return. |
+| `restoreClipboard` | bool/null | `true` | Restore the original clipboard after the action flow ends. |
+| `restoreClipboardDelay` | number/null | `0.3` | Delay before restoring the clipboard. |
+| `scheduledActionTimeout` | number/null | `5` | How long one-time runtime actions stay pending when no recording starts. |
+| `scriptAsync` | bool/null | `true` | Whether Shortcut, shell, and AppleScript actions run asynchronously by default. |
+| `scriptWaitTimeout` | number/null | `3.0` | Max wait time when `scriptAsync` is `false`. |
+| `clipboardStacking` | bool/null | `false` | Whether `{{clipboardContext}}` can include several clipboard items. |
+| `clipboardBuffer` | number/null | `5.0` | How many seconds of clipboard history to capture before recording. |
+| `clipboardIgnore` | string/null | `null` | Regex for apps that should be ignored during clipboard capture. |
+| `bypassModes` | string/null | `null` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. |
+| `muteTriggers` | bool/null | `false` | Mute trigger matching globally. |
+| `autoUpdateConfig` | bool/null | `true` | Automatically refresh config format and schema fields. |
+| `redactedLogs` | bool/null | `true` | Hide sensitive content in logs. |
+| `nextAction` | string/null | `null` | Default next action to use as the first chain step. |
 
-**By default, `actionDelay` is set to 0, but some actions (like triggering URLs or scripts) can happen faster than Superwhisper's popup appears with the result. **If you notice Superwhisper's recording window isn't closing correctly, you might need to adjust this value.**
+Practical note about `actionDelay`:
+
+By default it is `0`, which is usually fine. But URL and script actions can sometimes happen before Superwhisper's recording window has fully settled. If that creates UI timing issues, try a small delay such as `0.05` to `0.2`.
 
 ### Validation rules involving defaults
 
-- `defaults.activeAction` must exist if not empty.
-- `defaults.nextAction` must exist if not empty.
-- `defaults.activeAction` cannot equal `defaults.nextAction`.
+- `defaults.activeAction` must exist if it is not empty
+- `defaults.nextAction` must exist if it is not empty
+- `defaults.activeAction` cannot equal `defaults.nextAction`
 
 ---
 
 ## 7) Action Types
 
-All actions are stored by name in one of five dictionaries:
+All actions are stored by name in one of these five groups:
 
 - `inserts`
 - `urls`
@@ -653,49 +737,43 @@ All actions are stored by name in one of five dictionaries:
 - `scriptsShell`
 - `scriptsAS`
 
-**IMPORTANT: Action names must be unique across all five dictionaries.**
+Important: action names must be unique across all five groups.
 
-### Quick guide: special `action` values
+### Quick guide to special `action` values
 
 | Value | Where it works | Simple meaning |
 | --- | --- | --- |
-| `""` | All action types | Empty payload for this action (not a template). |
-| `.none` | All action types | No-op template (`action=""`, `inputCondition=""`, `simEsc=false`, `restoreClipboard=false`). |
-| `.autoPaste` | Insert actions only | Insert template that matches Superwhisper-style auto-paste behavior. |
-| `.run` | Shortcut actions only | Run the Shortcut with no input payload. |
+| `""` | All action types | Use an empty payload |
+| `.none` | All action types | Use the built-in do-nothing template |
+| `.autoPaste` | Insert actions only | Use Superwhisper-like auto-paste behavior |
+| `.run` | Shortcut actions only | Run the Shortcut with no input |
 
-Section 5.4 has the full behavior details.
+### Fields shared by all action types
 
-### Common fields across all action types
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `action` | string | The main payload for the action |
+| `icon` | string/null | Override the icon for this action |
+| `moveTo` | string/null | Override recording-folder handling for this action |
+| `simEsc` | bool/null | Simulate ESC before this action |
+| `actionDelay` | number/null | Delay before this action starts |
+| `restoreClipboard` | bool/null | Override clipboard restoration |
+| `restoreClipboardDelay` | number/null | Override clipboard restoration delay |
+| `scriptAsync` | bool/null | Override async behavior for Shortcut, shell, or AppleScript actions |
+| `scriptWaitTimeout` | number/null | Override how long Macrowhisper waits when `scriptAsync` is `false` |
+| `inputCondition` | string/null | Apply some fields only in or outside input fields |
+| `nextAction` | string/null | Chain to another action |
+| `triggerVoice` | string/null | Match by spoken phrase |
+| `triggerApps` | string/null | Match by front app name or bundle ID |
+| `triggerModes` | string/null | Match by Superwhisper mode |
+| `triggerUrls` | string/null | Match by active browser URL |
+| `triggerLogic` | string/null | Use `or` or `and` when combining trigger types |
 
-| **Field**          | **Type**    | **Meaning**                                                                     |
-| ------------------ | ----------- | ------------------------------------------------------------------------------- |
-| `action`           | string      | Main action payload (text/url/script/etc.)                                      |
-| `icon`             | string/null | Per-action icon override                                                        |
-| `moveTo`           | string/null | Per-action recording folder post-processing override. Can be `.delete` or path. |
-| `simEsc`            | bool/null   | Simulate ESC before action if `true`.                                           |
-| `actionDelay`      | number/null | Per-action delay override                                                       |
-| `restoreClipboard` | bool/null   | Per-action clipboard restoration override                                       |
-| `restoreClipboardDelay` | number/null | Per-action clipboard restore delay override (final chain step governs).      |
-| `scriptAsync`      | bool/null   | Script-only override for Shortcut/Shell/AppleScript wait mode.                 |
-| `scriptWaitTimeout` | number/null | Script-only timeout override used when `scriptAsync` is `false`.             |
-| `inputCondition`   | string/null | Conditional option gating. Applies fields IF user is input field.               |
-| `nextAction`       | string/null | Chain to another action                                                         |
-| `triggerVoice`     | string/null | Voice trigger patterns                                                          |
-| `triggerApps`      | string/null | Front app name/bundle regex trigger                                             |
-| `triggerModes`     | string/null | Superwhisper mode trigger                                                       |
-| `triggerUrls`      | string/null | Active URL trigger (domain suffix or strict full URL rules)                     |
-| `triggerLogic`     | string/null | `or` or `and`                                                                   |
+How to interpret those fields:
 
-How to read these fields in practice:
-
-- For bool/number override fields, `null` means fallback to `defaults`.
-- For `moveTo`, `icon`, and `nextAction`: `null` means fallback to defaults; `""` means explicit empty.
-- For `action`, use the quick guide above (`""`, `.none`, `.autoPaste`, `.run`).
-- `inputCondition` can neutralize fields at runtime before execution.
-- `trigger*` fields only decide matching; they do not modify payload content.
-
-*For the `action` payload: placeholder expansion, placeholder-level transforms, and placeholder regex replacements are common processing steps for all action types. See Section 11.*
+- `null` on most boolean and number overrides means "use the default"
+- for `moveTo`, `icon`, and `nextAction`, `null` means inherit, while `""` means intentionally empty
+- `trigger*` fields only help Macrowhisper choose the action; they do not change the payload
 
 ### Common field examples
 
@@ -721,27 +799,26 @@ How to read these fields in practice:
 
 ### 7.1 Insert actions
 
-Insert-only extra fields:
+Insert actions are for pasting or typing text into the current app.
 
-- `simKeypress` (bool/null)
-- `smartCasing` (bool/null)
-- `smartPunctuation` (bool/null)
-- `smartSpacing` (bool/null)
-- `simReturn` (bool/null)
+Extra insert-only fields:
 
-Insert field reference:
+- `simKeypress`
+- `smartCasing`
+- `smartPunctuation`
+- `smartSpacing`
+- `simReturn`
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"{{swResult}}"`, `".autoPaste"`, `".none"` | Main inserted content/template. |
-| `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters; slower but useful where paste is blocked. |
-| `smartCasing` | bool/null | `true`, `false`, `null` | First-letter case normalization at insertion boundaries (lowercase mid-sentence, uppercase at strong sentence/line starts). |
-| `smartPunctuation` | bool/null | `true`, `false`, `null` | Punctuation conflict cleanup at boundaries (removal only; no punctuation insertion). |
-| `smartSpacing` | bool/null | `true`, `false`, `null` | Boundary spacing normalization around inserted text. |
-| `simReturn` | bool/null | `true`, `false`, `null` | Return key after insert. |
+| `action` | string | `"{{swResult}}"`, `".autoPaste"`, `".none"` | The text or template to insert. |
+| `simKeypress` | bool/null | `true`, `false`, `null` | `true` types characters instead of pasting. Slower, but useful in apps that block paste. |
+| `smartCasing` | bool/null | `true`, `false`, `null` | Adjusts capitalization at insertion boundaries. |
+| `smartPunctuation` | bool/null | `true`, `false`, `null` | Removes punctuation conflicts at insertion boundaries. |
+| `smartSpacing` | bool/null | `true`, `false`, `null` | Adjusts spacing around inserted text. |
+| `simReturn` | bool/null | `true`, `false`, `null` | Press Return after insertion. |
 
-
-*AX guard behavior: if Accessibility is unavailable or insertion context is low-confidence, smart casing, smart punctuation, and smart spacing are all skipped for that insertion.*
+If Accessibility is unavailable or the insertion context is low-confidence, smart casing, smart punctuation, and smart spacing are skipped for that insertion.
 
 Examples:
 
@@ -774,22 +851,22 @@ Examples:
 }
 ```
 
-In the example above, `API` stays `API` even with `titleCase`.
+In the last example, `API` stays uppercase even when title casing runs.
 
 ### 7.2 URL actions
 
-URL-only extra fields:
+URL actions open websites or apps.
 
-- `openWith` (string/null) - app name, app path, or bundle ID used with `open`
-- `openBackground` (bool/null) - open without focus (`open -g` behavior)
+Extra URL-only fields:
 
-URL field reference:
+- `openWith` - app name, app path, or bundle ID used with `open`
+- `openBackground` - open without focus
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"https://...{{swResult}}"`, `".none"` | URL to open/template. |
+| `action` | string | `"https://...{{swResult}}"`, `".none"` | The URL or template to open. |
 | `openWith` | string/null | `"Safari"`, `"com.google.Chrome"` | Passed to `open -a`. |
-| `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in background. `false`, `null`, or omitted resolves to foreground behavior. |
+| `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in the background. |
 
 Examples:
 
@@ -811,13 +888,13 @@ Examples:
 
 ### 7.3 Shortcut actions
 
-Important: the action name (the object key) is the macOS Shortcut name.
+Shortcut actions run macOS Shortcuts.
 
-Shortcut field reference:
+Important: the action name itself is the Shortcut name.
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"{{swResult}}"`, `".run"`, `".none"` | Input sent to shortcut. `.run` runs the shortcut with no input. |
+| `action` | string | `"{{swResult}}"`, `".run"`, `".none"` | Input sent to the Shortcut. `.run` means run with no input. |
 
 Examples:
 
@@ -843,14 +920,13 @@ Examples:
 
 ### 7.4 Shell actions
 
-Shell field reference:
+Shell actions run Terminal commands.
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | Shell command string or special value. |
+| `action` | string | `"echo '{{swResult}}' | pbcopy"`, `".none"` | The shell command to run. |
 
-Execution model:
-- Shell actions default to asynchronous launch. You can set `scriptAsync: false` to wait (up to `scriptWaitTimeout`) before continuing chain execution.
+By default, shell actions launch asynchronously. If you want Macrowhisper to wait for completion before continuing, set `scriptAsync: false`.
 
 Examples:
 
@@ -869,83 +945,105 @@ Examples:
 
 ### 7.5 AppleScript actions
 
-AppleScript field reference:
+AppleScript actions run AppleScript source directly.
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"display notification..."`, `".none"` | AppleScript source or special value. |
+| `action` | string | `"display notification..."`, `".none"` | The AppleScript source to run. |
 
-Execution model:
-- AppleScript actions default to asynchronous launch. You can set `scriptAsync: false` to wait (up to `scriptWaitTimeout`) before continuing chain execution.
+Like shell and Shortcut actions, AppleScript actions run asynchronously by default unless `scriptAsync: false`.
 
 Example:
 
 ```json
 "runMacro": {
-  "action" : "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\""
+  "action": "tell application \"Keyboard Maestro Engine\" to do script \"Sample Macro\" with parameter \"{{swResult}}\""
 }
 ```
 
-*Context placeholders are escaped depending on their action type. More information in Section 14.*
+Context placeholders are escaped differently depending on action type. See Section 14.
 
 ---
 
-## 8) Trigger System (Voice, App, Mode, URL)
-Triggers are evaluated across all action types. Matched actions are sorted by name; only the first match executes.
+## 8) Triggers
 
-#### Important priority reminder:
-Triggered action resolution happens after one-shot runtime commands (`--auto-return`, `--schedule-action`) and before `defaults.activeAction`. This means scheduled actions (plus one-time auto-return) have priority over triggers, but triggers have priority over the currently active action.
+Triggers help Macrowhisper decide when an action should run automatically.
 
-If `defaults.muteTriggers` is enabled (or a temporary CLI mute is active), this trigger phase is skipped entirely and Macrowhisper proceeds to `defaults.activeAction`.
+Triggered actions are evaluated across all action types. If several actions match, Macrowhisper sorts them by name and runs the first one.
+
+Important priority reminder:
+
+- one-time runtime commands win first
+- then triggers
+- then `defaults.activeAction`
+
+If `defaults.muteTriggers` is on, or a temporary trigger mute is active, Macrowhisper skips trigger matching and moves on to the active action.
 
 ### 8.1 `triggerVoice`
 
-#### Plain voice patterns are:
+Use `triggerVoice` when you want spoken phrases to trigger actions.
 
-- Prefix-only (start of transcript)
-- Case-insensitive
-- Treated as literal text (escaped), not raw regex
-- `|` splits multiple voice patterns.
+Normal voice patterns are:
 
-#### Raw regex behavior
+- prefix-only
+- case-insensitive
+- treated as literal text
+- separated with `|`
 
-- Wrap in `==...==` for raw regex control.
-- `|` inside raw regex blocks (`==...==`) is ignored as a separator.
-- Raw regex triggers **do not** have automatic prefix stripping
-    - *You can remove the actual trigger with a placeholder-level regex replacement*
-
-#### Exception logic
-
-Exception patterns use `!` prefix.
-
-**Important: if a trigger list has only exceptions, it matches when none of the exceptions match.**
-
-#### Examples:
+Examples:
 
 ```json
 "triggerVoice": "search|google|ask"
 ```
 
+That means:
+
+- `google best pizza` can match
+- `search latest release notes` can match
+
+#### Raw regex mode
+
+Wrap the pattern in `==...==` when you want full regex control.
+
+Example:
+
 ```json
 "triggerVoice": "==^(search|google)\\s+(.+)$=="
 ```
+
+Important:
+
+- raw regex voice triggers do not do automatic prefix stripping
+- if you need to remove the spoken trigger in that case, use a placeholder regex replacement
+
+#### Exception patterns
+
+Use `!` to define exceptions.
+
+Example:
 
 ```json
 "triggerVoice": "!test|!debug"
 ```
 
+If a trigger list contains only exceptions, the action matches whenever none of those exceptions match.
+
 ### 8.2 `triggerApps`
 
-Regex against front app name and bundle ID.
+Use `triggerApps` when an action should run only in certain apps.
 
-#### Rules:
+It matches against:
 
-- Direct regex (no `==...==` wrapper needed)
-- Case-insensitive by default
-- `!` exception patterns are supported
-- If only exception patterns are configured, app trigger passes when none match
+- the front app name
+- the front app bundle ID
 
-#### Example:
+Rules:
+
+- direct regex, no `==...==` wrapper needed
+- case-insensitive by default
+- `!` exceptions are supported
+
+Example:
 
 ```json
 "triggerApps": "Mail|com.apple.mail"
@@ -953,9 +1051,11 @@ Regex against front app name and bundle ID.
 
 ### 8.3 `triggerModes`
 
-Regex against Superwhisper `modeName`. Rules are same as `triggerApps`.
+Use `triggerModes` when you want a rule tied to a Superwhisper mode.
 
-#### Example:
+It matches against `modeName` and follows the same rules as `triggerApps`.
+
+Example:
 
 ```json
 "triggerModes": "dictation|Super|Custom"
@@ -963,61 +1063,66 @@ Regex against Superwhisper `modeName`. Rules are same as `triggerApps`.
 
 ### 8.4 `triggerUrls`
 
-Matches against the active URL captured at trigger-evaluation time.
+Use `triggerUrls` when behavior should change depending on the current browser page.
 
-#### Rules
+Rules:
 
-- `|` splits multiple URL tokens
+- `|` separates tokens
 - `!` creates exception tokens
-- Empty tokens are ignored
+- empty tokens are ignored
 
-#### Token types
+Token types:
 
-- **Domain token**: no scheme (e.g., `google.com`, `www.google.com/docs`)
-- **Full URL token**: starts with `http://` or `https://`
+- domain token: no scheme, such as `google.com`
+- full URL token: starts with `http://` or `https://`
 
 Examples:
 
-- `google.com` matches `google.com`, `www.google.com`, `docs.google.com`
-- `www.google.com` matches `www.google.com`, `x.www.google.com`
-- `www.google.com` does **not** match `maps.google.com`
+- `google.com` matches `google.com`, `www.google.com`, and `docs.google.com`
+- `www.google.com` matches `www.google.com` and deeper subdomains under it
+- `www.google.com` does not match `maps.google.com`
 - `https://google.com` matches `http://google.com/maps`
-- `https://google.com` does **not** match `docs.google.com`
-- `https://www.google.com/other` matches `/other...` only
+- `https://google.com` does not match `docs.google.com`
 
-URL capture is strict-allowlist for supported browsers only. If your browser is not working properly with triggerUrls, open a GitHub issue with details.
+URL capture works only for supported browsers. If your browser is not behaving correctly with `triggerUrls`, open a GitHub issue with details.
 
 ### 8.5 `triggerLogic`
 
-- `or` (default): any configured trigger type can match
-- `and`: all configured trigger types must match
+Use `triggerLogic` to combine trigger types:
 
-If all trigger fields are empty, action does not trigger unless it's set as the activeAction or scheduled with `--schedule-action`.
+- `or` means any configured trigger type can match
+- `and` means all configured trigger types must match
 
-### 8.6 Voice trigger stripping behavior
+If all trigger fields are empty, the action will not auto-trigger. It can still run as the active action or via `--schedule-action`.
 
-For non-raw voice triggers that match:
+### 8.6 What happens to spoken trigger words
 
-- Matched prefix is stripped from `result`
-- In trigger-executed flows, equivalent stripping is also attempted for `llmResult`
-- Leading punctuation/whitespace after stripped prefix is removed
-- First remaining character is uppercased
+For normal, non-regex voice triggers:
 
-*This is why voice commands like `"google best pizza"` can trigger URL actions and still pass clean payload text.*
+- the matched prefix is removed from `result`
+- during trigger-executed flows, Macrowhisper also tries to remove the equivalent prefix from `llmResult`
+- leading punctuation and whitespace after the removed prefix are cleaned up
+- the first remaining character is uppercased
+
+That is why a phrase like `google best pizza` can trigger a search and still pass clean text into the URL.
 
 ---
 
-## 9) Input Conditions (`inputCondition`) Deep Dive
+## 9) Conditional Behavior with `inputCondition`
 
-`inputCondition` controls whether selected fields apply based on whether execution starts inside an input field.
+`inputCondition` lets you say:
+
+- only use this setting when I am already in a text field
+- only use this setting when I am not in a text field
+
+This is most useful when you want the same action to behave differently depending on where you dictated.
 
 Format rules:
 
-- pipe-separated tokens
-- no whitespace allowed
-- `token` means apply only in input fields
-- `!token` means apply only outside input fields
-- When the condition does not apply. The action execution will use default-level values.
+- use pipe-separated tokens
+- do not include spaces
+- `token` means "only in input fields"
+- `!token` means "only outside input fields"
 
 Examples:
 
@@ -1029,6 +1134,8 @@ Examples:
 "inputCondition": "!restoreClipboard|!action"
 ```
 
+If the condition does not apply, Macrowhisper falls back to the matching default behavior.
+
 ### 9.1 Allowed tokens
 
 - `restoreClipboard`
@@ -1038,105 +1145,115 @@ Examples:
 - `moveTo`
 - `action`
 - `actionDelay`
-- `scriptAsync` (Shortcut/Shell/AppleScript only)
-- `scriptWaitTimeout` (Shortcut/Shell/AppleScript only)
+- `scriptAsync` for Shortcut, shell, and AppleScript actions
+- `scriptWaitTimeout` for Shortcut, shell, and AppleScript actions
 
 ### 9.2 Validation rules
 
 `inputCondition` is rejected if:
 
-- it contains whitespace
-- it has empty tokens (`||`)
+- it contains spaces
+- it contains empty tokens such as `||`
 - `!` is used without a token
-- token name is not allowed for that action type
+- the token name is not allowed for that action type
 
-When config validation fails, Macrowhisper reports a configuration error and falls back to defaults in memory until fixed.
+If validation fails, Macrowhisper reports the config problem and falls back to in-memory defaults until you fix it.
 
-### 9.3 How inputCondition is applied internally
+### 9.3 What Macrowhisper changes internally
 
-When a token does not apply in current context, the related field is neutralized:
+When a token does not apply in the current context:
 
-- booleans/numbers set to `nil` (fallback to defaults)
-- `action` set to empty string (effectively skip payload for that step)
-- strings like `moveTo`/`nextAction` set to `nil` (fallback behavior)
+- booleans and numbers fall back to defaults
+- `action` becomes an empty string
+- values such as `moveTo` and `nextAction` fall back to defaults
+
+In plain terms: Macrowhisper temporarily turns off the parts of the action that do not apply.
 
 ---
 
-## 10) Chaining Actions (`nextAction`) Deep Dive
+## 10) Chaining Actions with `nextAction`
 
-`nextAction` lets one action call another. It can be set:
+`nextAction` lets one action call another action automatically.
 
-- per action (`action.nextAction`)
-- globally (`defaults.nextAction`)
+You can define it:
 
-### 10.1 Precedence
+- on the action itself
+- in `defaults.nextAction`
 
-For first step only:
+### 10.1 Which `nextAction` wins
 
-- if action-level `nextAction` is `null`, `defaults.nextAction` can apply
-- if action-level `nextAction` is `""`, that explicitly means "no next action" for first step
+For the first step only:
 
-For subsequent steps:
+- if the action-level `nextAction` is `null`, `defaults.nextAction` can apply
+- if the action-level `nextAction` is `""`, that explicitly means "do not chain"
 
-- only action-level `nextAction` is considered
+For later steps in the chain:
+
+- only action-level `nextAction` is used
 
 ### 10.2 Safety checks
 
-Macrowhisper validates and blocks:
+Macrowhisper blocks these problems:
 
-- missing next action names
-- chain cycles (`A -> B -> A`)
+- missing action names
+- loops such as `A -> B -> A`
 - more than one insert action in the same chain
 
-### 10.3 Name uniqueness requirement
+### 10.3 Unique names matter
 
-Because chains resolve by name across all types, duplicate names across types are rejected by config validation.
+Chains resolve by action name across all action types, so duplicate names are not allowed.
 
-### 10.4 Execution behavior
+### 10.4 How chains behave at runtime
 
-- Actions execute step-by-step.
-- If one step fails, chain continues to remaining steps and reports partial failure.
-- Shell/AppleScript/Shortcut steps default to launch-and-continue.
-- When `scriptAsync: false`, those steps wait for completion (up to `scriptWaitTimeout`) and can provide stdout to `{{actionResult}}` placeholders in later chain steps.
-- Clipboard restoration decision is controlled by the last step.
-- `moveTo` post-processing is based on final executed action context.
-- `simEsc` is controlled at the first action-level (if set) else `defaults.simEsc`.
+- actions run one step at a time
+- if one step fails, the rest of the chain still continues
+- Shortcut, shell, and AppleScript steps launch asynchronously by default
+- if `scriptAsync: false`, Macrowhisper waits for completion up to `scriptWaitTimeout`
+- synchronous script output can be reused later through `{{actionResult}}`
+- clipboard restoration is decided by the last step
+- `moveTo` is based on the final executed action context
+- `simEsc` comes from the first action-level setting if present, otherwise from `defaults.simEsc`
 
 ---
 
-## 11) Placeholders Deep Dive
+## 11) Placeholders
 
-Placeholders are available in every action type via `action` strings.
+Placeholders let you insert dynamic values into any action string.
+
+This is one of the most powerful parts of Macrowhisper.
 
 ### 11.1 Processing order
 
-For each action payload:
+For each action payload, Macrowhisper processes values in this order:
 
-1. Insert actions only: convert literal `\n` to real line breaks.
-2. XML extraction pass (if `llmResult` or `result` exists and XML placeholders are requested).
-3. Dynamic placeholder expansion (`{{key}}`, `{{json:key}}`, `{{raw:key}}`, dates, placeholder-level transforms, regex replacements).
-4. Contextual escaping based on action type.
+1. Insert actions only: turn literal `\n` into real line breaks.
+2. Extract XML placeholders if needed.
+3. Expand placeholders such as `{{key}}`, `{{json:key}}`, `{{raw:key}}`, dates, transforms, and regex replacements.
+4. Apply escaping rules based on action type.
 
 ### 11.2 Basic placeholders
 
 - `{{swResult}}` - prefers `llmResult`, falls back to `result`
 - `{{result}}`
 - `{{llmResult}}`
-- `{{folderName}}` / `{{folderPath}}` - current active recording folder (if any), otherwise latest valid completed folder
-- `{{folderName:<index>}}` / `{{folderPath:<index>}}` - indexed folder lookup (`0` newest/current, `1` previous, etc.)
-- `{{actionResult}}` - stdout from the first synchronous script-like step in the current execution group
-- `{{actionResult:0}}`, `{{actionResult:1}}`, ... - indexed stdout results from synchronous script-like steps
+- `{{folderName}}`
+- `{{folderPath}}`
+- `{{folderName:<index>}}`
+- `{{folderPath:<index>}}`
+- `{{actionResult}}`
+- `{{actionResult:0}}`, `{{actionResult:1}}`, and so on
 
-*For most users, `{{swResult}}` will be the default placeholder to use, as it dynamically includes expected Superwhisper's result.*
+For most users, `{{swResult}}` is the main one to remember.
 
 ### 11.3 Date placeholders
 
 - `{{date:short}}`
 - `{{date:long}}`
-- `{{date:yyyy-MM-dd}}` (UTS-35 style custom format)
+- `{{date:yyyy-MM-dd}}`
 
 ### 11.4 Context placeholders
-Context placeholders use content captured by Macrowhisper, not Superwhisper. This means that they also work on voice-only modes without LLM. This is particularly useful if you want to use Macrowhisper actions to send your dictation results to other apps. 
+
+These come from Macrowhisper, not from Superwhisper:
 
 - `{{selectedText}}`
 - `{{clipboardContext}}`
@@ -1145,7 +1262,7 @@ Context placeholders use content captured by Macrowhisper, not Superwhisper. Thi
 - `{{frontApp}}`
 - `{{frontAppUrl}}`
 
-*Detailed timing is covered in Section 12.*
+These are especially useful in voice-only modes because they do not depend on an AI-processed result.
 
 ### 11.5 XML placeholders
 
@@ -1154,47 +1271,40 @@ Supported formats:
 - `{{xml:tagName}}`
 - `{{json:xml:tagName}}`
 - `{{raw:xml:tagName}}`
-  
-*Note: contextual prefixes like `json:` and `raw:` are covered in Section 14*
 
 Behavior:
 
-- Looks for `<tagName>...</tagName>` in `llmResult` first, else in `result`
-- Inserts extracted content where placeholder appears
-- If tag content is missing/empty, placeholder is removed
-- Extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized (when applicable)
-  
-### 11.6 Any metadata key placeholder
+- Macrowhisper looks for `<tagName>...</tagName>` in `llmResult` first, then in `result`
+- if the tag exists, Macrowhisper inserts the content
+- if the tag is empty or missing, the placeholder becomes empty
+- extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized when applicable
 
-Any key in `meta.json` can be used as `{{keyName}}`.
+### 11.6 Any `meta.json` key
 
-#### Examples:
+Any key in `meta.json` can be used as a placeholder.
+
+Examples:
 
 - `{{modeName}}`
 - `{{languageModelName}}`
 - `{{language}}`
 
-#### Nested Values
-
-Nested values can be accessed with dot notation and array indexes:
+Nested values are supported too:
 
 - `{{promptContext.systemContext.language}}`
 - `{{promptContext.modeContext.type}}`
 - `{{segments.0.text}}`
 
+About `{{segments}}`:
 
-#### Segments & Special Values
+- when speaker data exists, consecutive words from the same speaker are merged into readable blocks
+- time-like values such as `duration` and `processingTime` are shown in a human-readable format like `350ms`, `1.2s`, or `2m 05s`
 
-`{{segments}}` is rendered as a readable transcript.
+If a placeholder key does not exist, it becomes an empty string.
 
-- With speaker metadata/diarization: consecutive words from the same speaker are merged into blocks, each block starts with `mm:ss Speaker N` (`N` is 1-based).
-- Special time keys (`duration`, `languageModelProcessingTime`, `processingTime`) are formatted into human-readable values like `350ms`, `1.2s`, or `2m 05s`.
-  
-If a placeholder key does not exist, it resolves to empty string.
+### 11.7 Placeholder transforms with `::`
 
-#### 11.7 Placeholder transforms (`::`)
-
-You can transform placeholder values before they get passed to an action. Placeholders can only have one transform value. This is applied before regex replacements, so you can still apply exclusions or more transforms in the regex pipeline.
+You can transform a placeholder before it is used.
 
 Basic format:
 
@@ -1202,29 +1312,29 @@ Basic format:
 {{placeholder::transformName}}
 ```
 
-Transform names are case-insensitive (`titleCase`, `TITLECASE`, and `TitleCase` are equivalent).
+Transform names are case-insensitive.
 
-What each transform does:
+Available transforms:
 
-- `uppercase`: makes the whole value UPPERCASE.
-- `lowercase`: makes the whole value lowercase.
-- `uppercaseFirst`: only uppercases the first letter it finds.
-- `lowercaseFirst`: only lowercases the first letter it finds.
-- `camelCase`: converts words to `camelCase`.
-- `pascalCase`: converts words to `PascalCase`.
-- `snakeCase`: converts words to `snake_case`.
-- `kebabCase`: converts words to `kebab-case`.
-- `altCase`: alternates letter case starting with lowercase (`hElLo`).
-- `altCase:upperFirst`: alternates letter case starting with uppercase (`HeLlO`).
-- `randomCase`: randomly upper/lowercases each letter (non-deterministic).
-- `trim`: removes leading/trailing whitespace and line breaks.
-- `titleCase`: uses automatic language detection (English/Spanish/French) and applies title case rules.
-- `titleCase:en`: English title case rules.
-- `titleCase:es`: Spanish title case rules.
-- `titleCase:fr`: French title case rules.
-- `titleCase:all`: capitalizes the first letter of every word (including minor words like "and", "of", "de", etc.).
-- `ensureSentence`: makes sure the text starts with a capital letter and ends with closing punctuation. If ending punctuation is missing, it adds a period (`.`). Existing terminal `.`, `!`, `?`, `,`, `;`, or `:` is preserved.
-  
+- `uppercase`
+- `lowercase`
+- `uppercaseFirst`
+- `lowercaseFirst`
+- `camelCase`
+- `pascalCase`
+- `snakeCase`
+- `kebabCase`
+- `altCase`
+- `altCase:upperFirst`
+- `randomCase`
+- `trim`
+- `titleCase`
+- `titleCase:en`
+- `titleCase:es`
+- `titleCase:fr`
+- `titleCase:all`
+- `ensureSentence`
+
 Examples:
 
 - `{{swResult::uppercase}}`
@@ -1237,42 +1347,44 @@ Examples:
 - `{{swResult::altCase:upperFirst}}`
 - `{{swResult::trim}}`
 
-When built-in transforms are not enough, you can create your own transform pipeline with a synchronous script action (`scriptAsync: false`) and then pass the script output to the next action using `{{actionResult}}`.  
-See Section 18.3 for a full working example.
+When the built-in transforms are not enough, you can use a synchronous script action to create your own transform pipeline, then pass its output to a later step through `{{actionResult}}`.
 
-Smart insertion interaction:
+### Smart insert behavior and transforms
 
-- Placeholder transforms do not auto-disable smart behavior.
-- `smartCasing`, `smartPunctuation`, and `smartSpacing` are controlled explicitly by config toggles.
-- Using the `ensureSentence` transform is a great way to normalize dictations before insertion while still keeping all smart insertion toggles active.
-- On the other hand, if your transform involves a specific first letter case, you may need to toggle off `smartCasing` 
-- If Accessibility is unavailable or insertion context is low-confidence, all three smart passes are skipped.
+- transforms do not automatically disable smart insert behavior
+- `smartCasing`, `smartPunctuation`, and `smartSpacing` are still controlled by config
+- `ensureSentence` is a good option when you want cleaner dictation before insert
+- if your transform relies on a very specific first-letter case, you may want to disable `smartCasing`
+
+If Accessibility is unavailable or the insertion context is low-confidence, the smart insert passes are skipped.
 
 ---
 
-## 12) Context Capture Timing
+## 12) When Context Is Captured
+
+This section explains when Macrowhisper takes snapshots for context placeholders.
 
 ### 12.1 `{{selectedText}}`
 
-Captured at recording session start (when recording folder appears)
+Captured when the recording session starts.
 
 ### 12.2 `{{clipboardContext}}`
 
-Session execution flow:
+Session flow:
 
-1. Macrowhisper captures pre-recording clipboard history from the `clipboardBuffer` window before dictation starts.
-2. During session, clipboard changes are tracked.
-3. `{{clipboardContext}}` resolves from session data:
-   - if stacking is off: last session clipboard change, else most recent pre-recording capture
-   - if stacking is on: all relevant captures in order; if more than one item exists, output is XML-tagged
+1. Macrowhisper captures recent clipboard history from the `clipboardBuffer` window before dictation starts.
+2. During the session, clipboard changes are tracked.
+3. `{{clipboardContext}}` is built from that session data.
 
-Filtering behavior:
+Behavior details:
 
-- Superwhisper result text is filtered out from stacked clipboard context entries.
-- Empty clipboard entries are ignored.
-- Ignored apps (from `clipboardIgnore`) do not contribute entries.
+- if stacking is off, Macrowhisper returns one best clipboard candidate
+- if stacking is on, it can return multiple items in order
+- Superwhisper result text is filtered out from stacked clipboard entries
+- empty clipboard entries are ignored
+- apps matched by `clipboardIgnore` are ignored
 
-Stacking output format for multiple items:
+When several clipboard items are returned, the output looks like this:
 
 ```xml
 <clipboard-context-1>
@@ -1286,56 +1398,66 @@ Stacking output format for multiple items:
 
 ### 12.3 `{{appContext}}`
 
-- watcher flow: anchored to the app that was frontmost when recording finished (before first action step)
-- computed lazily only when used, then cached for the whole chain
-- captures richer app/window/text-field context
-- `ACTIVE URL` is included only for supported browsers (same allowlist used by `triggerUrls` and `{{frontAppUrl}}`)
+- anchored to the app that was frontmost when recording finished, before the first action step
+- collected only if needed
+- reused across the whole chain
+- can include richer app, window, and text-field context
+- includes `ACTIVE URL` only for supported browsers
 
 ### 12.4 `{{appVocabulary}}`
 
-- watcher flow: anchored to the app that was frontmost when recording finished (before first action step)
-- computed lazily only when used, then cached for the whole chain
-- extracts comma-separated terms from app accessibility text (window/focused elements)
-- tuned for names/identifiers/noun-like tokens
+- anchored to the same app snapshot used for `{{appContext}}`
+- collected only if needed
+- reused across the whole chain
+- extracts a comma-separated list of likely terms, names, or identifiers from the app's accessibility text
 
-### 12.5 `{{frontApp}}` & `{{frontAppUrl}}`
+### 12.5 `{{frontApp}}` and `{{frontAppUrl}}`
 
-- watcher flow: resolved from the same anchored app snapshot used for triggers/chains
-- stays stable across all steps in a chain, even if user focus changes mid-chain
-- `{{frontAppUrl}}` resolves only for supported browsers; unsupported apps return empty quickly
-- for Arc specifically, unresolved or host-only placeholder values return empty to avoid false positive URL matches
+- use the same anchored app snapshot used for triggers and chains
+- stay stable across the whole chain even if focus changes while the chain is running
+- `{{frontAppUrl}}` works only in supported browsers
+- unsupported apps return an empty value quickly
 
-### 12.6 On CLI Execution
+### 12.6 CLI execution
 
-In CLI execution context (with `--exec-action`, `--run-auto`, `--get-action`, or `--copy-action`), Macrowhisper captures context placeholders at CLI execution time (live context).
+For CLI commands such as `--exec-action`, `--run-auto`, `--get-action`, and `--copy-action`, context placeholders are captured at the moment you run the command.
 
-***Powerful Use-Case**: With `--copy-action` , you can pass stacked clipboards to Superwhisper for processing if the selected mode in Superwhisper includes clipboard capture.*
+Useful example:
+
+With `--copy-action`, you can collect stacked clipboard context and then send that into Superwhisper if the selected Superwhisper mode uses clipboard capture.
 
 ---
 
 ## 13) Regex Replacements
 
-Regex replacements work inside placeholder syntax and run after placeholder-level transforms:
+Regex replacements work inside placeholders and run after placeholder transforms.
+
+Basic format:
 
 ```text
 {{placeholder||find_regex||replace||find_regex2||replace2}}
 ```
-*Placeholder transform (`::...`) is optional and in this case applies before regex replacements*
+
+With a transform:
 
 ```text
 {{placeholder::titleCase||find_regex||replace}}
 ```
 
-Capture transform format inside replacement templates:
+### Capture transforms inside replacements
+
+You can also transform captures inside the replacement value:
 
 ```text
 ${N::transformName}
 ```
 
-*Where `N` is the capture index (`0` = full match, `1+` = capture groups). Use this to perform transforms within the regex pipieline.*
-`transformName` is also case-insensitive in capture templates.
+`N` is the capture index:
 
-13.1 Examples:
+- `0` = full match
+- `1+` = capture groups
+
+### 13.1 Examples
 
 Remove filler words:
 
@@ -1343,7 +1465,7 @@ Remove filler words:
 {{swResult||(uh|um|like)||}}
 ```
 
-Remove trailing period (common for URL query cleanup):
+Remove a trailing period:
 
 ```text
 {{swResult||\.$||}}
@@ -1355,29 +1477,29 @@ Replace line breaks with HTML `<br>`:
 {{swResult||\\n||<br>}}
 ```
 
-Uppercase only a captured acronym token:
+Uppercase only an acronym capture:
 
 ```text
 {{swResult||\\b(api|sdk)\\b||${1::uppercase}}}
 ```
 
-Mixed replacements with transformed and raw captures:
+Mix raw and transformed captures:
 
 ```text
 {{swResult||(foo)\\s+(bar)||${1} ${2::titleCase}}}
 ```
 
-13.2 Behavior details:
+### 13.2 Behavior details
 
-- Multiple replacements execute in order
-- Invalid regex patterns are logged and skipped
-- Unknown transforms are logged and ignored (fail-open)
-- Capture transforms are optional and only affect the referenced capture token
-- Standard replacement template syntax (for example `${1}` or `$1`) remains supported
+- replacements run in order
+- invalid regex patterns are logged and skipped
+- unknown transforms are logged and ignored
+- capture transforms are optional
+- standard replacement syntax such as `${1}` and `$1` still works
 
-13.3 AI Help for Regex
+### 13.3 Prompt template for AI help
 
-If you want help from any AI (ChatGPT, Claude, Gemini, etc.), use this template so it returns syntax that works in Macrowhisper placeholders:
+If you want ChatGPT, Claude, Gemini, or another AI to help you write a Macrowhisper placeholder regex, use this template:
 
 ```text
 Output requirements (strict):
@@ -1399,32 +1521,31 @@ Available transformName values:
 uppercase, lowercase, uppercaseFirst, lowercaseFirst, camelCase, pascalCase,
 snakeCase, kebabCase, altCase, altCase:upperFirst, randomCase, trim,
 titleCase, titleCase:en, titleCase:es, titleCase:fr, titleCase:all, ensureSentence
-(Names are case-insensitive.)
 
 Goal:
-[Describe what should be matched/removed/replaced]
+[Describe what should be matched, removed, or replaced]
 
 Input examples to handle:
-[Paste 3-10 realistic phrases/transcriptions]
+[Paste 3-10 realistic phrases or transcriptions]
 ```
 
-*Replace `swResult` with any other placeholder (for example `clipboardContext`) when needed. Macrowhisper applies at most one placeholder-level transform (`::...`) before regex replacements.*
+Replace `swResult` with another placeholder if needed, such as `clipboardContext`.
 
 ---
 
-## 14) Contextual Escaping (`raw:` / `json:` and default behavior)
+## 14) Escaping Rules
 
-Macrowhisper applies escaping based on action type unless overridden.
+Macrowhisper automatically escapes placeholder values differently depending on the action type.
 
 ### 14.1 Default escaping by action type
 
 - Insert: no escaping
 - Shortcut: no escaping
-- URL: URL-encoding on final value
+- URL: URL-encode the final value
 - Shell: shell-safe escaping
 - AppleScript: AppleScript-safe escaping
 
-### 14.2 Prefix overrides
+### 14.2 Override prefixes
 
 Use `raw:` to disable escaping:
 
@@ -1432,7 +1553,7 @@ Use `raw:` to disable escaping:
 {{raw:swResult}}
 ```
 
-*This is useful if, for example, Superwhisper is giving you AppleScript that's meant for direct execution.*
+Example use case: Superwhisper returns AppleScript that you want to run directly.
 
 Use `json:` to force JSON string escaping:
 
@@ -1440,44 +1561,44 @@ Use `json:` to force JSON string escaping:
 {{json:swResult}}
 ```
 
-*This is useful for Shortcut actions, for example. Shortcut actions don’t escape placeholders for you, but sometimes you need your value to be JSON-safe.*
-
-Example
+Example:
 
 ```json
 "action": "{\"input\":\"{{json:swResult}}\"}"
 ```
 
+This is especially useful in Shortcut actions when the receiving side expects valid JSON.
+
 ---
 
-## 15) Clipboard System Deep Dive
+## 15) Clipboard Behavior
 
-Most users can skip this section. It is for precision debugging and advanced setups.
+Most users can skip this section. It matters mainly for debugging and advanced setups.
 
-### 15.1 Why this exists
+### 15.1 Why Macrowhisper handles the clipboard carefully
 
-Superwhisper and Macrowhisper can touch clipboard near the same time. The clipboard subsystem exists to avoid race conditions and stale clipboard reuse.
+Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrowhisper's clipboard system exists to reduce race conditions and prevent stale clipboard values from leaking into later actions.
 
-### 15.2 Key timing values used internally
+### 15.2 The main timing values
 
-- Short wait window for Superwhisper clipboard sync before the first action in a chain (`0.1s`)
-- Recent-activity window to skip unnecessary waiting (`0.5s`)
-- Startup duplicate-ignore window (`3s`). For some reason Superwhisper performs a clipboard operation if the user is not in an input field. This 3 sec window prevents clipboard contamination for context placeholders
-- Pre-recording capture window from `clipboardBuffer` (user-configurable, default `5s`)
+- a short wait for Superwhisper clipboard sync before the first action in a chain: `0.1s`
+- a recent-activity window to avoid unnecessary waiting: `0.5s`
+- a startup duplicate-ignore window: `3s`
+- the user-controlled pre-recording capture window from `clipboardBuffer`
 
-### 15.3 Important settings
+### 15.3 The settings that matter most
 
 - `restoreClipboard`
 - `clipboardBuffer`
 - `clipboardStacking`
 - `clipboardIgnore`
 
-How these combine:
+How they work together:
 
-- `clipboardBuffer = 0` disables pre-recording global clipboard buffer capture.
-- `clipboardStacking = false` returns one best clipboard context candidate.
-- `clipboardStacking = true` can return multiple ordered snippets tagged as `<clipboard-context-N>`.
-- `restoreClipboard = true` restores the original clipboard at the end of the action flow (chain-aware: final step governs restoration).
+- `clipboardBuffer = 0` turns off pre-recording clipboard capture
+- `clipboardStacking = false` returns one best clipboard context value
+- `clipboardStacking = true` can return several ordered snippets
+- `restoreClipboard = true` restores the original clipboard when the action flow ends
 
 ### 15.4 `clipboardIgnore` example
 
@@ -1485,83 +1606,91 @@ How these combine:
 "clipboardIgnore": "Arc|Bitwarden|com.apple.passwords"
 ```
 
-This prevents clipboard captures from ignored apps from polluting `{{clipboardContext}}`. Macrowhisper also respects clipboard items marked as concealed.
+This prevents noisy clipboard events from those apps from polluting `{{clipboardContext}}`.
+
+Macrowhisper also respects clipboard items marked as concealed.
 
 ### 15.5 Best practices
 
-1. Keep Superwhisper clipboard restoration disabled.
-2. Start with `clipboardBuffer`: 5, this setting comes into effect for actions where `{{clipboardContext}}` is used.
-3. Enable `clipboardStacking` only when you actually need multi-copy context.
-4. Use `clipboardIgnore` for password managers / browsers that produce noisy clipboard events.
-5. If you see intermittent clipboard race behavior, add a small `actionDelay` (for example `0.05` to `0.2`).
+1. Keep Superwhisper clipboard restoration off.
+2. Start with `clipboardBuffer: 5` if you use `{{clipboardContext}}`.
+3. Turn on `clipboardStacking` only when you actually need several clipboard items.
+4. Use `clipboardIgnore` for password managers and other noisy apps.
+5. If clipboard behavior feels racy, try a small `actionDelay` such as `0.05` to `0.2`.
 
 ### 15.6 Async execution and clipboard
 
-In simple terms:
-- Macrowhisper prioritizes speed. It launches actions quickly so users can dictate again right away.
-- For Shell, AppleScript, and Shortcut actions, default behavior is async launch, but you can opt into sync wait with `scriptAsync: false`.
-- Clipboard restore timing is controlled by `restoreClipboardDelay` (final chain step), and in sync mode restoration can happen after script completion/timeout.
-- Since Superwhisper always accesses the clipboard (even when Macrowhisper doesn't place anything there for non-insert actions) you'll only see the Superwhisper result if you need to access the clipboard during script execution. It's suggested to use the {{clipboardContext}} placeholder instead.
-  
+The short version:
+
+- Macrowhisper is optimized to stay responsive
+- shell, AppleScript, and Shortcut actions launch asynchronously by default
+- if you need Macrowhisper to wait, set `scriptAsync: false`
+- clipboard restoration happens according to `restoreClipboardDelay` on the final chain step
+
+Because Superwhisper always interacts with the clipboard, the safest way to pass earlier clipboard content into scripts is usually to use `{{clipboardContext}}` instead of reading the live clipboard during script execution.
+
 ---
 
-## 16) Recording File Handling (`moveTo`, `history`)
+## 16) Recording File Handling
 
 ### 16.1 `moveTo`
 
 Supported values:
 
-- folder path: move processed recording folder
-- `.delete`: delete processed folder
-- `""`: explicitly do nothing
-- `null` on action-level: fallback to defaults
+- a folder path: move the processed recording folder there
+- `.delete`: delete the processed folder
+- `""`: do nothing
+- `null` at the action level: inherit from `defaults`
 
 ### 16.2 `history`
 
-`defaults.history` controls retention cleanup.
+`defaults.history` controls retention cleanup:
 
-- `null`: disabled (keep all)
-- `0`: keep only most recent recording folder
-- positive integer: keep last N days
-- Cleanup runs with a 24-hour check.
+- `null`: keep everything
+- `0`: keep only the newest recording folder
+- positive integer: keep the last N days
+
+Cleanup runs on a 24-hour check.
 
 ---
 
-## 17) Advanced Runtime Behavior Notes
+## 17) Advanced Runtime Notes
 
-### 17.1 `--schedule-action` and `--auto-return` are one-shot
+This section is for advanced behavior and edge cases.
 
-After use (or cancellation), they are cleared.
+### 17.1 `--schedule-action` and `--auto-return` are one-time
 
-`--run-auto` does not consume or clear one-shot runtime state. It ignores those flags and only applies bypass/trigger/active resolution for the selected meta source.
+After they are used, or canceled, they are cleared.
 
-#### Auto-return execution details
+`--run-auto` does not consume or clear those values. It ignores them and only applies bypass mode checks, trigger muting, trigger matching, and active-action fallback for the chosen recording source.
 
-- Auto-return keeps runtime priority (`auto-return` > `schedule-action` > triggers > active action).
-- It resolves the same trigger/active candidate that would normally run.
-- If that candidate is an insert action, Macrowhisper resolves placeholders and insert settings from that insert.
-- For insert actions with `inputCondition`, auto-return resolves them as if `isInInputField = true`.
-- `nextAction` is ignored in auto-return (single insert only).
-- If resolved insert output is empty, `.none`, or `.autoPaste`, auto-return inserts `{{swResult}}` instead.
-- If resolved candidate is non-insert (URL/Shortcut/Shell/AppleScript) or missing, non-insert execution is skipped and auto-return uses fallback insert `{{swResult}}`.
-- In non-insert/missing fallback, non-insert action settings are ignored and defaults are used.
-- Auto-return always forces one Return key simulation for that one-shot run.
+#### Auto-return details
+
+- auto-return keeps normal runtime priority: `auto-return` -> `schedule-action` -> triggers -> active action
+- it resolves the same trigger or active candidate that would normally run
+- if that candidate is an insert action, Macrowhisper uses that insert action's placeholders and insert settings
+- for insert actions with `inputCondition`, auto-return behaves as if `isInInputField = true`
+- `nextAction` is ignored during auto-return
+- if the resolved insert output is empty, `.none`, or `.autoPaste`, auto-return inserts `{{swResult}}` instead
+- if the resolved candidate is non-insert or missing, Macrowhisper falls back to inserting `{{swResult}}`
+- non-insert settings are ignored in that fallback case
+- auto-return always forces one Return key simulation for that one-time run
 
 ### 17.2 Timeout behavior
 
-`scheduledActionTimeout` controls how long one-shot runtime modes remain pending when there is no active recording session.
+`scheduledActionTimeout` controls how long one-time runtime modes stay pending when no recording starts.
 
 - `0` means no timeout
-- default is `5` seconds
-- If there is an active recording session, the scheduledAction will apply to that without timeout.
+- the default is `5` seconds
+- if a recording is already active, the scheduled action applies to that recording without timeout
 
 ### 17.3 `bypassModes`
 
-If mode is bypassed:
+If the current mode is bypassed:
 
-- no action selection
-- no action execution
-- recording is marked processed
+- no action is selected
+- no action is executed
+- the recording is still marked as processed
 
 Example:
 
@@ -1573,7 +1702,7 @@ Example:
 
 ## 18) Config Examples
 
-### 18.1 Simple Everyday config
+### 18.1 Simple everyday config
 
 ```json
 {
@@ -1633,9 +1762,9 @@ Example:
 }
 ```
 
-### 18.2 Advanced chained workflow example
+### 18.2 Chained workflow example
 
-*In this example the user will directly dictate into the compose action, pasting (since the first is an insert action), opening a url, and showing a notification.*
+In this example, the user dictates into an insert action, then a URL opens, then a notification appears.
 
 ```json
 {
@@ -1671,14 +1800,16 @@ Example:
 }
 ```
 
-### 18.3 Custom transform pipeline (script -> insert with `{{actionResult}}`)
+### 18.3 Custom transform pipeline
 
-Use this pattern when built-in placeholder transforms are not enough and you need your own logic.
+Use this pattern when the built-in placeholder transforms are not enough.
 
 In this example:
-- A shell action normalizes `{{swResult}}` and emits a structured payload to stdout.
-- `scriptAsync: false` makes Macrowhisper wait and capture that stdout.
-- `nextAction` sends execution to an insert action that pastes `{{actionResult}}`.
+
+- a shell action rewrites `{{swResult}}`
+- `scriptAsync: false` makes Macrowhisper wait
+- the script's output becomes available as `{{actionResult}}`
+- the next insert action pastes the transformed result
 
 ```json
 {
@@ -1698,7 +1829,7 @@ In this example:
   "shortcuts": {},
   "scriptsShell": {
     "buildTicketPayload": {
-      "action" : "TEXT='{{swResult}}'; CLEAN=$(printf \"%s\" \"$TEXT\" | tr '\\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ +| +$//g'); LEET_TEXT=$(printf \"%s\" \"$CLEAN\" | tr 'aeio' '4310'); printf \"Original: %s\\nTransformed: %s\\n\" \"$TEXT\" \"$LEET_TEXT\"",
+      "action": "TEXT='{{swResult}}'; CLEAN=$(printf \"%s\" \"$TEXT\" | tr '\\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ +| +$//g'); LEET_TEXT=$(printf \"%s\" \"$CLEAN\" | tr 'aeio' '4310'); printf \"Original: %s\\nTransformed: %s\\n\" \"$TEXT\" \"$LEET_TEXT\"",
       "scriptAsync": false,
       "scriptWaitTimeout": 3.0,
       "nextAction": "insertTicketPayload"
@@ -1709,49 +1840,52 @@ In this example:
 ```
 
 Notes:
-- `{{actionResult}}` is the first synchronous script result in the current execution group.
-- If you chain multiple synchronous script-like steps, use `{{actionResult:0}}`, `{{actionResult:1}}`, etc.
-- If the script fails or times out, chain execution continues, but `{{actionResult}}` may be empty.
+
+- `{{actionResult}}` is the first synchronous script result in the current execution group
+- if you chain several synchronous script-like steps, use `{{actionResult:0}}`, `{{actionResult:1}}`, and so on
+- if the script fails or times out, the chain still continues, but `{{actionResult}}` may be empty
 
 ---
 
 ## 19) Troubleshooting
 
+When something feels off, start here.
+
 ### 19.1 First checks
 
-1. Is service running?
+1. Is the service running?
 
 ```bash
 macrowhisper --service-status
 ```
 
-2. Is active action set?
+2. Is an active action set?
 
 ```bash
 macrowhisper --get-action
 ```
 
-3. Do action names exist?
+3. Do the action names exist?
 
 ```bash
 macrowhisper --list-actions
 ```
 
-4. Is config valid JSON and semantically valid?
+4. Is the config valid?
 
 ```bash
-macrowhisper --reveal-config
+macrowhisper --validate-config
 ```
 
 ### 19.2 Logs
 
-#### To correctly diagnose issues, set `defaults.redactedLogs` to `false` 
+For deeper debugging, set `defaults.redactedLogs` to `false`.
 
-Log directory:
+Log folder:
 
 `~/Library/Logs/Macrowhisper/`
 
-You can also use verbose mode for deep debugging:
+You can also use verbose mode:
 
 ```bash
 macrowhisper --verbose
@@ -1761,40 +1895,41 @@ macrowhisper --verbose
 
 #### Nothing pastes
 
-- Check macOS Accessibility permissions.
-- Restart service.
-- Confirm active action is not empty.
-- Confirm no bypass mode is currently active.
+- check macOS Accessibility permissions
+- restart the service
+- confirm the active action is not empty
+- confirm no bypass mode is active
 
 #### Double paste
 
-- Confirm you've set Superwhiper `Paste result text` to OFF
+- make sure Superwhisper's `Paste Result Text` is OFF
 
-#### Trigger does not fire
+#### A trigger does not fire
 
-- Verify `triggerLogic` and trigger fields are actually non-empty.
-- For `triggerVoice`, remember plain pattern is prefix-only literal matching.
-- Check for another action name that sorts earlier and matches first.
-- Logs will always reveal which action or trigger was used
+- make sure the trigger field is not empty
+- double-check `triggerLogic`
+- remember that normal `triggerVoice` patterns match only at the start of the transcript
+- check whether another action sorts earlier by name and matches first
+- inspect the logs to see which trigger, if any, was used
 
-#### `inputCondition` suddenly not working
+#### `inputCondition` is not working
 
-- Ensure no spaces in string.
-- Ensure token names are valid for that action type.
-- Avoid empty segments like `||`.
+- remove spaces
+- make sure token names are valid for that action type
+- avoid empty segments such as `||`
 
-#### Clipboard context feels stale/noisy
+#### Clipboard context feels stale or noisy
 
-- Tune `clipboardBuffer`.
-- Add `clipboardIgnore` patterns.
-- Disable conflicting clipboard manager features.
-- Keep Superwhisper clipboard restore off.
+- adjust `clipboardBuffer`
+- add `clipboardIgnore` patterns
+- disable conflicting clipboard manager behavior
+- keep Superwhisper clipboard restore off
 
-#### Config edits not applying
+#### Config edits are not taking effect
 
-- Save valid JSON.
-- Check for semantic validation errors (missing action refs, invalid inputCondition tokens, duplicate action names).
-- If invalid, Macrowhisper can run with in-memory defaults until file is fixed.
+- save valid JSON
+- check for semantic validation issues such as missing action references, invalid `inputCondition` tokens, or duplicate action names
+- if the config is invalid, Macrowhisper can continue running with in-memory defaults until the file is fixed
 
 ---
 
@@ -1825,49 +1960,54 @@ macrowhisper --check-updates
 
 ## 21) Full Uninstall
 
-#### Macrowhisper consists of three main components:
+Macrowhisper has three main parts:
 
-**The service** (background process)
-    *Installed over at `~/Library/LaunchAgents/com.aft.macrowhisper.plist`* 
+**The service**
 
-**The binary** (the application itself)
-    *Installed at brew path or `/usr/local/bin/macrowhisper`* 
+- the background process
+- usually installed at `~/Library/LaunchAgents/com.aft.macrowhisper.plist`
 
-**Configuration files** (your settings and preferences)
-    *By default at `~/.config/macrowhisper`* 
+**The binary**
 
-#### First, stop the service
+- the executable itself
+- usually installed by Homebrew or at `/usr/local/bin/macrowhisper`
+
+**Your config files**
+
+- your settings and preferences
+- by default in `~/.config/macrowhisper`
+
+### Step 1: Stop the service
 
 ```bash
 macrowhisper --stop-service
 ```
 
-#### Second, uninstall the service and remove binary
+### Step 2: Remove the service and binary
 
-**If installed with Homebrew**
+If you installed with Homebrew:
 
 ```bash
 macrowhisper --uninstall-service
 brew uninstall macrowhisper
 ```
-**If installed with script**
+
+If you installed with the script:
 
 ```bash
 macrowhisper --uninstall-service
 sudo rm -f /usr/local/bin/macrowhisper
 ```
 
-#### Optional cleanup for config and logs
+### Step 3: Optional cleanup
 
 ```shell
-# Remove Config Folder
+# Remove config
 rm -rf ~/.config/macrowhisper
 
-# Remove Logs
+# Remove logs
 rm -rf ~/Library/Logs/Macrowhisper
 ```
-
----
 
 Repository and issue tracker:
 
