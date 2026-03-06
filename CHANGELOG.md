@@ -31,13 +31,19 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   - `""` for explicit empty
 
 ## Other
-* **New.** `simEsc` (with `true` as default) has replaced `noEsc` (with `false` as default) in the configuration. `noUpdates` has been renamed to `disableUpdateCheck` and `noNoti` to `muteNotification`
+* **New.** Seveal updates to the config naming for clarity and consistency:
+  * `simEsc` (with `true` as default) has replaced `noEsc` (with `false` as default—same action).
+  * `simReturn` has replaced `pressReturn`
+  * `disableUpdateCheck` has replaced `noUpdates`
+  * `muteNotifications` has replaced `noNoti`
   * Your configuration will be updated automatically with the migration mentioned above.
-* **New.** `restoreClipboardDelay` can be set at the default level or at the actions level.
-  * Defaul is 0.3 sec. I suggest not extending too much, especially if you dictate quickly. Could easily lead to clipboard contamination in overlapping dictations.
-* **New.** Up until now, action execution for Shortcuts and scripts has been asyng. Now you got a `scriptAsync` which you can set to false.
-  * Related to this, there's a customizable `scriptWaitTimeout` that you can set for script execution when set it's not async. 
-  * With `scriptAsync` set to false, action execution will wait for script completion. And in chained you can use the result of the first script with `{{actionResult}}` placeholder.
+* **New.** `restoreClipboardDelay` can now be set at the default level or at the actions level.
+  * Defaul is 0.3 sec.
+  * I suggest not extending too much, especially if you dictate quickly.
+  * Could easily lead to clipboard contamination in overlapping dictations.
+* **New.** Up until now, action execution for Shortcuts and scripts has been async. Now you got a `scriptAsync` which you can set to false.
+  * Related to this, there's a customizable `scriptWaitTimeout` setting that you can set for script execution when set it's not async. 
+  * With `scriptAsync` set to false, action execution will wait for script completion. And in chained actions you can use the result of the first script with `{{actionResult}}` placeholder.
   * `{{actionResult}}` has a set index. No index or `{{actionResult:0}}` is the first script completion, `{{actionResult:1}}` the next, and so on.
 * **New** `smartCasing`, `smartPunctuation`, and `smartSpacing` for insert actions set to true by default (at the defaults level)
   * When all set to true, they adjust capitalization, punctuation, and spacing depending on insertion point.
@@ -64,6 +70,9 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * This CLI flag runs Macrowhisper on the last valid meta JSON file with action validation as if running live (respects triggers, active action, bypassModes, muteTriggers, etc)
   * Ignores one-time executions set by `--schedule-action` and/or `--auto-return`
 * **New.** `--validate-config` flag and improved config file error noifications.
+* **New** `--mute-triggers` flag that sets a new `muteTriggers` setting in the config. 
+  * Via CLI it receives true/false/time as argument.
+  * When set as temporary (time) the change will not write to the configuration file.
 * **New.** `triggerUrls` is now possible! This also introduced the new placeholder `{{frontAppUrl}}`
   * NOTE: consider this an experimental feature. **Not all the browsers are supported.** If yours is not, open an issue on Github (give me the bundle ID if possible) and I'll be happy to look into adding it.
 * **Improvement.** Refactored the `--auto-return` CLI command so that it uses the resolved action payload instead of a simple `swResult`.

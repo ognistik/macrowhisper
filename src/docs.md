@@ -301,52 +301,53 @@ macrowhisper --check-updates
 
 Before using these commands, make sure Macrowhisper is running (`macrowhisper --start-service`).
 
-### Runtime command reference (workflow-first)
+### Runtime command reference
 
 #### 1) Inspect state
-
-- `--status`: confirms whether the daemon is running and shows runtime state (including trigger mute status).
-- `--get-action`: shows the current active action name.
-- `--get-action <name>`: returns processed content for that action (latest valid result by default, or `--meta` if provided).
-- `--get-icon`: returns the icon for the active action.
-- `--folder-name [<index>]` / `--folder-path [<index>]`: read recordings by recency (`0` = active recording if present, otherwise latest completed valid recording).
+| **Flag/Command**                                      | **Description**                                                                                             |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `--status`                                            | Confirms whether the daemon is running and shows runtime state (including trigger mute status).             |
+| `--get-action`                                        | Shows the current active action name.                                                                       |
+| `--get-action <name>`                                 | Returns processed content for that action (latest valid result by default, or `--meta` if provided).        |
+| `--get-icon`                                          | Returns the icon for the active action.                                                                     |
+| `--folder-name [<index>]` / `--folder-path [<index>]` | Read recordings by recency (`0` = active recording if present, otherwise latest completed valid recording). |
 
 #### 2) Set defaults
 
-- `--action <name>`: sets your default active action.
-- `--action` (no name): clears the active action.
+| **Flag/Command**     | **Description**                  |
+| -------------------- | -------------------------------- |
+| `--action <name>`    | Sets your default active action. |
+| `--action` (no name) | Clears the active action.        |
 
 #### 3) One-shot runtime controls
 
-- `--schedule-action <name>`: queue one action for your next recording.
-- `--schedule-action` (no name): cancels any queued scheduled action.
-- `--auto-return true|false`: one-time auto-send behavior for next recording.
-- `--auto-return` (no value): disables one-shot auto-return.
-- `--mute-triggers true|false`: saves persistent mute on/off in config.
-- `--mute-triggers <duration>`: temporary runtime mute only (`30`, `30s`, `5m`, `1h`).
-- `--mute-triggers` (no value): unmutes (`false`) and clears runtime mute timer.
-- Check mute state via `--status` (`persistentMuteTriggers`, `runtimeMuteTriggers`, `effectiveMuteTriggers`).
+| **Flag/Command**                | **Description**                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| `--schedule-action <name>`      | Queue one action for your next recording.                                       |
+| `--schedule-action` (no name)   | Cancels any queued scheduled action.                                            |
+| `--auto-return  true\|false`     | One-time auto-send behavior for next recording.                                 |
+| `--auto-return` (no value)      | Disables one-shot auto-return.                                                  |
+| `--mute-triggers  true\|false`   | Saves persistent mute on/off in config.                                         |
+| `--mute-triggers <duration>`    | Temporary runtime mute only (`30`, `30s`, `5m`, `1h`).                          |
+| `--mute-triggers` (no value)    | Unmutes (`false`) and clears runtime mute timer.                                |
+| Check mute state via `--status` | Shows `persistentMuteTriggers`, `runtimeMuteTriggers`, `effectiveMuteTriggers`. |
 
 #### 4) Execute actions
 
-- `--exec-action <name>`: runs one specific action now.
-- `--run-auto`: runs runtime-style automatic selection (bypass mode check, trigger mute check, trigger evaluation, then active-action fallback).
-- `--copy-action <name>`: renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).
+| **Flag/Command**       | **Description**                                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `--exec-action <name>` | Runs one specific action now.                                                                                                    |
+| `--run-auto`           | Runs runtime-style automatic selection (bypass mode check, trigger mute check, trigger evaluation, then active-action fallback). |
+| `--copy-action <name>` | Renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).                             |
 
 #### 5) Other runtime
 
 - `--check-updates`: forces an update check.
 
-#### Breaking change
-
-- `--auto-return` without a value now disables auto-return.
-- Previous behavior (no value => enable) was removed for consistency with `flag without value = clear/disable`.
-
 ---
 
 #### Important details and edge cases
 
-- `--get-action --meta ...` without `<name>` returns an error (`--meta` needs a specific action here).
 - `--run-auto` does not accept an action name.
 - `--run-auto` does not consume or clear one-shot runtime state (`--auto-return`, `--schedule-action`).
 - If persistent mute is already `true`, `--mute-triggers <duration>` is ignored.
@@ -632,7 +633,7 @@ Null behavior at `defaults` level:
 | `redactedLogs` | bool/null | `true` | Redact sensitive content in logs. `null` = built-in default (`true`). |
 | `nextAction` | string/null | `null` | Default next action chain target (first-step override). |
 
-*By default, `actionDelay` is set to 0, but some actions (like triggering URLs or scripts) can happen faster than Superwhisper's popup appears with the result. **If you notice Superwhisper's recording window isn't closing correctly, you might need to adjust this value.**
+**By default, `actionDelay` is set to 0, but some actions (like triggering URLs or scripts) can happen faster than Superwhisper's popup appears with the result. **If you notice Superwhisper's recording window isn't closing correctly, you might need to adjust this value.**
 
 ### Validation rules involving defaults
 
