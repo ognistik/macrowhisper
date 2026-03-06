@@ -3,7 +3,7 @@
   "configVersion" : 2,
   "defaults" : {
     "actionDelay" : 0,
-    "activeAction" : "",
+    "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : null,
     "clipboardBuffer" : 3,
@@ -117,7 +117,7 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{appVocabulary}}",
+      "action" : "{{clipboardContext}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,
