@@ -89,6 +89,20 @@ private func runAppVocabularyExtractionRegressionTests() {
     assertContains(editorTokens, "websocket", "editor prose keeps repeated lowercase domain term")
     assertNotContains(editorTokens, "The", "editor prose drops sentence-start article")
 
+    let contractionTokens = extractVocabularyTokensForTesting(
+        snippets: [
+            (
+                text: "I haven't finished the smartclip setup because it hasn't synced with Macrowhisper yet.",
+                source: "value"
+            )
+        ],
+        isInputFocused: true
+    )
+    assertContains(contractionTokens, "smartclip", "contraction text keeps repeated technical term")
+    assertContains(contractionTokens, "Macrowhisper", "contraction text keeps product name")
+    assertNotContains(contractionTokens, "haven", "contraction text drops haven fragment")
+    assertNotContains(contractionTokens, "hasn", "contraction text drops hasn fragment")
+
     let duplicateSourceTokens = extractVocabularyTokensForTesting(
         snippets: [
             (

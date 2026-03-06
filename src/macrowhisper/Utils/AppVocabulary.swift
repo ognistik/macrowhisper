@@ -983,6 +983,9 @@ private func extractVocabularyObservations(
             let isSentenceStart = isLikelySentenceStartToken(in: snippet.text, matchRange: match.range)
             let contextBonus = codeContextBonus(in: snippet.text, matchRange: match.range)
             for token in normalizedTokens {
+                if isContractionFragmentToken(in: snippet.text, matchRange: match.range, token: token) {
+                    continue
+                }
                 guard shouldKeepVocabularyToken(token) else { continue }
                 let key = token.lowercased()
                 let dedupeKey = "\(match.range.location):\(match.range.length):\(key)"
@@ -1573,6 +1576,39 @@ private func dictionaryLookupVariants(for token: String) -> [String] {
 
 private func hasRepeatedMentionsWithinSameSnippet(_ stats: VocabularyObservationStats) -> Bool {
     stats.count > stats.snippetSourceFingerprints.count
+}
+
+private func isContractionFragmentToken(in text: String, matchRange: NSRange, token: String) -> Bool {
+    let nsText = text as NSString
+    let apostrophes = CharacterSet(charactersIn: "'\u{2019}")
+    let suffixes = ["t", "s", "re", "ve", "ll", "d", "m"]
+
+    let afterLocation = matchRange.location + matchRange.length
+    if afterLocation < nsText.length {
+        let afterChar = nsText.substring(with: NSRange(location: afterLocation, length: 1))
+        if afterChar.rangeOfCharacter(from: apostrophes) != nil {
+            let suffixStart = afterLocation + 1
+            if suffixStart < nsText.length {
+                let suffixLength = min(3, nsText.length - suffixStart)
+                let suffixSlice = nsText.substring(with: NSRange(location: suffixStart, length: suffixLength)).lowercased()
+                if suffixes.contains(where: { suffixSlice.hasPrefix($0) }) {
+                    return true
+                }
+            }
+        }
+    }
+
+    if matchRange.location > 0 {
+        let beforeChar = nsText.substring(with: NSRange(location: matchRange.location - 1, length: 1))
+        if beforeChar.rangeOfCharacter(from: apostrophes) != nil {
+            let lowercase = token.lowercased()
+            if suffixes.contains(where: { lowercase == $0 || lowercase.hasPrefix($0) }) {
+                return true
+            }
+        }
+    }
+
+    return false
 }
 
 private func isNonContentLexicalTag(_ tag: NLTag) -> Bool {
