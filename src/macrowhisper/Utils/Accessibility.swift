@@ -779,7 +779,7 @@ func getAppContext(targetPid: Int32? = nil, fallbackAppName: String? = nil) -> S
     
     // Active App (always included)
     let appName = (targetApp.localizedName ?? fallbackAppName ?? "Unknown").trimmingCharacters(in: .whitespacesAndNewlines)
-    contextParts.append("ACTIVE APP: \(appName)")
+    contextParts.append("ACTIVE APP:\n\(appName)")
     
     // Create accessibility element for the application
     let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
@@ -797,28 +797,29 @@ func getAppContext(targetPid: Int32? = nil, fallbackAppName: String? = nil) -> S
             windowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
-    contextParts.append("ACTIVE WINDOW: \(windowTitle)")
+    contextParts.append("ACTIVE WINDOW:\n\(windowTitle)")
     
     // Names and usernames removed for performance optimization
     
     // Active URL (optional - only for browsers)
     if let url = getBrowserURL(appElement: appElement, frontApp: targetApp) {
-        contextParts.append("ACTIVE URL: \(url)")
+        contextParts.append("ACTIVE URL:\n\(url)")
     }
     
     let inputContent = getInputFieldContent(appElement: appElement)
 
+    // Active Element Info (optional - description/label of focused element)
+    if let elementDescription = getFocusedElementDescription(appElement: appElement) {
+        contextParts.append("ACTIVE ELEMENT INFO:\n\(elementDescription)")
+    }
+
     // Active Element Content (optional - only if in input field)
+    // Keep this section last because it is typically the largest payload.
     if let inputContent = inputContent {
         contextParts.append("ACTIVE ELEMENT CONTENT:\n\(inputContent)")
     }
-    
-    // Active Element Info (optional - description/label of focused element)
-    if let elementDescription = getFocusedElementDescription(appElement: appElement) {
-        contextParts.append("ACTIVE ELEMENT INFO: \(elementDescription)")
-    }
 
-    let result = contextParts.joined(separator: "\n")
+    let result = contextParts.joined(separator: "\n\n")
     logDebug("[AppContext] Generated app context with \(contextParts.count) sections")
     return result
 }
