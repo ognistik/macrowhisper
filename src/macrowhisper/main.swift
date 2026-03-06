@@ -974,7 +974,7 @@ if hasDaemonCommand {
         if let index = autoReturnIndex, index + 1 < args.count && !args[index + 1].starts(with: "--") {
             arguments["enable"] = args[index + 1]
         } else {
-            arguments["enable"] = "true"
+            arguments["enable"] = "false"
         }
         if let response = socketCommunication.sendCommand(.autoReturn, arguments: arguments) {
             print(response)
@@ -1004,7 +1004,8 @@ if hasDaemonCommand {
                 exit(1)
             }
         } else {
-            commandArgs["mode"] = "status"
+            commandArgs["mode"] = "persistent"
+            commandArgs["value"] = "false"
         }
 
         if let response = socketCommunication.sendCommand(.muteTriggers, arguments: commandArgs) {
@@ -1509,20 +1510,28 @@ func printHelp() {
       -s, --status                  Get the status of the running instance
 
     ACTION MANAGEMENT (require running instance):
-      --action [<name>]             Sets active action (if name provided) or clears it (if no name)
-      --exec-action <name>          Execute any action using the last valid result
-                                    (optionally: --meta <folderName|folderPath|jsonPath>)
-      --run-auto                    Resolve and execute like runtime priority
-                                    (bypass/mute/triggers/active; optionally --meta <folderName|folderPath|jsonPath>)
-      --get-icon                    Get the icon of the active action
       --get-action [<name>]         Get name of active action (if run without <name>)
                                     If a name is provided, returns the action content
                                     (optionally: --meta <folderName|folderPath|jsonPath>)
+      --get-icon                    Get the icon of the active action
       --copy-action <name>          Process action content and copy it to clipboard
                                     (ignored by Macrowhisper clipboard capture)
                                     (optionally: --meta <folderName|folderPath|jsonPath>)
       --folder-name [<index>]       Get recording folder name by recency (0 = current/latest)
       --folder-path [<index>]       Get recording folder path by recency (0 = current/latest)
+      --action [<name>]             Sets active action (if name provided) or clears it (if no name)
+      --auto-return [<true|false>]  One-shot Return simulation for next result
+                                    (no value = disable; takes priority over active action and triggers)
+      --schedule-action [<name>]    Schedule any action for next (or active) recording session
+                                    (no name = cancel; takes priority over active action and triggers)
+      --mute-triggers [<value>]     Mute trigger matching globally (voice/app/mode/urls)
+                                    true/false updates config; duration (30|30s|5m|1h) is runtime-only
+                                    (no value = unmute and clear runtime mute; check state via --status)
+      --run-auto                    Resolve and execute like runtime priority
+                                    (bypass/mute/triggers/active)
+                                    (optionally: --meta <folderName|folderPath|jsonPath>)
+      --exec-action <name>          Execute any action using the last valid result
+                                    (optionally: --meta <folderName|folderPath|jsonPath>)
       --list-actions                List all configured actions (all types)
       --list-inserts                List all configured insert actions  
       --list-urls                   List all configured URL actions
@@ -1535,14 +1544,6 @@ func printHelp() {
       --add-shell <name>            Add a shell script action
       --add-as <name>               Add an AppleScript action
       --remove-action <name>        Remove any action by name (works for all action types)
-      --auto-return <true/false>    Paste result and simulate return for one interaction
-                                    (takes priority over active action and triggers)
-      --schedule-action [<name>]    Schedule any action for next (or active) recording session
-                                    (takes priority over active action and triggers)
-                                    (no name = cancel scheduled action)
-      --mute-triggers [<value>]     Mute trigger matching globally (voice/app/mode)
-                                    true/false updates config; duration (30|30s|5m|1h) is runtime-only
-                                    (no value shows persistent/runtime/effective mute status)
 
     OTHER (require running daemon):
       --check-updates               Force check for updates
@@ -1590,8 +1591,14 @@ func printHelp() {
       macrowhisper --schedule-action
         # Cancels any scheduled action
 
+      macrowhisper --auto-return
+        # Disables one-shot auto-return
+
       macrowhisper --mute-triggers true
         # Persistently disables trigger matching in config
+
+      macrowhisper --mute-triggers
+        # Unmutes trigger matching and clears runtime mute timer
 
       macrowhisper --mute-triggers 10m
         # Temporarily disables trigger matching for 10 minutes (runtime only)

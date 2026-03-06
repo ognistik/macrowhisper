@@ -275,75 +275,81 @@ macrowhisper --remove-action <name>
 ### Runtime commands (use with running daemon)
 
 ```bash
+# 1) Inspect state
 macrowhisper --status
-macrowhisper --action [<name>]
 macrowhisper --get-action [<name>] [--meta <value>]
+macrowhisper --get-icon
+macrowhisper --folder-name [<index>]
+macrowhisper --folder-path [<index>]
+
+# 2) Set defaults
+macrowhisper --action [<name>]
+
+# 3) One-shot runtime controls
+macrowhisper --auto-return [<true|false>]
+macrowhisper --schedule-action [<name>]
+macrowhisper --mute-triggers [<true|false|duration>]
+
+# 4) Execute actions
 macrowhisper --copy-action <name> [--meta <value>]
 macrowhisper --exec-action <name> [--meta <value>]
 macrowhisper --run-auto [--meta <value>]
-macrowhisper --folder-name [<index>]
-macrowhisper --folder-path [<index>]
-macrowhisper --schedule-action [<name>]
-macrowhisper --auto-return <true/false>
-macrowhisper --mute-triggers [<true|false|duration>]
-macrowhisper --get-icon
+
+# 5) Other runtime
 macrowhisper --check-updates
 ```
 
 Before using these commands, make sure Macrowhisper is running (`macrowhisper --start-service`).
 
-### Most-used runtime commands
+### Runtime command reference (workflow-first)
 
-- `--status`: confirms whether the daemon is running.
+#### 1) Inspect state
+
+- `--status`: confirms whether the daemon is running and shows runtime state (including trigger mute status).
+- `--get-action`: shows the current active action name.
+- `--get-action <name>`: returns processed content for that action (latest valid result by default, or `--meta` if provided).
+- `--get-icon`: returns the icon for the active action.
+- `--folder-name [<index>]` / `--folder-path [<index>]`: read recordings by recency (`0` = active recording if present, otherwise latest completed valid recording).
+
+#### 2) Set defaults
+
 - `--action <name>`: sets your default active action.
 - `--action` (no name): clears the active action.
-- `--get-action`: shows the current active action name.
+
+#### 3) One-shot runtime controls
+
+- `--schedule-action <name>`: queue one action for your next recording.
+- `--schedule-action` (no name): cancels any queued scheduled action.
+- `--auto-return true|false`: one-time auto-send behavior for next recording.
+- `--auto-return` (no value): disables one-shot auto-return.
+- `--mute-triggers true|false`: saves persistent mute on/off in config.
+- `--mute-triggers <duration>`: temporary runtime mute only (`30`, `30s`, `5m`, `1h`).
+- `--mute-triggers` (no value): unmutes (`false`) and clears runtime mute timer.
+- Check mute state via `--status` (`persistentMuteTriggers`, `runtimeMuteTriggers`, `effectiveMuteTriggers`).
+
+#### 4) Execute actions
+
 - `--exec-action <name>`: runs one specific action now.
 - `--run-auto`: runs runtime-style automatic selection (bypass mode check, trigger mute check, trigger evaluation, then active-action fallback).
 - `--copy-action <name>`: renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).
-- `--schedule-action <name>`: queue one action for your next recording.
-- `--schedule-action` (no name): cancels any queued scheduled action.
-- `--auto-return [true|false]`: one-time auto-send behavior for next recording (`--auto-return` without a value means `true`).
-  It resolves trigger/active selection; insert actions use resolved insert content with forced Return, and non-insert/empty outcomes fall back to plain `{{swResult}}` + forced Return.
 
-#### Behavior notes:
+#### 5) Other runtime
 
-- `--status`: confirms whether the daemon is running.
-- `--action <name>`: sets your default active action.
-- `--action` (no name): clears the active action.
-- `--get-action`: shows the current active action name.
-- `--exec-action <name>`: runs one specific action now.
-- `--run-auto`: runs runtime-style automatic selection (bypass mode check, trigger mute check, trigger evaluation, then active-action fallback).
-- `--copy-action <name>`: renders an action and copies the result to clipboard (without polluting `clipboardContext` capture).
-- `--schedule-action <name>`: queue one action for your next recording.
-- `--schedule-action` (no name): cancels any queued scheduled action.
-- `--auto-return [true|false]`: one-time auto-send behavior for next recording (`--auto-return` without a value means `true`).
-  It resolves trigger/active selection; insert actions use resolved insert content with forced Return, and non-insert/empty outcomes fall back to plain `{{swResult}}` + forced Return.
+- `--check-updates`: forces an update check.
+
+#### Breaking change
+
+- `--auto-return` without a value now disables auto-return.
+- Previous behavior (no value => enable) was removed for consistency with `flag without value = clear/disable`.
 
 ---
 
 #### Important details and edge cases
 
-- `--get-action <name>` returns processed content for that action (latest valid result by default, or `--meta` if provided).
 - `--get-action --meta ...` without `<name>` returns an error (`--meta` needs a specific action here).
 - `--run-auto` does not accept an action name.
 - `--run-auto` does not consume or clear one-shot runtime state (`--auto-return`, `--schedule-action`).
-- `--folder-name [<index>]` and `--folder-path [<index>]` read recordings by recency (`0` = active recording if present, otherwise latest completed valid recording).
-
----
-
-#### Trigger mute (`--mute-triggers`)
-
-- `--mute-triggers true|false`: saves persistent mute on/off in config.
-- `--mute-triggers <duration>`: temporary runtime mute only (`30`, `30s`, `5m`, `1h`).
-- `--mute-triggers` with no value: prints current mute status.
-- If persistent mute is already `true`, duration mode is ignored.
-
-#### *How to read `--mute-triggers` status:*
-
-- *`persistentMuteTriggers`: saved config preference.*
-- *`runtimeMuteTriggers`: temporary timer set by CLI.*
-- *`effectiveMuteTriggers`: final current state (what the app is actually using now).*
+- If persistent mute is already `true`, `--mute-triggers <duration>` is ignored.
 
 ### `--meta` (choose a different `meta.json` source)
 
