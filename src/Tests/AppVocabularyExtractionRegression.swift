@@ -139,6 +139,23 @@ private func runAppVocabularyExtractionRegressionTests() {
     assertNotContains(codexStyleTokens, "Create", "codex-style text drops later title-cased generic verb")
     assertNotContains(codexStyleTokens, "Expand", "codex-style text drops title-cased generic prose word")
 
+    let genericProseTokens = extractVocabularyTokensForTesting(
+        snippets: [
+            (
+                text: "The suggestions and words are better because the prose descriptions explain the issue, but AppVocabulary.swift should still keep postgres render and pytest.",
+                source: "description"
+            )
+        ]
+    )
+    assertContains(genericProseTokens, "AppVocabulary", "generic prose keeps technical symbol")
+    assertContains(genericProseTokens, "AppVocabulary.swift", "generic prose keeps file token")
+    assertContains(genericProseTokens, "postgres", "generic prose keeps lowercase domain term")
+    assertNotContains(genericProseTokens, "suggestions", "generic prose drops generic meta noun")
+    assertNotContains(genericProseTokens, "words", "generic prose drops generic prose noun")
+    assertNotContains(genericProseTokens, "better", "generic prose drops generic adjective")
+    assertNotContains(genericProseTokens, "because", "generic prose drops generic conjunction")
+    assertNotContains(genericProseTokens, "issue", "generic prose drops generic noun")
+
     let appStyleTokens = extractVocabularyTokensForTesting(
         snippets: [
             (

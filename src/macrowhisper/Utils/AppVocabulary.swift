@@ -33,6 +33,16 @@ private let appVocabularyUIStopWords: Set<String> = [
     "group", "cursor", "arrow", "press", "user", "find", "rewrite", "clean", "leave", "option"
 ]
 
+// Generic prose terms that commonly leak from technical/editor windows but are poor spelling targets.
+private let appVocabularyGenericProseNoiseWords: Set<String> = [
+    "about", "across", "allow", "applies", "appear", "because", "better", "beyond", "change", "check",
+    "considered", "contexts", "descriptions", "explains", "finding", "good", "great", "hand", "hard",
+    "important", "improve", "inject", "issue", "language", "long", "meaningful", "maybe", "misses",
+    "names", "natural", "necessary", "never", "overall", "pages", "part", "penalties", "preferred",
+    "prefers", "prose", "reach", "rule", "scoring", "sources", "suggestions", "symptoms", "terms",
+    "titles", "token", "tokens", "trust", "useful", "words"
+]
+
 private let appVocabularyStopWords = appVocabularyCoreStopWords.union(appVocabularyUIStopWords)
 
 private let appVocabularyAllowedShortAcronyms: Set<String> = [
@@ -99,6 +109,7 @@ private struct VocabularyCandidate {
     var hasStructuredSignal: Bool
     var hasCodeContextSignal: Bool
     var hasCommonDictionarySignal: Bool
+    var hasRepeatedSnippetSignal: Bool
 }
 
 private struct NaturalLanguageTokenSignal {
@@ -1054,6 +1065,7 @@ private func shouldAdmitVocabularyToken(_ token: String, stats: VocabularyObserv
     let trimmedToken = token.hasPrefix("--") ? String(token.dropFirst(2)) : token
     let hasRepeatedMentions = hasRepeatedMentionsWithinSameSnippet(stats)
     let isCommonDictionaryWord = isLikelyCommonDictionaryWord(trimmedToken)
+    let isGenericProseNoiseWord = isGenericProseNoiseWord(trimmedToken)
 
     if token.hasPrefix("--") {
         return true
@@ -1092,6 +1104,10 @@ private func shouldAdmitVocabularyToken(_ token: String, stats: VocabularyObserv
         return true
     }
 
+    if isGenericProseNoiseWord {
+        return hasRepeatedMentions
+    }
+
     if isCommonDictionaryWord {
         return hasRepeatedMentions
     }
@@ -1117,6 +1133,7 @@ private func scoreVocabularyToken(
     let token = observation.token
     let source = observation.source
     let repeatedMentionCount = max(0, stats.count - stats.snippetSourceFingerprints.count)
+    let isGenericProseNoiseWord = isGenericProseNoiseWord(token)
     var score = baseScore(for: source)
 
     if token.first?.isUppercase == true {
@@ -1178,6 +1195,14 @@ private func scoreVocabularyToken(
         if token == token.lowercased(), token.count >= 5 {
             score += 1
         }
+    }
+
+    if isGenericProseNoiseWord &&
+        !looksIdentifierLike(token) &&
+        !hasMixedCaps(token) &&
+        !observation.isNamedEntity &&
+        observation.codeContextBonus == 0 {
+        score -= repeatedMentionCount > 0 ? 1 : 3
     }
 
     if stats.snippetFingerprints.count >= 2 {
@@ -1292,6 +1317,7 @@ private func upsertVocabularyCandidate(
         existing.hasStructuredSignal = existing.hasStructuredSignal || looksIdentifierLike(observation.token) || hasMixedCaps(observation.token)
         existing.hasCodeContextSignal = existing.hasCodeContextSignal || observation.codeContextBonus > 0 || stats.hasCodeContextSignal
         existing.hasCommonDictionarySignal = existing.hasCommonDictionarySignal || observation.isCommonDictionaryWord
+        existing.hasRepeatedSnippetSignal = existing.hasRepeatedSnippetSignal || hasRepeatedMentionsWithinSameSnippet(stats)
         if score > existing.bestSingleScore {
             existing.bestSingleScore = score
             existing.bestToken = observation.token
@@ -1310,7 +1336,8 @@ private func upsertVocabularyCandidate(
             hasNamedEntitySignal: observation.isNamedEntity || stats.hasNamedEntitySignal,
             hasStructuredSignal: looksIdentifierLike(observation.token) || hasMixedCaps(observation.token),
             hasCodeContextSignal: observation.codeContextBonus > 0 || stats.hasCodeContextSignal,
-            hasCommonDictionarySignal: observation.isCommonDictionaryWord
+            hasCommonDictionarySignal: observation.isCommonDictionaryWord,
+            hasRepeatedSnippetSignal: hasRepeatedMentionsWithinSameSnippet(stats)
         )
     }
 }
@@ -1318,6 +1345,7 @@ private func upsertVocabularyCandidate(
 private func shouldKeepVocabularyCandidate(_ candidate: VocabularyCandidate) -> Bool {
     let token = candidate.bestToken
     let isCommonDictionaryWord = isLikelyCommonDictionaryWord(token)
+    let isGenericProseNoiseWord = isGenericProseNoiseWord(token)
     let isStructured =
         token.hasPrefix("--") ||
         looksIdentifierLike(token) ||
@@ -1347,6 +1375,14 @@ private func shouldKeepVocabularyCandidate(_ candidate: VocabularyCandidate) -> 
             candidate.snippetFingerprints.count == 1 &&
             !candidate.hasCodeContextSignal
         return candidate.totalScore >= (isOnlySentenceStartEvidence ? 5 : 3)
+    }
+
+    if isGenericProseNoiseWord &&
+        !comesFromAppIdentity &&
+        !candidate.hasCodeContextSignal &&
+        !candidate.hasRepeatedSnippetSignal &&
+        candidate.snippetFingerprints.count < 2 {
+        return false
     }
 
     if candidate.snippetFingerprints.count >= 2 {
@@ -1576,6 +1612,10 @@ private func dictionaryLookupVariants(for token: String) -> [String] {
 
 private func hasRepeatedMentionsWithinSameSnippet(_ stats: VocabularyObservationStats) -> Bool {
     stats.count > stats.snippetSourceFingerprints.count
+}
+
+private func isGenericProseNoiseWord(_ token: String) -> Bool {
+    appVocabularyGenericProseNoiseWords.contains(token.lowercased())
 }
 
 private func isContractionFragmentToken(in text: String, matchRange: NSRange, token: String) -> Bool {
