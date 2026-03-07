@@ -2,117 +2,69 @@
 
 ## UNRELEASED
 
-The [documentation](https://by.afadingthought.com/macrowhisper) has been fully updated.
+## TLDR;
+* For existing users, keep `autoUpdateConfig` set to `true` in your existing configuration. Macrowhisper will handle the migration to `configVersion 2` when you restart the service after the update.
+* Biggest config changes are self-explanatory and have been implemented for consistency and predictability in how Macrowhisper handles your config.
+* [The entire documentation](https://by.afadingthought.com/macrowhisper) has been rewritten for clarity. There's more examples and explanations.
 
-## BIG Config semantics update (clearer and more predictable)
-This release introduces `configVersion: 2` with clearer rules for the configuration file.
-- `null` = inherit default
-- `""` = explicit empty value
-- **Action payload templates** stay explicit:
-  - `.none` (no-op template)
-  - `.autoPaste` (insert only)
-  - `.run` (shortcuts only)
+## Details
+**For existing users**
+- Macrowhisper now uses `configVersion: 2`, with clearer rules: `null` means “inherit the default,” and `""` means “use an intentionally empty value.”
+- Built-in action templates are now clearly separated from empty values: `.none` is a do-nothing template, `.autoPaste` is the insert template, `.run` runs a Shortcut without input, and `action: ""` means an empty payload.
+- `action: ""` and `action: ".none"` are not the same. An empty payload stays empty. `.none` also turns off ESC simulation and clipboard restoration.
+- `.none` is now reserved for action templates. For fields like `icon` or `moveTo`, use `null` to inherit or `""` for an explicit empty value.
+- Existing configs are migrated automatically for users that set `autoUpdateConfig` to `true`, and Macrowhisper creates a one-time backup named `macrowhisper.json.backup.pre-v2`.
+- If `defaults.autoUpdateConfig` is `false`, migration is not automatic. You can update manually with `macrowhisper --update-config`.
+- Several config names were cleaned up and are migrated automatically: `noEsc` -> `simEsc`, `pressReturn` -> `simReturn`, `noUpdates` -> `disableUpdateCheck`, and `noNoti` -> `muteNotifications`.
 
-### Important difference
-- `action: ""` and `action: ".none"` are **not the same**.
-- `action: ""` = empty payload.
-- `action: ".none"` = template behavior (sets `noEsc` & `restoreClipboard` to false).
+**Configuration and action behavior**
+- `smartCasing`, `smartPunctuation`, and `smartSpacing` are now available for insert actions and are enabled by default. They improve capitalization, punctuation, and spacing based on the insertion point.
+- Most remaining smart-insert edge cases are in apps with weak Accessibility support.
+- `restoreClipboardDelay` can now be set globally or per action. The default is `0.3s`.
+- Default-level values are now more standardized. Omitted or `null` defaults cleanly fall back to Macrowhisper’s built-in defaults, which also makes smaller hand-edited configs easier when `autoUpdateConfig` is off.
+- Auto-updated configs are normalized more clearly, including a built-in `returnDelay` of `0.15s` and cleaner persisted values like `3` instead of `3.0`.
+- `inputCondition` now works across all action types, not just insert actions.
+- `bypassModes` lets you tell Macrowhisper to completely skip processing for specific Superwhisper modes, so no Macrowhisper action runs for those recordings.
 
-### Migration
-- Auto migration should allow you to continue using your config without any new manuale edits.
-- A backup is created once: `macrowhisper.json.backup.pre-v2`.
-- If `defaults.autoUpdateConfig` is `false`, migration is not automatic.  
-  - In that case, you can migrate by running `--update-config`.
+**More powerful actions, chaining, and placeholders**
+- Shortcut, shell, and AppleScript actions can now run either asynchronously or synchronously. Set `scriptAsync: false` to wait for completion, and use `scriptWaitTimeout` to control how long Macrowhisper waits.
+- Output from synchronous script-like steps can now be reused later in the same chain through `{{actionResult}}`, `{{actionResult:0}}`, `{{actionResult:1}}`, and so on.
+- New `{{appVocabulary}}` captures likely names, usernames, and special terms from the active app.
+- New folder placeholders are available: `{{folderName}}`, `{{folderPath}}`, `{{folderName:<index>}}`, and `{{folderPath:<index>}}`. Index `0` is the newest or current recording, `1` is the previous one, and so on.
+- The same folder lookups are also available in the CLI with `--folder-name [<index>]` and `--folder-path [<index>]`.
+- `meta.json` placeholders are more flexible. You can now use nested keys and arrays such as `{{promptContext.systemContext.language}}`.
+- `{{segments}}` now formats speaker-separated transcript data into readable output, which makes it much easier to pass multi-speaker transcripts into scripts and automations.
+- New `{{frontAppUrl}}` exposes the active browser URL in supported browsers.
+- New `triggerUrls` lets actions match against the current browser page. This is still experimental, and not all browsers are supported yet.
+- Placeholders now support transforms such as `{{placeholder::transform||find||replace}}`, plus capture transforms like `${1::uppercase}` inside regex replacements.
+- Supported transforms include uppercase/lowercase variants, title case, sentence cleanup, camelCase, PascalCase, snake_case, kebab-case, trimming, and alternating/random case.
+- If a transform depends on exact first-letter casing, you may want to disable `smartCasing` for that action.
+- Placeholder parsing was refactored so placeholders can now include curly brackets (such as `${1::uppercase}`).
 
-### Non-action `.none`
-- In v2, `.none` is no longer valid for fields like `icon` or `moveTo`.
-- Use:
-  - `null` to inherit from defaults
-  - `""` for explicit empty
+**CLI and runtime improvements**
+- New `--copy-action <name>` renders an action and copies the result to the clipboard without polluting `{{clipboardContext}}`. It supports placeholder expansion and context placeholders.
+- `--exec-action`, `--get-action`, and `--copy-action` now support `--meta`, so they can target a recording folder name, a recording folder path, or a compatible standalone `meta.json` file.
+- New `--run-auto [--meta <value>]` runs the same automatic action selection logic Macrowhisper uses live, including bypass modes, trigger muting, triggers, and active-action fallback (a great way to re-insert your last dictation following same triggers).
+- `--run-auto` ignores one-time runtime overrides such as `--schedule-action` and `--auto-return`.
+- New `--validate-config` validates both JSON syntax and Macrowhisper config rules, and config error reporting is clearer.
+- New `--mute-triggers` can mute triggers persistently or temporarily for a set duration.
+- `--auto-return` now uses the resolved action payload when possible instead of always falling back to a plain `swResult` insert.
+- Running `--exec-action` now also respects `moveTo` when there is a real recording folder to move or delete.
+- Config path commands are more predictable: `--set-config` saves and switches paths without starting the daemon, `--reset-config` returns to the default path the same way, and `--config <path>` now persists the path immediately and starts the daemon if needed.
 
-## Other
-* **New.** Seveal updates to the config naming for clarity and consistency:
-  * `simEsc` (with `true` as default) has replaced `noEsc` (with `false` as default—same action).
-  * `simReturn` has replaced `pressReturn`
-  * `disableUpdateCheck` has replaced `noUpdates`
-  * `muteNotifications` has replaced `noNoti`
-  * Your configuration will be updated automatically with the migration mentioned above.
-* **New.** `restoreClipboardDelay` can now be set at the default level or at the actions level.
-  * Defaul is 0.3 sec.
-  * I suggest not extending too much, especially if you dictate quickly.
-  * Could easily lead to clipboard contamination in overlapping dictations.
-* **New.** Up until now, action execution for Shortcuts and scripts has been async. Now you got a `scriptAsync` which you can set to false.
-  * Related to this, there's a customizable `scriptWaitTimeout` setting that you can set for script execution when set it's not async. 
-  * With `scriptAsync` set to false, action execution will wait for script completion. And in chained actions you can use the result of the first script with `{{actionResult}}` placeholder.
-  * `{{actionResult}}` has a set index. No index or `{{actionResult:0}}` is the first script completion, `{{actionResult:1}}` the next, and so on.
-* **New** `smartCasing`, `smartPunctuation`, and `smartSpacing` for insert actions set to true by default (at the defaults level)
-  * When all set to true, they adjust capitalization, punctuation, and spacing depending on insertion point.
-  * Lots of edge cases covered. Most minor remaining issues are with those apps that do not have good accessibility integrations.
-* **New** `bypassModes` setting in defaults of the config, where the user can set modes where Macrowhisper should not kick in at all.
-  * Useful since SuperWhisper now allows overriding the auto-paste setting at the mode level.
-  * It is still suggested that users set Superwhisper's autopaste off in the advanced configuration tab. However, if they do want to use SuperWhisper for pasting with a specific mode, now they can bypass that specifically with Macrowhisper. No actions will trigger when using that mode.
-* **New** `{{appVocabulary}}` which captures names, usernames, and special terms from the active window.
-* **New** `{{folderName}}`, `{{folderName:<index>}}`, `{{folderPath}}`, `{{folderPath:<index>}}` placeholders which return current recording folder information (and indexed folder lookup (0 newest/current, 1 previous, etc.))
-  * Info also available via CLI `--folder-name [<index>]` and `--folder-path [<index>]`
-  * Useful for automations/scripts where user may need to do something with current or previous recording paths.
-* **New** `transform` option for placeholders with the syntax `{{placeholder::transform||regex1find||regex1replace...}}` AND/OR within the regex pipeline with capture groups like `{{placeholder||(.*)||${N::transform}}}`
-  * For now it supports `uppercase`, `lowercase`, `uppercaseFirst`, `lowercaseFirst`, `titleCase`, `titleCase:all`, `titleCase:en`, `titleCase:es`, `titleCase:fr`, `ensureSentence`, `camelCase`, `pascalCase`, `snakeCase`, `kebabCase`, `randomCase`, `altCase` (alternating case), `altCase:upperFirst`, `trim`.
-  * More languages for titleCase may be added upon request.
-  * This is for transformations beyond what regex allows. Since they are applied in the regex pipeline you can add your own custom exceptions.
-  * **Watch out that if your transform is meant to change first letter case, you may want to set `smartCasing` to `false`.**
-* **New.** `--copy-action` which can copy the contents of an action to user's clipboard. 
-  * This operation is not captured by Macrowhisper's `{{clipboardContext}}`
-  * Supports placeholder expansion, and context placeholders.
-  * Great to pass information to Superwhisper's clipboard for processing (you can now pass a stacked clipboard to Superwhisper)
-* **New.** `--exec-action`, `--get-action`, and `--copy-action` now support a custom path with `--meta` (action name is still required).
-  * This can be a recording folder name, a recording folder path, or the path to any JSON file in the format of `meta.json`
-* **New.** `--run-auto` with optional custom path `--meta`. 
-  * This CLI flag runs Macrowhisper on the last valid meta JSON file with action validation as if running live (respects triggers, active action, bypassModes, muteTriggers, etc)
-  * Ignores one-time executions set by `--schedule-action` and/or `--auto-return`
-* **New.** `--validate-config` flag and improved config file error noifications.
-* **New** `--mute-triggers` flag that sets a new `muteTriggers` setting in the config. 
-  * Via CLI it receives true/false/time as argument.
-  * When set as temporary (time) the change will not write to the configuration file.
-* **New.** `triggerUrls` is now possible! This also introduced the new placeholder `{{frontAppUrl}}`
-  * NOTE: consider this an experimental feature. **Not all the browsers are supported.** If yours is not, open an issue on Github (give me the bundle ID if possible) and I'll be happy to look into adding it.
-* **Improved** Canonicalized root defaults values for auto-updated configs to improve clarity and consistency.
-  * When a root default is using a built-in fallback, Macrowhisper now writes the effective value into the config instead of leaving mixed null/explicit defaults.
-  * Updated the built-in returnDelay default to 0.15 and normalized whole-number defaults like scriptWaitTimeout to compact values such as 3 instead of 3.0.
-* **Improvement.** Refactored the `--auto-return` CLI command so that it uses the resolved action payload instead of a simple `swResult`.
-  * If a non-insert action is resolved, then the previous behavior of inserting a simple `swResult` executes.
-* **Improvement.** `{{clipboardContext}}` is now frozen at meta.json validation time for recording-triggered actions, so delayed or chained steps use a stable value.
-  * The freeze applies consistently across all action types (Insert, URL, Shortcut, Shell, AppleScript).
-  * If session clipboard is empty, clipboardBuffer pre-recording content is still used (including stacking behavior).
-  * When frozen, Macrowhisper no longer falls back to live clipboard reads later in the chain.
-  * Superwhisper sync filtering behavior remains unchanged: only the most recent clipboard change in the recent sync window is excluded.
-* **Improvement** for selected text capture via accessibility.
-* **Improvement** for active url capture via accessibility. 
-* **Improvement.** cleaned up the logs to make them more readable and less noisy.
-* **Improvement.** `inputCondition` has been expanded to all action types
-  * You can now have any action behave differently depending on user being in an input field or not.
-* **Improvement.** Streamlined the validation and sync with Superwhisper's placement of the result on the user's clipboard before action execution. This improves responsiveness.
-* **Improvement.** Updated a couple of config-related CLI flag behavior and fixed related bugs:
-  * `--set-config <path>`: persists path, creates default config at that path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
-  * `--reset-config`: persists reset to default path, creates default config at default path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
-  * `--config <path>`: now persists path immediately, creates config file if missing, if daemon is running, switches immediately and continues, if daemon is not running, starts up and runs daemon with that path
-* * **Improvement.** standardized values at default level of config.
-  * If setting is null or omitted the built-in default will be used.
-  * This allows for minimal configuration files if users set `autoUpdateConfig` to `false`.
-  * It is still suggested to set `autoUpdateConfig` to `true` so users don't miss out on future new features.
-* **Improvement.** Better guard protection when multiple recordings appear in burst (none will process).
-* **Improvement.** Better handling of `meta.json` values.
-  * Use the `segments` key from the `meta.json` file as placeholder, and it will be formatted correctly. **You can now send your speaker-separated transcripts to automations.**
-  * It is now also possible to use `meta.json` subkeys or arrays. For example, `{{promptContext.systemContext.language}}` is possible.
-* **Improvement.** Raised blackout window for clipboard duplication up to 5 seconds to accommodate to Superwhisper. I'm convinced this is a Superwhisper bug by now and Macrowhisper is just trying to work around it.
-* **Improvements to context placeholders for performance.**
-  * `appContext`, `frontApp` and `appVocabulary` placeholders are  captured lazily, only when placeholder is found in action, and at action execution.
-  * `selectedText` and `clipboardContext` are captured only during recording session and their values are used again in chained actions.
-* **Improvement** to trigger evaluation for Front App. Prior to this update, trigger matching would  require both name & bundle ID to exist (would fail otherwise). Now, it works with one value. 
-* **Improvement** when users run `--exec-action` on an action with `moveTo`. The `moveTo` now applies for consistency.
-* **Improvement** on validation for the `meta.json` file. If an LLM result is expected, the system will only wait for that result, even if voice is empty. 
-  * This allows users to use Macrowhisper even in those cases where nothing is dictated.
-  * Voice triggers only match against result (raw transcription).
-* **Improvement.** Refactored parser for placeholders so that they can include curly brackets.
+**Reliability, consistency, and performance**
+- `{{clipboardContext}}` is now frozen when the recording is validated, so delayed or chained actions keep a stable clipboard snapshot instead of reading a changing live clipboard later.
+- That frozen clipboard behavior now applies consistently across all action types, still supports pre-recording clipboard fallback and stacking, and keeps recent Superwhisper sync noise out of the captured context.
+- `appContext`, `frontApp`, and `appVocabulary` are now captured lazily only when needed, while `selectedText` and `clipboardContext` are captured once per recording session and reused across chains.
+- Selected text capture via Accessibility has been improved.
+- Active URL capture via Accessibility has been improved.
+- Trigger matching for front apps is more forgiving. Macrowhisper now works if either the app name or the bundle ID is available.
+- Recording validation is smarter: if an LLM result is expected, Macrowhisper waits for that result even if the raw voice field is empty.
+- In those LLM-driven cases, voice triggers still match only the raw transcription (`result`), not the processed LLM output.
+- Burst protection is stronger. If multiple new recordings appear at the same time, Macrowhisper now skips all of them instead of risking the wrong action on the wrong session.
+- Clipboard deduplication now uses a larger blackout window of up to 5 seconds to better avoid duplicate Superwhisper clipboard sync events.
+- Logs were cleaned up to be easier to read and less noisy.
+- The documentation has been fully updated to match the new behavior.
   
 ---
 ## [v1.4.0](https://github.com/ognistik/macrowhisper/releases/tag/v1.4.0) - 2026/02/13

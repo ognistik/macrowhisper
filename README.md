@@ -2,7 +2,7 @@
 
 Automation helper for [Superwhisper](https://superwhisper.com/?via=robert) on macOS.
 
-Macrowhisper watches Superwhisper recordings and runs configured actions based on triggers (voice/app/mode) or a fallback active action.
+Macrowhisper watches Superwhisper recordings and runs configured actions based on triggers (voice, app, mode, or browser URL) or a fallback active action.
 
 [![Swift Version](https://img.shields.io/badge/Swift-6.1.2-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
@@ -64,6 +64,7 @@ macrowhisper --reveal-config
 macrowhisper --set-config <path>
 macrowhisper --reset-config
 macrowhisper --get-config
+macrowhisper --validate-config
 macrowhisper --update-config
 macrowhisper --schema-info
 ```
@@ -74,10 +75,17 @@ macrowhisper --status
 macrowhisper --action <name>           # set fallback action
 macrowhisper --action                  # clear fallback action
 macrowhisper --get-action [name]
+macrowhisper --get-icon
+macrowhisper --folder-name [index]
+macrowhisper --folder-path [index]
+macrowhisper --copy-action <name>
 macrowhisper --exec-action <name>
+macrowhisper --run-auto
 macrowhisper --schedule-action <name>  # one-shot next session override
 macrowhisper --schedule-action         # cancel scheduled action
 macrowhisper --auto-return <true/false>
+macrowhisper --mute-triggers <true/false/duration>
+macrowhisper --check-updates
 
 macrowhisper --list-actions
 macrowhisper --list-inserts
@@ -97,8 +105,10 @@ macrowhisper --remove-action <name>
 ## How Matching Works
 Processing priority is strict:
 1. One-shot runtime overrides (`--auto-return`, `--schedule-action`)
-2. Trigger-matched actions (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerLogic`)
+2. Trigger-matched actions (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerUrls`, `triggerLogic`)
 3. `defaults.activeAction` fallback
+
+You can also bypass Macrowhisper entirely for specific Superwhisper modes with `defaults.bypassModes`.
 
 ## Minimal Config Example
 
@@ -135,19 +145,26 @@ Processing priority is strict:
 }
 ```
 
-Use `macrowhisper --update-config` after upgrades to apply new schema fields/formatting while preserving your settings.
+Use `macrowhisper --validate-config` to catch config issues quickly, and `macrowhisper --update-config` after upgrades to apply new schema fields and formatting while preserving your settings.
 
 ## Useful Placeholders
 - `{{swResult}}`: final transcription result
-- `{{result}}`: trigger-processed result (for example after voice-prefix stripping)
+- `{{result}}`: voice-only transcript from meta.json (used for voice triggers)
 - `{{raw:swResult}}`: no escaping (raw value)
 - `{{json:swResult}}`: JSON-escaped value
 - `{{selectedText}}`: selected text captured at recording start
 - `{{clipboardContext}}`: clipboard context captured during recording and optional pre-recording buffer
 - `{{appContext}}`: active app/input context
+- `{{appVocabulary}}`: likely names, identifiers, and app-specific terms from the front app
+- `{{frontApp}}`, `{{frontAppUrl}}`: front app name and current URL in supported browsers
+- `{{folderName}}`, `{{folderPath}}`: current or recent recording folder info
+- `{{actionResult}}`: output from a prior synchronous script-like step in a chain
 - `{{date:short}}`, `{{date:long}}`, `{{date:yyyy-MM-dd}}`
 - `{{xml:tagname}}`: extract XML tag content
 - `{{placeholder||pattern||replacement}}`: regex replacement pipeline
+- `{{placeholder::transform}}`: transform placeholders before use
+
+Any compatible `meta.json` key can also be used as a placeholder, including nested values such as `{{promptContext.systemContext.language}}` and `{{segments}}`.
 
 ## Notes for Power Users
 - Config values can be set globally in `defaults` and overridden per action.
@@ -155,10 +172,15 @@ Use `macrowhisper --update-config` after upgrades to apply new schema fields/for
 - URL actions support `openWith` and `openBackground`.
 - Actions support chaining via `nextAction`.
 - Action-level `inputCondition` can gate options by input state.
+- Insert actions can also use `smartCasing`, `smartPunctuation`, and `smartSpacing` for cleaner output around the insertion point.
+- Shortcut, shell, and AppleScript actions run asynchronously by default; set `scriptAsync: false` and `scriptWaitTimeout` when you want to wait for completion.
+- `--copy-action`, `--get-action`, `--exec-action`, and `--run-auto` support `--meta` so you can target a specific recording folder or compatible `meta.json`.
+- `{{clipboardContext}}`, `{{selectedText}}`, and front-app context are captured with stable runtime snapshots so chained actions stay consistent.
 
 ## Explore More
 Beyond this quick start, Macrowhisper supports advanced patterns and control:
 - Trigger exceptions (`!pattern`) and raw-regex triggers (`==...==`) for precise matching.
+- Browser URL triggers and `{{frontAppUrl}}` work in supported browsers.
 - Placeholder transforms and regex replacement pipelines for post-processing output.
 - Special action values: `.autoPaste` (insert), `.none` (skip this step), `.run` (run Shortcut without input).
 - Conditional behavior with `inputCondition`, plus multi-step flows via `nextAction`.
