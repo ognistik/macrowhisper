@@ -849,6 +849,36 @@ struct AppConfiguration: Codable {
     }
 }
 
+struct CLIClipboardChainState {
+    let initialClipboardContent: String?
+    private(set) var didMutateClipboard: Bool = false
+    private(set) var isFirstStep: Bool = true
+    private(set) var isLastStep: Bool = false
+
+    init(initialClipboardContent: String?) {
+        self.initialClipboardContent = initialClipboardContent
+    }
+
+    mutating func beginStep(isLastStep: Bool) {
+        self.isLastStep = isLastStep
+    }
+
+    mutating func noteClipboardMutation(_ didMutateClipboard: Bool) {
+        if didMutateClipboard {
+            self.didMutateClipboard = true
+        }
+    }
+
+    mutating func advanceToNextStep() {
+        isFirstStep = false
+        isLastStep = false
+    }
+
+    func shouldRestoreClipboard(finalRestoreEnabled: Bool) -> Bool {
+        finalRestoreEnabled && didMutateClipboard
+    }
+}
+
 // Helper struct for dynamic coding keys in migration
 private struct AnyCodingKey: CodingKey {
     var stringValue: String

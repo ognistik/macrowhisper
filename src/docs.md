@@ -496,7 +496,7 @@ For `--exec-action` and `--run-auto`:
 | Uses watcher-style auto selection | No | Yes | No | No |
 | Applies `moveTo` | Yes, except direct JSON `--meta` | Yes, except direct JSON `--meta` | No | No |
 | Simulates ESC with `simEsc` | No practical effect in CLI execution | No practical effect in CLI execution | N/A | N/A |
-| Restores clipboard | Insert actions only | Insert actions only | No | No |
+| Restores clipboard | Chain-level: once at the end if the chain wrote to the clipboard and the final step enables restore | Chain-level: once at the end if the chain wrote to the clipboard and the final step enables restore | No | No |
 | Writes to clipboard | Only if the action itself does so | Only if the action itself does so | No | Yes |
 | Consumes one-time runtime state | No | No | No | No |
 
@@ -1601,6 +1601,13 @@ How they work together:
 - `clipboardStacking = false` returns one best clipboard context value
 - `clipboardStacking = true` can return several ordered snippets
 - `restoreClipboard = true` restores the original clipboard when the action flow ends
+
+For CLI execution (`--exec-action` and `--run-auto`):
+
+- Macrowhisper captures one clipboard snapshot at chain start
+- it restores once at the end, not after every insert step
+- it only restores if a step in that CLI chain actually wrote to the clipboard
+- pure URL / shell / AppleScript / Shortcut chains do not perform a fake restore write
 
 ### 15.4 `clipboardIgnore` example
 

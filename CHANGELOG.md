@@ -51,6 +51,10 @@
 - `--auto-return` now uses the resolved action payload when possible instead of always falling back to a plain `swResult` insert.
 - Running `--exec-action` now also respects `moveTo` when there is a real recording folder to move or delete.
 - Config path commands are more predictable: `--set-config` saves and switches paths without starting the daemon, `--reset-config` returns to the default path the same way, and `--config <path>` now persists the path immediately and starts the daemon if needed.
+- `--exec-action` and `--run-auto` restore the clipboard using one chain-level snapshot, matching watcher-style behavior more closely.
+  - CLI clipboard restoration now happens only once at the end of the chain, according to the final step’s `restoreClipboard` and `restoreClipboardDelay`.
+  - CLI chains only restore the clipboard if a step in that chain actually wrote to the clipboard, so non-insert-only flows avoid unnecessary clipboard churn.
+  - CLI clipboard cleanup remains separate from clipboard restoration, so `{{clipboardContext}}` protection still works without changing restore semantics.
 
 **Reliability, consistency, and performance**
 - `{{clipboardContext}}` is now frozen when the recording is validated, so delayed or chained actions keep a stable clipboard snapshot instead of reading a changing live clipboard later.

@@ -63,6 +63,11 @@ class SocketCommunication {
         let action: Any
     }
 
+    private struct CLIActionChainExecutionResult {
+        let finalStep: CLIResolvedActionStep
+        let clipboardState: CLIClipboardChainState
+    }
+
     struct ProcessedInsertAction {
         let text: String
         let isAutoPaste: Bool
@@ -753,15 +758,16 @@ class SocketCommunication {
         initialActionName: String,
         initialActionType: ActionType,
         metaJson: [String: Any],
+        initialClipboardContent: String?,
         configManager: ConfigurationManager
-    ) throws -> CLIResolvedActionStep {
+    ) throws -> CLIActionChainExecutionResult {
         var currentName = initialActionName
         var currentType = initialActionType
         var currentAction: Any = initialAction
-        var isFirstStep = true
         var visited: Set<String> = []
         var firstInsertActionName: String?
         var finalStep: CLIResolvedActionStep?
+        var clipboardState = CLIClipboardChainState(initialClipboardContent: initialClipboardContent)
 
         while true {
             if visited.contains(currentName) {
@@ -791,12 +797,36 @@ class SocketCommunication {
                     metaJson: metaJson,
                     activeInsert: resolvedInsert
                 )
-                applyInsertForExec(
+                let nextActionName = getEffectiveNextActionNameForCLI(
+                    action: resolvedInsert,
+                    actionName: currentName,
+                    type: currentType,
+                    isFirstStep: clipboardState.isFirstStep,
+                    configManager: configManager
+                )
+                clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
+                let didMutateClipboard = applyInsertForExec(
                     processedInsert.text,
                     activeInsert: resolvedInsert,
                     isAutoPaste: isAutoPasteTemplate || processedInsert.isAutoPaste
                 )
+                clipboardState.noteClipboardMutation(didMutateClipboard)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedInsert)
+                finalStep = resolvedStep
+
+                guard let nextActionName, !nextActionName.isEmpty else {
+                    break
+                }
+
+                guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
+                    throw CLIActionChainError.missingAction(nextActionName)
+                }
+
+                currentName = nextActionName
+                currentType = next.type
+                currentAction = next.action
+                clipboardState.advanceToNextStep()
+                continue
             case .url:
                 guard let url = currentAction as? AppConfiguration.Url else {
                     throw CLIActionChainError.missingAction(currentName)
@@ -832,9 +862,10 @@ class SocketCommunication {
                 action: resolvedStep.action,
                 actionName: resolvedStep.name,
                 type: resolvedStep.type,
-                isFirstStep: isFirstStep,
+                isFirstStep: clipboardState.isFirstStep,
                 configManager: configManager
             )
+            clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
 
             guard let nextActionName, !nextActionName.isEmpty else {
                 break
@@ -847,13 +878,64 @@ class SocketCommunication {
             currentName = nextActionName
             currentType = next.type
             currentAction = next.action
-            isFirstStep = false
+            clipboardState.advanceToNextStep()
         }
 
         guard let finalStep else {
             throw CLIActionChainError.missingAction(initialActionName)
         }
-        return finalStep
+        return CLIActionChainExecutionResult(finalStep: finalStep, clipboardState: clipboardState)
+    }
+
+    private func effectiveRestoreClipboardSettingForCLI(
+        action: Any,
+        type: ActionType,
+        configManager: ConfigurationManager
+    ) -> Bool {
+        switch type {
+        case .insert:
+            return (action as? AppConfiguration.Insert)?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        case .url:
+            return (action as? AppConfiguration.Url)?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        case .shortcut:
+            return (action as? AppConfiguration.Shortcut)?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        case .shell:
+            return (action as? AppConfiguration.ScriptShell)?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        case .appleScript:
+            return (action as? AppConfiguration.ScriptAppleScript)?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
+        }
+    }
+
+    private func effectiveRestoreClipboardDelayForCLI(
+        action: Any,
+        type: ActionType,
+        configManager: ConfigurationManager
+    ) -> TimeInterval {
+        switch type {
+        case .insert:
+            return (action as? AppConfiguration.Insert)?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
+        case .url:
+            return (action as? AppConfiguration.Url)?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
+        case .shortcut:
+            return (action as? AppConfiguration.Shortcut)?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
+        case .shell:
+            return (action as? AppConfiguration.ScriptShell)?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
+        case .appleScript:
+            return (action as? AppConfiguration.ScriptAppleScript)?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
+        }
+    }
+
+    private func restoreClipboardForCLI(_ clipboardContent: String?) {
+        let pasteboard = NSPasteboard.general
+        if let clipboardContent {
+            clipboardMonitorRef?.suppressNextClipboardCapture(for: clipboardContent, duration: 1.5)
+            pasteboard.clearContents()
+            pasteboard.setString(clipboardContent, forType: .string)
+            logDebug("[CLI] Restored clipboard content captured at chain start")
+        } else {
+            pasteboard.clearContents()
+            logDebug("[CLI] Cleared clipboard (chain-start clipboard was empty)")
+        }
     }
 
     private func applyMoveToForCLI(
@@ -2356,11 +2438,12 @@ class SocketCommunication {
     }
     
     // This version is for CLI action execution and does NOT press ESC.
+    @discardableResult
     func applyInsertForExec(
         _ text: String,
         activeInsert: AppConfiguration.Insert?,
         isAutoPaste: Bool = false
-    ) {
+    ) -> Bool {
         let resolvedText = resolveSmartInsertTextIfNeeded(
             text,
             activeInsert: activeInsert
@@ -2370,31 +2453,27 @@ class SocketCommunication {
             // For empty or .none actions, apply actionDelay but don't paste or do any clipboard operations
             let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
             if delay > 0 { Thread.sleep(forTimeInterval: delay) }
-            return 
+            return false
         }
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
-        
-        // Use action-level restoreClipboard if set, otherwise fall back to global default
-        let restoreClipboard = activeInsert?.restoreClipboard ?? globalConfigManager?.config.defaults.restoreClipboard ?? true
-        
+
         if isAutoPaste {
-            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return }
+            if !requestAccessibilityPermission() { logWarning("Accessibility permission denied"); return false }
             if !isInInputField() {
                 logInfo("CLI exec auto paste - not in input field, direct paste only")
                 suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulateSimReturn(activeInsert: activeInsert); return
+                checkAndSimulateSimReturn(activeInsert: activeInsert)
+                return true
             }
         }
-        // No ESC key press for CLI execution
-        if restoreClipboard {
-            pasteText(resolvedText, activeInsert: activeInsert)
-        } else {
-            pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
-        }
+        // No ESC key press or per-step clipboard restore for CLI chain execution.
+        let usesClipboard = !(activeInsert?.simKeypress ?? globalConfigManager?.config.defaults.simKeypress ?? false)
+        pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
         checkAndSimulateSimReturn(activeInsert: activeInsert)
+        return usesClipboard
     }
     
     // This version is for clipboard-monitored insert actions and does NOT press ESC or apply actionDelay
@@ -3379,19 +3458,38 @@ class SocketCommunication {
                         break
                     }
 
-                    let finalStep = try executeActionChainForCLI(
+                    let initialClipboardContent = NSPasteboard.general.string(forType: .string)
+                    let chainResult = try executeActionChainForCLI(
                         initialAction: selectedAction.action,
                         initialActionName: selectedAction.name,
                         initialActionType: selectedAction.type,
                         metaJson: executionMetaJson,
+                        initialClipboardContent: initialClipboardContent,
                         configManager: configMgr
                     )
+
+                    let shouldRestoreClipboard = effectiveRestoreClipboardSettingForCLI(
+                        action: chainResult.finalStep.action,
+                        type: chainResult.finalStep.type,
+                        configManager: configMgr
+                    )
+                    if chainResult.clipboardState.shouldRestoreClipboard(finalRestoreEnabled: shouldRestoreClipboard) {
+                        let restoreDelay = effectiveRestoreClipboardDelayForCLI(
+                            action: chainResult.finalStep.action,
+                            type: chainResult.finalStep.type,
+                            configManager: configMgr
+                        )
+                        if restoreDelay > 0 {
+                            Thread.sleep(forTimeInterval: restoreDelay)
+                        }
+                        restoreClipboardForCLI(chainResult.clipboardState.initialClipboardContent)
+                    }
 
                     if let recordingPath = resolvedMetaSource.recordingPath {
                         applyMoveToForCLI(
                             recordingPath: recordingPath,
-                            finalActionType: finalStep.type,
-                            finalAction: finalStep.action,
+                            finalActionType: chainResult.finalStep.type,
+                            finalAction: chainResult.finalStep.action,
                             configManager: configMgr
                         )
                     } else if resolvedMetaSource.kind == .jsonFilePath {
@@ -3453,18 +3551,36 @@ class SocketCommunication {
                             overwriteExisting: false
                         )
 
-                        let finalStep = try executeActionChainForCLI(
+                        let initialClipboardContent = NSPasteboard.general.string(forType: .string)
+                        let chainResult = try executeActionChainForCLI(
                             initialAction: action,
                             initialActionName: actionName,
                             initialActionType: actionType,
                             metaJson: enhancedMetaJson,
+                            initialClipboardContent: initialClipboardContent,
                             configManager: configMgr
                         )
+                        let shouldRestoreClipboard = effectiveRestoreClipboardSettingForCLI(
+                            action: chainResult.finalStep.action,
+                            type: chainResult.finalStep.type,
+                            configManager: configMgr
+                        )
+                        if chainResult.clipboardState.shouldRestoreClipboard(finalRestoreEnabled: shouldRestoreClipboard) {
+                            let restoreDelay = effectiveRestoreClipboardDelayForCLI(
+                                action: chainResult.finalStep.action,
+                                type: chainResult.finalStep.type,
+                                configManager: configMgr
+                            )
+                            if restoreDelay > 0 {
+                                Thread.sleep(forTimeInterval: restoreDelay)
+                            }
+                            restoreClipboardForCLI(chainResult.clipboardState.initialClipboardContent)
+                        }
                         if let recordingPath = resolvedMetaSource.recordingPath {
                             applyMoveToForCLI(
                                 recordingPath: recordingPath,
-                                finalActionType: finalStep.type,
-                                finalAction: finalStep.action,
+                                finalActionType: chainResult.finalStep.type,
+                                finalAction: chainResult.finalStep.action,
                                 configManager: configMgr
                             )
                         } else if resolvedMetaSource.kind == .jsonFilePath {
