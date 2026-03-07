@@ -52,15 +52,15 @@
         },
         "icon": {
           "type": ["string", "null"],
-          "description": "Default icon for actions. null means no default icon. Empty string means explicit empty icon.",
+          "description": "Default icon for actions. Empty string or null means no default icon. Auto-updated configs rewrite null to empty string at the defaults level.",
           "examples": ["🎤", "📝", "⚡", "", null],
-          "default": null
+          "default": ""
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Default location to move recording folders after processing. Path to destination directory, '.delete' (delete folder), empty string (explicit no move), or null (no default move behavior).",
+          "description": "Default location to move recording folders after processing. Path to destination directory, '.delete' (delete folder), empty string (no default move behavior), or null. Auto-updated configs rewrite null to empty string at the defaults level.",
           "examples": ["~/Documents/processed-recordings", ".delete", "", null],
-          "default": null
+          "default": ""
         },
         "simEsc": {
           "type": ["boolean", "null"],
@@ -106,9 +106,9 @@
         },
         "returnDelay": {
           "type": ["number", "null"],
-          "description": "Delay in seconds before pressing Return (if simReturn is enabled). null or omitted = use built-in default (0.1).",
+          "description": "Delay in seconds before pressing Return (if simReturn is enabled). null or omitted = use built-in default (0.15).",
           "minimum": 0,
-          "default": 0.1
+          "default": 0.15
         },
         "restoreClipboard": {
           "type": ["boolean", "null"],
@@ -134,7 +134,7 @@
         },
         "scriptWaitTimeout": {
           "type": ["number", "null"],
-          "description": "Default timeout in seconds when scriptAsync is false. null or omitted = use built-in default (3.0).",
+          "description": "Default timeout in seconds when scriptAsync is false. null or omitted = use built-in default (3).",
           "minimum": 0,
           "default": 3
         },
@@ -145,21 +145,21 @@
         },
         "clipboardBuffer": {
           "type": ["number", "null"],
-          "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls the capture of clipboard content before a recording starts. 0 disables the buffer entirely. null or omitted = use built-in default (5.0).",
+          "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls the capture of clipboard content before a recording starts. 0 disables the buffer entirely. null or omitted = use built-in default (5).",
           "minimum": 0,
           "default": 5
         },
         "clipboardIgnore": {
           "type": ["string", "null"],
-          "description": "Regex pattern to ignore clipboard content from specific applications. Use '|' for multiple apps (e.g., 'AppName|com.bundle.id'). Matches against app name or bundle ID. Empty string or null means no apps are ignored.",
+          "description": "Regex pattern to ignore clipboard content from specific applications. Use '|' for multiple apps (e.g., 'AppName|com.bundle.id'). Matches against app name or bundle ID. Empty string or null means no apps are ignored. Auto-updated configs rewrite null to empty string at the defaults level.",
           "examples": ["Chrome|Safari", "com.google.Chrome", "^Slack$", "", null],
-          "default": null
+          "default": ""
         },
         "bypassModes": {
           "type": ["string", "null"],
-          "description": "Pipe-separated Superwhisper mode names that bypass Macrowhisper processing entirely for matching modeName values in meta.json. Matching is case-insensitive. Empty string or null disables bypass.",
+          "description": "Pipe-separated Superwhisper mode names that bypass Macrowhisper processing entirely for matching modeName values in meta.json. Matching is case-insensitive. Empty string or null disables bypass. Auto-updated configs rewrite null to empty string at the defaults level.",
           "examples": ["dictation", "dictation|rewrite", "", null],
-          "default": null
+          "default": ""
         },
         "muteTriggers": {
           "type": ["boolean", "null"],
@@ -178,9 +178,9 @@
         },
         "nextAction": {
           "type": ["string", "null"],
-          "description": "Default action name to execute after a matched action completes. Empty string or null means no chaining.",
+          "description": "Default action name to execute after a matched action completes. Empty string or null means no chaining. Auto-updated configs rewrite null to empty string at the defaults level.",
           "examples": ["followUpAction", "", null],
-          "default": null
+          "default": ""
         }
       },
       "additionalProperties": false

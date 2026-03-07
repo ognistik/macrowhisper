@@ -75,6 +75,9 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * When set as temporary (time) the change will not write to the configuration file.
 * **New.** `triggerUrls` is now possible! This also introduced the new placeholder `{{frontAppUrl}}`
   * NOTE: consider this an experimental feature. **Not all the browsers are supported.** If yours is not, open an issue on Github (give me the bundle ID if possible) and I'll be happy to look into adding it.
+* **Improved** Canonicalized root defaults values for auto-updated configs to improve clarity and consistency.
+  * When a root default is using a built-in fallback, Macrowhisper now writes the effective value into the config instead of leaving mixed null/explicit defaults.
+  * Updated the built-in returnDelay default to 0.15 and normalized whole-number defaults like scriptWaitTimeout to compact values such as 3 instead of 3.0.
 * **Improvement.** Refactored the `--auto-return` CLI command so that it uses the resolved action payload instead of a simple `swResult`.
   * If a non-insert action is resolved, then the previous behavior of inserting a simple `swResult` executes.
 * **Improvement.** `{{clipboardContext}}` is now frozen at meta.json validation time for recording-triggered actions, so delayed or chained steps use a stable value.

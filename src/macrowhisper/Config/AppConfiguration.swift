@@ -40,6 +40,29 @@ struct AppConfiguration: Codable {
         var autoUpdateConfig: Bool
         var redactedLogs: Bool
         var nextAction: String?
+
+        @discardableResult
+        mutating func canonicalizeRootDefaultsForPersistence() -> Bool {
+            let defaults = Defaults.defaultValues()
+            var changed = false
+
+            func replaceIfNil<T>(_ value: inout T?, with replacement: T) {
+                guard value == nil else { return }
+                value = replacement
+                changed = true
+            }
+
+            replaceIfNil(&icon, with: defaults.icon ?? "")
+            replaceIfNil(&moveTo, with: defaults.moveTo ?? "")
+            replaceIfNil(&restoreClipboardDelay, with: defaults.restoreClipboardDelay ?? 0.3)
+            replaceIfNil(&scriptAsync, with: defaults.scriptAsync ?? true)
+            replaceIfNil(&scriptWaitTimeout, with: defaults.scriptWaitTimeout ?? 3)
+            replaceIfNil(&clipboardIgnore, with: defaults.clipboardIgnore ?? "")
+            replaceIfNil(&bypassModes, with: defaults.bypassModes ?? "")
+            replaceIfNil(&nextAction, with: defaults.nextAction ?? "")
+
+            return changed
+        }
         
         // Add these coding keys and custom encoding
         enum CodingKeys: String, CodingKey {
@@ -138,7 +161,7 @@ struct AppConfiguration: Codable {
                 let legacyPressReturnKey = AnyCodingKey(stringValue: "pressReturn")
                 simReturn = try legacyContainer.decodeIfPresent(Bool.self, forKey: legacyPressReturnKey) ?? false
             }
-            returnDelay = try container.decodeIfPresent(Double.self, forKey: .returnDelay) ?? 0.1
+            returnDelay = try container.decodeIfPresent(Double.self, forKey: .returnDelay) ?? Defaults.defaultValues().returnDelay
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard) ?? true
             restoreClipboardDelay = try container.decodeIfPresent(Double.self, forKey: .restoreClipboardDelay)
             scheduledActionTimeout = try container.decodeIfPresent(Double.self, forKey: .scheduledActionTimeout) ?? 5
@@ -192,8 +215,8 @@ struct AppConfiguration: Codable {
                 disableUpdateCheck: false,
                 muteNotifications: false,
                 activeAction: "autoPaste",
-                icon: nil,
-                moveTo: nil,
+                icon: "",
+                moveTo: "",
                 simEsc: true,
                 simKeypress: false,
                 smartCasing: true,
@@ -202,20 +225,20 @@ struct AppConfiguration: Codable {
                 actionDelay: 0,
                 history: nil,
                 simReturn: false,
-                returnDelay: 0.1,
+                returnDelay: 0.15,
                 restoreClipboard: true,
-                restoreClipboardDelay: nil,
+                restoreClipboardDelay: 0.3,
                 scheduledActionTimeout: 5,
-                scriptAsync: nil,
-                scriptWaitTimeout: nil,
+                scriptAsync: true,
+                scriptWaitTimeout: 3,
                 clipboardStacking: false,
                 clipboardBuffer: 5.0,
-                clipboardIgnore: nil,
-                bypassModes: nil,
+                clipboardIgnore: "",
+                bypassModes: "",
                 muteTriggers: false,
                 autoUpdateConfig: true,
                 redactedLogs: true,
-                nextAction: nil
+                nextAction: ""
             )
         }
     }

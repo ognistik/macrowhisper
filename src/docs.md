@@ -670,7 +670,7 @@ If you prefer editing everything by hand:
 - any action you define must include `action`
 - `autoUpdateConfig` defaults to `true`, so set it to `false` only if you want to manage format updates yourself
 
-If Macrowhisper later saves or auto-updates the config, it writes the resolved default watch path back into the file.
+If you want to go back to a built-in root default later, set that defaults value to null (or remove it), set autoUpdateConfig: true, and restart the service. On startup, Macrowhisper will resolve it and write the effective value back into the file.
 
 Versioning notes:
 
@@ -684,7 +684,7 @@ Versioning notes:
 
 These settings live under `defaults`.
 
-For defaults-level boolean and number fields, `null` usually means "use Macrowhisper's built-in default."
+At the defaults level, `null` is accepted for backward compatibility, but auto-updated configs are normalized toward explicit persisted values.
 
 | Key | Type | Default | What it controls |
 | --- | --- | --- | --- |
@@ -692,8 +692,8 @@ For defaults-level boolean and number fields, `null` usually means "use Macrowhi
 | `disableUpdateCheck` | bool/null | `false` | Turns periodic update checks off. |
 | `muteNotifications` | bool/null | `false` | Turns notifications off. |
 | `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty or `null` means none. |
-| `icon` | string/null | `null` | Default icon for actions. |
-| `moveTo` | string/null | `null` | What to do with processed recording folders: move them, delete them, or do nothing. |
+| `icon` | string/null | `""` | Default icon for actions. Empty or `null` means no default icon. |
+| `moveTo` | string/null | `""` | What to do with processed recording folders: move them, delete them, or do nothing. Empty or `null` means no default move behavior. |
 | `simEsc` | bool/null | `true` | Simulate ESC before actions. |
 | `simKeypress` | bool/null | `false` | Type characters instead of pasting for insert actions. |
 | `smartCasing` | bool/null | `true` | Adjust capitalization at insert boundaries. |
@@ -702,20 +702,20 @@ For defaults-level boolean and number fields, `null` usually means "use Macrowhi
 | `actionDelay` | number/null | `0` | Delay before the action starts. |
 | `history` | int/null | `null` | How long to keep old recording folders. |
 | `simReturn` | bool/null | `false` | Press Return after an insert action. |
-| `returnDelay` | number/null | `0.1` | Delay before pressing Return. |
+| `returnDelay` | number/null | `0.15` | Delay before pressing Return. |
 | `restoreClipboard` | bool/null | `true` | Restore the original clipboard after the action flow ends. |
 | `restoreClipboardDelay` | number/null | `0.3` | Delay before restoring the clipboard. |
 | `scheduledActionTimeout` | number/null | `5` | How long one-time runtime actions stay pending when no recording starts. |
 | `scriptAsync` | bool/null | `true` | Whether Shortcut, shell, and AppleScript actions run asynchronously by default. |
-| `scriptWaitTimeout` | number/null | `3.0` | Max wait time when `scriptAsync` is `false`. |
+| `scriptWaitTimeout` | number/null | `3` | Max wait time when `scriptAsync` is `false`. |
 | `clipboardStacking` | bool/null | `false` | Whether `{{clipboardContext}}` can include several clipboard items. |
-| `clipboardBuffer` | number/null | `5.0` | How many seconds of clipboard history to capture before recording. |
-| `clipboardIgnore` | string/null | `null` | Regex for apps that should be ignored during clipboard capture. |
-| `bypassModes` | string/null | `null` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. |
+| `clipboardBuffer` | number/null | `5` | How many seconds of clipboard history to capture before recording. |
+| `clipboardIgnore` | string/null | `""` | Regex for apps that should be ignored during clipboard capture. Empty or `null` means no ignore rules. |
+| `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. Empty or `null` disables bypass. |
 | `muteTriggers` | bool/null | `false` | Mute trigger matching globally. |
 | `autoUpdateConfig` | bool/null | `true` | Automatically refresh config format and schema fields. |
 | `redactedLogs` | bool/null | `true` | Hide sensitive content in logs. |
-| `nextAction` | string/null | `null` | Default next action to use as the first chain step. |
+| `nextAction` | string/null | `""` | Default next action to use as the first chain step. Empty or `null` means no default chain step. |
 
 Practical note about `actionDelay`:
 
@@ -1713,16 +1713,22 @@ Example:
     "watch": "~/Documents/superwhisper",
     "activeAction": "autoPaste",
     "actionDelay": 0,
+    "returnDelay": 0.15,
     "restoreClipboard": true,
+    "restoreClipboardDelay": 0.3,
+    "scriptAsync": true,
+    "scriptWaitTimeout": 3,
     "simReturn": false,
     "smartCasing": true,
     "smartPunctuation": true,
     "smartSpacing": true,
     "clipboardBuffer": 5,
     "clipboardStacking": false,
-    "clipboardIgnore": null,
-    "bypassModes": null,
-    "nextAction": null
+    "icon": "",
+    "moveTo": "",
+    "clipboardIgnore": "",
+    "bypassModes": "",
+    "nextAction": ""
   },
   "inserts": {
     "autoPaste": {
@@ -1774,7 +1780,7 @@ In this example, the user dictates into an insert action, then a URL opens, then
   "defaults": {
     "watch": "~/Documents/superwhisper",
     "activeAction": "compose",
-    "nextAction": null,
+    "nextAction": "",
     "restoreClipboard": true,
     "moveTo": "~/Documents/SW-Processed"
   },
@@ -1819,7 +1825,7 @@ In this example:
   "defaults": {
     "watch": "~/Documents/superwhisper",
     "activeAction": "buildTicketPayload",
-    "nextAction": null,
+    "nextAction": "",
     "restoreClipboard": true
   },
   "inserts": {
@@ -1833,7 +1839,7 @@ In this example:
     "buildTicketPayload": {
       "action": "TEXT='{{swResult}}'; CLEAN=$(printf \"%s\" \"$TEXT\" | tr '\\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ +| +$//g'); LEET_TEXT=$(printf \"%s\" \"$CLEAN\" | tr 'aeio' '4310'); printf \"Original: %s\\nTransformed: %s\\n\" \"$TEXT\" \"$LEET_TEXT\"",
       "scriptAsync": false,
-      "scriptWaitTimeout": 3.0,
+      "scriptWaitTimeout": 3,
       "nextAction": "insertTicketPayload"
     }
   },

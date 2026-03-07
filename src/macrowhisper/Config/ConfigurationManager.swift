@@ -1352,6 +1352,7 @@ class ConfigurationManager {
             }
         }
         _ = Self.normalizeEscInputConditionTokens(&updatedConfig)
+        _ = updatedConfig.defaults.canonicalizeRootDefaultsForPersistence()
 
         // Update our in-memory config with the loaded/migrated data
         syncQueue.sync {
