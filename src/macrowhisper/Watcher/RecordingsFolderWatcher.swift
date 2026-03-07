@@ -12,6 +12,7 @@ class RecordingsFolderWatcher {
     private let path: String
     private var source: DispatchSourceFileSystemObject?
     private let queue = DispatchQueue(label: "com.macrowhisper.recordingswatcher")
+    private let queueSpecificKey = DispatchSpecificKey<Void>()
     private var lastKnownSubdirectories: Set<String> = []
     private var pendingMetaJsonFiles: [String: DispatchSourceFileSystemObject] = [:]
     private var pendingAudioFileWatchers: [String: DispatchSourceFileSystemObject] = [:]
@@ -54,6 +55,7 @@ class RecordingsFolderWatcher {
         }
         
         self.processedRecordingsFile = macrowhisperDir?.appendingPathComponent("processed_recordings.txt").path ?? "/tmp/macrowhisper_processed_recordings.txt"
+        self.queue.setSpecific(key: queueSpecificKey, value: ())
         
         // Ensure the directory exists
         guard FileManager.default.fileExists(atPath: self.path) else {
@@ -1284,6 +1286,10 @@ class RecordingsFolderWatcher {
     
     /// Checks if there are any active recording sessions (pending meta.json files or audio watchers)
     func hasActiveRecordingSessions() -> Bool {
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+            return !pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty
+        }
+
         // Ensure thread-safe access to pending watchers, which are mutated on the watcher's queue
         var hasActive = false
         queue.sync {

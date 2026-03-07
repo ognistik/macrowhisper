@@ -93,7 +93,8 @@ This release introduces `configVersion: 2` with clearer rules for the configurat
   * `--reset-config`: persists reset to default path, creates default config at default path if missing, if daemon is running, switches immediately, if daemon is not running, does not start daemon
   * `--config <path>`: now persists path immediately, creates config file if missing, if daemon is running, switches immediately and continues, if daemon is not running, starts up and runs daemon with that path
 * * **Improvement.** standardized values at default level of config.
-  * Now the only required key is the watch folder. This allows for minimal configuration files if users set `autoUpdateConfig` to `false`.
+  * If setting is null or omitted the built-in default will be used.
+  * This allows for minimal configuration files if users set `autoUpdateConfig` to `false`.
   * It is still suggested to set `autoUpdateConfig` to `true` so users don't miss out on future new features.
 * **Improvement.** Better guard protection when multiple recordings appear in burst (none will process).
 * **Improvement.** Better handling of `meta.json` values.
