@@ -20,9 +20,9 @@
       "description": "Global default settings for all actions",
       "properties": {
         "watch": {
-          "type": "string",
-          "description": "Path to Superwhisper recordings folder",
-          "examples": ["~/Documents/superwhisper", "/Users/username/Documents/superwhisper"]
+          "type": ["string", "null"],
+          "description": "Path to Superwhisper recordings folder. null or omitted = use the built-in default path.",
+          "examples": ["~/Documents/superwhisper", "/Users/username/Documents/superwhisper", null]
         },
         "disableUpdateCheck": {
           "type": ["boolean", "null"],
@@ -183,7 +183,6 @@
           "default": null
         }
       },
-      "required": ["watch"],
       "additionalProperties": false
     },
     "inserts": {

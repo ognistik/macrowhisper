@@ -82,8 +82,9 @@ struct AppConfiguration: Codable {
         // Custom decoding with legacy key fallbacks
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            // Required fields
-            watch = try container.decode(String.self, forKey: .watch)
+            // Runtime always expects a concrete watch path, but hand-edited configs
+            // may omit or null this field to fall back to the built-in default.
+            watch = try container.decodeIfPresent(String.self, forKey: .watch) ?? Defaults.defaultValues().watch
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay) ?? 0
 
             // Optional fields with sensible fallbacks (aligned with defaultValues())

@@ -666,9 +666,11 @@ Meaning: explicitly show no icon for this action.
 If you prefer editing everything by hand:
 
 - `defaults` is required
-- `defaults.watch` is required
+- `defaults.watch` may be omitted or set to `null`; both use the built-in default watch folder
 - any action you define must include `action`
 - `autoUpdateConfig` defaults to `true`, so set it to `false` only if you want to manage format updates yourself
+
+If Macrowhisper later saves or auto-updates the config, it writes the resolved default watch path back into the file.
 
 Versioning notes:
 
@@ -686,7 +688,7 @@ For defaults-level boolean and number fields, `null` usually means "use Macrowhi
 
 | Key | Type | Default | What it controls |
 | --- | --- | --- | --- |
-| `watch` | string | `~/Documents/superwhisper` | Path to the Superwhisper folder that contains `recordings`. |
+| `watch` | string/null | `~/Documents/superwhisper` | Path to the Superwhisper folder that contains `recordings`. Omit or use `null` to fall back to the built-in default path. |
 | `disableUpdateCheck` | bool/null | `false` | Turns periodic update checks off. |
 | `muteNotifications` | bool/null | `false` | Turns notifications off. |
 | `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty or `null` means none. |
