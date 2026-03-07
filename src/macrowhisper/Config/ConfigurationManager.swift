@@ -478,7 +478,6 @@ class ConfigurationManager {
 
         var nextActionMap: [String: String] = [:]
         var nextActionSettings: [String: NextActionSetting] = [:]
-        var actionTypeMap: [String: ActionType] = [:]
         func appendNextAction(_ actionName: String, _ rawNextAction: String?, _ actionType: ActionType) {
             guard let rawNextAction else {
                 nextActionSettings[actionName] = NextActionSetting(isExplicitlySet: false, value: "")
@@ -542,12 +541,6 @@ class ConfigurationManager {
                 actionPathPrefix: "scriptsAS.\(name)"
             ))
         }
-
-        for name in config.inserts.keys { actionTypeMap[name] = .insert }
-        for name in config.urls.keys { actionTypeMap[name] = .url }
-        for name in config.shortcuts.keys { actionTypeMap[name] = .shortcut }
-        for name in config.scriptsShell.keys { actionTypeMap[name] = .shell }
-        for name in config.scriptsAS.keys { actionTypeMap[name] = .appleScript }
 
         if config.defaults.icon == ".none" {
             issues.append(
@@ -710,52 +703,6 @@ class ConfigurationManager {
         for name in nextActionMap.keys {
             if nodeStates[name] == nil {
                 dfs(name)
-            }
-        }
-
-        // Validate max one insert action per chain, respecting defaults.nextAction precedence only for first step.
-        for start in actionNames {
-            var current = start
-            var seen: Set<String> = []
-            var firstStep = true
-            var firstInsertName: String?
-            var traversedPath: [String] = []
-
-            while !current.isEmpty && !seen.contains(current) {
-                seen.insert(current)
-                traversedPath.append(current)
-                if actionTypeMap[current] == .insert {
-                    if let firstInsertName = firstInsertName, firstInsertName != current {
-                        let chainPath = traversedPath.joined(separator: " -> ")
-                        issues.append(
-                            ConfigValidationIssue(
-                                path: "actions.\(start).nextAction",
-                                message: "chain contains multiple insert actions ('\(firstInsertName)' and '\(current)'). Only one insert action is allowed per chain. Path: \(chainPath)",
-                                kind: .semantic,
-                                rawValue: chainPath
-                            )
-                        )
-                        break
-                    }
-                    firstInsertName = current
-                }
-
-                let next: String
-                if firstStep {
-                    if let setting = nextActionSettings[current], setting.isExplicitlySet {
-                        next = setting.value
-                    } else {
-                        next = defaultsNextAction
-                    }
-                } else {
-                    next = nextActionMap[current] ?? ""
-                }
-                firstStep = false
-
-                if next.isEmpty {
-                    break
-                }
-                current = next
             }
         }
 

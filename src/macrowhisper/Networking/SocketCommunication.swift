@@ -77,7 +77,6 @@ class SocketCommunication {
         case duplicateActionName(String)
         case missingAction(String)
         case cycleDetected(String)
-        case multipleInsertActions(first: String, second: String)
 
         var errorDescription: String? {
             switch self {
@@ -87,8 +86,6 @@ class SocketCommunication {
                 return "Chained nextAction '\(name)' was not found."
             case .cycleDetected(let name):
                 return "Action chain cycle detected at '\(name)'. Chained actions cannot repeat."
-            case .multipleInsertActions(let first, let second):
-                return "Action chain contains multiple insert actions ('\(first)' and '\(second)'). Only one insert action is allowed per chain."
             }
         }
     }
@@ -765,7 +762,6 @@ class SocketCommunication {
         var currentType = initialActionType
         var currentAction: Any = initialAction
         var visited: Set<String> = []
-        var firstInsertActionName: String?
         var finalStep: CLIResolvedActionStep?
         var clipboardState = CLIClipboardChainState(initialClipboardContent: initialClipboardContent)
 
@@ -774,16 +770,6 @@ class SocketCommunication {
                 throw CLIActionChainError.cycleDetected(currentName)
             }
             visited.insert(currentName)
-
-            switch currentType {
-            case .insert:
-                if let first = firstInsertActionName, first != currentName {
-                    throw CLIActionChainError.multipleInsertActions(first: first, second: currentName)
-                }
-                firstInsertActionName = currentName
-            case .url, .shortcut, .shell, .appleScript:
-                break
-            }
 
             let resolvedStep: CLIResolvedActionStep
             switch currentType {

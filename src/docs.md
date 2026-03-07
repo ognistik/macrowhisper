@@ -1177,6 +1177,8 @@ In plain terms: Macrowhisper temporarily turns off the parts of the action that 
 
 `nextAction` lets one action call another action automatically.
 
+Chains can mix action types freely, including multiple insert steps.
+
 You can define it:
 
 - on the action itself
@@ -1199,7 +1201,6 @@ Macrowhisper blocks these problems:
 
 - missing action names
 - loops such as `A -> B -> A`
-- more than one insert action in the same chain
 
 ### 10.3 Unique names matter
 
@@ -1215,6 +1216,8 @@ Chains resolve by action name across all action types, so duplicate names are no
 - clipboard restoration is decided by the last step
 - `moveTo` is based on the final executed action context
 - `simEsc` comes from the first action-level setting if present, otherwise from `defaults.simEsc`
+- `inputCondition` is evaluated live for each executed step
+- `frontApp`, `appContext`, and `appVocabulary` stay frozen for the whole chain
 
 ---
 

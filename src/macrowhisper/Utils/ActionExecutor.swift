@@ -50,8 +50,6 @@ class ActionExecutor {
     private struct ChainRuntimeState {
         let currentStep: ResolvedActionStep
         let visited: Set<String>
-        let firstInsertActionName: String?
-        let cachedInputFieldState: Bool?
         let failedSteps: [String]
         let stepNumber: Int
         let isFirstStep: Bool
@@ -93,8 +91,6 @@ class ActionExecutor {
         let initialState = ChainRuntimeState(
             currentStep: initialStep,
             visited: [],
-            firstInsertActionName: nil,
-            cachedInputFieldState: nil,
             failedSteps: [],
             stepNumber: 1,
             isFirstStep: true
@@ -123,18 +119,7 @@ class ActionExecutor {
             var nextVisited = state.visited
             nextVisited.insert(state.currentStep.name)
 
-            var nextFirstInsertActionName = state.firstInsertActionName
-            if state.currentStep.type == .insert {
-                if let first = nextFirstInsertActionName, first != state.currentStep.name {
-                    throw ActionChainError.multipleInsertActions(first: first, second: state.currentStep.name)
-                }
-                nextFirstInsertActionName = state.currentStep.name
-            }
-
-            let (executionStep, cachedInputState) = resolveStepForExecution(
-                step: state.currentStep,
-                cachedInputFieldState: state.cachedInputFieldState
-            )
+            let executionStep = resolveStepForExecution(step: state.currentStep)
 
             let nextActionName = getEffectiveNextActionName(
                 for: executionStep.action,
@@ -185,8 +170,6 @@ class ActionExecutor {
                 let nextState = ChainRuntimeState(
                     currentStep: nextStep,
                     visited: nextVisited,
-                    firstInsertActionName: nextFirstInsertActionName,
-                    cachedInputFieldState: cachedInputState,
                     failedSteps: nextFailedSteps,
                     stepNumber: state.stepNumber + 1,
                     isFirstStep: false
@@ -211,93 +194,90 @@ class ActionExecutor {
     private typealias ParsedInputCondition = [String: Bool]
 
     private func resolveStepForExecution(
-        step: ResolvedActionStep,
-        cachedInputFieldState: Bool?
-    ) -> (ResolvedActionStep, Bool?) {
+        step: ResolvedActionStep
+    ) -> ResolvedActionStep {
         var resolvedAction = step.action
         var needsInputConditionEvaluation = false
 
         switch step.type {
         case .insert:
             guard let rawInsert = step.action as? AppConfiguration.Insert else {
-                return (step, cachedInputFieldState)
+                return step
             }
             let (templateInsert, isLegacyAutoPasteTemplate) = applyLegacyInsertTemplateOverrides(rawInsert)
             needsInputConditionEvaluation = isLegacyAutoPasteTemplate || !((templateInsert.inputCondition ?? "").isEmpty)
             resolvedAction = templateInsert
         case .url:
             guard let rawUrl = step.action as? AppConfiguration.Url else {
-                return (step, cachedInputFieldState)
+                return step
             }
             let (templateUrl, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawUrl)
             needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateUrl.inputCondition ?? "").isEmpty)
             resolvedAction = templateUrl
         case .shell:
             guard let rawShell = step.action as? AppConfiguration.ScriptShell else {
-                return (step, cachedInputFieldState)
+                return step
             }
             let (templateShell, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawShell)
             needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateShell.inputCondition ?? "").isEmpty)
             resolvedAction = templateShell
         case .appleScript:
             guard let rawAppleScript = step.action as? AppConfiguration.ScriptAppleScript else {
-                return (step, cachedInputFieldState)
+                return step
             }
             let (templateAppleScript, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawAppleScript)
             needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateAppleScript.inputCondition ?? "").isEmpty)
             resolvedAction = templateAppleScript
         case .shortcut:
             guard let rawShortcut = step.action as? AppConfiguration.Shortcut else {
-                return (step, cachedInputFieldState)
+                return step
             }
             let (templateShortcut, isLegacyNoopTemplate) = applyLegacyNoopTemplateOverrides(rawShortcut)
             needsInputConditionEvaluation = isLegacyNoopTemplate || !((templateShortcut.inputCondition ?? "").isEmpty)
             resolvedAction = templateShortcut
         }
 
-        var inputFieldState = cachedInputFieldState
-        if needsInputConditionEvaluation && inputFieldState == nil {
+        let inputFieldState: Bool
+        if needsInputConditionEvaluation {
             if requestAccessibilityPermission() {
                 inputFieldState = isInInputField()
             } else {
                 inputFieldState = false
             }
+        } else {
+            inputFieldState = false
         }
 
-        let inInputField = inputFieldState ?? false
         let conditionedAction: Any
         switch step.type {
         case .insert:
             guard let insert = resolvedAction as? AppConfiguration.Insert else {
-                return (step, inputFieldState)
+                return step
             }
-            conditionedAction = applyInputCondition(to: insert, isInInputField: inInputField)
+            conditionedAction = applyInputCondition(to: insert, isInInputField: inputFieldState)
         case .url:
             guard let url = resolvedAction as? AppConfiguration.Url else {
-                return (step, inputFieldState)
+                return step
             }
-            conditionedAction = applyInputCondition(to: url, isInInputField: inInputField)
+            conditionedAction = applyInputCondition(to: url, isInInputField: inputFieldState)
         case .shell:
             guard let shell = resolvedAction as? AppConfiguration.ScriptShell else {
-                return (step, inputFieldState)
+                return step
             }
-            conditionedAction = applyInputCondition(to: shell, isInInputField: inInputField)
+            conditionedAction = applyInputCondition(to: shell, isInInputField: inputFieldState)
         case .appleScript:
             guard let appleScript = resolvedAction as? AppConfiguration.ScriptAppleScript else {
-                return (step, inputFieldState)
+                return step
             }
-            conditionedAction = applyInputCondition(to: appleScript, isInInputField: inInputField)
+            conditionedAction = applyInputCondition(to: appleScript, isInInputField: inputFieldState)
         case .shortcut:
             guard let shortcut = resolvedAction as? AppConfiguration.Shortcut else {
-                return (step, inputFieldState)
+                return step
             }
-            conditionedAction = applyInputCondition(to: shortcut, isInInputField: inInputField)
+            conditionedAction = applyInputCondition(to: shortcut, isInInputField: inputFieldState)
         }
 
-        return (
-            ResolvedActionStep(action: conditionedAction, name: step.name, type: step.type),
-            inputFieldState
-        )
+        return ResolvedActionStep(action: conditionedAction, name: step.name, type: step.type)
     }
 
     /// Resolves insert templates for auto-return mode with deterministic in-input behavior.
@@ -911,7 +891,6 @@ class ActionExecutor {
         case duplicateActionName(String)
         case missingAction(String)
         case cycleDetected(String)
-        case multipleInsertActions(first: String, second: String)
 
         var errorDescription: String? {
             switch self {
@@ -921,8 +900,6 @@ class ActionExecutor {
                 return "Chained nextAction '\(name)' was not found."
             case .cycleDetected(let name):
                 return "Action chain cycle detected at '\(name)'. Chained actions cannot repeat."
-            case .multipleInsertActions(let first, let second):
-                return "Action chain contains multiple insert actions ('\(first)' and '\(second)'). Only one insert action is allowed per chain."
             }
         }
     }
@@ -930,7 +907,6 @@ class ActionExecutor {
     private func resolveActionChain(initialAction: Any, name: String, type: ActionType) throws -> [ResolvedActionStep] {
         var chain: [ResolvedActionStep] = []
         var visited: Set<String> = []
-        var firstInsertActionName: String?
 
         var currentName = name
         var currentType = type
@@ -942,12 +918,6 @@ class ActionExecutor {
             }
             visited.insert(currentName)
             chain.append(ResolvedActionStep(action: currentAction, name: currentName, type: currentType))
-            if currentType == .insert {
-                if let firstInsertActionName = firstInsertActionName, firstInsertActionName != currentName {
-                    throw ActionChainError.multipleInsertActions(first: firstInsertActionName, second: currentName)
-                }
-                firstInsertActionName = currentName
-            }
 
             guard let nextActionName = getEffectiveNextActionName(
                 for: currentAction,

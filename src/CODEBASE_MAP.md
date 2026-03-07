@@ -94,7 +94,7 @@ src/
 - **Smart clipboard sync**: Coordinates with Superwhisper timing
 - **Placeholder processing**: Dynamic content replacement
 - **Runtime chain resolution**: Next step is resolved at runtime, so conditional `nextAction` works
-- **Input-state caching**: Input-field detection is sampled once (first insert step) and reused for chain consistency
+- **Live input-state evaluation**: Input-field detection is resolved per executed step for `inputCondition` and legacy insert sentinel behavior
 - **Legacy insert sentinels**: `.autoPaste` and `.none` are hard-override compatibility templates
 
 ### 5. Clipboard Management

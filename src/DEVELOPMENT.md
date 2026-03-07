@@ -147,6 +147,6 @@ else if key == "myNewData" {
 - Socket communication handles both CLI and daemon interactions  
 - ClipboardMonitor coordinates with Superwhisper timing
 - Insert chains resolve next actions at runtime (not precomputed) to support conditional `nextAction`.
-- Input-field state for conditional insert behavior is sampled once at chain start and reused for the whole chain.
+- Input-field state for conditional behavior is evaluated live per executed step.
 
 See `CODEBASE_MAP.md` for detailed architecture documentation. 
