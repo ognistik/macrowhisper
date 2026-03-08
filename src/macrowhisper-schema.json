@@ -53,7 +53,7 @@
         "icon": {
           "type": ["string", "null"],
           "description": "Default icon for actions. Empty string or null means no default icon. Auto-updated configs rewrite null to empty string at the defaults level.",
-          "examples": ["🎤", "📝", "⚡", "", null],
+          "examples": ["✎", "⭐︎", "⚡", "", null],
           "default": ""
         },
         "moveTo": {
@@ -64,7 +64,7 @@
         },
         "simEsc": {
           "type": ["boolean", "null"],
-          "description": "Simulate ESC key before action execution. null or omitted = use built-in default (true). Legacy key 'noEsc' is still accepted at runtime and inverted.",
+          "description": "Simulate ESC key before action execution. null or omitted = use built-in default (true).",
           "default": true
         },
         "simKeypress": {
@@ -261,7 +261,7 @@
         },
         "simEsc": {
           "type": ["boolean", "null"],
-          "description": "Simulate ESC key for this action. null = use global default, true/false = explicit override. Legacy key 'noEsc' is still accepted at runtime and inverted.",
+          "description": "Simulate ESC key for this action. null = use global default, true/false = explicit override.",
           "default": null
         },
         "actionDelay": {

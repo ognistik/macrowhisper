@@ -1,4 +1,4 @@
 {
-  "version" : "1.4.0",
-  "description" : "BIG RELEASE\n\n* Ensure you are not on macOS 26.1 or 26.2\n* Bug Fixes\n* Breaking Changes\n* New Features\n\nCHECK the release notes."
+  "version" : "2.0.0",
+  "description" : "Another Big Release\n\n* Config V2 with improved semantics.\n* It is suggested you keep \"autoUpdateConfig\" set to true so migration to new config is handled automatically.\n* Text transformations, smart insertion, more settings for script execution, improved chained actions, and more."
   }

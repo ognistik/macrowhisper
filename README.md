@@ -8,10 +8,10 @@ Macrowhisper watches Superwhisper recordings and runs configured actions based o
 [![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
 
 ## Learn More
-- Full docs and examples: [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)
-- Alfred workflow: [github.com/ognistik/macrowhisper/tree/main/alfred](https://github.com/ognistik/macrowhisper/tree/main/alfred)
-- Codebase map: [github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
-- Processing flow: [github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
+- [Full docs and examples](https://by.afadingthought.com/macrowhisper)
+- [Alfred workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)
+- [Codebase map](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
+- [Processing flow](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)
 
 ## Quick Start
 
