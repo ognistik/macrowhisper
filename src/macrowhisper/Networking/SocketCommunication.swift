@@ -1912,24 +1912,10 @@ class SocketCommunication {
         leftCharacter: Character?,
         leftLinePrefix: String
     ) -> Character? {
-        guard let leftCharacter else {
-            return nil
-        }
-        if !isIgnorableBoundaryCharacter(leftCharacter) && !isSkippableTrailingDelimiterForBoundary(leftCharacter) {
-            return leftCharacter
-        }
-
-        for character in leftLinePrefix.reversed() {
-            if character.isWhitespace || isIgnorableBoundaryCharacter(character) {
-                continue
-            }
-            if isSkippableTrailingDelimiterForBoundary(character) {
-                continue
-            }
-            return character
-        }
-
-        return nil
+        SmartInsertBoundary.effectiveLeftContextCharacter(
+            leftCharacter: leftCharacter,
+            leftLinePrefix: leftLinePrefix
+        )
     }
 
     private func isOpeningWrapperBoundaryCharacter(_ character: Character, leftLinePrefix: String) -> Bool {
@@ -2012,8 +1998,7 @@ class SocketCommunication {
     }
 
     private func isSkippableTrailingDelimiterForBoundary(_ character: Character) -> Bool {
-        let delimiters = "*_~`()[]{}<>\"'“”‘’«»‹›"
-        return delimiters.contains(character)
+        SmartInsertBoundary.isSkippableTrailingDelimiterForBoundary(character)
     }
 
     private func isMarkdownHeadingLineStart(_ leftLinePrefix: String) -> Bool {
@@ -2351,10 +2336,7 @@ class SocketCommunication {
     }
 
     private func isLineStartBoundary(_ leftCharacter: Character?) -> Bool {
-        if leftCharacter == nil {
-            return true
-        }
-        return leftCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true
+        SmartInsertBoundary.isLineStartBoundary(leftCharacter)
     }
 
     private func isLowercaseLetter(_ character: Character?) -> Bool {
@@ -2363,15 +2345,7 @@ class SocketCommunication {
     }
 
     private func isIgnorableBoundaryCharacter(_ character: Character) -> Bool {
-        character.unicodeScalars.allSatisfy { scalar in
-            scalar == "\u{FEFF}" ||
-            scalar == "\u{200B}" ||
-            scalar == "\u{200C}" ||
-            scalar == "\u{200D}" ||
-            scalar == "\u{2060}" ||
-            scalar == "\u{FFFC}" ||
-            scalar.properties.isJoinControl
-        }
+        SmartInsertBoundary.isIgnorableBoundaryCharacter(character)
     }
 
     private func isOpeningWrapperCharacter(_ character: Character) -> Bool {

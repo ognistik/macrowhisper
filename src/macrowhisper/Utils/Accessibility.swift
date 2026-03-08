@@ -360,20 +360,9 @@ struct InputInsertionContext {
     let rightHasLineBreakBeforeNextNonWhitespace: Bool
 }
 
-private let ignoredBoundaryScalarsForSmartInsert: Set<UnicodeScalar> = [
-    "\u{FEFF}", // ZERO WIDTH NO-BREAK SPACE / BOM
-    "\u{200B}", // ZERO WIDTH SPACE
-    "\u{200C}", // ZERO WIDTH NON-JOINER
-    "\u{200D}", // ZERO WIDTH JOINER
-    "\u{2060}", // WORD JOINER
-    "\u{FFFC}"  // OBJECT REPLACEMENT CHARACTER
-]
-
 private func isIgnorableBoundaryCharacterForSmartInsert(_ character: Character?) -> Bool {
     guard let character = character else { return false }
-    return character.unicodeScalars.allSatisfy { scalar in
-        ignoredBoundaryScalarsForSmartInsert.contains(scalar) || scalar.properties.isJoinControl
-    }
+    return SmartInsertBoundary.isIgnorableBoundaryCharacter(character)
 }
 
 private func getFrontmostApplicationForAccessibility(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
