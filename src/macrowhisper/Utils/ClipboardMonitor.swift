@@ -409,9 +409,14 @@ class ClipboardMonitor {
     func stopEarlyMonitoring(for recordingPath: String, onCompletion: (() -> Void)? = nil) {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             guard let self else { return }
+            let hadTrackedState = self.earlyMonitoringSessions[recordingPath] != nil || self.recordingPathToGroupId[recordingPath] != nil
             guard let groupId = self.recordingPathToGroupId[recordingPath],
                   var group = self.executionGroups[groupId] else {
                 self.earlyMonitoringSessions.removeValue(forKey: recordingPath)
+                self.recordingPathToGroupId.removeValue(forKey: recordingPath)
+                if hadTrackedState {
+                    logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
+                }
                 DispatchQueue.main.async { onCompletion?() }
                 return
             }
@@ -434,6 +439,7 @@ class ClipboardMonitor {
                 self.recordingPathToGroupId.removeValue(forKey: recordingPath)
             }
             self.executionGroups[groupId] = group
+            logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
 
             if shouldFinalize {
                 self.finalizeExecutionGroup(groupId: groupId, onCompletion: onCompletion)
@@ -441,7 +447,6 @@ class ClipboardMonitor {
                 DispatchQueue.main.async { onCompletion?() }
             }
         }
-        logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
     }
 
     private func finalizeExecutionGroup(groupId: String, onCompletion: (() -> Void)? = nil) {
