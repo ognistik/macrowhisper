@@ -1,4 +1,4 @@
 {
   "version" : "2.0.0",
-  "description" : "Another Big Release\n\n* Config V2 with improved semantics.\n* It is suggested you keep \"autoUpdateConfig\" set to true so migration to new config is handled automatically.\n* Text transformations, smart insertion, more settings for script execution, improved chained actions, and more."
+  "description" : "Another Big Release\n\n* Config v2 with improved semantics.\n* It is suggested you keep \"autoUpdateConfig\" set to true so migration to new config is handled automatically.\n* Text transformations, smart insertion, more settings for script execution, improved chained actions, and more."
   }

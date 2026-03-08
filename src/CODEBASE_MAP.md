@@ -2,39 +2,54 @@
 
 ## Overview
 
-**Macrowhisper** is an automation helper for **Superwhisper** dictation app. It monitors transcription results and executes automated actions based on intelligent triggers.
+**Macrowhisper** is an automation layer for **Superwhisper**. It watches recording folders, validates completed transcription results, enriches them with app and clipboard context, then resolves and executes actions through a shared runtime used by both the watcher and CLI.
 
 ### Core Functionality
-- **File Watching**: Monitors Superwhisper's recordings folder for new transcriptions
-- **Unified Action System**: Insert, URL, shortcut, shell script, AppleScript actions with consistent management
-- **Advanced Trigger System**: Voice patterns, application context, and mode matching
-- **Smart Clipboard Management**: Handles timing conflicts with Superwhisper
-- **Service Management**: Background operation via launchd
-- **JSON Schema Integration**: IDE validation support with automatic schema management
+- **Recording watcher pipeline**: monitors Superwhisper recordings, validates `meta.json`, and handles burst/cancel/recovery scenarios
+- **Unified action system**: insert, URL, shortcut, shell, and AppleScript actions share chaining, triggering, placeholder expansion, and clipboard semantics
+- **Config version 2 semantics**: `null` means inherit defaults, `""` means explicitly empty, and reserved templates like `.none`, `.autoPaste`, and `.run` have dedicated runtime behavior
+- **Clipboard/session coordination**: captures selected text and clipboard context early, freezes context for execution, and avoids Superwhisper sync contamination
+- **CLI/runtime parity**: socket-backed commands reuse the same action resolution rules as the live watcher
+- **JSON schema + config validation**: local schema management, semantic validation, and auto-migration/update support
 
 ---
 
 ## Project Structure
 
-```
+```text
 src/
 ├── macrowhisper/
-    ├── main.swift                   # Application entry point and CLI handling
-    ├── Config/                      # Configuration management
-    │   ├── AppConfiguration.swift   # Configuration data structures with unified actions
-    │   └── ConfigurationManager.swift # Live reloading, JSON schema integration
-    ├── Watcher/                     # File system monitoring
-    │   ├── RecordingsFolderWatcher.swift # Main recordings watcher
-    │   └── SuperwhisperFolderWatcher.swift # Graceful startup when folder missing
-    ├── Utils/                       # Core utilities
-    │   ├── ActionExecutor.swift     # Unified action execution
-    │   ├── TriggerEvaluator.swift   # Intelligent trigger matching
-    │   ├── ClipboardMonitor.swift   # Clipboard synchronization with Superwhisper
-    │   ├── Placeholders.swift       # Dynamic content replacement
-    │   ├── SchemaManager.swift      # JSON schema management
-    │   └── ServiceManager.swift     # macOS service integration
-    └── Networking/
-        └── SocketCommunication.swift # CLI command handling
+│   ├── main.swift                        # Entry point, CLI parsing, daemon/bootstrap, watcher lifecycle
+│   ├── Config/
+│   │   ├── AppConfiguration.swift        # Codable config model, action definitions, configVersion 2
+│   │   └── ConfigurationManager.swift    # Loading, validation, migration, live reload, persistence
+│   ├── History/
+│   │   └── HistoryManager.swift          # Retention-based recordings cleanup
+│   ├── Watcher/
+│   │   ├── RecordingsFolderWatcher.swift # Main recording pipeline and runtime action resolution
+│   │   ├── SuperwhisperFolderWatcher.swift # Waits for missing recordings folder to appear
+│   │   └── ConfigChangeWatcher.swift     # Filesystem watcher for config reloads
+│   ├── Utils/
+│   │   ├── ActionExecutor.swift          # Shared runtime for action execution and chaining
+│   │   ├── TriggerEvaluator.swift        # Trigger matching across voice/app/mode/URL conditions
+│   │   ├── ClipboardMonitor.swift        # Global + per-session clipboard coordination
+│   │   ├── Placeholders.swift            # Placeholder parsing, transforms, meta traversal
+│   │   ├── RecordingReferenceResolver.swift # Resolve current/previous recording folders for placeholders and CLI
+│   │   ├── AppVocabulary.swift           # Accessibility-driven app vocabulary extraction
+│   │   ├── BrowserURLNormalization.swift # Browser URL normalization for trigger/url context
+│   │   ├── SmartInsertBoundary.swift     # Smart casing/punctuation/spacing boundary logic
+│   │   ├── SimReturnBehavior.swift       # Return-key timing/behavior helpers
+│   │   ├── SchemaManager.swift           # Local schema discovery and `$schema` management
+│   │   ├── ServiceManager.swift          # launchd integration
+│   │   ├── NotificationManager.swift     # User notifications
+│   │   ├── Logger.swift                  # Structured logging and redaction
+│   │   ├── Accessibility.swift           # Focus/input-field detection and keyboard helpers
+│   │   └── UserDefaultsManager.swift     # Saved config-path persistence
+│   └── Networking/
+│       ├── SocketCommunication.swift     # Unix socket server and CLI command handling
+│       └── VersionChecker.swift          # Update checks
+├── macrowhisper-schema.json              # JSON schema for config editing/validation
+└── Tests/                                # Focused regression tests for parser/runtime edge cases
 ```
 
 ---
@@ -42,137 +57,210 @@ src/
 ## Core Components
 
 ### 1. Main Application (`main.swift`)
-- **Entry point**: CLI parsing, daemon mode, single-instance locking
-- **Global state**: Thread-safe state management with atomic operations
-- **Key variables**: `autoReturnEnabled`, `scheduledActionName`, `activeAction`
-- **CLI commands**: Service management, action management, configuration
-- **JSON Schema**: Automatic schema reference management for IDE validation
-
----
+- Parses CLI commands, starts the socket server, and owns watcher lifecycle
+- Applies startup config auto-update when `defaults.autoUpdateConfig` is enabled
+- Exposes config utilities like `--update-config`, `--validate-config`, `--set-config`, and `--reset-config`
+- Exposes runtime/action commands like `--exec-action`, `--run-auto`, `--get-action`, `--copy-action`, `--folder-name`, `--folder-path`, and `--mute-triggers`
+- Reinitializes watchers live when config path or watch path changes
 
 ### 2. Configuration System
 
 #### `AppConfiguration.swift`
-- **Unified action types**: Insert, URL, Shortcut, Shell, AppleScript
-- **Common properties**: All actions support triggers, delays, icons, moveTo
-- **Insert-only conditional routing**: `insert.inputCondition` gates selected insert sibling options by input-field state
-- **JSON Schema**: `schema` field for IDE validation (maps to `$schema`)
-- **Auto-migration**: Seamless upgrade from old config formats
+- Defines the full config model and sets `currentConfigVersion = 2`
+- Centralizes defaults and normalized persistence behavior for root defaults and all action types
+- All action types support `nextAction`, `inputCondition`, trigger fields, and per-action clipboard timing settings
+- Script-like actions (`shortcut`, `shell`, `AppleScript`) also support `scriptAsync` and `scriptWaitTimeout`
+- Reserved action templates are runtime-significant:
+  - `.autoPaste` for insert template behavior
+  - `.none` for explicit no-op behavior
+  - `.run` for shortcut execution without input payload
 
-#### `ConfigurationManager.swift` 
-- **Live reloading**: Watches config file for changes
-- **JSON Schema integration**: Automatic schema reference management
-- **Error recovery**: Backup/restore corrupted configs
-- **Thread-safe**: Dedicated queue for config operations
+#### `ConfigurationManager.swift`
+- Loads config from explicit path, saved path, or default path
+- Performs semantic validation, not just JSON decoding
+- Auto-migrates legacy naming/semantics to config version 2 when allowed
+- Preserves schema references and normalizes persisted config values
+- Reports detailed validation issues for `--validate-config`
 
----
-
-### 3. File System Monitoring
+### 3. Recording / Watcher Pipeline
 
 #### `RecordingsFolderWatcher.swift`
-- **Smart monitoring**: Only starts clipboard monitoring when needed
-- **Persistent tracking**: Prevents duplicate processing
-- **Priority system**: AutoReturn > Triggers > ActiveAction
-- **Intelligent cancellation**: Handles interrupted recordings
+- Main runtime path for new recordings
+- Starts early clipboard monitoring as soon as a recording folder appears
+- Waits for a valid result using LLM-aware validation:
+  - if `languageModelName` is present, `llmResult` is required
+  - otherwise `result` is required
+- Enriches `meta.json` with front-app, selected-text, clipboard, and URL context
+- Applies bypass and execution priority rules:
+  1. auto-return
+  2. scheduled action
+  3. trigger-matched action
+  4. active action fallback
+- Includes burst protection, stalled-recording timeout handling, folder deletion cleanup, and recovery for interrupted sessions
 
 #### `SuperwhisperFolderWatcher.swift`
-- **Graceful startup**: Waits for Superwhisper folder creation
-- **One-time operation**: Auto-handoff to RecordingsFolderWatcher
+- Keeps the service running even when the Superwhisper recordings folder does not exist yet
+- Hands off cleanly to `RecordingsFolderWatcher` once the folder appears
 
----
+#### `ConfigChangeWatcher.swift`
+- Watches the config file path and triggers live reloads without restarting the daemon
 
-### 4. Action System
-
-#### `TriggerEvaluator.swift`
-- **Multi-criteria**: Voice, app, and mode triggers
-- **Exceptions**: `!` prefix for negative patterns
-- **Raw regex**: `==pattern==` for full regex control
-- **Logic**: AND/OR combinations
+### 4. Action Runtime
 
 #### `ActionExecutor.swift`
-- **Unified execution**: All action types through single interface
-- **Smart clipboard sync**: Coordinates with Superwhisper timing
-- **Placeholder processing**: Dynamic content replacement
-- **Runtime chain resolution**: Next step is resolved at runtime, so conditional `nextAction` works
-- **Live input-state evaluation**: Input-field detection is resolved per executed step for `inputCondition` and legacy insert sentinel behavior
-- **Legacy insert sentinels**: `.autoPaste` and `.none` are hard-override compatibility templates
+- Shared execution engine for watcher-driven actions
+- Resolves action chains at runtime and detects duplicate/missing/cyclic chains
+- Applies legacy template overrides and `inputCondition` across all action types
+- Freezes chain context for delayed/chained execution so placeholders stay stable
+- Supports synchronous script-like steps and carries their outputs forward as `actionResult` / `actionResults`
+- Applies `moveTo`/deletion behavior after execution when a real recording folder exists
 
-### 5. Clipboard Management
+#### `TriggerEvaluator.swift`
+- Evaluates triggers across all action types
+- Supports voice, front app, mode, and browser URL matching
+- Allows negative patterns (`!pattern`), raw regex (`==pattern==`), and AND/OR trigger logic
+- Voice-trigger stripping feeds cleaned text into downstream placeholder execution when appropriate
+- App matching is tolerant of missing name or bundle ID
+
+### 5. Clipboard and Context Capture
 
 #### `ClipboardMonitor.swift`
-- **Dual architecture**: Lightweight global + intensive session monitoring
-- **Smart timing**: Only monitors when meta.json incomplete
-- **Pre-recording capture**: Configurable buffer (default 5s)
-- **Thread-safe**: Concurrent monitoring with barriers
-- **Action boundaries**: Logs only during action execution
+- Maintains two clipboard layers:
+  - lightweight global history for pre-recording context
+  - per-recording session monitoring for active action execution
+- Captures selected text and clipboard context once per recording session, then reuses that snapshot across chains
+- Handles overlap/pending-restore execution groups so chained or adjacent recordings do not corrupt each other
+- Filters duplicate/system clipboard writes and resets contaminated history after action execution
+- Provides CLI-safe clipboard cleanup/restoration hooks used by socket commands
 
-### 6. Inter-Process Communication
-
-#### `SocketCommunication.swift`
-- **Unix socket server**: CLI command handling
-- **Timeout protection**: 10-second timeouts on operations
-- **Unified commands**: Action management across all types
-- **Thread-safe**: Proper queue management
-- **CLI parity for inserts**: `exec-action` and `exec-insert` apply insert `inputCondition` and sentinel template overrides
-
----
-
-### 7. Supporting Utilities
+### 6. Placeholder / Context System
 
 #### `Placeholders.swift`
-- **Dynamic content**: `{{swResult}}`, `{{selectedText}}`, `{{clipboardContext}}`, etc.
-- **Escaping modes**: `raw:`, `json:`, action-type aware
-- **Regex replacements**: `{{placeholder||pattern||replacement}}`
+- Expands standard placeholders such as `{{swResult}}`, `{{selectedText}}`, `{{clipboardContext}}`, and `{{frontApp}}`
+- Supports nested `meta.json` traversal, including arrays and objects
+- Supports transformed placeholders like `{{placeholder::transform||find||replace}}`
+- Handles newer context sources including:
+  - `{{actionResult}}`, `{{actionResult:N}}`
+  - `{{appVocabulary}}`
+  - `{{frontAppUrl}}`
+  - `{{folderName}}`, `{{folderPath}}`, and indexed variants
+  - `{{segments}}` for readable speaker-formatted transcript output
 
-#### `SchemaManager.swift` (NEW)
-- **Schema discovery**: Finds JSON schema file alongside binary
-- **Auto-management**: Adds/updates `$schema` reference in configs
-- **IDE integration**: Enables IntelliSense and validation
+#### Supporting Context Utilities
+- `RecordingReferenceResolver.swift`: resolves current/latest/prior recording folders for placeholders and CLI commands
+- `AppVocabulary.swift`: derives app-specific vocabulary from accessibility data
+- `BrowserURLNormalization.swift`: normalizes browser URLs for trigger matching and placeholder use
+- `SmartInsertBoundary.swift` and `SimReturnBehavior.swift`: keep insert formatting and return timing consistent
 
-#### Other Utilities
-- **ServiceManager**: macOS launchd integration
-- **Logger**: File rotation, TTY detection  
-- **Accessibility**: Input field detection, keyboard simulation
-- **HistoryManager**: Recording cleanup policies
+### 7. CLI / Inter-Process Communication
+
+#### `SocketCommunication.swift`
+- Runs the Unix socket server used by CLI commands
+- Reuses watcher-like action semantics for CLI execution
+- Supports:
+  - config/service commands
+  - unified action listing/get/remove/execute/copy
+  - `--run-auto` with runtime-style resolution
+  - `--meta` against latest result, recording folder name, folder path, or direct `meta.json`
+  - folder lookup commands (`--folder-name`, `--folder-path`)
+- Preserves CLI clipboard behavior separately from watcher execution while matching chain-level restore semantics
+
+### 8. Supporting Infrastructure
+- `SchemaManager.swift`: finds a local schema and manages `$schema` references without requiring network access
+- `HistoryManager.swift`: deletes old recording folders based on `defaults.history`
+- `ServiceManager.swift`: install/start/stop/restart/uninstall for launchd service mode
+- `Logger.swift`: central logging with redaction-aware helpers
+- `NotificationManager.swift`: user-facing alerts for startup/config/runtime issues
+- `VersionChecker.swift`: optional update checks
 
 ---
 
-## Action Priority System
+## Runtime Priority
 
-**Strict Priority Order:**
-1. **AutoReturn** (highest) - Direct result passthrough
-2. **Triggers** - Voice/app/mode pattern matching  
-3. **ActiveAction** (lowest) - Fallback default action
+### Watcher Priority
+1. **AutoReturn**
+2. **Scheduled action**
+3. **Trigger match**
+4. **ActiveAction**
 
-## Configuration Schema (Key Fields)
+### `--run-auto` Priority
+1. **Bypass mode check**
+2. **Trigger mute check**
+3. **Trigger match**
+4. **ActiveAction**
+
+---
+
+## Config Version 2 Notes
+
+- `configVersion: 2` is the current semantic baseline
+- `null` means inherit from defaults or built-in behavior
+- `""` means intentionally empty
+- `.none` is reserved for action-template semantics, not for fields like `icon` or `moveTo`
+- Legacy keys are still migrated:
+  - `noEsc` -> `simEsc`
+  - `pressReturn` -> `simReturn`
+  - `noUpdates` -> `disableUpdateCheck`
+  - `noNoti` -> `muteNotifications`
+
+---
+
+## Minimal Schema Shape
 
 ```json
 {
   "$schema": "file://path/to/macrowhisper-schema.json",
+  "configVersion": 2,
   "defaults": {
     "watch": "~/Documents/superwhisper",
-    "activeAction": "actionName",
-    "actionDelay": 0.0,
-    "clipboardBuffer": 5.0
+    "activeAction": "autoPaste",
+    "restoreClipboardDelay": 0.3,
+    "clipboardBuffer": 5,
+    "bypassModes": "",
+    "autoUpdateConfig": true
   },
   "inserts": {
     "name": {
-      "action": "text",
+      "action": ".autoPaste",
       "inputCondition": "restoreClipboard|!simEsc",
-      "triggerVoice": "pattern"
+      "triggerVoice": "pattern",
+      "triggerUrls": "example.com",
+      "nextAction": "followUp"
     }
   },
-  "urls": { "name": { "action": "https://...", "openWith": "app" }},
-  "shortcuts": { "name": { "action": "shortcutName" }},
-  "scriptsShell": { "name": { "action": "command" }},
-  "scriptsAS": { "name": { "action": "tell app..." }}
+  "urls": {
+    "name": {
+      "action": "https://example.com",
+      "inputCondition": "restoreClipboard"
+    }
+  },
+  "shortcuts": {
+    "name": {
+      "action": ".run",
+      "scriptAsync": false,
+      "scriptWaitTimeout": 3
+    }
+  },
+  "scriptsShell": {
+    "name": {
+      "action": "echo {{swResult}}",
+      "scriptAsync": false
+    }
+  },
+  "scriptsAS": {
+    "name": {
+      "action": "tell application \"Finder\" to activate"
+    }
+  }
 }
 ```
 
-## Key Files for AI Development
+---
 
-- **Core Logic**: `RecordingsFolderWatcher.swift` - Main processing flow
-- **Actions**: `ActionExecutor.swift`, `TriggerEvaluator.swift` - Execution system
-- **Clipboard**: `ClipboardMonitor.swift` - Timing synchronization  
-- **Config**: `AppConfiguration.swift`, `ConfigurationManager.swift` - Settings
-- **Schema**: `SchemaManager.swift` - JSON schema integration
+## Key Files for Development
+
+- **Pipeline**: `RecordingsFolderWatcher.swift`, `ActionExecutor.swift`, `ClipboardMonitor.swift`
+- **Config / migration**: `AppConfiguration.swift`, `ConfigurationManager.swift`, `macrowhisper-schema.json`
+- **Triggering / placeholders**: `TriggerEvaluator.swift`, `Placeholders.swift`
+- **CLI parity**: `SocketCommunication.swift`, `main.swift`, `RecordingReferenceResolver.swift`
+- **Support behavior**: `SmartInsertBoundary.swift`, `SimReturnBehavior.swift`, `AppVocabulary.swift`
