@@ -1766,9 +1766,6 @@ class SocketCommunication {
         guard let leftCharacter = leftCharacter else {
             return false
         }
-        if isIgnorableBoundaryCharacter(leftCharacter) {
-            return false
-        }
 
         // Start-of-line should behave like sentence start even if previous line
         // ended with a non-terminal character.
@@ -1918,7 +1915,7 @@ class SocketCommunication {
         guard let leftCharacter else {
             return nil
         }
-        if !isSkippableTrailingDelimiterForBoundary(leftCharacter) {
+        if !isIgnorableBoundaryCharacter(leftCharacter) && !isSkippableTrailingDelimiterForBoundary(leftCharacter) {
             return leftCharacter
         }
 
@@ -2355,9 +2352,6 @@ class SocketCommunication {
 
     private func isLineStartBoundary(_ leftCharacter: Character?) -> Bool {
         if leftCharacter == nil {
-            return true
-        }
-        if let leftCharacter, isIgnorableBoundaryCharacter(leftCharacter) {
             return true
         }
         return leftCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true
