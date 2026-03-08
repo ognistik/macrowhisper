@@ -859,7 +859,6 @@ class RecordingsFolderWatcher {
                             activeInsert: autoReturnInsert,
                             isAutoPaste: false
                         ) ?? false
-                        globalState.autoReturnEnabled = false
                         cancelAutoReturnTimeout()
                         return success
                     },

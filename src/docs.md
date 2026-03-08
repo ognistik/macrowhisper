@@ -701,7 +701,7 @@ At the defaults level, `null` is accepted for backward compatibility, but auto-u
 | `smartSpacing` | bool/null | `true` | Clean spacing at insert boundaries. |
 | `actionDelay` | number/null | `0` | Delay before the action starts. |
 | `history` | int/null | `null` | How long to keep old recording folders. |
-| `simReturn` | bool/null | `false` | Press Return after an insert action. |
+| `simReturn` | bool/null | `false` | Press Return after an insert action, including empty or `.none` inserts. |
 | `returnDelay` | number/null | `0.15` | Delay before pressing Return. |
 | `restoreClipboard` | bool/null | `true` | Restore the original clipboard after the action flow ends. |
 | `restoreClipboardDelay` | number/null | `0.3` | Delay before restoring the clipboard. |
@@ -818,9 +818,11 @@ Extra insert-only fields:
 | `smartCasing` | bool/null | `true`, `false`, `null` | Adjusts capitalization at insertion boundaries. |
 | `smartPunctuation` | bool/null | `true`, `false`, `null` | Removes punctuation conflicts at insertion boundaries. |
 | `smartSpacing` | bool/null | `true`, `false`, `null` | Adjusts spacing around inserted text. |
-| `simReturn` | bool/null | `true`, `false`, `null` | Press Return after insertion. |
+| `simReturn` | bool/null | `true`, `false`, `null` | Press Return after insertion, including empty or `.none` inserts. |
 
 If Accessibility is unavailable or the insertion context is low-confidence, smart casing, smart punctuation, and smart spacing are skipped for that insertion.
+
+If an insert also chains with `nextAction`, any required `simReturn` happens before Macrowhisper starts the next step.
 
 Examples:
 
@@ -1143,6 +1145,7 @@ If the condition does not apply, Macrowhisper falls back to the matching default
 - `restoreClipboard`
 - `restoreClipboardDelay`
 - `simEsc`
+- `simReturn` for insert actions
 - `nextAction`
 - `moveTo`
 - `action`
@@ -1209,6 +1212,7 @@ Chains resolve by action name across all action types, so duplicate names are no
 ### 10.4 How chains behave at runtime
 
 - actions run one step at a time
+- for insert steps, any `simReturn` or one-time auto-return Return press happens before the next chained step begins
 - if one step fails, the rest of the chain still continues
 - Shortcut, shell, and AppleScript steps launch asynchronously by default
 - if `scriptAsync: false`, Macrowhisper waits for completion up to `scriptWaitTimeout`

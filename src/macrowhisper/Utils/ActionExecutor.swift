@@ -424,6 +424,9 @@ class ActionExecutor {
         if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.simEsc = nil
         }
+        if !shouldApplyToken("simReturn", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simReturn = nil
+        }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
         }

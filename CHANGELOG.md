@@ -41,6 +41,8 @@
 - Supported transforms include uppercase/lowercase variants, title case, sentence cleanup, camelCase, PascalCase, snake_case, kebab-case, trimming, and alternating/random case.
 - If a transform depends on exact first-letter casing, you may want to disable `smartCasing` for that action.
 - Placeholder parsing was refactored so placeholders can now include curly brackets (such as `${1::uppercase}`).
+- Fixed simReturn so chained insert actions press Return before the next nextAction step begins.
+- `simReturn` now also works for empty `""` and `.none` insert actions, and can be gated with insert `inputCondition`.
 
 **CLI and runtime improvements**
 - New `--copy-action <name>` renders an action and copies the result to the clipboard without polluting `{{clipboardContext}}`. It supports placeholder expansion and context placeholders.

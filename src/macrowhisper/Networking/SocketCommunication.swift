@@ -1245,6 +1245,9 @@ class SocketCommunication {
         if !shouldApplyToken("simEsc", tokens: tokens, isInInputField: isInInputField) {
             resolved.simEsc = nil
         }
+        if !shouldApplyToken("simReturn", tokens: tokens, isInInputField: isInInputField) {
+            resolved.simReturn = nil
+        }
         if !shouldApplyToken("nextAction", tokens: tokens, isInInputField: isInInputField) {
             resolved.nextAction = nil
         }
@@ -2401,9 +2404,10 @@ class SocketCommunication {
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
-            // For empty or .none actions, apply actionDelay but don't press ESC, paste, or do any clipboard operations
+            // For empty or .none actions, apply actionDelay but skip paste/clipboard work while still honoring simReturn.
             let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
             if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+            performSimReturnIfNeeded(activeInsert: activeInsert)
             return
         }
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
@@ -2415,12 +2419,12 @@ class SocketCommunication {
                 suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulateSimReturn(activeInsert: activeInsert); return
+                performSimReturnIfNeeded(activeInsert: activeInsert); return
             }
         }
         simulateEscKeyPress(activeInsert: activeInsert)
         pasteText(resolvedText, activeInsert: activeInsert)
-        checkAndSimulateSimReturn(activeInsert: activeInsert)
+        performSimReturnIfNeeded(activeInsert: activeInsert)
     }
     
     // This version is for CLI action execution and does NOT press ESC.
@@ -2436,9 +2440,10 @@ class SocketCommunication {
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
-            // For empty or .none actions, apply actionDelay but don't paste or do any clipboard operations
+            // For empty or .none actions, apply actionDelay but skip paste/clipboard work while still honoring simReturn.
             let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
             if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+            performSimReturnIfNeeded(activeInsert: activeInsert)
             return false
         }
         let delay = activeInsert?.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
@@ -2451,14 +2456,14 @@ class SocketCommunication {
                 suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulateSimReturn(activeInsert: activeInsert)
+                performSimReturnIfNeeded(activeInsert: activeInsert)
                 return true
             }
         }
         // No ESC key press or per-step clipboard restore for CLI chain execution.
         let usesClipboard = !(activeInsert?.simKeypress ?? globalConfigManager?.config.defaults.simKeypress ?? false)
         pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
-        checkAndSimulateSimReturn(activeInsert: activeInsert)
+        performSimReturnIfNeeded(activeInsert: activeInsert)
         return usesClipboard
     }
     
@@ -2475,7 +2480,8 @@ class SocketCommunication {
         )
 
         if resolvedText.isEmpty || resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || resolvedText == ".none" {
-            // For empty or .none actions, do nothing since delay is handled by ClipboardMonitor
+            // For empty or .none actions, skip paste work while still honoring simReturn.
+            performSimReturnIfNeeded(activeInsert: activeInsert)
             return true
         }
         
@@ -2486,13 +2492,13 @@ class SocketCommunication {
                 suppressSelfClipboardCapture(resolvedText)
                 let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(resolvedText, forType: .string)
                 simulateKeyDown(key: 9, flags: .maskCommand) // Cmd+V
-                checkAndSimulateSimReturn(activeInsert: activeInsert); return true
+                performSimReturnIfNeeded(activeInsert: activeInsert); return true
             }
         }
         
         // No ESC key press or actionDelay - these are handled by ClipboardMonitor
         pasteTextNoRestore(resolvedText, activeInsert: activeInsert)
-        checkAndSimulateSimReturn(activeInsert: activeInsert)
+        performSimReturnIfNeeded(activeInsert: activeInsert)
         return true
     }
     
@@ -2686,29 +2692,21 @@ class SocketCommunication {
         }
     }
     
-    private func checkAndSimulateSimReturn(activeInsert: AppConfiguration.Insert?) {
-        let shouldSimReturn = activeInsert?.simReturn ?? globalConfigManager?.config.defaults.simReturn ?? false
-        if globalState.autoReturnEnabled {
-            if shouldSimReturn {
-                // If both autoReturn and simReturn are set, treat as simReturn (simulate once, clear globalState.autoReturnEnabled)
-                logInfo("Simulating return key press due to simReturn setting (auto-return was also set)")
-                simulateReturnKeyPress()
-            } else {
-                logInfo("Simulating return key press due to auto-return")
-                simulateReturnKeyPress()
-            }
-            globalState.autoReturnEnabled = false
-        } else if shouldSimReturn {
-            logInfo("Simulating return key press due to simReturn setting")
-            simulateReturnKeyPress()
-        }
-    }
-
-    private func simulateReturnKeyPress() {
-        let delay = globalConfigManager?.config.defaults.returnDelay ?? 0.1
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            simulateKeyDown(key: 36)
-        }
+    private func performSimReturnIfNeeded(activeInsert: AppConfiguration.Insert?) {
+        let defaults = globalConfigManager?.config.defaults ?? AppConfiguration.Defaults.defaultValues()
+        let behavior = SimReturnBehaviorResolver.resolve(
+            actionSimReturn: activeInsert?.simReturn,
+            defaultSimReturn: defaults.simReturn,
+            returnDelay: defaults.returnDelay,
+            autoReturnEnabled: globalState.autoReturnEnabled
+        )
+        SimReturnBehaviorResolver.perform(
+            behavior,
+            sleep: { delay in Thread.sleep(forTimeInterval: delay) },
+            log: { message in logInfo(message) },
+            postReturn: { simulateKeyDown(key: 36) },
+            clearAutoReturn: { globalState.autoReturnEnabled = false }
+        )
     }
 
     private func pasteUsingClipboard(_ text: String, activeInsert: AppConfiguration.Insert?) {

@@ -255,6 +255,7 @@ Actions are evaluated in strict priority order. **Higher priority actions comple
   - If resolved insert is empty/`.none`/`.autoPaste`, or candidate is non-insert/missing: falls back to `swResult`
   - Non-insert fallback ignores non-insert action settings and uses defaults
   - Forces one Return key simulation for the one-shot run
+  - That forced Return is emitted before auto-return completes
 - **Reset**: `autoReturnEnabled` is set to `false` after use (single-use)
 
 #### 2. Scheduled Action
@@ -474,8 +475,9 @@ Action execution is coordinated through the ActionExecutor which handles all act
 - **Special Cases**:
   - `.autoPaste` hard override: `action="{{swResult}}"`, `inputCondition="!restoreClipboard|!simEsc"`, `simEsc=false`, `restoreClipboard=false`
   - `.none` hard override: `action=""`, `simEsc=false`, `restoreClipboard=false`
-- **Conditional tokens**: `restoreClipboard`, `simEsc`, `nextAction`, `moveTo`, `action`, `actionDelay` (with optional `!`)
+- **Conditional tokens**: `restoreClipboard`, `restoreClipboardDelay`, `simEsc`, `simReturn`, `nextAction`, `moveTo`, `action`, `actionDelay` (with optional `!`)
 - **Chain consistency**: Input-field state is sampled once (first insert step) and reused across the whole action chain
+- **Return timing**: `simReturn` is step-synchronous; Return is emitted before the action step completes, even for empty/`.none` inserts
 
 ##### 2. URL Actions:
 - **Processing**: URL encoding, placeholder replacement
@@ -576,7 +578,7 @@ All action types support:
 - `triggerLogic: String?` - Trigger combination logic ("and"/"or")
 
 Insert-only settings:
-- `inputCondition: String?` - Pipe-separated conditional gate for selected insert sibling options (`!` inverts condition). Allowed tokens: `restoreClipboard`, `simEsc`, `nextAction`, `moveTo`, `action`, `actionDelay`
+- `inputCondition: String?` - Pipe-separated conditional gate for selected insert sibling options (`!` inverts condition). Allowed tokens: `restoreClipboard`, `restoreClipboardDelay`, `simEsc`, `simReturn`, `nextAction`, `moveTo`, `action`, `actionDelay`
 
 ### Runtime Variables:
 

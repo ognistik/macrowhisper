@@ -737,6 +737,7 @@ class ConfigurationManager {
                 "restoreClipboard",
                 "restoreClipboardDelay",
                 "simEsc",
+                "simReturn",
                 "nextAction",
                 "moveTo",
                 "action",
