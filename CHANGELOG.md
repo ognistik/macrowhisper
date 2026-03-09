@@ -2,7 +2,7 @@
 
 ## UNRELEASED
 
-## [v2.0.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.0) - 2026/03/09
+## [v2.0.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.0) - 2026/03/08
 ## TLDR;
 * For existing users, keep `autoUpdateConfig` set to `true` in your existing configuration. Macrowhisper will handle the migration to `configVersion 2` when you restart the service after the update.
 * Biggest config changes are self-explanatory and have been implemented for consistency and predictability in how Macrowhisper handles your config.
