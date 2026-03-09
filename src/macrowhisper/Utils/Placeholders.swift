@@ -120,7 +120,7 @@ private func hasTerminalSentencePunctuationForPlaceholder(_ text: String) -> Boo
     guard let lastNonWhitespace = text.last(where: { !$0.isWhitespace }) else {
         return false
     }
-    return ".!?,;:".contains(lastNonWhitespace)
+    return ".!?,;:…".contains(lastNonWhitespace)
 }
 
 private func ensureSentenceCasingAndPunctuationForPlaceholder(_ text: String) -> String {

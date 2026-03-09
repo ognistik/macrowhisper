@@ -2,6 +2,8 @@
 
 ## UNRELEASED
 
+* Added ellipses (...) to the list of valid closing punctuation for the ensureSentence transform.
+
 ## [v2.0.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.0) - 2026/03/08
 ## TLDR;
 * For existing users, keep `autoUpdateConfig` set to `true` in your existing configuration. Macrowhisper will handle the migration to `configVersion 2` when you restart the service after the update.

@@ -165,10 +165,15 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let result25 = processDynamicPlaceholders(action: action25, metaJson: meta25, actionType: .insert).text
         assertEqual(result25, "Hello world.", "placeholder transform names are case-insensitive")
 
-        let action26 = "{{swResult||\\b(api|sdk)\\b||${1::UpPeRcAsE}}}"
-        let meta26: [String: Any] = ["llmResult": "api and sdk"]
+        let action26 = "{{swResult::ensureSentence}}"
+        let meta26: [String: Any] = ["llmResult": "this is perhaps beyond the scope of this class, but…"]
         let result26 = processDynamicPlaceholders(action: action26, metaJson: meta26, actionType: .insert).text
-        assertEqual(result26, "API and SDK", "capture transform names are case-insensitive")
+        assertEqual(result26, "This is perhaps beyond the scope of this class, but…", "ensureSentence preserves trailing unicode ellipsis")
+
+        let action27 = "{{swResult||\\b(api|sdk)\\b||${1::UpPeRcAsE}}}"
+        let meta27: [String: Any] = ["llmResult": "api and sdk"]
+        let result27 = processDynamicPlaceholders(action: action27, metaJson: meta27, actionType: .insert).text
+        assertEqual(result27, "API and SDK", "capture transform names are case-insensitive")
 
         recordingsWatcher = nil
     }
