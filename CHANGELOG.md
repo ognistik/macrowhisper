@@ -69,7 +69,6 @@
 - Recording validation is smarter: if an LLM result is expected, Macrowhisper waits for that result even if the raw voice field is empty.
 - In those LLM-driven cases, voice triggers still match only the raw transcription (`result`), not the processed LLM output.
 - Burst protection is stronger. If multiple new recordings appear at the same time, Macrowhisper now skips all of them instead of risking the wrong action on the wrong session.
-- Clipboard deduplication now uses a larger blackout window of up to 5 seconds to better avoid duplicate Superwhisper clipboard sync events.
 - Logs were cleaned up to be easier to read and less noisy.
 - The documentation has been fully updated to match the new behavior.
   
