@@ -9,6 +9,7 @@ Macrowhisper watches Superwhisper recordings and runs configured actions based o
 
 ## Learn More
 - [Full docs and examples](https://by.afadingthought.com/macrowhisper)
+- [Raw docs](https://github.com/ognistik/macrowhisper/blob/main/src/docs.md)
 - [Alfred workflow](https://github.com/ognistik/macrowhisper/tree/main/alfred)
 - [Codebase map](https://github.com/ognistik/macrowhisper/blob/main/src/CODEBASE_MAP.md)
 - [Processing flow](https://github.com/ognistik/macrowhisper/blob/main/src/PROCESSING_FLOW.md)

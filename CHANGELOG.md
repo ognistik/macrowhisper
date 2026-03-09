@@ -2,7 +2,7 @@
 
 ## UNRELEASED
 
-* Added ellipses (...) to the list of valid closing punctuation for the ensureSentence transform.
+* Added ellipsis (...) to the list of valid closing punctuation for the ensureSentence transform.
 
 ## [v2.0.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.0) - 2026/03/08
 ## TLDR;
