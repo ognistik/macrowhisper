@@ -360,6 +360,15 @@ struct InputInsertionContext {
     let rightHasLineBreakBeforeNextNonWhitespace: Bool
 }
 
+private struct InputInsertionContextSnapshot {
+    let context: InputInsertionContext
+    let role: String
+    let textLength: Int
+    let selectedRange: CFRange
+    let depth: Int
+    let neighborhood: String
+}
+
 private func isIgnorableBoundaryCharacterForSmartInsert(_ character: Character?) -> Bool {
     guard let character = character else { return false }
     return SmartInsertBoundary.isIgnorableBoundaryCharacter(character)
@@ -408,7 +417,25 @@ private func isInputLikeElementForSmartInsert(_ element: AXUIElement, roleHint: 
 /// Returns insertion boundary characters around the current cursor/selection in a focused input field.
 /// The left character is immediately before selection start, and the right character is immediately after selection end.
 /// Returns nil when context is unavailable or unreliable.
-func getInputInsertionContext() -> InputInsertionContext? {
+func getInputInsertionContext(insertionText: String? = nil) -> InputInsertionContext? {
+    if Thread.isMainThread {
+        return readInputInsertionContext(insertionText: insertionText)
+    }
+
+    var context: InputInsertionContext?
+    let semaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async {
+        context = readInputInsertionContext(insertionText: insertionText)
+        semaphore.signal()
+    }
+    let waitResult = semaphore.wait(timeout: .now() + 0.2)
+    if waitResult == .timedOut {
+        logDebug("[SmartInsert] Timed out while reading insertion context on main thread")
+    }
+    return context
+}
+
+private func readInputInsertionContext(insertionText: String?) -> InputInsertionContext? {
     guard AXIsProcessTrusted() else {
         logDebug("[SmartInsert] No accessibility permissions, cannot get insertion context")
         return nil
@@ -442,34 +469,89 @@ func getInputInsertionContext() -> InputInsertionContext? {
         return nil
     }
 
+    guard let rootSnapshot = buildInputInsertionContextSnapshot(
+        for: element,
+        role: role,
+        frontApp: frontApp,
+        depth: 0
+    ) else {
+        return nil
+    }
+
+    let chosenSnapshot: InputInsertionContextSnapshot
+    if appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? ""),
+       let descendantSnapshot = findBestBrowserInsertionContextSnapshot(
+        from: element,
+        frontApp: frontApp,
+        insertionText: insertionText
+       ) {
+        chosenSnapshot = descendantSnapshot
+        if descendantSnapshot.depth > 0 {
+            logDebug(
+                "[SmartInsert] Browser subtree candidate chosen depth=\(descendantSnapshot.depth) " +
+                "role=\(descendantSnapshot.role) range={location=\(descendantSnapshot.selectedRange.location), " +
+                "length=\(descendantSnapshot.selectedRange.length)} textLength=\(descendantSnapshot.textLength) " +
+                "neighborhood=\(descendantSnapshot.neighborhood)"
+            )
+        }
+    } else {
+        chosenSnapshot = rootSnapshot
+    }
+
+    logDebug(
+        "[SmartInsert] Live AX read app=\(frontApp.bundleIdentifier ?? "unknown") role=\(chosenSnapshot.role) " +
+        "range={location=\(chosenSnapshot.selectedRange.location), length=\(chosenSnapshot.selectedRange.length)} " +
+        "textLength=\(chosenSnapshot.textLength) thread=\(Thread.isMainThread ? "main" : "background") " +
+        "depth=\(chosenSnapshot.depth) neighborhood=\(chosenSnapshot.neighborhood)"
+    )
+
+    return chosenSnapshot.context
+}
+
+private func buildInputInsertionContextSnapshot(
+    for element: AXUIElement,
+    role: String,
+    frontApp: NSRunningApplication,
+    depth: Int
+) -> InputInsertionContextSnapshot? {
     var valueRef: CFTypeRef?
     let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
     guard valueError == .success, let valueRef = valueRef, let fullText = valueRef as? String else {
-        logDebug("[SmartInsert] Could not get AXValue as String")
+        if depth == 0 {
+            logDebug("[SmartInsert] Could not get AXValue as String")
+        }
         return nil
     }
 
     var selectedRangeRef: CFTypeRef?
     let selectedRangeError = AXUIElementCopyAttributeValue(element, "AXSelectedTextRange" as CFString, &selectedRangeRef)
     guard selectedRangeError == .success, let selectedRangeRef = selectedRangeRef else {
-        logDebug("[SmartInsert] Could not get AXSelectedTextRange")
+        if depth == 0 {
+            logDebug("[SmartInsert] Could not get AXSelectedTextRange")
+        }
         return nil
     }
 
     guard CFGetTypeID(selectedRangeRef) == AXValueGetTypeID(),
           AXValueGetType(selectedRangeRef as! AXValue) == .cfRange else {
-        logDebug("[SmartInsert] AXSelectedTextRange has unexpected type")
+        if depth == 0 {
+            logDebug("[SmartInsert] AXSelectedTextRange has unexpected type")
+        }
         return nil
     }
 
     var selectedRange = CFRange(location: 0, length: 0)
     guard AXValueGetValue(selectedRangeRef as! AXValue, .cfRange, &selectedRange) else {
-        logDebug("[SmartInsert] Failed to decode AXSelectedTextRange value")
+        if depth == 0 {
+            logDebug("[SmartInsert] Failed to decode AXSelectedTextRange value")
+        }
         return nil
     }
 
     guard selectedRange.location >= 0, selectedRange.length >= 0 else {
-        logDebug("[SmartInsert] AXSelectedTextRange has invalid negative values")
+        if depth == 0 {
+            logDebug("[SmartInsert] AXSelectedTextRange has invalid negative values")
+        }
         return nil
     }
 
@@ -479,7 +561,9 @@ func getInputInsertionContext() -> InputInsertionContext? {
     let insertionEnd = insertionStart + Int(selectedRange.length)
 
     guard insertionStart <= textLength, insertionEnd <= textLength else {
-        logDebug("[SmartInsert] AXSelectedTextRange is out of bounds for AXValue")
+        if depth == 0 {
+            logDebug("[SmartInsert] AXSelectedTextRange is out of bounds for AXValue")
+        }
         return nil
     }
 
@@ -507,22 +591,20 @@ func getInputInsertionContext() -> InputInsertionContext? {
     }
 
     var leftLinePrefix = ""
-    do {
-        let lineStart: Int
-        if insertionStart == 0 {
-            lineStart = 0
-        } else {
-            let searchRange = NSRange(location: 0, length: insertionStart)
-            let newlineRange = nsText.range(
-                of: "\n",
-                options: .backwards,
-                range: searchRange
-            )
-            lineStart = newlineRange.location == NSNotFound ? 0 : newlineRange.location + newlineRange.length
-        }
-        if lineStart <= insertionStart {
-            leftLinePrefix = nsText.substring(with: NSRange(location: lineStart, length: insertionStart - lineStart))
-        }
+    let lineStart: Int
+    if insertionStart == 0 {
+        lineStart = 0
+    } else {
+        let searchRange = NSRange(location: 0, length: insertionStart)
+        let newlineRange = nsText.range(
+            of: "\n",
+            options: .backwards,
+            range: searchRange
+        )
+        lineStart = newlineRange.location == NSNotFound ? 0 : newlineRange.location + newlineRange.length
+    }
+    if lineStart <= insertionStart {
+        leftLinePrefix = nsText.substring(with: NSRange(location: lineStart, length: insertionStart - lineStart))
     }
 
     var rightCharacter: Character?
@@ -552,14 +634,288 @@ func getInputInsertionContext() -> InputInsertionContext? {
         }
     }
 
-    return InputInsertionContext(
-        leftCharacter: leftCharacter,
-        leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
-        leftLinePrefix: leftLinePrefix,
-        rightCharacter: rightCharacter,
-        rightNonWhitespaceCharacter: rightNonWhitespaceCharacter,
-        rightHasLineBreakBeforeNextNonWhitespace: rightHasLineBreakBeforeNextNonWhitespace
+    return InputInsertionContextSnapshot(
+        context: InputInsertionContext(
+            leftCharacter: leftCharacter,
+            leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+            leftLinePrefix: leftLinePrefix,
+            rightCharacter: rightCharacter,
+            rightNonWhitespaceCharacter: rightNonWhitespaceCharacter,
+            rightHasLineBreakBeforeNextNonWhitespace: rightHasLineBreakBeforeNextNonWhitespace
+        ),
+        role: role,
+        textLength: textLength,
+        selectedRange: selectedRange,
+        depth: depth,
+        neighborhood: debugCaretNeighborhoodSnippet(fullText: fullText, selectedRange: selectedRange)
     )
+}
+
+private func findBestBrowserInsertionContextSnapshot(
+    from root: AXUIElement,
+    frontApp: NSRunningApplication,
+    insertionText: String?
+) -> InputInsertionContextSnapshot? {
+    var bestSnapshot: InputInsertionContextSnapshot?
+    var queue: [(element: AXUIElement, depth: Int)] = [(root, 0)]
+    var seen = Set<CFHashCode>()
+    var visited = 0
+    let maxDepth = 14
+    let maxNodes = 500
+
+    while !queue.isEmpty && visited < maxNodes {
+        let current = queue.removeFirst()
+        visited += 1
+
+        let hash = CFHash(current.element)
+        if !seen.insert(hash).inserted {
+            continue
+        }
+
+        var roleRef: CFTypeRef?
+        let roleError = AXUIElementCopyAttributeValue(current.element, kAXRoleAttribute as CFString, &roleRef)
+        let role = roleError == .success ? (roleRef as? String) : nil
+
+        if shouldConsiderBrowserSelectionCandidate(current.element, roleHint: role),
+           let snapshot = buildInputInsertionContextSnapshot(
+            for: current.element,
+            role: role ?? "unknown",
+            frontApp: frontApp,
+            depth: current.depth
+           ) {
+            if bestSnapshot == nil || shouldPreferBrowserInsertionSnapshot(snapshot, over: bestSnapshot!, insertionText: insertionText) {
+                bestSnapshot = snapshot
+            }
+        }
+
+        guard current.depth < maxDepth else { continue }
+        for child in getAXTraversalChildren(of: current.element) {
+            queue.append((child, current.depth + 1))
+        }
+    }
+
+    return bestSnapshot
+}
+
+private func shouldConsiderBrowserSelectionCandidate(_ element: AXUIElement, roleHint: String?) -> Bool {
+    if isInputLikeElementForSmartInsert(element, roleHint: roleHint) {
+        return true
+    }
+
+    if let roleHint {
+        let excludedRoles = Set([
+            "AXButton",
+            "AXCheckBox",
+            "AXDisclosureTriangle",
+            "AXHeading",
+            "AXImage",
+            "AXLink",
+            "AXMenuButton",
+            "AXMenuItem",
+            "AXPopUpButton",
+            "AXRadioButton",
+            "AXSwitch",
+            "AXTab",
+            "AXToolbar",
+            "AXWindow"
+        ])
+        if excludedRoles.contains(roleHint) {
+            return false
+        }
+    }
+
+    var valueRef: CFTypeRef?
+    let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+    guard valueError == .success, let value = valueRef as? String else {
+        return false
+    }
+
+    if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return false
+    }
+
+    var selectedRangeRef: CFTypeRef?
+    let selectedRangeError = AXUIElementCopyAttributeValue(element, "AXSelectedTextRange" as CFString, &selectedRangeRef)
+    guard selectedRangeError == .success, let selectedRangeRef else {
+        return false
+    }
+
+    guard CFGetTypeID(selectedRangeRef) == AXValueGetTypeID(),
+          AXValueGetType(selectedRangeRef as! AXValue) == .cfRange else {
+        return false
+    }
+
+    return true
+}
+
+private func shouldPreferBrowserInsertionSnapshot(
+    _ candidate: InputInsertionContextSnapshot,
+    over current: InputInsertionContextSnapshot,
+    insertionText: String?
+) -> Bool {
+    let candidateScore = browserInsertionSnapshotScore(candidate, insertionText: insertionText)
+    let currentScore = browserInsertionSnapshotScore(current, insertionText: insertionText)
+
+    if candidateScore != currentScore {
+        return candidateScore > currentScore
+    }
+
+    if candidate.depth != current.depth {
+        return candidate.depth > current.depth
+    }
+
+    if candidate.textLength != current.textLength {
+        return candidate.textLength < current.textLength
+    }
+
+    return false
+}
+
+private func browserInsertionSnapshotScore(
+    _ snapshot: InputInsertionContextSnapshot,
+    insertionText: String?
+) -> Int {
+    var score = 0
+
+    switch snapshot.role {
+    case "AXTextArea":
+        score += 120
+    case "AXTextField", "AXSearchField", "AXComboBox":
+        score += 100
+    case "AXStaticText":
+        score += 20
+    case "AXGroup":
+        score += 10
+    default:
+        score += 0
+    }
+
+    if snapshot.textLength >= 200 {
+        score += 60
+    } else if snapshot.textLength >= 80 {
+        score += 30
+    } else if snapshot.textLength >= 40 {
+        score += 5
+    } else {
+        score -= 40
+    }
+
+    if snapshot.selectedRange.location > 0 || snapshot.selectedRange.length > 0 {
+        score += 30
+    } else {
+        score -= 25
+    }
+
+    if snapshot.context.leftCharacter != nil {
+        score += 10
+    }
+    if snapshot.context.rightCharacter != nil {
+        score += 10
+    }
+
+    if snapshot.context.leftNonWhitespaceCharacter != nil {
+        score += 10
+    }
+    if snapshot.context.rightNonWhitespaceCharacter != nil {
+        score += 10
+    }
+
+    if snapshot.context.leftCharacter.map({ $0.isWhitespace }) == true ||
+        snapshot.context.rightCharacter.map({ $0.isWhitespace }) == true {
+        score += 5
+    }
+
+    if snapshot.role == "AXStaticText" {
+        if snapshot.textLength < 80 {
+            score -= 50
+        }
+        if snapshot.selectedRange.location == 0 && snapshot.selectedRange.length == 0 {
+            score -= 40
+        }
+    }
+
+    if let insertionText, isSentenceLikeSmartInsertText(insertionText) {
+        score += browserSentenceBoundaryScore(snapshot)
+    }
+
+    return score
+}
+
+private func browserSentenceBoundaryScore(_ snapshot: InputInsertionContextSnapshot) -> Int {
+    var score = 0
+
+    let leftIsWord = snapshot.context.leftCharacter.map(isSmartInsertWordCharacter) ?? false
+    let rightIsWord = snapshot.context.rightCharacter.map(isSmartInsertWordCharacter) ?? false
+    let leftIsWhitespace = snapshot.context.leftCharacter?.isWhitespace == true
+    let rightIsWhitespace = snapshot.context.rightCharacter?.isWhitespace == true
+    let leftIsTerminalPunctuation = snapshot.context.leftNonWhitespaceCharacter.map { ".!?".contains($0) } ?? false
+    let rightIsPunctuation = snapshot.context.rightCharacter.map { ".,;:!?".contains($0) } ?? false
+    let rightIsClosingWrapper = snapshot.context.rightCharacter.map { ")]}>\"'”’»›".contains($0) } ?? false
+    let rightIsLowercaseLetter = snapshot.context.rightCharacter.map {
+        String($0).rangeOfCharacter(from: .lowercaseLetters) != nil
+    } ?? false
+
+    if leftIsWord && rightIsWord {
+        score -= 180
+    }
+    if leftIsWhitespace || rightIsWhitespace {
+        score += 40
+    }
+    if leftIsTerminalPunctuation {
+        score += 120
+    }
+    if rightIsPunctuation || rightIsClosingWrapper {
+        score += 240
+    }
+    if snapshot.context.rightCharacter == nil {
+        score += 20
+    }
+    if leftIsWhitespace && rightIsWord {
+        score -= 80
+    }
+    if rightIsLowercaseLetter {
+        score -= 40
+    }
+
+    return score
+}
+
+private func isSentenceLikeSmartInsertText(_ text: String) -> Bool {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return false }
+    guard trimmed.contains(where: { $0.isWhitespace }) else { return false }
+    guard let firstLetter = trimmed.first(where: { String($0).rangeOfCharacter(from: .letters) != nil }) else {
+        return false
+    }
+    return String(firstLetter).rangeOfCharacter(from: .uppercaseLetters) != nil
+}
+
+private func isSmartInsertWordCharacter(_ character: Character) -> Bool {
+    character.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+}
+
+private func debugCaretNeighborhoodSnippet(fullText: String, selectedRange: CFRange) -> String {
+    let nsText = fullText as NSString
+    let textLength = nsText.length
+    let location = max(0, min(selectedRange.location, textLength))
+    let length = max(0, min(selectedRange.length, textLength - location))
+
+    let contextRadius = 80
+    let snippetStart = max(0, location - contextRadius)
+    let snippetEnd = min(textLength, location + length + contextRadius)
+    let snippetRange = NSRange(location: snippetStart, length: snippetEnd - snippetStart)
+    let snippet = nsText.substring(with: snippetRange)
+
+    let caretOffset = location - snippetStart
+    let selectionOffsetEnd = caretOffset + length
+    let markedSnippet = length > 0
+        ? "\(snippet.prefix(caretOffset))|<SEL>|\(snippet.dropFirst(selectionOffsetEnd))"
+        : "\(snippet.prefix(caretOffset))|\(snippet.dropFirst(caretOffset))"
+
+    let normalized = markedSnippet
+        .replacingOccurrences(of: "\n", with: "⏎")
+        .replacingOccurrences(of: "\t", with: "⇥")
+    return summarizeForLogs(normalized, maxPreview: 220)
 }
 
 /// Gets the currently selected text from the frontmost application using accessibility APIs
@@ -1368,8 +1724,19 @@ private func debugLogAllElements(_ element: AXUIElement, depth: Int, maxDepth: I
                     }
                 }
             }
-            
+
             logInfo(allAttributes)
+
+            let selectionDiagnostics = debugSelectionDiagnostics(
+                for: element,
+                role: roleStr,
+                attributeNames: attributeNamesArray,
+                prefix: prefix,
+                indent: indent
+            )
+            if !selectionDiagnostics.isEmpty {
+                logInfo(selectionDiagnostics)
+            }
         }
     }
     
@@ -1435,4 +1802,248 @@ func debugDumpFrontAppAccessibilityTree(maxDepth: Int = 8) {
     }
 
     print("AX dump complete. Share lines with prefix [AXDump] from the log file.")
+}
+
+private func debugSelectionDiagnostics(
+    for element: AXUIElement,
+    role: String,
+    attributeNames: [String],
+    prefix: String,
+    indent: String
+) -> String {
+    let selectionAttributes = [
+        "AXSelectedText",
+        "AXSelectedTextRange",
+        "AXSelectedTextRanges",
+        "AXSelectedTextMarkerRange",
+        "AXVisibleCharacterRange",
+        "AXInsertionPointLineNumber",
+        "AXNumberOfCharacters",
+        "AXStartTextMarker",
+        "AXEndTextMarker",
+        "AXHighestEditableAncestor",
+        "AXEditableAncestor"
+    ]
+
+    let shouldLogSelectionDiagnostics =
+        role == "AXTextArea" ||
+        role == "AXTextField" ||
+        role == "AXSearchField" ||
+        selectionAttributes.contains(where: attributeNames.contains)
+
+    guard shouldLogSelectionDiagnostics else {
+        return ""
+    }
+
+    var lines: [String] = []
+    lines.append("\(prefix) \(indent)  Selection Diagnostics:")
+
+    for attribute in selectionAttributes where attributeNames.contains(attribute) {
+        lines.append("\(prefix) \(indent)    \(attribute): \(debugStringForAXAttribute(element, attribute: attribute))")
+    }
+
+    if attributeNames.contains("AXSelectedTextMarkerRange") {
+        lines.append(
+            "\(prefix) \(indent)    AXStringForTextMarkerRange: \(debugStringForAXParameterizedAttribute(element, attribute: "AXStringForTextMarkerRange", parameterAttribute: "AXSelectedTextMarkerRange"))"
+        )
+    }
+
+    if attributeNames.contains("AXSelectedTextRange") {
+        lines.append(
+            "\(prefix) \(indent)    AXStringForRange(selected): \(debugStringForAXParameterizedAttribute(element, attribute: "AXStringForRange", parameterAttribute: "AXSelectedTextRange"))"
+        )
+    }
+
+    if let caretNeighborhood = debugCaretNeighborhood(
+        for: element,
+        attributeNames: attributeNames
+    ) {
+        lines.append("\(prefix) \(indent)    CaretNeighborhood: \(caretNeighborhood)")
+    }
+
+    return lines.joined(separator: "\n")
+}
+
+private func debugStringForAXAttribute(_ element: AXUIElement, attribute: String) -> String {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    guard error == .success else {
+        return "error=\(error.rawValue)"
+    }
+    guard let value else {
+        return "nil"
+    }
+
+    return debugDescribeAXValue(value)
+}
+
+private func debugStringForAXParameterizedAttribute(
+    _ element: AXUIElement,
+    attribute: String,
+    parameterAttribute: String
+) -> String {
+    var parameterValue: CFTypeRef?
+    let parameterError = AXUIElementCopyAttributeValue(element, parameterAttribute as CFString, &parameterValue)
+    guard parameterError == .success else {
+        return "parameterError=\(parameterError.rawValue)"
+    }
+    guard let parameterValue else {
+        return "parameter=nil"
+    }
+
+    var value: CFTypeRef?
+    let error = AXUIElementCopyParameterizedAttributeValue(
+        element,
+        attribute as CFString,
+        parameterValue,
+        &value
+    )
+    guard error == .success else {
+        return "error=\(error.rawValue)"
+    }
+    guard let value else {
+        return "nil"
+    }
+
+    return debugDescribeAXValue(value)
+}
+
+private func debugDescribeAXValue(_ value: CFTypeRef) -> String {
+    if let stringValue = value as? String {
+        return summarizeForLogs(stringValue, maxPreview: 200)
+    }
+
+    if let attributedString = value as? NSAttributedString {
+        return summarizeForLogs(attributedString.string, maxPreview: 200)
+    }
+
+    if let numberValue = value as? NSNumber {
+        return numberValue.stringValue
+    }
+
+    if let boolValue = value as? Bool {
+        return String(boolValue)
+    }
+
+    if CFGetTypeID(value) == AXValueGetTypeID() {
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        switch AXValueGetType(axValue) {
+        case .cfRange:
+            var range = CFRange()
+            if AXValueGetValue(axValue, .cfRange, &range) {
+                return "{location=\(range.location), length=\(range.length)}"
+            }
+            return "AXValue(cfRange decode failed)"
+        case .cgPoint:
+            var point = CGPoint.zero
+            if AXValueGetValue(axValue, .cgPoint, &point) {
+                return "{x=\(point.x), y=\(point.y)}"
+            }
+            return "AXValue(cgPoint decode failed)"
+        case .cgRect:
+            var rect = CGRect.zero
+            if AXValueGetValue(axValue, .cgRect, &rect) {
+                return "{x=\(rect.origin.x), y=\(rect.origin.y), w=\(rect.size.width), h=\(rect.size.height)}"
+            }
+            return "AXValue(cgRect decode failed)"
+        case .cgSize:
+            var size = CGSize.zero
+            if AXValueGetValue(axValue, .cgSize, &size) {
+                return "{w=\(size.width), h=\(size.height)}"
+            }
+            return "AXValue(cgSize decode failed)"
+        default:
+            return "AXValue(type=\(AXValueGetType(axValue).rawValue))"
+        }
+    }
+
+    if CFGetTypeID(value) == CFArrayGetTypeID(), let arrayValue = value as? [Any] {
+        let rendered = arrayValue.prefix(5).map { item -> String in
+            if let itemValue = item as CFTypeRef? {
+                return debugDescribeAXValue(itemValue)
+            }
+            return String(describing: item)
+        }
+        let suffix = arrayValue.count > 5 ? ", … total=\(arrayValue.count)" : ""
+        return "[\(rendered.joined(separator: ", "))\(suffix)]"
+    }
+
+    if CFGetTypeID(value) == AXUIElementGetTypeID() {
+        return debugDescribeAXElementSummary(unsafeBitCast(value, to: AXUIElement.self))
+    }
+
+    let typeDescription = CFCopyTypeIDDescription(CFGetTypeID(value)) as String? ?? "unknown"
+    return "<\(typeDescription)>"
+}
+
+private func debugDescribeAXElementSummary(_ element: AXUIElement) -> String {
+    var role: CFTypeRef?
+    var title: CFTypeRef?
+    var description: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+    AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
+    AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &description)
+
+    let roleText = (role as? String) ?? "unknown"
+    let titleText = summarizeForLogs((title as? String) ?? "", maxPreview: 80)
+    let descriptionText = summarizeForLogs((description as? String) ?? "", maxPreview: 80)
+    return "{role=\(roleText), title=\(titleText), description=\(descriptionText)}"
+}
+
+private func debugCaretNeighborhood(
+    for element: AXUIElement,
+    attributeNames: [String]
+) -> String? {
+    guard attributeNames.contains("AXValue"), attributeNames.contains("AXSelectedTextRange") else {
+        return nil
+    }
+
+    var valueRef: CFTypeRef?
+    let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+    guard valueError == .success, let fullText = valueRef as? String else {
+        return "valueError=\(valueError.rawValue)"
+    }
+
+    var rangeRef: CFTypeRef?
+    let rangeError = AXUIElementCopyAttributeValue(element, "AXSelectedTextRange" as CFString, &rangeRef)
+    guard rangeError == .success, let rangeRef else {
+        return "selectedTextRangeError=\(rangeError.rawValue)"
+    }
+
+    guard CFGetTypeID(rangeRef) == AXValueGetTypeID() else {
+        return "selectedTextRangeTypeMismatch"
+    }
+
+    let axRange = unsafeBitCast(rangeRef, to: AXValue.self)
+    guard AXValueGetType(axRange) == .cfRange else {
+        return "selectedTextRangeNotCFRange"
+    }
+
+    var selectedRange = CFRange()
+    guard AXValueGetValue(axRange, .cfRange, &selectedRange) else {
+        return "selectedTextRangeDecodeFailed"
+    }
+
+    let nsText = fullText as NSString
+    let textLength = nsText.length
+    let location = max(0, min(selectedRange.location, textLength))
+    let length = max(0, min(selectedRange.length, textLength - location))
+
+    let contextRadius = 80
+    let snippetStart = max(0, location - contextRadius)
+    let snippetEnd = min(textLength, location + length + contextRadius)
+    let snippetRange = NSRange(location: snippetStart, length: snippetEnd - snippetStart)
+    let snippet = nsText.substring(with: snippetRange)
+
+    let caretOffset = location - snippetStart
+    let selectionOffsetEnd = caretOffset + length
+    let marker = length > 0
+        ? "\(snippet.prefix(caretOffset))|<SEL>|\(snippet.dropFirst(selectionOffsetEnd))"
+        : "\(snippet.prefix(caretOffset))|\(snippet.dropFirst(caretOffset))"
+
+    let normalized = marker
+        .replacingOccurrences(of: "\n", with: "⏎")
+        .replacingOccurrences(of: "\t", with: "⇥")
+
+    return "location=\(location) length=\(length) snippet=\(summarizeForLogs(normalized, maxPreview: 260))"
 }

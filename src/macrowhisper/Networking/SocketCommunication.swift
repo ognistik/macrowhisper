@@ -1444,7 +1444,7 @@ class SocketCommunication {
             return resolved
         }
 
-        guard let initialContext = getInputInsertionContext() else {
+        guard let initialContext = getInputInsertionContext(insertionText: resolved) else {
             logDebug("[SmartInsert] Input insertion context unavailable, skipping smart insertion")
             return resolved
         }
@@ -1454,7 +1454,7 @@ class SocketCommunication {
         var lowConfidenceContext = false
 
         if shouldRetryInsertionContextRead(initialContext, insertionText: resolved) {
-            if let retryContext = getInputInsertionContext() {
+            if let retryContext = getInputInsertionContext(insertionText: resolved) {
                 if contextsDifferForSmartInsert(initialContext, retryContext) {
                     lowConfidenceContext = true
                     context = retryContext
