@@ -672,9 +672,7 @@ private func findBestBrowserInsertionContextSnapshot(
             continue
         }
 
-        var roleRef: CFTypeRef?
-        let roleError = AXUIElementCopyAttributeValue(current.element, kAXRoleAttribute as CFString, &roleRef)
-        let role = roleError == .success ? (roleRef as? String) : nil
+        let role = copyAXRole(from: current.element)
 
         if shouldConsiderBrowserSelectionCandidate(current.element, roleHint: role),
            let snapshot = buildInputInsertionContextSnapshot(
@@ -892,6 +890,13 @@ private func isSentenceLikeSmartInsertText(_ text: String) -> Bool {
 
 private func isSmartInsertWordCharacter(_ character: Character) -> Bool {
     character.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+}
+
+private func copyAXRole(from element: AXUIElement) -> String? {
+    var roleRef: CFTypeRef?
+    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+    guard roleError == .success else { return nil }
+    return roleRef as? String
 }
 
 private func debugCaretNeighborhoodSnippet(fullText: String, selectedRange: CFRange) -> String {
@@ -1215,34 +1220,9 @@ private struct ArcURLSourceRef {
 
 /// Gets the current URL from browser applications
 private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplication, fallbackBundleId: String? = nil) -> String? {
-    // Check if this is a known browser application
-    let browserBundleIds = [
-        "com.apple.Safari",
-        "com.google.Chrome", 
-        "org.mozilla.firefox",
-        "com.microsoft.edgemac",
-        "com.operasoftware.Opera",
-        "com.brave.Browser",
-        "company.thebrowser.dia",
-        "com.openai.atlas",
-        "com.vivaldi.Vivaldi",
-        "com.kagi.kagimacOS",
-        "org.mozilla.librewolf",
-        "ai.perplexity.comet",
-        "org.torproject.torbrowser",
-        "net.mullvad.mullvadbrowser",
-        "net.waterfox.waterfox",
-        "com.sigmaos.sigmaos.macos",
-        "com.duckduckgo.macos.browser",
-        "app.zen-browser.zen",
-        "net.imput.helium",
-        arcBrowserBundleId,  // Arc Browser
-        "org.chromium.Chromium"
-    ]
-    
     let bundleId = frontApp.bundleIdentifier ?? fallbackBundleId ?? "unknown"
     logDebug("[AppContext] Current app bundle ID: \(bundleId)")
-    guard browserBundleIds.contains(bundleId) else {
+    guard supportedBrowserBundleIds.contains(bundleId) else {
         logDebug("[AppContext] App with bundle ID '\(bundleId)' is not a recognized browser")
         return nil
     }

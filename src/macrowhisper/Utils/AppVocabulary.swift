@@ -52,17 +52,31 @@ private let appVocabularyAllowedShortAcronyms: Set<String> = [
 
 private let appVocabularyCommonDictionaryWords: Set<String> = loadAppVocabularyCommonDictionaryWords()
 
-let appVocabularyBrowserBundleIds: Set<String> = [
+let supportedBrowserBundleIds: Set<String> = [
     "com.apple.Safari",
     "com.google.Chrome",
     "org.mozilla.firefox",
     "com.microsoft.edgemac",
     "com.operasoftware.Opera",
     "com.brave.Browser",
+    "company.thebrowser.dia",
+    "com.openai.atlas",
     "com.vivaldi.Vivaldi",
+    "com.kagi.kagimacOS",
+    "org.mozilla.librewolf",
+    "ai.perplexity.comet",
+    "org.torproject.torbrowser",
+    "net.mullvad.mullvadbrowser",
+    "net.waterfox.waterfox",
+    "com.sigmaos.sigmaos.macos",
+    "com.duckduckgo.macos.browser",
+    "app.zen-browser.zen",
+    "net.imput.helium",
     "company.thebrowser.Browser",
     "org.chromium.Chromium"
 ]
+
+let appVocabularyBrowserBundleIds = supportedBrowserBundleIds
 
 private let appVocabularyBrowserContentRoles: Set<String> = [
     "AXWebArea",
