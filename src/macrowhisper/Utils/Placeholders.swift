@@ -116,11 +116,22 @@ private func uppercasingFirstLetterForPlaceholder(_ text: String) -> String {
     return result
 }
 
+private func isSkippableTrailingWrapperForPlaceholder(_ character: Character) -> Bool {
+    let trailingWrappers = #"*_~`)]}>"'”’»›"#
+    return trailingWrappers.contains(character)
+}
+
 private func hasTerminalSentencePunctuationForPlaceholder(_ text: String) -> Bool {
-    guard let lastNonWhitespace = text.last(where: { !$0.isWhitespace }) else {
-        return false
+    for character in text.reversed() {
+        if character.isWhitespace {
+            continue
+        }
+        if isSkippableTrailingWrapperForPlaceholder(character) {
+            continue
+        }
+        return ".!?,;:…".contains(character)
     }
-    return ".!?,;:…".contains(lastNonWhitespace)
+    return false
 }
 
 private func ensureSentenceCasingAndPunctuationForPlaceholder(_ text: String) -> String {

@@ -5,6 +5,7 @@
 * Added ellipsis (...) to the list of valid closing punctuation for the ensureSentence transform.
 * Improved support for smart insertion settings in supported browsers.
   * Tries to dig deeper in the accessibility tree to get correct caret position.
+* Improved `ensureSentence` transformation for normalizing sentences that may have wrappers (parenthesis, asterisks, brackets, etc.)
 
 ## [v2.0.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.0) - 2026/03/08
 ## TLDR;

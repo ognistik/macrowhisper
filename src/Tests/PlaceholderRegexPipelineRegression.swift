@@ -170,10 +170,20 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let result26 = processDynamicPlaceholders(action: action26, metaJson: meta26, actionType: .insert).text
         assertEqual(result26, "This is perhaps beyond the scope of this class, but…", "ensureSentence preserves trailing unicode ellipsis")
 
-        let action27 = "{{swResult||\\b(api|sdk)\\b||${1::UpPeRcAsE}}}"
-        let meta27: [String: Any] = ["llmResult": "api and sdk"]
+        let action27 = "{{swResult::ensureSentence}}"
+        let meta27: [String: Any] = ["llmResult": "*one. two. three.*"]
         let result27 = processDynamicPlaceholders(action: action27, metaJson: meta27, actionType: .insert).text
-        assertEqual(result27, "API and SDK", "capture transform names are case-insensitive")
+        assertEqual(result27, "*One. two. three.*", "ensureSentence preserves punctuation inside trailing markdown emphasis")
+
+        let action28 = "{{swResult::ensureSentence}}"
+        let meta28: [String: Any] = ["llmResult": "(\"hello world.\")"]
+        let result28 = processDynamicPlaceholders(action: action28, metaJson: meta28, actionType: .insert).text
+        assertEqual(result28, "(\"Hello world.\")", "ensureSentence preserves punctuation inside trailing wrappers")
+
+        let action29 = "{{swResult||\\b(api|sdk)\\b||${1::UpPeRcAsE}}}"
+        let meta29: [String: Any] = ["llmResult": "api and sdk"]
+        let result29 = processDynamicPlaceholders(action: action29, metaJson: meta29, actionType: .insert).text
+        assertEqual(result29, "API and SDK", "capture transform names are case-insensitive")
 
         recordingsWatcher = nil
     }
