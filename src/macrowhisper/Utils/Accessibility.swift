@@ -367,6 +367,33 @@ private struct InputInsertionContextSnapshot {
     let selectedRange: CFRange
     let depth: Int
     let neighborhood: String
+    let fullText: String
+}
+
+private enum BrowserInsertionReconciliationMethod: Int {
+    case exactFragment = 2
+    case caretAnchor = 1
+
+    var label: String {
+        switch self {
+        case .exactFragment:
+            return "exactFragment"
+        case .caretAnchor:
+            return "caretAnchor"
+        }
+    }
+}
+
+private struct BrowserInsertionReconciliation {
+    let mappedRootRange: CFRange
+    let deltaFromRootSelection: Int
+    let matchedLength: Int
+    let method: BrowserInsertionReconciliationMethod
+}
+
+private struct BrowserCaretAnchor {
+    let text: String
+    let caretOffset: Int
 }
 
 private func isIgnorableBoundaryCharacterForSmartInsert(_ character: Character?) -> Bool {
@@ -483,10 +510,19 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
        let descendantSnapshot = findBestBrowserInsertionContextSnapshot(
         from: element,
         frontApp: frontApp,
+        rootSnapshot: rootSnapshot,
         insertionText: insertionText
        ) {
         chosenSnapshot = descendantSnapshot
         if descendantSnapshot.depth > 0 {
+            if let reconciliation = reconcileBrowserInsertionSnapshot(descendantSnapshot, against: rootSnapshot) {
+                logDebug(
+                    "[SmartInsert] Browser subtree candidate reconciled method=\(reconciliation.method.label) " +
+                    "mappedRootLocation=\(reconciliation.mappedRootRange.location) " +
+                    "rootLocation=\(rootSnapshot.selectedRange.location) " +
+                    "delta=\(reconciliation.deltaFromRootSelection) matchedLength=\(reconciliation.matchedLength)"
+                )
+            }
             logDebug(
                 "[SmartInsert] Browser subtree candidate chosen depth=\(descendantSnapshot.depth) " +
                 "role=\(descendantSnapshot.role) range={location=\(descendantSnapshot.selectedRange.location), " +
@@ -567,6 +603,41 @@ private func buildInputInsertionContextSnapshot(
         return nil
     }
 
+    guard let context = deriveInputInsertionContext(fullText: fullText, selectedRange: selectedRange) else {
+        if depth == 0 {
+            logDebug("[SmartInsert] Failed to derive insertion context from AXValue")
+        }
+        return nil
+    }
+
+    return InputInsertionContextSnapshot(
+        context: context,
+        role: role,
+        textLength: textLength,
+        selectedRange: selectedRange,
+        depth: depth,
+        neighborhood: debugCaretNeighborhoodSnippet(fullText: fullText, selectedRange: selectedRange),
+        fullText: fullText
+    )
+}
+
+private func deriveInputInsertionContext(
+    fullText: String,
+    selectedRange: CFRange
+) -> InputInsertionContext? {
+    guard selectedRange.location >= 0, selectedRange.length >= 0 else {
+        return nil
+    }
+
+    let nsText = fullText as NSString
+    let textLength = nsText.length
+    let insertionStart = Int(selectedRange.location)
+    let insertionEnd = insertionStart + Int(selectedRange.length)
+
+    guard insertionStart <= textLength, insertionEnd <= textLength else {
+        return nil
+    }
+
     var leftCharacter: Character?
     if insertionStart > 0 {
         let leftRange = nsText.rangeOfComposedCharacterSequence(at: insertionStart - 1)
@@ -634,26 +705,20 @@ private func buildInputInsertionContextSnapshot(
         }
     }
 
-    return InputInsertionContextSnapshot(
-        context: InputInsertionContext(
-            leftCharacter: leftCharacter,
-            leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
-            leftLinePrefix: leftLinePrefix,
-            rightCharacter: rightCharacter,
-            rightNonWhitespaceCharacter: rightNonWhitespaceCharacter,
-            rightHasLineBreakBeforeNextNonWhitespace: rightHasLineBreakBeforeNextNonWhitespace
-        ),
-        role: role,
-        textLength: textLength,
-        selectedRange: selectedRange,
-        depth: depth,
-        neighborhood: debugCaretNeighborhoodSnippet(fullText: fullText, selectedRange: selectedRange)
+    return InputInsertionContext(
+        leftCharacter: leftCharacter,
+        leftNonWhitespaceCharacter: leftNonWhitespaceCharacter,
+        leftLinePrefix: leftLinePrefix,
+        rightCharacter: rightCharacter,
+        rightNonWhitespaceCharacter: rightNonWhitespaceCharacter,
+        rightHasLineBreakBeforeNextNonWhitespace: rightHasLineBreakBeforeNextNonWhitespace
     )
 }
 
 private func findBestBrowserInsertionContextSnapshot(
     from root: AXUIElement,
     frontApp: NSRunningApplication,
+    rootSnapshot: InputInsertionContextSnapshot,
     insertionText: String?
 ) -> InputInsertionContextSnapshot? {
     var bestSnapshot: InputInsertionContextSnapshot?
@@ -681,7 +746,12 @@ private func findBestBrowserInsertionContextSnapshot(
             frontApp: frontApp,
             depth: current.depth
            ) {
-            if bestSnapshot == nil || shouldPreferBrowserInsertionSnapshot(snapshot, over: bestSnapshot!, insertionText: insertionText) {
+            if bestSnapshot == nil || shouldPreferBrowserInsertionSnapshot(
+                snapshot,
+                over: bestSnapshot!,
+                rootSnapshot: rootSnapshot,
+                insertionText: insertionText
+            ) {
                 bestSnapshot = snapshot
             }
         }
@@ -749,10 +819,29 @@ private func shouldConsiderBrowserSelectionCandidate(_ element: AXUIElement, rol
 private func shouldPreferBrowserInsertionSnapshot(
     _ candidate: InputInsertionContextSnapshot,
     over current: InputInsertionContextSnapshot,
+    rootSnapshot: InputInsertionContextSnapshot,
     insertionText: String?
 ) -> Bool {
-    let candidateScore = browserInsertionSnapshotScore(candidate, insertionText: insertionText)
-    let currentScore = browserInsertionSnapshotScore(current, insertionText: insertionText)
+    let candidateReconciliation = reconcileBrowserInsertionSnapshot(candidate, against: rootSnapshot)
+    let currentReconciliation = reconcileBrowserInsertionSnapshot(current, against: rootSnapshot)
+
+    if let reconciliationPreference = shouldPreferBrowserReconciliation(
+        candidateReconciliation,
+        over: currentReconciliation
+    ) {
+        return reconciliationPreference
+    }
+
+    let candidateScore = browserInsertionSnapshotScore(
+        candidate,
+        insertionText: insertionText,
+        reconciliation: candidateReconciliation
+    )
+    let currentScore = browserInsertionSnapshotScore(
+        current,
+        insertionText: insertionText,
+        reconciliation: currentReconciliation
+    )
 
     if candidateScore != currentScore {
         return candidateScore > currentScore
@@ -771,7 +860,8 @@ private func shouldPreferBrowserInsertionSnapshot(
 
 private func browserInsertionSnapshotScore(
     _ snapshot: InputInsertionContextSnapshot,
-    insertionText: String?
+    insertionText: String?,
+    reconciliation: BrowserInsertionReconciliation?
 ) -> Int {
     var score = 0
 
@@ -836,7 +926,225 @@ private func browserInsertionSnapshotScore(
         score += browserSentenceBoundaryScore(snapshot)
     }
 
+    if let reconciliation {
+        switch reconciliation.method {
+        case .exactFragment:
+            score += 120
+        case .caretAnchor:
+            score += 80
+        }
+
+        if reconciliation.deltaFromRootSelection == 0 {
+            score += 15
+        } else if reconciliation.deltaFromRootSelection <= 48 {
+            score += 900 - (reconciliation.deltaFromRootSelection * 12)
+        } else if reconciliation.deltaFromRootSelection <= 160 {
+            score += 220 - reconciliation.deltaFromRootSelection
+        }
+
+        score += min(reconciliation.matchedLength, 120) / 4
+    }
+
     return score
+}
+
+private func shouldPreferBrowserReconciliation(
+    _ candidate: BrowserInsertionReconciliation?,
+    over current: BrowserInsertionReconciliation?
+) -> Bool? {
+    let candidateStrong = isStrongBrowserReconciliation(candidate)
+    let currentStrong = isStrongBrowserReconciliation(current)
+
+    if candidateStrong != currentStrong {
+        return candidateStrong
+    }
+
+    guard candidateStrong, let candidate, let current else {
+        return nil
+    }
+
+    if candidate.deltaFromRootSelection != current.deltaFromRootSelection {
+        return candidate.deltaFromRootSelection < current.deltaFromRootSelection
+    }
+
+    if candidate.method.rawValue != current.method.rawValue {
+        return candidate.method.rawValue > current.method.rawValue
+    }
+
+    if candidate.matchedLength != current.matchedLength {
+        return candidate.matchedLength > current.matchedLength
+    }
+
+    return nil
+}
+
+private func isStrongBrowserReconciliation(_ reconciliation: BrowserInsertionReconciliation?) -> Bool {
+    guard let reconciliation else {
+        return false
+    }
+    return reconciliation.deltaFromRootSelection > 0 && reconciliation.deltaFromRootSelection <= 48
+}
+
+private func reconcileBrowserInsertionSnapshot(
+    _ snapshot: InputInsertionContextSnapshot,
+    against rootSnapshot: InputInsertionContextSnapshot
+) -> BrowserInsertionReconciliation? {
+    guard snapshot.depth > 0 else {
+        return nil
+    }
+    guard snapshot.textLength >= 24, snapshot.textLength < rootSnapshot.textLength else {
+        return nil
+    }
+    guard snapshot.fullText != rootSnapshot.fullText else {
+        return nil
+    }
+
+    if let matchedRange = uniqueBrowserTextRange(of: snapshot.fullText, in: rootSnapshot.fullText),
+       let reconciliation = makeBrowserInsertionReconciliation(
+        candidate: snapshot,
+        rootSnapshot: rootSnapshot,
+        matchedRootRange: matchedRange,
+        caretOffsetInMatch: snapshot.selectedRange.location,
+        method: .exactFragment
+       ) {
+        return reconciliation
+    }
+
+    guard let caretAnchor = browserCaretAnchor(for: snapshot),
+          let matchedRange = uniqueBrowserTextRange(of: caretAnchor.text, in: rootSnapshot.fullText) else {
+        return nil
+    }
+
+    return makeBrowserInsertionReconciliation(
+        candidate: snapshot,
+        rootSnapshot: rootSnapshot,
+        matchedRootRange: matchedRange,
+        caretOffsetInMatch: caretAnchor.caretOffset,
+        method: .caretAnchor
+    )
+}
+
+private func makeBrowserInsertionReconciliation(
+    candidate: InputInsertionContextSnapshot,
+    rootSnapshot: InputInsertionContextSnapshot,
+    matchedRootRange: NSRange,
+    caretOffsetInMatch: Int,
+    method: BrowserInsertionReconciliationMethod
+) -> BrowserInsertionReconciliation? {
+    let mappedRootLocation = matchedRootRange.location + caretOffsetInMatch
+    let mappedRootRange = CFRange(location: mappedRootLocation, length: candidate.selectedRange.length)
+
+    guard let mappedContext = deriveInputInsertionContext(
+        fullText: rootSnapshot.fullText,
+        selectedRange: mappedRootRange
+    ) else {
+        return nil
+    }
+
+    guard browserContextsMatch(candidate.context, mappedContext) else {
+        return nil
+    }
+
+    return BrowserInsertionReconciliation(
+        mappedRootRange: mappedRootRange,
+        deltaFromRootSelection: abs(rootSnapshot.selectedRange.location - mappedRootLocation),
+        matchedLength: matchedRootRange.length,
+        method: method
+    )
+}
+
+private func browserContextsMatch(
+    _ candidateContext: InputInsertionContext,
+    _ rootContext: InputInsertionContext
+) -> Bool {
+    if let leftCharacter = candidateContext.leftCharacter,
+       rootContext.leftCharacter != leftCharacter {
+        return false
+    }
+
+    if let rightCharacter = candidateContext.rightCharacter,
+       rootContext.rightCharacter != rightCharacter {
+        return false
+    }
+
+    if let leftNonWhitespaceCharacter = candidateContext.leftNonWhitespaceCharacter,
+       rootContext.leftNonWhitespaceCharacter != leftNonWhitespaceCharacter {
+        return false
+    }
+
+    if let rightNonWhitespaceCharacter = candidateContext.rightNonWhitespaceCharacter,
+       rootContext.rightNonWhitespaceCharacter != rightNonWhitespaceCharacter {
+        return false
+    }
+
+    return true
+}
+
+private func browserCaretAnchor(for snapshot: InputInsertionContextSnapshot) -> BrowserCaretAnchor? {
+    let nsText = snapshot.fullText as NSString
+    let selectionStart = Int(snapshot.selectedRange.location)
+    let selectionEnd = selectionStart + Int(snapshot.selectedRange.length)
+    let desiredSideLength = 24
+    let maxSideLength = 40
+    let minimumAnchorLength = 24
+
+    var leftLength = min(desiredSideLength, selectionStart)
+    var rightLength = min(desiredSideLength, snapshot.textLength - selectionEnd)
+
+    if leftLength + Int(snapshot.selectedRange.length) + rightLength < minimumAnchorLength {
+        var needed = minimumAnchorLength - (leftLength + Int(snapshot.selectedRange.length) + rightLength)
+
+        let additionalRightCapacity = max(0, min(maxSideLength, snapshot.textLength - selectionEnd) - rightLength)
+        let growRight = min(needed, additionalRightCapacity)
+        rightLength += growRight
+        needed -= growRight
+
+        let additionalLeftCapacity = max(0, min(maxSideLength, selectionStart) - leftLength)
+        let growLeft = min(needed, additionalLeftCapacity)
+        leftLength += growLeft
+    }
+
+    let anchorLength = leftLength + Int(snapshot.selectedRange.length) + rightLength
+    guard anchorLength >= minimumAnchorLength else {
+        return nil
+    }
+
+    let anchorRange = NSRange(location: selectionStart - leftLength, length: anchorLength)
+    guard anchorRange.location >= 0,
+          anchorRange.location + anchorRange.length <= snapshot.textLength else {
+        return nil
+    }
+
+    return BrowserCaretAnchor(
+        text: nsText.substring(with: anchorRange),
+        caretOffset: leftLength
+    )
+}
+
+private func uniqueBrowserTextRange(of needle: String, in haystack: String) -> NSRange? {
+    guard !needle.isEmpty else {
+        return nil
+    }
+
+    let haystackNSString = haystack as NSString
+    let firstMatch = haystackNSString.range(of: needle)
+    guard firstMatch.location != NSNotFound else {
+        return nil
+    }
+
+    let nextSearchLocation = firstMatch.location + 1
+    if nextSearchLocation < haystackNSString.length {
+        let remainingRange = NSRange(
+            location: nextSearchLocation,
+            length: haystackNSString.length - nextSearchLocation
+        )
+        let secondMatch = haystackNSString.range(of: needle, options: [], range: remainingRange)
+        if secondMatch.location != NSNotFound {
+            return nil
+        }
+    }
+
+    return firstMatch
 }
 
 private func browserSentenceBoundaryScore(_ snapshot: InputInsertionContextSnapshot) -> Int {
