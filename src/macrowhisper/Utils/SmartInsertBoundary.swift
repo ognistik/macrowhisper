@@ -1,6 +1,8 @@
 import Foundation
 
 enum SmartInsertBoundary {
+    private static let boundaryConflictPunctuation = ".,;:!?"
+    private static let midSentenceStrippableTrailingPunctuation = ".!?"
     private static let ignoredBoundaryScalars: Set<UnicodeScalar> = [
         "\u{FEFF}", // ZERO WIDTH NO-BREAK SPACE / BOM
         "\u{200B}", // ZERO WIDTH SPACE
@@ -19,6 +21,14 @@ enum SmartInsertBoundary {
     static func isSkippableTrailingDelimiterForBoundary(_ character: Character) -> Bool {
         let delimiters = "*_~`()[]{}<>\"'“”‘’«»‹›"
         return delimiters.contains(character)
+    }
+
+    static func isBoundaryConflictPunctuation(_ character: Character) -> Bool {
+        boundaryConflictPunctuation.contains(character)
+    }
+
+    static func isMidSentenceStrippableTrailingPunctuation(_ character: Character) -> Bool {
+        midSentenceStrippableTrailingPunctuation.contains(character)
     }
 
     static func effectiveLeftContextCharacter(

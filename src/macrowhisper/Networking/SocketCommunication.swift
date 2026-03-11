@@ -1621,9 +1621,11 @@ class SocketCommunication {
         }
 
         // If we're directly before punctuation, avoid duplicate punctuation like ".." or "!!".
-        if let rightCharacter = rightCharacter, ".,;:!?".contains(rightCharacter) {
+        if let rightCharacter = rightCharacter,
+           SmartInsertBoundary.isBoundaryConflictPunctuation(rightCharacter) {
             var updated = text
-            while let last = updated.last, ".,;:!?".contains(last) {
+            while let last = updated.last,
+                  SmartInsertBoundary.isBoundaryConflictPunctuation(last) {
                 updated.removeLast()
             }
             return updated
@@ -1664,7 +1666,8 @@ class SocketCommunication {
         }
 
         var updated = text
-        while let last = updated.last, ".,;:!?".contains(last) {
+        while let last = updated.last,
+              SmartInsertBoundary.isMidSentenceStrippableTrailingPunctuation(last) {
             updated.removeLast()
         }
         return updated

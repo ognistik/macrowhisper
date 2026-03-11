@@ -84,6 +84,30 @@ private func runSmartInsertBoundaryRegressionTests() {
         ),
         "line-start punctuation is preserved before an uppercase sentence start"
     )
+
+    let boundaryConflictCharacters: [Character] = [".", ",", ";", ":", "!", "?"]
+    for character in boundaryConflictCharacters {
+        assertTrue(
+            SmartInsertBoundary.isBoundaryConflictPunctuation(character),
+            "boundary conflict punctuation includes \(character)"
+        )
+    }
+
+    let midSentenceStrippableCharacters: [Character] = [".", "!", "?"]
+    for character in midSentenceStrippableCharacters {
+        assertTrue(
+            SmartInsertBoundary.isMidSentenceStrippableTrailingPunctuation(character),
+            "mid-sentence stripping keeps \(character) removable"
+        )
+    }
+
+    let midSentencePreservedCharacters: [Character] = [",", ";", ":"]
+    for character in midSentencePreservedCharacters {
+        assertTrue(
+            !SmartInsertBoundary.isMidSentenceStrippableTrailingPunctuation(character),
+            "mid-sentence stripping preserves \(character)"
+        )
+    }
 }
 
 @main
