@@ -58,6 +58,32 @@ private func runSmartInsertBoundaryRegressionTests() {
         !SmartInsertBoundary.isLineStartBoundary(objectReplacement.first),
         "attachment character alone is not treated as line start"
     )
+
+    let nonSentenceStarts: [(Character?, String)] = [
+        (nil, "missing right boundary does not preserve line-start punctuation"),
+        ("a".first, "lowercase continuation does not preserve line-start punctuation"),
+        (",".first, "comma continuation does not preserve line-start punctuation"),
+        (";".first, "semicolon continuation does not preserve line-start punctuation"),
+        (":".first, "colon continuation does not preserve line-start punctuation"),
+        ("!".first, "punctuation continuation does not preserve line-start punctuation"),
+        ("?".first, "question-mark continuation does not preserve line-start punctuation")
+    ]
+
+    for (character, label) in nonSentenceStarts {
+        assertTrue(
+            !SmartInsertBoundary.shouldPreserveTrailingPunctuationAtLineStart(
+                rightNonWhitespaceCharacter: character
+            ),
+            label
+        )
+    }
+
+    assertTrue(
+        SmartInsertBoundary.shouldPreserveTrailingPunctuationAtLineStart(
+            rightNonWhitespaceCharacter: "T".first
+        ),
+        "line-start punctuation is preserved before an uppercase sentence start"
+    )
 }
 
 @main

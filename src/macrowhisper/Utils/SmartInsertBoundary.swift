@@ -52,4 +52,13 @@ enum SmartInsertBoundary {
         }
         return leftCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true
     }
+
+    static func shouldPreserveTrailingPunctuationAtLineStart(
+        rightNonWhitespaceCharacter: Character?
+    ) -> Bool {
+        guard let rightNonWhitespaceCharacter else {
+            return false
+        }
+        return String(rightNonWhitespaceCharacter).rangeOfCharacter(from: .uppercaseLetters) != nil
+    }
 }

@@ -1611,10 +1611,12 @@ class SocketCommunication {
         rightNonWhitespaceCharacter: Character?,
         rightHasLineBreakBeforeNextNonWhitespace: Bool
     ) -> String {
-        // At line starts, preserve terminal punctuation when right-side text
-        // looks like a new sentence (uppercase). If right-side starts lowercase,
-        // treat as continuation and allow stripping.
-        if isLineStartBoundary(leftCharacter) && !isLowercaseLetter(rightNonWhitespaceCharacter) {
+        // At line starts, preserve terminal punctuation only when the right side
+        // clearly begins a new sentence with an uppercase letter.
+        if isLineStartBoundary(leftCharacter) &&
+            SmartInsertBoundary.shouldPreserveTrailingPunctuationAtLineStart(
+                rightNonWhitespaceCharacter: rightNonWhitespaceCharacter
+            ) {
             return text
         }
 
