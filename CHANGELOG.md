@@ -2,7 +2,9 @@
 
 ## UNRELEASED
 
-* Added ellipsis (...) to the list of valid closing punctuation for the ensureSentence transform.
+* Improvements to smart punctuation.
+  * Added ellipsis (...) to the list of valid closing punctuation for the ensureSentence transform.
+  * Added rules for punctuation stripping mid-sentence... specific punctuation that is allowed like `,`, `;`, `:`
 * Improved support for smart insertion settings in supported browsers.
   * Tries to dig deeper in the accessibility tree to get correct caret position.
   * Noticeable improvement in text editing interfaces (for example, ChatGPT Canvas)
