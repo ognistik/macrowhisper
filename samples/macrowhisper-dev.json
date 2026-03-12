@@ -117,7 +117,7 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{clipboardContext}}",
+      "action" : "{{clipboardContext}}\n\nUrl: {{frontAppUrl}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,
@@ -177,7 +177,7 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerUrls" : null,
-      "triggerVoice" : "title"
+      "triggerVoice" : "title|titulo|título"
     }
   },
   "scriptsAS" : {

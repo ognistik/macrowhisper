@@ -986,6 +986,9 @@ class ClipboardMonitor {
                     self.earlyMonitoringSessions[recordingPath] = session
                 }
                 logDebug("[ClipboardMonitor] Session monitoring skipped Macrowhisper copy-action clipboard write")
+                DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+                    self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
+                }
                 return
             }
             
@@ -1753,6 +1756,47 @@ class ClipboardMonitor {
         }
         return shouldSkip
     }
+
+    private func mirrorGlobalClipboardChangeIntoMostRecentActiveSession(_ change: ClipboardChange) {
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            guard let self else { return }
+
+            guard let target = self.earlyMonitoringSessions
+                .filter({ path, session in
+                    guard session.isActive,
+                          let group = self.executionGroups[session.groupId] else {
+                        return false
+                    }
+                    return group.rootRecordingPath == path
+                })
+                .max(by: { $0.value.startTime < $1.value.startTime }) else {
+                return
+            }
+
+            let recordingPath = target.key
+            var session = target.value
+
+            if session.clipboardChanges.contains(where: { $0.changeCount == change.changeCount }) {
+                if session.lastSeenChangeCount != change.changeCount {
+                    session.lastSeenChangeCount = change.changeCount
+                    self.earlyMonitoringSessions[recordingPath] = session
+                }
+                return
+            }
+
+            session.clipboardChanges.append(change)
+            if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
+                let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
+                session.clipboardChanges.removeFirst(excessCount)
+                logDebug("[ClipboardMonitor] Trimmed \(excessCount) old clipboard changes to stay within bounds")
+            }
+
+            session.lastSeenChangeCount = change.changeCount
+            session.lastCapturedClipboardContent = change.content
+            self.earlyMonitoringSessions[recordingPath] = session
+            logDebug("[ClipboardMonitor] Mirrored global clipboard change into active session (changeCount: \(change.changeCount))")
+        }
+    }
     
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
     private func checkGlobalClipboardChange() {
@@ -1839,6 +1883,7 @@ class ClipboardMonitor {
                         frontAppBundleId: bundleId.isEmpty ? nil : bundleId
                     )
                     self.globalClipboardHistory.append(change)
+                    self.mirrorGlobalClipboardChangeIntoMostRecentActiveSession(change)
                     
                     // Prevent unbounded growth by removing oldest entries if we exceed the limit
                     if self.globalClipboardHistory.count > MAX_GLOBAL_CLIPBOARD_HISTORY {

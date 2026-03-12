@@ -415,7 +415,7 @@ You can check mute state through `--status`.
 | --- | --- |
 | `--exec-action <name>` | Runs one specific action right now. |
 | `--run-auto` | Runs automatic selection logic against the current or chosen recording. |
-| `--copy-action <name>` | Renders an action and copies the result without affecting `clipboardContext` capture. |
+| `--copy-action <name>` | Renders an action and copies the result using live context placeholders at invocation time, without polluting clipboard capture. |
 
 #### 5) Other runtime commands
 
@@ -1430,6 +1430,8 @@ When several clipboard items are returned, the output looks like this:
 ### 12.6 CLI execution
 
 For CLI commands such as `--exec-action`, `--run-auto`, `--get-action`, and `--copy-action`, context placeholders are captured at the moment you run the command.
+
+For `--copy-action`, context placeholders use live invocation-time state instead of stored session snapshots. This includes `selectedText`, `clipboardContext`, `frontApp`, `frontAppUrl`, `appContext`, and `appVocabulary`. Action execution paths still use the normal frozen validated context for the running action chain.
 
 Useful example:
 

@@ -11,6 +11,23 @@ private let contextIgnorableScalarValues: Set<UInt32> = [
 ]
 
 let runtimeClipboardContextLockedKey = "_mwClipboardContextLocked"
+let runtimeCopyActionLiveContextKey = "_mwCopyActionLiveContext"
+
+private let copyActionLiveContextPlaceholderKeys: Set<String> = [
+    "selectedText",
+    "clipboardContext",
+    "frontApp",
+    "frontAppUrl",
+    "appContext",
+    "appVocabulary"
+]
+
+private func shouldUseCopyActionLiveContextOnly(metaJson: [String: Any], key: String) -> Bool {
+    guard (metaJson[runtimeCopyActionLiveContextKey] as? Bool) == true else {
+        return false
+    }
+    return copyActionLiveContextPlaceholderKeys.contains(key)
+}
 
 func sanitizeContextPlaceholderValue(_ value: String) -> String {
     let filteredScalars = value.unicodeScalars.filter { scalar in
@@ -1293,20 +1310,21 @@ func processDynamicPlaceholders(
             
             // Handle selectedText
             else if key == "selectedText" {
+                let useProvidedLiveContextOnly = shouldUseCopyActionLiveContextOnly(metaJson: metaJson, key: key)
                 var value = sanitizeContextPlaceholderValue(metaJson["selectedText"] as? String ?? "")
 
                 if !value.isEmpty {
                     logDebug("[SelectedTextPlaceholder] Using selected text from metaJson session snapshot")
                 }
 
-                if value.isEmpty, let watcher = recordingsWatcher, watcher.hasActiveRecordingSessions() {
+                if !useProvidedLiveContextOnly, value.isEmpty, let watcher = recordingsWatcher, watcher.hasActiveRecordingSessions() {
                     value = watcher.getClipboardMonitor().getActiveSessionSelectedText()
                     if !value.isEmpty {
                         logDebug("[SelectedTextPlaceholder] Using selected text from active recording session")
                     }
                 }
 
-                if value.isEmpty {
+                if !useProvidedLiveContextOnly, value.isEmpty {
                     value = sanitizeContextPlaceholderValue(getSelectedText())
                     if !value.isEmpty {
                         logDebug("[SelectedTextPlaceholder] Captured selected text at placeholder execution time")
@@ -1324,8 +1342,9 @@ func processDynamicPlaceholders(
             
             // Handle appContext (captured during placeholder processing if placeholder is present)
             else if key == "appContext" {
+                let useProvidedLiveContextOnly = shouldUseCopyActionLiveContextOnly(metaJson: metaJson, key: key)
                 var value = sanitizeContextPlaceholderValue(metaJson["appContext"] as? String ?? "")
-                if value.isEmpty {
+                if !useProvidedLiveContextOnly, value.isEmpty {
                     value = sanitizeContextPlaceholderValue(getAppContext(
                         targetPid: extractFrontAppPid(from: metaJson),
                         fallbackAppName: (metaJson["frontAppName"] as? String) ?? (metaJson["frontApp"] as? String)
@@ -1343,8 +1362,9 @@ func processDynamicPlaceholders(
 
             // Handle appVocabulary (captured lazily at placeholder time from front app accessibility content)
             else if key == "appVocabulary" {
+                let useProvidedLiveContextOnly = shouldUseCopyActionLiveContextOnly(metaJson: metaJson, key: key)
                 var value = sanitizeContextPlaceholderValue(metaJson["appVocabulary"] as? String ?? "")
-                if value.isEmpty {
+                if !useProvidedLiveContextOnly, value.isEmpty {
                     value = sanitizeContextPlaceholderValue(getAppVocabulary(
                         targetPid: extractFrontAppPid(from: metaJson),
                         fallbackAppName: (metaJson["frontAppName"] as? String) ?? (metaJson["frontApp"] as? String),
@@ -1363,10 +1383,11 @@ func processDynamicPlaceholders(
 
             // Handle frontApp (captured lazily at placeholder execution time)
             else if key == "frontApp" {
+                let useProvidedLiveContextOnly = shouldUseCopyActionLiveContextOnly(metaJson: metaJson, key: key)
                 var value = sanitizeContextPlaceholderValue(
                     (metaJson["frontApp"] as? String) ?? (metaJson["frontAppName"] as? String) ?? ""
                 )
-                if value.isEmpty {
+                if !useProvidedLiveContextOnly, value.isEmpty {
                     value = sanitizeContextPlaceholderValue(getCurrentFrontAppName())
                 }
 
@@ -1381,8 +1402,9 @@ func processDynamicPlaceholders(
 
             // Handle frontAppUrl (captured lazily at placeholder execution time)
             else if key == "frontAppUrl" {
+                let useProvidedLiveContextOnly = shouldUseCopyActionLiveContextOnly(metaJson: metaJson, key: key)
                 var value = sanitizeContextPlaceholderValue(metaJson["frontAppUrl"] as? String ?? "")
-                if value.isEmpty {
+                if !useProvidedLiveContextOnly, value.isEmpty {
                     value = sanitizeContextPlaceholderValue(
                         getActiveURL(
                             targetPid: extractFrontAppPid(from: metaJson),
@@ -1401,6 +1423,7 @@ func processDynamicPlaceholders(
             
             // Handle clipboardContext
             else if key == "clipboardContext" {
+                let useProvidedLiveContextOnly = shouldUseCopyActionLiveContextOnly(metaJson: metaJson, key: key)
                 var value = sanitizeContextPlaceholderValue(metaJson["clipboardContext"] as? String ?? "")
                 let isClipboardContextLocked = (metaJson[runtimeClipboardContextLockedKey] as? Bool) ?? false
                 let enableStacking = (metaJson["clipboardStacking"] as? Bool)
@@ -1411,7 +1434,7 @@ func processDynamicPlaceholders(
                     logDebug("[ClipboardContextPlaceholder] Using clipboard context from metaJson session snapshot")
                 }
 
-                if !isClipboardContextLocked, value.isEmpty, let watcher = recordingsWatcher {
+                if !useProvidedLiveContextOnly, !isClipboardContextLocked, value.isEmpty, let watcher = recordingsWatcher {
                     let clipboardMonitor = watcher.getClipboardMonitor()
 
                     if watcher.hasActiveRecordingSessions() {

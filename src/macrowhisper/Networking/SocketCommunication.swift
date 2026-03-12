@@ -467,6 +467,100 @@ class SocketCommunication {
         return enhanced
     }
 
+    private func actionTemplateForCopyAction(actionType: ActionType, action: Any) -> String {
+        switch actionType {
+        case .insert:
+            return (action as? AppConfiguration.Insert)?.action ?? ""
+        case .url:
+            return (action as? AppConfiguration.Url)?.action ?? ""
+        case .shortcut:
+            return (action as? AppConfiguration.Shortcut)?.action ?? ""
+        case .shell:
+            return (action as? AppConfiguration.ScriptShell)?.action ?? ""
+        case .appleScript:
+            return (action as? AppConfiguration.ScriptAppleScript)?.action ?? ""
+        }
+    }
+
+    private func actionUsesPlaceholderForCopyAction(_ actionTemplate: String, key: String) -> Bool {
+        guard actionTemplate.contains("{{"), actionTemplate.contains(key) else {
+            return false
+        }
+        return true
+    }
+
+    private func prepareLiveContextMetaJsonForCopyAction(
+        metaJson: [String: Any],
+        actionType: ActionType,
+        action: Any,
+        configManager: ConfigurationManager
+    ) -> [String: Any] {
+        var enhanced = enhanceMetaJsonForCLI(metaJson: metaJson, configManager: configManager)
+        enhanced[runtimeCopyActionLiveContextKey] = true
+
+        let actionTemplate = actionTemplateForCopyAction(actionType: actionType, action: action)
+        let liveSelectedText = sanitizeContextPlaceholderValue(getSelectedText())
+        enhanced["selectedText"] = liveSelectedText
+
+        let frontApp = captureFrontAppSnapshotForCLI()
+        enhanced = applyFrontAppSnapshotToMetaForCLI(
+            metaJson: enhanced,
+            frontAppName: frontApp.name,
+            frontAppBundleId: frontApp.bundleId,
+            frontAppPid: frontApp.pid,
+            frontAppUrl: frontApp.url,
+            overwriteExisting: true
+        )
+
+        let enableStacking = configManager.config.defaults.clipboardStacking
+        var liveClipboardContext = ""
+        if let watcher = recordingsWatcher {
+            let clipboardMonitor = watcher.getClipboardMonitor()
+            if let activeRecordingPath = watcher.getMostRecentPendingRecordingPath() {
+                liveClipboardContext = sanitizeContextPlaceholderValue(
+                    clipboardMonitor.getSessionClipboardContentWithStacking(
+                        for: activeRecordingPath,
+                        swResult: "",
+                        enableStacking: enableStacking
+                    )
+                )
+            } else if enableStacking {
+                liveClipboardContext = sanitizeContextPlaceholderValue(
+                    clipboardMonitor.getRecentClipboardContentWithStacking(enableStacking: true)
+                )
+            } else {
+                liveClipboardContext = sanitizeContextPlaceholderValue(clipboardMonitor.getRecentClipboardContent())
+            }
+        }
+        enhanced["clipboardContext"] = liveClipboardContext
+        enhanced[runtimeClipboardContextLockedKey] = true
+
+        if actionUsesPlaceholderForCopyAction(actionTemplate, key: "appContext") {
+            enhanced["appContext"] = sanitizeContextPlaceholderValue(
+                getAppContext(
+                    targetPid: frontApp.pid,
+                    fallbackAppName: frontApp.name
+                )
+            )
+        } else {
+            enhanced["appContext"] = ""
+        }
+
+        if actionUsesPlaceholderForCopyAction(actionTemplate, key: "appVocabulary") {
+            enhanced["appVocabulary"] = sanitizeContextPlaceholderValue(
+                getAppVocabulary(
+                    targetPid: frontApp.pid,
+                    fallbackAppName: frontApp.name,
+                    fallbackBundleId: frontApp.bundleId
+                )
+            )
+        } else {
+            enhanced["appVocabulary"] = ""
+        }
+
+        return enhanced
+    }
+
     private func shouldBypassProcessingForCLI(modeName: String?, configManager: ConfigurationManager) -> Bool {
         let bypassModes = configManager.config.defaults.bypassModes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !bypassModes.isEmpty else { return false }
@@ -3635,15 +3729,11 @@ class SocketCommunication {
                         )
                         logInfo("Using meta source for copy-action '\(actionName)': \(resolvedMetaSource.description)")
 
-                        var enhancedMetaJson = enhanceMetaJsonForCLI(metaJson: resolvedMetaSource.metaJson, configManager: configMgr)
-                        let frontApp = captureFrontAppSnapshotForCLI()
-                        enhancedMetaJson = applyFrontAppSnapshotToMetaForCLI(
-                            metaJson: enhancedMetaJson,
-                            frontAppName: frontApp.name,
-                            frontAppBundleId: frontApp.bundleId,
-                            frontAppPid: frontApp.pid,
-                            frontAppUrl: frontApp.url,
-                            overwriteExisting: false
+                        let enhancedMetaJson = prepareLiveContextMetaJsonForCopyAction(
+                            metaJson: resolvedMetaSource.metaJson,
+                            actionType: actionType,
+                            action: action,
+                            configManager: configMgr
                         )
                         if let processedAction = processedActionContent(
                             actionType: actionType,

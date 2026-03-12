@@ -2,6 +2,10 @@
 
 ## UNRELEASED
 
+* Improvements to Context Placeholders in `--copy-action`
+  * Fixed `--copy-action` so context placeholders are resolved from live invocation-time state instead of reusing stale recording metadata.
+  * Repeated `--copy-action` calls now rebuild `{{clipboardContext}}` from the active session or recent clipboard buffer, while normal action execution still keeps its validated frozen session context.
+  * This means that during a recording, the copy action will grab fresh content for context placeholders.
 * Improvements to smart punctuation.
   * Added ellipsis (...) to the list of valid closing punctuation for the ensureSentence transform.
   * Added rules for punctuation stripping mid-sentence... specific punctuation that is allowed like `,`, `;`, `:`

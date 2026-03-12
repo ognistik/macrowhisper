@@ -1282,6 +1282,41 @@ class RecordingsFolderWatcher {
     func getMostRecentActiveRecordingPath() -> String? {
         return clipboardMonitor.getMostRecentActiveRecordingPath()
     }
+
+    /// Gets the newest recording path currently tracked by watcher-level pending state.
+    /// This is stricter than clipboard-monitor active-session lookup and is used for
+    /// features that must bind to the recording that is actively being captured now.
+    func getMostRecentPendingRecordingPath() -> String? {
+        let resolvePath: () -> String? = {
+            let metaPaths = self.pendingMetaJsonFiles.keys.map { path -> String in
+                if path.hasSuffix("/meta.json") {
+                    return URL(fileURLWithPath: path).deletingLastPathComponent().path
+                }
+                return path
+            }
+            let audioPaths = Array(self.pendingAudioFileWatchers.keys)
+            let candidates = Array(Set(metaPaths + audioPaths))
+
+            return candidates.max { lhs, rhs in
+                let lhsName = (lhs as NSString).lastPathComponent
+                let rhsName = (rhs as NSString).lastPathComponent
+                if lhsName != rhsName {
+                    return lhsName < rhsName
+                }
+                return lhs < rhs
+            }
+        }
+
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+            return resolvePath()
+        }
+
+        var resolvedPath: String?
+        queue.sync {
+            resolvedPath = resolvePath()
+        }
+        return resolvedPath
+    }
     
     /// Checks if there are any active recording sessions (pending meta.json files or audio watchers)
     func hasActiveRecordingSessions() -> Bool {

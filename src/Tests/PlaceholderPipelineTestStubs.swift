@@ -51,6 +51,10 @@ let globalState = GlobalStateManager()
 var globalConfigManager: ConfigurationManager?
 var recordingsWatcher: RecordingsFolderWatcher?
 var redactedLogsEnabled = false
+var stubSelectedText = ""
+var stubAppContext = ""
+var stubAppVocabulary = ""
+var stubActiveURL: String?
 
 func logDebug(_ message: String) {}
 func logWarning(_ message: String) {}
@@ -65,10 +69,10 @@ func escapeAppleScriptString(_ value: String) -> String { value }
 func escapeShellCharacters(_ value: String) -> String { value }
 func escapeUrlPlaceholder(_ value: String) -> String { value }
 
-func getSelectedText() -> String { "" }
-func getAppContext(targetPid: Int32?, fallbackAppName: String?) -> String { "" }
-func getAppVocabulary(targetPid: Int32?, fallbackAppName: String?, fallbackBundleId: String?) -> String { "" }
-func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> String? { nil }
+func getSelectedText() -> String { stubSelectedText }
+func getAppContext(targetPid: Int32?, fallbackAppName: String?) -> String { stubAppContext }
+func getAppVocabulary(targetPid: Int32?, fallbackAppName: String?, fallbackBundleId: String?) -> String { stubAppVocabulary }
+func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> String? { stubActiveURL }
 
 func resolveRecordingFolderPath(
     configManager: ConfigurationManager?,
