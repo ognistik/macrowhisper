@@ -10,6 +10,9 @@ private let axFrontAppRetryDelay: TimeInterval = 0.02
 private let recentAXFrontAppFallbackWindow: TimeInterval = 0.75
 private var recentAXFrontApp: (app: NSRunningApplication, timestamp: Date)?
 private let recentAXFrontAppQueue = DispatchQueue(label: "frontAppResolutionCache", attributes: .concurrent)
+private let browserInsertionCandidateCacheValidity: TimeInterval = 1.0
+private let browserInsertionCandidateCacheQueue = DispatchQueue(label: "browserInsertionCandidateCache", attributes: .concurrent)
+private var browserInsertionCandidateCache: BrowserInsertionCandidateCacheEntry?
 
 func requestAccessibilityPermission() -> Bool {
     let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
@@ -218,6 +221,14 @@ func requestSystemEventsPermissionOnStartup() {
 func isInInputField() -> Bool {
     let currentThread = Thread.current
     let threadId = String(describing: Unmanaged.passUnretained(currentThread).toOpaque())
+    let startedAt = CFAbsoluteTimeGetCurrent()
+
+    func finish(_ result: Bool, reason: String) -> Bool {
+        let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
+        logDebug("[InputField] Completed detection result=\(result) elapsedMs=\(elapsedMs) reason=\(reason)")
+        cacheResult(threadId: threadId, result: result)
+        return result
+    }
     
     // Check if we have a recent cached result for this thread
     var cachedResult: (result: Bool, timestamp: Date)?
@@ -227,7 +238,8 @@ func isInInputField() -> Bool {
     
     if let cached = cachedResult,
        Date().timeIntervalSince(cached.timestamp) < cacheValidityDuration {
-        logDebug("[InputField] Using cached input field detection result: \(cached.result)")
+        let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
+        logDebug("[InputField] Using cached input field detection result: \(cached.result) elapsedMs=\(elapsedMs)")
         return cached.result
     }
     
@@ -239,17 +251,13 @@ func isInInputField() -> Bool {
     // Check accessibility permissions first
     if !AXIsProcessTrusted() {
         logDebug("[InputField] ❌ Accessibility permissions not granted")
-        let result = false
-        cacheResult(threadId: threadId, result: result)
-        return result
+        return finish(false, reason: "permissions")
     }
     
     guard let app = resolveFrontApp() else {
         logDebug("[InputField] No frontmost app detected")
         globalState.lastDetectedFrontApp = nil
-        let result = false
-        cacheResult(threadId: threadId, result: result)
-        return result
+        return finish(false, reason: "noFrontApp")
     }
     
     // Log the detected app
@@ -267,16 +275,12 @@ func isInInputField() -> Bool {
     
     if focusedError != .success {
         logDebug("[InputField] Failed to get focused element, error: \(focusedError.rawValue)")
-        let result = false
-        cacheResult(threadId: threadId, result: result)
-        return result
+        return finish(false, reason: "focusedElementError:\(focusedError.rawValue)")
     }
     
     if focusedElement == nil {
         logDebug("[InputField] No focused element found")
-        let result = false
-        cacheResult(threadId: threadId, result: result)
-        return result
+        return finish(false, reason: "noFocusedElement")
     }
     
     let axElement = focusedElement as! AXUIElement
@@ -293,9 +297,7 @@ func isInInputField() -> Bool {
         let definiteInputRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
         if definiteInputRoles.contains(role) {
             logDebug("[InputField] ✅ Input field detected by role: \(role)")
-            let result = true
-            cacheResult(threadId: threadId, result: result)
-            return result
+            return finish(true, reason: "role:\(role)")
         }
     } else {
         logDebug("[InputField] Could not get role attribute")
@@ -311,9 +313,7 @@ func isInInputField() -> Bool {
         let definiteInputSubroles = ["AXSearchField", "AXSecureTextField", "AXTextInput"]
         if definiteInputSubroles.contains(subrole) {
             logDebug("[InputField] ✅ Input field detected by subrole: \(subrole)")
-            let result = true
-            cacheResult(threadId: threadId, result: result)
-            return result
+            return finish(true, reason: "subrole:\(subrole)")
         }
     } else {
         logDebug("[InputField] No subrole attribute found")
@@ -327,9 +327,7 @@ func isInInputField() -> Bool {
         logDebug("[InputField] Element editable: \(isEditable)")
         if isEditable {
             logDebug("[InputField] ✅ Input field detected by editable attribute")
-            let result = true
-            cacheResult(threadId: threadId, result: result)
-            return result
+            return finish(true, reason: "editable")
         }
     } else {
         logDebug("[InputField] No editable attribute found")
@@ -346,18 +344,14 @@ func isInInputField() -> Bool {
         let foundInputActions = actions.filter { inputActions.contains($0) }
         if !foundInputActions.isEmpty {
             logDebug("[InputField] ✅ Input field detected by actions: \(foundInputActions)")
-            let result = true
-            cacheResult(threadId: threadId, result: result)
-            return result
+            return finish(true, reason: "actions:\(foundInputActions.joined(separator: ","))")
         }
     } else {
         logInfo("[InputField] Could not get actions")
     }
     
     logInfo("[InputField] ❌ No input field detected")
-    let result = false
-    cacheResult(threadId: threadId, result: result)
-    return result
+    return finish(false, reason: "noMatch")
 }
 
 /// Cache the input field detection result for the current thread
@@ -459,6 +453,7 @@ struct InputInsertionContext {
 }
 
 private struct InputInsertionContextSnapshot {
+    let element: AXUIElement
     let context: InputInsertionContext
     let role: String
     let textLength: Int
@@ -466,6 +461,14 @@ private struct InputInsertionContextSnapshot {
     let depth: Int
     let neighborhood: String
     let fullText: String
+}
+
+private struct BrowserInsertionCandidateCacheEntry {
+    let appPid: pid_t
+    let rootHash: CFHashCode
+    let element: AXUIElement
+    let depth: Int
+    let timestamp: Date
 }
 
 private enum BrowserInsertionReconciliationMethod: Int {
@@ -546,6 +549,7 @@ func getInputInsertionContext(insertionText: String? = nil) -> InputInsertionCon
 }
 
 private func readInputInsertionContext(insertionText: String?) -> InputInsertionContext? {
+    let startedAt = CFAbsoluteTimeGetCurrent()
     guard AXIsProcessTrusted() else {
         logDebug("[SmartInsert] No accessibility permissions, cannot get insertion context")
         return nil
@@ -588,16 +592,38 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
         return nil
     }
 
+    let isBrowserApp = appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? "")
+    let rootHash = CFHash(element)
+
     let chosenSnapshot: InputInsertionContextSnapshot
-    if appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? ""),
-       let descendantSnapshot = findBestBrowserInsertionContextSnapshot(
-        from: element,
+    if isBrowserApp,
+       let cachedSnapshot = cachedBrowserInsertionContextSnapshot(
+        appPid: frontApp.processIdentifier,
+        rootHash: rootHash,
         frontApp: frontApp,
         rootSnapshot: rootSnapshot,
         insertionText: insertionText
        ) {
+        chosenSnapshot = cachedSnapshot
+        cacheBrowserInsertionCandidate(
+            appPid: frontApp.processIdentifier,
+            rootHash: rootHash,
+            snapshot: cachedSnapshot
+        )
+    } else if isBrowserApp,
+              let descendantSnapshot = findBestBrowserInsertionContextSnapshot(
+                from: element,
+                frontApp: frontApp,
+                rootSnapshot: rootSnapshot,
+                insertionText: insertionText
+              ) {
         chosenSnapshot = descendantSnapshot
         if descendantSnapshot.depth > 0 {
+            cacheBrowserInsertionCandidate(
+                appPid: frontApp.processIdentifier,
+                rootHash: rootHash,
+                snapshot: descendantSnapshot
+            )
             if let reconciliation = reconcileBrowserInsertionSnapshot(descendantSnapshot, against: rootSnapshot) {
                 logDebug(
                     "[SmartInsert] Browser subtree candidate reconciled method=\(reconciliation.method.label) " +
@@ -612,8 +638,11 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
                 "length=\(descendantSnapshot.selectedRange.length)} textLength=\(descendantSnapshot.textLength) " +
                 "neighborhood=\(descendantSnapshot.neighborhood)"
             )
+        } else {
+            clearBrowserInsertionCandidate(appPid: frontApp.processIdentifier, rootHash: rootHash)
         }
     } else {
+        clearBrowserInsertionCandidate(appPid: frontApp.processIdentifier, rootHash: rootHash)
         chosenSnapshot = rootSnapshot
     }
 
@@ -621,10 +650,58 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
         "[SmartInsert] Live AX read app=\(frontApp.bundleIdentifier ?? "unknown") role=\(chosenSnapshot.role) " +
         "range={location=\(chosenSnapshot.selectedRange.location), length=\(chosenSnapshot.selectedRange.length)} " +
         "textLength=\(chosenSnapshot.textLength) thread=\(Thread.isMainThread ? "main" : "background") " +
-        "depth=\(chosenSnapshot.depth) neighborhood=\(chosenSnapshot.neighborhood)"
+        "depth=\(chosenSnapshot.depth) neighborhood=\(chosenSnapshot.neighborhood) " +
+        "elapsedMs=\(Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded()))"
     )
 
     return chosenSnapshot.context
+}
+
+private func cachedBrowserInsertionContextSnapshot(
+    appPid: pid_t,
+    rootHash: CFHashCode,
+    frontApp: NSRunningApplication,
+    rootSnapshot: InputInsertionContextSnapshot,
+    insertionText: String?
+) -> InputInsertionContextSnapshot? {
+    guard let cacheEntry = currentBrowserInsertionCandidate(appPid: appPid, rootHash: rootHash) else {
+        return nil
+    }
+
+    let role = copyAXRole(from: cacheEntry.element)
+    guard shouldConsiderBrowserSelectionCandidate(cacheEntry.element, roleHint: role),
+          let snapshot = buildInputInsertionContextSnapshot(
+            for: cacheEntry.element,
+            role: role ?? "unknown",
+            frontApp: frontApp,
+            depth: cacheEntry.depth
+          ),
+          let reconciliation = reconcileBrowserInsertionSnapshot(snapshot, against: rootSnapshot) else {
+        clearBrowserInsertionCandidate(appPid: appPid, rootHash: rootHash)
+        return nil
+    }
+
+    let cachedScore = browserInsertionSnapshotScore(
+        snapshot,
+        insertionText: insertionText,
+        reconciliation: reconciliation
+    )
+    let rootScore = browserInsertionSnapshotScore(
+        rootSnapshot,
+        insertionText: insertionText,
+        reconciliation: nil
+    )
+    guard cachedScore >= rootScore else {
+        clearBrowserInsertionCandidate(appPid: appPid, rootHash: rootHash)
+        return nil
+    }
+
+    logDebug(
+        "[SmartInsert] Reused cached browser subtree candidate depth=\(snapshot.depth) " +
+        "role=\(snapshot.role) method=\(reconciliation.method.label) " +
+        "delta=\(reconciliation.deltaFromRootSelection) matchedLength=\(reconciliation.matchedLength)"
+    )
+    return snapshot
 }
 
 private func buildInputInsertionContextSnapshot(
@@ -694,6 +771,7 @@ private func buildInputInsertionContextSnapshot(
     }
 
     return InputInsertionContextSnapshot(
+        element: element,
         context: context,
         role: role,
         textLength: textLength,
@@ -846,6 +924,63 @@ private func findBestBrowserInsertionContextSnapshot(
     }
 
     return bestSnapshot
+}
+
+private func currentBrowserInsertionCandidate(appPid: pid_t, rootHash: CFHashCode) -> BrowserInsertionCandidateCacheEntry? {
+    browserInsertionCandidateCacheQueue.sync {
+        guard let cacheEntry = browserInsertionCandidateCache else {
+            return nil
+        }
+
+        if cacheEntry.appPid != appPid || cacheEntry.rootHash != rootHash {
+            return nil
+        }
+
+        if Date().timeIntervalSince(cacheEntry.timestamp) > browserInsertionCandidateCacheValidity {
+            browserInsertionCandidateCacheQueue.async(flags: .barrier) {
+                if let current = browserInsertionCandidateCache,
+                   current.appPid == appPid,
+                   current.rootHash == rootHash {
+                    browserInsertionCandidateCache = nil
+                }
+            }
+            return nil
+        }
+
+        return cacheEntry
+    }
+}
+
+private func cacheBrowserInsertionCandidate(
+    appPid: pid_t,
+    rootHash: CFHashCode,
+    snapshot: InputInsertionContextSnapshot
+) {
+    guard snapshot.depth > 0 else {
+        clearBrowserInsertionCandidate(appPid: appPid, rootHash: rootHash)
+        return
+    }
+
+    browserInsertionCandidateCacheQueue.sync(flags: .barrier) {
+        browserInsertionCandidateCache = BrowserInsertionCandidateCacheEntry(
+            appPid: appPid,
+            rootHash: rootHash,
+            element: snapshot.element,
+            depth: snapshot.depth,
+            timestamp: Date()
+        )
+    }
+}
+
+private func clearBrowserInsertionCandidate(appPid: pid_t, rootHash: CFHashCode) {
+    browserInsertionCandidateCacheQueue.sync(flags: .barrier) {
+        guard let cacheEntry = browserInsertionCandidateCache,
+              cacheEntry.appPid == appPid,
+              cacheEntry.rootHash == rootHash else {
+            return
+        }
+        browserInsertionCandidateCache = nil
+    }
 }
 
 private func shouldConsiderBrowserSelectionCandidate(_ element: AXUIElement, roleHint: String?) -> Bool {
@@ -1577,18 +1712,32 @@ private func resolveTargetApp(targetPid: Int32?) -> NSRunningApplication? {
 /// Gets active URL for the target app (or current frontmost app when pid is nil).
 /// Returns nil when accessibility isn't available, app can't be resolved, or URL cannot be extracted.
 func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> String? {
+    let startedAt = CFAbsoluteTimeGetCurrent()
+
+    func finish(_ url: String?, bundleId: String?) -> String? {
+        let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
+        let bundleDescription = bundleId ?? fallbackBundleId ?? "unknown"
+        logDebug(
+            "[ActiveURL] Lookup bundle=\(bundleDescription) hit=\(url != nil) elapsedMs=\(elapsedMs)"
+        )
+        return url
+    }
+
     guard AXIsProcessTrusted() else {
         logDebug("[AppContext] No accessibility permissions, cannot get active URL")
-        return nil
+        return finish(nil, bundleId: nil)
     }
 
     guard let targetApp = resolveTargetApp(targetPid: targetPid) else {
         logDebug("[AppContext] No target application found for active URL lookup")
-        return nil
+        return finish(nil, bundleId: nil)
     }
 
     let appElement = AXUIElementCreateApplication(targetApp.processIdentifier)
-    return getBrowserURL(appElement: appElement, frontApp: targetApp, fallbackBundleId: fallbackBundleId)
+    return finish(
+        getBrowserURL(appElement: appElement, frontApp: targetApp, fallbackBundleId: fallbackBundleId),
+        bundleId: targetApp.bundleIdentifier
+    )
 }
 
 private let arcBrowserBundleId = "company.thebrowser.Browser"

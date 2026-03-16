@@ -117,7 +117,7 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{clipboardContext}}\n\nUrl: {{frontAppUrl}}",
+      "action" : "{{clipboardContext}}\n\nUrl: {{frontAppUrl}}\n\nSelected: {{selectedText}}\n\nAppContext: {{appContext}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,

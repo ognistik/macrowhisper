@@ -803,13 +803,24 @@ class RecordingsFolderWatcher {
                     frontAppBundleId: frontAppBundleId,
                     frontAppUrl: frontAppUrl
                 )
-                let autoReturnMetaJson = resolvedCandidate?.metaJson ?? enhancedMetaJson
+                var autoReturnMetaJson = resolvedCandidate?.metaJson ?? enhancedMetaJson
                 let fallbackSwResult = (autoReturnMetaJson["llmResult"] as? String) ?? (autoReturnMetaJson["result"] as? String) ?? ""
 
                 var textToInsert = fallbackSwResult
                 var autoReturnInsert: AppConfiguration.Insert? = nil
                 var shouldUseDefaultsOnlyPostProcessing = true
                 var resolvedAutoReturnActionName: String? = nil
+
+                if let candidate = resolvedCandidate {
+                    autoReturnMetaJson = ensureFrozenFrontAppUrlIfNeeded(
+                        metaJson: autoReturnMetaJson,
+                        action: candidate.action,
+                        name: candidate.name,
+                        type: candidate.type,
+                        frontAppPid: frontAppPid,
+                        frontAppBundleId: frontAppBundleId
+                    )
+                }
 
                 if let candidate = resolvedCandidate, candidate.type == .insert, let rawInsert = candidate.action as? AppConfiguration.Insert {
                     let resolvedInsert = actionExecutor.resolveInsertForAutoReturn(rawInsert)
@@ -902,6 +913,14 @@ class RecordingsFolderWatcher {
                 
                 if let action = action {
                     logDebug("Executing scheduled action: \(actionName) (type: \(actionType))")
+                    let scheduledMetaJson = ensureFrozenFrontAppUrlIfNeeded(
+                        metaJson: enhancedMetaJson,
+                        action: action,
+                        name: actionName,
+                        type: actionType,
+                        frontAppPid: frontAppPid,
+                        frontAppBundleId: frontAppBundleId
+                    )
                     
                     // Execute the action on the main thread with cleanup callback
                     DispatchQueue.main.async { [weak self] in
@@ -909,7 +928,7 @@ class RecordingsFolderWatcher {
                             initialAction: action,
                             name: actionName,
                             type: actionType,
-                            metaJson: enhancedMetaJson,
+                            metaJson: scheduledMetaJson,
                             recordingPath: recordingPath,
                             isTriggeredAction: false
                         ) { chainResult in
@@ -960,12 +979,21 @@ class RecordingsFolderWatcher {
                 )
                 
                 // Execute the action on the main thread with cleanup callback
+                let triggerMetaJson = ensureFrozenFrontAppUrlIfNeeded(
+                    metaJson: updatedJson,
+                    action: action,
+                    name: name,
+                    type: type,
+                    frontAppPid: frontAppPid,
+                    frontAppBundleId: frontAppBundleId
+                )
+
                 DispatchQueue.main.async { [weak self] in
                     self?.actionExecutor.executeActionChain(
                         initialAction: action,
                         name: name,
                         type: type,
-                        metaJson: updatedJson,
+                        metaJson: triggerMetaJson,
                         recordingPath: recordingPath,
                         isTriggeredAction: true
                     ) { chainResult in
@@ -986,12 +1014,20 @@ class RecordingsFolderWatcher {
                 
                 if let action = action {
                     logDebug("Processing with active action: \(activeActionName) (type: \(actionType))")
+                    let activeActionMetaJson = ensureFrozenFrontAppUrlIfNeeded(
+                        metaJson: enhancedMetaJson,
+                        action: action,
+                        name: activeActionName,
+                        type: actionType,
+                        frontAppPid: frontAppPid,
+                        frontAppBundleId: frontAppBundleId
+                    )
                     DispatchQueue.main.async { [weak self] in
                         self?.actionExecutor.executeActionChain(
                             initialAction: action,
                             name: activeActionName,
                             type: actionType,
-                            metaJson: enhancedMetaJson,
+                            metaJson: activeActionMetaJson,
                             recordingPath: recordingPath,
                             isTriggeredAction: false
                         ) { chainResult in
@@ -1130,6 +1166,117 @@ class RecordingsFolderWatcher {
         }
         
         return (.insert, nil) // Default type for not found
+    }
+
+    private func hasAnyConfiguredURLTriggers() -> Bool {
+        let hasTriggerUrls: (String?) -> Bool = { rawValue in
+            !(rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }
+
+        let config = configManager.config
+        return config.inserts.values.contains { hasTriggerUrls($0.triggerUrls) } ||
+            config.urls.values.contains { hasTriggerUrls($0.triggerUrls) } ||
+            config.shortcuts.values.contains { hasTriggerUrls($0.triggerUrls) } ||
+            config.scriptsShell.values.contains { hasTriggerUrls($0.triggerUrls) } ||
+            config.scriptsAS.values.contains { hasTriggerUrls($0.triggerUrls) }
+    }
+
+    private func ensureFrozenFrontAppUrlIfNeeded(
+        metaJson: [String: Any],
+        action: Any,
+        name: String,
+        type: ActionType,
+        frontAppPid: Int32?,
+        frontAppBundleId: String?
+    ) -> [String: Any] {
+        let existingFrontAppUrl = (metaJson["frontAppUrl"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !existingFrontAppUrl.isEmpty {
+            return metaJson
+        }
+
+        guard actionChainUsesPlaceholder(initialAction: action, name: name, type: type, key: "frontAppUrl") else {
+            return metaJson
+        }
+
+        guard let frontAppUrl = getActiveURL(targetPid: frontAppPid, fallbackBundleId: frontAppBundleId),
+              !frontAppUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return metaJson
+        }
+
+        var enhancedMetaJson = metaJson
+        enhancedMetaJson["frontAppUrl"] = frontAppUrl
+        return enhancedMetaJson
+    }
+
+    private func actionChainUsesPlaceholder(
+        initialAction: Any,
+        name: String,
+        type: ActionType,
+        key: String
+    ) -> Bool {
+        var currentName = name
+        var currentType = type
+        var currentAction: Any = initialAction
+        var visited = Set<String>()
+
+        while true {
+            if visited.contains(currentName) {
+                return false
+            }
+            visited.insert(currentName)
+
+            if let template = actionTemplate(for: currentAction, type: currentType),
+               template.contains("{{"),
+               template.contains(key) {
+                return true
+            }
+
+            guard let nextActionName = rawNextActionName(for: currentAction, type: currentType)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !nextActionName.isEmpty else {
+                return false
+            }
+
+            let (nextType, nextAction) = findActionByName(nextActionName, configManager: configManager)
+            guard let nextAction else {
+                return false
+            }
+
+            currentName = nextActionName
+            currentType = nextType
+            currentAction = nextAction
+        }
+    }
+
+    private func actionTemplate(for action: Any, type: ActionType) -> String? {
+        switch type {
+        case .insert:
+            return (action as? AppConfiguration.Insert)?.action
+        case .url:
+            return (action as? AppConfiguration.Url)?.action
+        case .shortcut:
+            return (action as? AppConfiguration.Shortcut)?.action
+        case .shell:
+            return (action as? AppConfiguration.ScriptShell)?.action
+        case .appleScript:
+            return (action as? AppConfiguration.ScriptAppleScript)?.action
+        }
+    }
+
+    private func rawNextActionName(for action: Any, type: ActionType) -> String? {
+        switch type {
+        case .insert:
+            return (action as? AppConfiguration.Insert)?.nextAction
+        case .url:
+            return (action as? AppConfiguration.Url)?.nextAction
+        case .shortcut:
+            return (action as? AppConfiguration.Shortcut)?.nextAction
+        case .shell:
+            return (action as? AppConfiguration.ScriptShell)?.nextAction
+        case .appleScript:
+            return (action as? AppConfiguration.ScriptAppleScript)?.nextAction
+        }
     }
 
     private typealias MatchedTriggerAction = (action: Any, name: String, type: ActionType, strippedResult: String?)
