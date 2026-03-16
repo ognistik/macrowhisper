@@ -287,7 +287,7 @@ private func resolveVocabularyTargetApp(targetPid: Int32?) -> NSRunningApplicati
             return app
         }
     }
-    return NSWorkspace.shared.frontmostApplication
+    return resolveFrontApp()
 }
 
 private func collectVocabularySnippets(

@@ -713,14 +713,7 @@ class RecordingsFolderWatcher {
             }
             
             // Always update lastDetectedFrontApp to the current frontmost app for app triggers and input field detection
-            var frontApp: NSRunningApplication?
-            if Thread.isMainThread {
-                frontApp = NSWorkspace.shared.frontmostApplication
-            } else {
-                DispatchQueue.main.sync {
-                    frontApp = NSWorkspace.shared.frontmostApplication
-                }
-            }
+            let frontApp = resolveFrontApp()
             globalState.lastDetectedFrontApp = frontApp
             
             // Get front app info for app triggers

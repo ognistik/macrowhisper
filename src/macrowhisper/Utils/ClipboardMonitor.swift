@@ -994,7 +994,7 @@ class ClipboardMonitor {
             
             // CRITICAL: Capture frontmost app info IMMEDIATELY when detecting clipboard change
             // This prevents race conditions where the user switches apps before we can check
-            let frontApp = NSWorkspace.shared.frontmostApplication
+            let frontApp = resolveFrontApp()
             let appName = frontApp?.localizedName ?? ""
             let bundleId = frontApp?.bundleIdentifier ?? ""
             
@@ -1591,21 +1591,7 @@ class ClipboardMonitor {
     /// Checks if the frontmost application should be ignored based on clipboardIgnore pattern
     /// Returns true if the app matches the ignore pattern, false otherwise
     private func shouldIgnoreFrontmostApp() -> Bool {
-        // Get the frontmost application
-        let frontApp: NSRunningApplication?
-        if Thread.isMainThread {
-            frontApp = NSWorkspace.shared.frontmostApplication
-        } else {
-            var app: NSRunningApplication?
-            let semaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                app = NSWorkspace.shared.frontmostApplication
-                semaphore.signal()
-            }
-            _ = semaphore.wait(timeout: .now() + 0.1)
-            frontApp = app
-        }
-        
+        let frontApp = resolveFrontApp()
         guard let app = frontApp else { return false }
         
         // Get app name and bundle ID for matching
@@ -1807,7 +1793,7 @@ class ClipboardMonitor {
         
         // CRITICAL: Capture frontmost app info IMMEDIATELY when detecting clipboard change
         // This prevents race conditions where the user switches apps before we can check
-        let frontApp = NSWorkspace.shared.frontmostApplication
+        let frontApp = resolveFrontApp()
         let appName = frontApp?.localizedName ?? ""
         let bundleId = frontApp?.bundleIdentifier ?? ""
         

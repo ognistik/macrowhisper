@@ -5,6 +5,11 @@ import Cocoa
 private var inputFieldDetectionCache: [String: (result: Bool, timestamp: Date)] = [:]
 private let cacheValidityDuration: TimeInterval = 0.5 // Cache result for 500ms
 private let cacheQueue = DispatchQueue(label: "inputFieldDetectionCache", attributes: .concurrent)
+private let axFrontAppRetryAttempts = 3
+private let axFrontAppRetryDelay: TimeInterval = 0.02
+private let recentAXFrontAppFallbackWindow: TimeInterval = 0.75
+private var recentAXFrontApp: (app: NSRunningApplication, timestamp: Date)?
+private let recentAXFrontAppQueue = DispatchQueue(label: "frontAppResolutionCache", attributes: .concurrent)
 
 func requestAccessibilityPermission() -> Bool {
     let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
@@ -41,6 +46,120 @@ func requestAccessibilityPermissionOnStartup() {
     
     // Also request System Events control permission for features that automate System Events
     requestSystemEventsPermissionOnStartup()
+}
+
+private func cacheRecentAXFrontApp(_ app: NSRunningApplication?) {
+    recentAXFrontAppQueue.sync(flags: .barrier) {
+        if let app, !app.isTerminated {
+            recentAXFrontApp = (app: app, timestamp: Date())
+        } else {
+            recentAXFrontApp = nil
+        }
+    }
+}
+
+private func getRecentAXFrontApp(maxAge: TimeInterval = recentAXFrontAppFallbackWindow) -> NSRunningApplication? {
+    recentAXFrontAppQueue.sync {
+        guard let cached = recentAXFrontApp,
+              Date().timeIntervalSince(cached.timestamp) <= maxAge,
+              !cached.app.isTerminated else {
+            return nil
+        }
+        return cached.app
+    }
+}
+
+private func runningApplication(for pid: pid_t?) -> NSRunningApplication? {
+    guard let pid, pid > 0,
+          let app = NSRunningApplication(processIdentifier: pid),
+          !app.isTerminated else {
+        return nil
+    }
+    return app
+}
+
+private func copyAXElementAttribute(_ element: AXUIElement, attribute: CFString) -> AXUIElement? {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, attribute, &value)
+    guard error == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+        return nil
+    }
+    return unsafeBitCast(value, to: AXUIElement.self)
+}
+
+private func pidForAXElement(_ element: AXUIElement) -> pid_t? {
+    var pid: pid_t = 0
+    let error = AXUIElementGetPid(element, &pid)
+    guard error == .success, pid > 0 else {
+        return nil
+    }
+    return pid
+}
+
+private func getWorkspaceFrontmostApplication(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
+    if Thread.isMainThread {
+        return NSWorkspace.shared.frontmostApplication
+    }
+
+    var frontApp: NSRunningApplication?
+    let semaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async {
+        frontApp = NSWorkspace.shared.frontmostApplication
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + timeout)
+    return frontApp
+}
+
+private func getAXFocusedApplicationOnce() -> NSRunningApplication? {
+    let systemWideElement = AXUIElementCreateSystemWide()
+
+    if let focusedElement = copyAXElementAttribute(systemWideElement, attribute: kAXFocusedUIElementAttribute as CFString),
+       let focusedElementApp = runningApplication(for: pidForAXElement(focusedElement)) {
+        return focusedElementApp
+    }
+
+    if let focusedAppElement = copyAXElementAttribute(systemWideElement, attribute: kAXFocusedApplicationAttribute as CFString),
+       let focusedApp = runningApplication(for: pidForAXElement(focusedAppElement)) {
+        return focusedApp
+    }
+
+    return nil
+}
+
+private func getAXFocusedApplicationWithRetries() -> NSRunningApplication? {
+    guard AXIsProcessTrusted() else {
+        return nil
+    }
+
+    for attempt in 0..<axFrontAppRetryAttempts {
+        if let app = getAXFocusedApplicationOnce() {
+            return app
+        }
+
+        if attempt + 1 < axFrontAppRetryAttempts {
+            Thread.sleep(forTimeInterval: axFrontAppRetryDelay)
+        }
+    }
+
+    return nil
+}
+
+func resolveFrontApp(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
+    if let axFocusedApp = getAXFocusedApplicationWithRetries() {
+        cacheRecentAXFrontApp(axFocusedApp)
+        globalState.lastDetectedFrontApp = axFocusedApp
+        return axFocusedApp
+    }
+
+    if let recentApp = getRecentAXFrontApp() {
+        globalState.lastDetectedFrontApp = recentApp
+        return recentApp
+    }
+
+    let workspaceApp = getWorkspaceFrontmostApplication(timeout: timeout)
+    globalState.lastDetectedFrontApp = workspaceApp
+    return workspaceApp
 }
 
 /// Checks if System Events control permission is granted (used by System Events automation features)
@@ -125,28 +244,7 @@ func isInInputField() -> Bool {
         return result
     }
     
-    // Get the frontmost application - handle main thread case properly
-    var frontApp: NSRunningApplication?
-    
-    if Thread.isMainThread {
-        // We're already on the main thread, get the app directly
-        frontApp = NSWorkspace.shared.frontmostApplication
-        logDebug("[InputField] Getting frontmost app directly (main thread)")
-    } else {
-        // We're on a background thread, use semaphore
-        logDebug("[InputField] Getting frontmost app via dispatch (background thread)")
-        let semaphore = DispatchSemaphore(value: 0)
-        
-        DispatchQueue.main.async {
-            frontApp = NSWorkspace.shared.frontmostApplication
-            semaphore.signal()
-        }
-        
-        // Wait for the main thread to get the frontmost app
-        _ = semaphore.wait(timeout: .now() + 0.1)
-    }
-    
-    guard let app = frontApp else {
+    guard let app = resolveFrontApp() else {
         logDebug("[InputField] No frontmost app detected")
         globalState.lastDetectedFrontApp = nil
         let result = false
@@ -401,21 +499,6 @@ private func isIgnorableBoundaryCharacterForSmartInsert(_ character: Character?)
     return SmartInsertBoundary.isIgnorableBoundaryCharacter(character)
 }
 
-private func getFrontmostApplicationForAccessibility(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
-    if Thread.isMainThread {
-        return NSWorkspace.shared.frontmostApplication
-    }
-
-    var frontApp: NSRunningApplication?
-    let semaphore = DispatchSemaphore(value: 0)
-    DispatchQueue.main.async {
-        frontApp = NSWorkspace.shared.frontmostApplication
-        semaphore.signal()
-    }
-    _ = semaphore.wait(timeout: .now() + timeout)
-    return frontApp
-}
-
 private func isInputLikeElementForSmartInsert(_ element: AXUIElement, roleHint: String?) -> Bool {
     let inputRoles = Set(["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"])
     if let roleHint, inputRoles.contains(roleHint) {
@@ -468,7 +551,7 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
         return nil
     }
 
-    guard let frontApp = getFrontmostApplicationForAccessibility() else {
+    guard let frontApp = resolveFrontApp(timeout: 0.2) else {
         logDebug("[SmartInsert] No frontmost application found")
         return nil
     }
@@ -1241,7 +1324,7 @@ func getSelectedText() -> String {
     }
     
     // Get the frontmost application using the same thread-safe path as other AX helpers.
-    guard let frontApp = getFrontmostApplicationForAccessibility() else {
+    guard let frontApp = resolveFrontApp(timeout: 0.2) else {
         logDebug("[SelectedText] No frontmost application found")
         return ""
     }
@@ -1488,7 +1571,7 @@ private func resolveTargetApp(targetPid: Int32?) -> NSRunningApplication? {
             return app
         }
     }
-    return NSWorkspace.shared.frontmostApplication
+    return resolveFrontApp()
 }
 
 /// Gets active URL for the target app (or current frontmost app when pid is nil).
@@ -2050,7 +2133,7 @@ func debugDumpFrontAppAccessibilityTree(maxDepth: Int = 8) {
         return
     }
 
-    guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+    guard let frontApp = resolveFrontApp(timeout: 0.2) else {
         print("No frontmost application found.")
         return
     }

@@ -578,15 +578,7 @@ class SocketCommunication {
     }
 
     private func captureFrontAppSnapshotForCLI() -> (name: String?, bundleId: String?, pid: Int32?, url: String?) {
-        var frontApp: NSRunningApplication?
-        if Thread.isMainThread {
-            frontApp = NSWorkspace.shared.frontmostApplication
-        } else {
-            DispatchQueue.main.sync {
-                frontApp = NSWorkspace.shared.frontmostApplication
-            }
-        }
-
+        let frontApp = resolveFrontApp()
         globalState.lastDetectedFrontApp = frontApp
         let appName = frontApp?.localizedName
         let bundleId = frontApp?.bundleIdentifier

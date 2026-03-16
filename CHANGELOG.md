@@ -1,6 +1,8 @@
 # CHANGELOG
 
 ## UNRELEASED
+* **Improved detection of front app.** It resolves with AX detection first, uses NSWorkspace as fallback.
+  * It should be more reliable with special window types.
 
 ## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.1) - 2026/03/16
 ### Changed

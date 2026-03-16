@@ -1537,21 +1537,7 @@ func processDynamicPlaceholders(
 }
 
 private func getCurrentFrontAppName() -> String {
-    if Thread.isMainThread {
-        let frontApp = NSWorkspace.shared.frontmostApplication
-        globalState.lastDetectedFrontApp = frontApp
-        return frontApp?.localizedName ?? ""
-    }
-
-    var fetchedApp: NSRunningApplication?
-    let semaphore = DispatchSemaphore(value: 0)
-    DispatchQueue.main.async {
-        fetchedApp = NSWorkspace.shared.frontmostApplication
-        globalState.lastDetectedFrontApp = fetchedApp
-        semaphore.signal()
-    }
-    _ = semaphore.wait(timeout: .now() + 0.1)
-    return fetchedApp?.localizedName ?? ""
+    resolveFrontApp()?.localizedName ?? ""
 }
 
 private func extractFrontAppPid(from metaJson: [String: Any]) -> Int32? {
