@@ -260,7 +260,7 @@
   },
   "urls" : {
     "1337" : {
-      "action" : "https://1337x.to/search/{{selectedText||(\\.$)||}}{{clipboardContext||\\.$||}}/1/",
+      "action" : "https://1337x.to/search/{{selectedText::lowercase||(\\.$)||}}{{clipboardContext::lowercase||\\.$||}}/1/",
       "actionDelay" : null,
       "icon" : null,
       "inputCondition" : null,
