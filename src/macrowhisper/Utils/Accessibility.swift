@@ -1263,6 +1263,28 @@ private func makeBrowserInsertionReconciliation(
         return nil
     }
 
+    let hasLocalLeftEvidence =
+        candidate.context.leftCharacter != nil || candidate.context.leftNonWhitespaceCharacter != nil
+    let hasLocalRightEvidence =
+        candidate.context.rightCharacter != nil || candidate.context.rightNonWhitespaceCharacter != nil
+    let hasMappedLeftEvidence =
+        mappedContext.leftCharacter != nil || mappedContext.leftNonWhitespaceCharacter != nil
+    let hasMappedRightEvidence =
+        mappedContext.rightCharacter != nil || mappedContext.rightNonWhitespaceCharacter != nil
+
+    let overrideEvidence = SmartInsertHeuristics.BrowserOverrideEvidence(
+        role: candidate.role,
+        mappedRootLocation: mappedRootLocation,
+        rootSelectionLocation: rootSnapshot.selectedRange.location,
+        hasLocalLeftEvidence: hasLocalLeftEvidence,
+        hasLocalRightEvidence: hasLocalRightEvidence,
+        hasMappedLeftEvidence: hasMappedLeftEvidence,
+        hasMappedRightEvidence: hasMappedRightEvidence
+    )
+    guard SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(overrideEvidence) else {
+        return nil
+    }
+
     return BrowserInsertionReconciliation(
         mappedRootRange: mappedRootRange,
         deltaFromRootSelection: abs(rootSnapshot.selectedRange.location - mappedRootLocation),

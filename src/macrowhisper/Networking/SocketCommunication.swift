@@ -1813,21 +1813,25 @@ class SocketCommunication {
         } ?? false
 
         if let first = updated.first {
+            let immediateLeftIsWhitespace = leftCharacter?.isWhitespace == true
             let shouldInsertLeadingSpaceForMarkdownList =
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
-                !(leftCharacter?.isWhitespace ?? false)
+                !immediateLeftIsWhitespace
             let shouldInsertLeadingSpaceAfterWord = effectiveLeft.map { isWordCharacter($0) } ?? false
             let punctuationNeedingTrailingSpace = ".,;:!?)]}\"”’»›"
             let shouldInsertLeadingSpaceAfterPunctuation = effectiveLeft.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
             let startsWithBoundaryNeedingLeadingSpace = isWordCharacter(first) || isOpeningWrapperCharacter(first)
             let shouldInsertLeadingSpaceBeforeOpeningWrapper = (effectiveLeft.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
 
-            if startsWithBoundaryNeedingLeadingSpace &&
-                !isImmediatelyAfterOpeningWrapper &&
-                (shouldInsertLeadingSpaceForMarkdownList ||
-                 shouldInsertLeadingSpaceAfterWord ||
-                 shouldInsertLeadingSpaceAfterPunctuation ||
-                 shouldInsertLeadingSpaceBeforeOpeningWrapper) {
+            if SmartInsertHeuristics.shouldInsertLeadingSpace(
+                immediateLeftIsWhitespace: immediateLeftIsWhitespace,
+                startsWithBoundaryNeedingLeadingSpace: startsWithBoundaryNeedingLeadingSpace,
+                isImmediatelyAfterOpeningWrapper: isImmediatelyAfterOpeningWrapper,
+                shouldInsertLeadingSpaceForMarkdownList: shouldInsertLeadingSpaceForMarkdownList,
+                shouldInsertLeadingSpaceAfterWord: shouldInsertLeadingSpaceAfterWord,
+                shouldInsertLeadingSpaceAfterPunctuation: shouldInsertLeadingSpaceAfterPunctuation,
+                shouldInsertLeadingSpaceBeforeOpeningWrapper: shouldInsertLeadingSpaceBeforeOpeningWrapper
+            ) {
                 updated = " " + updated
             }
         }
