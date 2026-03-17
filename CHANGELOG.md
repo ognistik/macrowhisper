@@ -1,6 +1,7 @@
 # CHANGELOG
 
 ## UNRELEASED
+* **Improvement.** Input field detection has been refactored to improve the speed of action execution (especially on browsers)
 * **Improved detection of front app.** It resolves with AX detection first, uses NSWorkspace as fallback.
   * It should be more reliable with special window types.
 * More improvements and better fallbacks for smart insertion in supported browsers.
