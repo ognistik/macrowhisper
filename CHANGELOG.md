@@ -5,6 +5,10 @@
 * **Improved detection of front app.** It resolves with AX detection first, uses NSWorkspace as fallback.
   * It should be more reliable with special window types.
 * More improvements and better fallbacks for smart insertion in supported browsers.
+* Improved smart insertion around paragraph boundaries, especially in supported browsers. 
+  * Ambiguous newline caret positions now use a safer browser-only resolution path and fall back to the correct paragraph-end behavior instead of forcing the wrong line-start interpretation.
+* Also fixed a related regression in non-browser text areas, where smart insertion could incorrectly rewrite valid before-newline positions.
+  * Added focused regression coverage for browser ambiguity resolution and newline-boundary handling.
 
 ## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.1) - 2026/03/16
 ### Changed
