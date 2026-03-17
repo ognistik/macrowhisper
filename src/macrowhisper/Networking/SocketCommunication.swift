@@ -1538,6 +1538,9 @@ class SocketCommunication {
         let original = resolved
         var context = initialContext
         var lowConfidenceContext = false
+        let insertionIsSentenceLike = isSentenceLikeInsertionText(resolved)
+        let frontBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+        let shouldAllowBrowserAmbiguousNewlineBias = appVocabularyBrowserBundleIds.contains(frontBundleId)
 
         if shouldRetryInsertionContextRead(initialContext, insertionText: resolved) {
             if let retryContext = getInputInsertionContext(insertionText: resolved) {
@@ -1561,6 +1564,15 @@ class SocketCommunication {
         if lowConfidenceContext {
             logDebug("[SmartInsert] Low-confidence context: skipping smart casing, punctuation, and spacing")
             return resolved
+        }
+
+        if let normalizedContext = normalizedContextForAmbiguousNewlineBoundary(
+            context,
+            insertionIsSentenceLike: insertionIsSentenceLike,
+            shouldAllowBrowserAmbiguousNewlineBias: shouldAllowBrowserAmbiguousNewlineBias
+        ) {
+            context = normalizedContext
+            logDebug("[SmartInsert] Normalized ambiguous browser newline boundary to line-start context")
         }
 
         if smartCasingEnabled {
@@ -1654,6 +1666,34 @@ class SocketCommunication {
             return false
         }
         return String(firstLetter).rangeOfCharacter(from: .uppercaseLetters) != nil
+    }
+
+    private func normalizedContextForAmbiguousNewlineBoundary(
+        _ context: InputInsertionContext,
+        insertionIsSentenceLike: Bool,
+        shouldAllowBrowserAmbiguousNewlineBias: Bool
+    ) -> InputInsertionContext? {
+        guard SmartInsertHeuristics.shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
+            isBrowserApp: shouldAllowBrowserAmbiguousNewlineBias,
+            leftCharacter: context.leftCharacter,
+            leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
+            rightCharacter: context.rightCharacter,
+            rightNonWhitespaceCharacter: context.rightNonWhitespaceCharacter,
+            rightHasLineBreakBeforeNextNonWhitespace: context.rightHasLineBreakBeforeNextNonWhitespace,
+            insertionIsSentenceLike: insertionIsSentenceLike
+        ),
+        let normalizedRightCharacter = context.rightNonWhitespaceCharacter else {
+            return nil
+        }
+
+        return InputInsertionContext(
+            leftCharacter: "\n",
+            leftNonWhitespaceCharacter: nil,
+            leftLinePrefix: "",
+            rightCharacter: normalizedRightCharacter,
+            rightNonWhitespaceCharacter: normalizedRightCharacter,
+            rightHasLineBreakBeforeNextNonWhitespace: false
+        )
     }
 
     private func applySmartCasing(

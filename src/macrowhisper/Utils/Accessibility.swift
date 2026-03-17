@@ -673,9 +673,10 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
 
     let isBrowserApp = appVocabularyBrowserBundleIds.contains(frontApp.bundleIdentifier ?? "")
     let rootHash = CFHash(element)
+    let shouldInspectDescendants = isBrowserApp && shouldInspectBrowserDescendants(rootSnapshot)
 
     let chosenSnapshot: InputInsertionContextSnapshot
-    if isBrowserApp,
+    if shouldInspectDescendants,
        let cachedSnapshot = cachedBrowserInsertionContextSnapshot(
         appPid: frontApp.processIdentifier,
         rootHash: rootHash,
@@ -689,7 +690,7 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
             rootHash: rootHash,
             snapshot: cachedSnapshot
         )
-    } else if isBrowserApp,
+    } else if shouldInspectDescendants,
               let descendantSnapshot = findBestBrowserInsertionContextSnapshot(
                 from: element,
                 frontApp: frontApp,
@@ -734,6 +735,22 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
     )
 
     return chosenSnapshot.context
+}
+
+private func shouldInspectBrowserDescendants(_ rootSnapshot: InputInsertionContextSnapshot) -> Bool {
+    let hasLeftEvidence =
+        rootSnapshot.context.leftCharacter != nil || rootSnapshot.context.leftNonWhitespaceCharacter != nil
+    let hasRightEvidence =
+        rootSnapshot.context.rightCharacter != nil || rootSnapshot.context.rightNonWhitespaceCharacter != nil
+
+    let evidence = SmartInsertHeuristics.BrowserRootSelectionEvidence(
+        selectionLocation: rootSnapshot.selectedRange.location,
+        selectionLength: rootSnapshot.selectedRange.length,
+        textLength: rootSnapshot.textLength,
+        hasLeftEvidence: hasLeftEvidence,
+        hasRightEvidence: hasRightEvidence
+    )
+    return SmartInsertHeuristics.shouldInspectBrowserDescendants(evidence)
 }
 
 private func cachedBrowserInsertionContextSnapshot(
@@ -1350,11 +1367,17 @@ private func makeBrowserInsertionReconciliation(
         mappedContext.leftCharacter != nil || mappedContext.leftNonWhitespaceCharacter != nil
     let hasMappedRightEvidence =
         mappedContext.rightCharacter != nil || mappedContext.rightNonWhitespaceCharacter != nil
+    let gapContainsLineBreak = browserSelectionGapContainsLineBreak(
+        rootText: rootSnapshot.fullText,
+        firstLocation: mappedRootLocation,
+        secondLocation: rootSnapshot.selectedRange.location
+    )
 
     let overrideEvidence = SmartInsertHeuristics.BrowserOverrideEvidence(
         role: candidate.role,
         mappedRootLocation: mappedRootLocation,
         rootSelectionLocation: rootSnapshot.selectedRange.location,
+        gapContainsLineBreak: gapContainsLineBreak,
         hasLocalLeftEvidence: hasLocalLeftEvidence,
         hasLocalRightEvidence: hasLocalRightEvidence,
         hasMappedLeftEvidence: hasMappedLeftEvidence,
@@ -1373,6 +1396,23 @@ private func makeBrowserInsertionReconciliation(
         matchedLength: matchedRootRange.length,
         method: method
     )
+}
+
+private func browserSelectionGapContainsLineBreak(
+    rootText: String,
+    firstLocation: Int,
+    secondLocation: Int
+) -> Bool {
+    let lowerBound = min(firstLocation, secondLocation)
+    let upperBound = max(firstLocation, secondLocation)
+    guard upperBound > lowerBound else {
+        return false
+    }
+
+    let nsText = rootText as NSString
+    let gapRange = NSRange(location: lowerBound, length: upperBound - lowerBound)
+    let gapText = nsText.substring(with: gapRange)
+    return gapText.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) })
 }
 
 private func browserContextsMatch(
