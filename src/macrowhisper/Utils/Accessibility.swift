@@ -746,19 +746,22 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
         chosenSnapshot = rootSnapshot
     }
 
+    let effectiveSnapshot: InputInsertionContextSnapshot
+    if isBrowserApp {
+        effectiveSnapshot = resolvedBrowserInsertionContextSnapshot(from: chosenSnapshot)
+    } else {
+        effectiveSnapshot = chosenSnapshot
+    }
+
     logDebug(
-        "[SmartInsert] Live AX read app=\(frontApp.bundleIdentifier ?? "unknown") role=\(chosenSnapshot.role) " +
-        "range={location=\(chosenSnapshot.selectedRange.location), length=\(chosenSnapshot.selectedRange.length)} " +
-        "textLength=\(chosenSnapshot.textLength) thread=\(Thread.isMainThread ? "main" : "background") " +
-        "depth=\(chosenSnapshot.depth) neighborhood=\(chosenSnapshot.neighborhood) " +
+        "[SmartInsert] Live AX read app=\(frontApp.bundleIdentifier ?? "unknown") role=\(effectiveSnapshot.role) " +
+        "range={location=\(effectiveSnapshot.selectedRange.location), length=\(effectiveSnapshot.selectedRange.length)} " +
+        "textLength=\(effectiveSnapshot.textLength) thread=\(Thread.isMainThread ? "main" : "background") " +
+        "depth=\(effectiveSnapshot.depth) neighborhood=\(effectiveSnapshot.neighborhood) " +
         "elapsedMs=\(Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded()))"
     )
 
-    if isBrowserApp {
-        return resolvedBrowserAmbiguousNewlineContext(from: chosenSnapshot)
-    }
-
-    return chosenSnapshot.context
+    return effectiveSnapshot.context
 }
 
 private func shouldInspectBrowserDescendants(_ rootSnapshot: InputInsertionContextSnapshot) -> Bool {
@@ -996,9 +999,182 @@ private func deriveInputInsertionContext(
     )
 }
 
-private func resolvedBrowserAmbiguousNewlineContext(
+private func resolvedBrowserInsertionContextSnapshot(
     from snapshot: InputInsertionContextSnapshot
-) -> InputInsertionContext {
+) -> InputInsertionContextSnapshot {
+    let inlineCorrectedSnapshot = correctedBrowserInlineCaretDriftSnapshot(from: snapshot)
+    return resolvedBrowserAmbiguousNewlineSnapshot(from: inlineCorrectedSnapshot)
+}
+
+private func correctedBrowserInlineCaretDriftSnapshot(
+    from snapshot: InputInsertionContextSnapshot
+) -> InputInsertionContextSnapshot {
+    guard snapshot.depth == 0,
+          snapshot.selectedRange.length == 0,
+          let correctedRange = correctedBrowserInlineCaretDriftRange(from: snapshot),
+          correctedRange.location != snapshot.selectedRange.location,
+          let correctedContext = deriveInputInsertionContext(
+            fullText: snapshot.fullText,
+            selectedRange: correctedRange
+          ) else {
+        return snapshot
+    }
+
+    logDebug(
+        "[SmartInsert] Browser inline caret drift corrected rawLocation=\(snapshot.selectedRange.location) " +
+        "correctedLocation=\(correctedRange.location)"
+    )
+
+    return InputInsertionContextSnapshot(
+        element: snapshot.element,
+        context: correctedContext,
+        role: snapshot.role,
+        textLength: snapshot.textLength,
+        selectedRange: correctedRange,
+        depth: snapshot.depth,
+        neighborhood: debugCaretNeighborhoodSnippet(fullText: snapshot.fullText, selectedRange: correctedRange),
+        fullText: snapshot.fullText
+    )
+}
+
+private func correctedBrowserInlineCaretDriftRange(
+    from snapshot: InputInsertionContextSnapshot
+) -> CFRange? {
+    let insertionLocation = Int(snapshot.selectedRange.location)
+    guard insertionLocation < snapshot.textLength else {
+        return nil
+    }
+
+    guard let caretBounds = copyAXBoundsForRange(
+        NSRange(location: insertionLocation, length: 0),
+        from: snapshot.element
+    ) else {
+        return nil
+    }
+
+    var correctedLocation: Int?
+    var candidateLocation = insertionLocation
+
+    while candidateLocation < snapshot.textLength,
+          let candidate = browserInlineCaretDriftCandidate(
+            in: snapshot,
+            at: candidateLocation,
+            caretBounds: caretBounds
+          ),
+          SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(candidate.evidence) {
+        correctedLocation = candidate.nextLocation
+        if SmartInsertHeuristics.shouldStopBrowserInlineCaretDriftAfterCorrection(candidate.evidence) {
+            break
+        }
+        candidateLocation = candidate.nextLocation
+    }
+
+    guard let correctedLocation, correctedLocation != insertionLocation else {
+        return nil
+    }
+
+    return CFRange(location: correctedLocation, length: snapshot.selectedRange.length)
+}
+
+private func browserInlineCaretDriftCandidate(
+    in snapshot: InputInsertionContextSnapshot,
+    at location: Int,
+    caretBounds: CGRect
+) -> (evidence: SmartInsertHeuristics.BrowserInlineCaretDriftEvidence, nextLocation: Int)? {
+    guard location < snapshot.textLength else {
+        return nil
+    }
+
+    let nsText = snapshot.fullText as NSString
+    let rightRange = nsText.rangeOfComposedCharacterSequence(at: location)
+    let rightString = nsText.substring(with: rightRange)
+    guard let rightCharacter = rightString.first,
+          let rightBounds = copyAXBoundsForRange(rightRange, from: snapshot.element) else {
+        return nil
+    }
+
+    let nextCursor = rightRange.location + rightRange.length
+    let nextCharacterAfterRight: Character?
+    let nextCharacterAfterRightRange: NSRange?
+    if nextCursor < snapshot.textLength {
+        let nextRange = nsText.rangeOfComposedCharacterSequence(at: nextCursor)
+        nextCharacterAfterRight = nsText.substring(with: nextRange).first
+        nextCharacterAfterRightRange = nextRange
+    } else {
+        nextCharacterAfterRight = nil
+        nextCharacterAfterRightRange = nil
+    }
+
+    var hasLineBreakBeforeNextNonWhitespaceAfterRight = false
+    var nextNonWhitespaceAfterRightStartsUppercase = false
+    var scanCursor = nextCursor
+    while scanCursor < snapshot.textLength {
+        let scanRange = nsText.rangeOfComposedCharacterSequence(at: scanCursor)
+        let value = nsText.substring(with: scanRange)
+        if let character = value.first,
+           !character.isWhitespace,
+           !isIgnorableBoundaryCharacterForSmartInsert(character) {
+            nextNonWhitespaceAfterRightStartsUppercase =
+                String(character).rangeOfCharacter(from: .uppercaseLetters) != nil
+            break
+        }
+        if value.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) {
+            hasLineBreakBeforeNextNonWhitespaceAfterRight = true
+        }
+        scanCursor = scanRange.location + scanRange.length
+    }
+
+    let nextCharacterAfterRightIsParagraphFinalPunctuation: Bool
+    if let nextCharacterAfterRight,
+       ".!?".contains(nextCharacterAfterRight),
+       let nextCharacterAfterRightRange {
+        var hasLineBreakBeforeNextNonWhitespaceAfterPunctuation = false
+        var nextNonWhitespaceAfterPunctuationStartsUppercase = false
+        var punctuationScanCursor = nextCharacterAfterRightRange.location + nextCharacterAfterRightRange.length
+
+        while punctuationScanCursor < snapshot.textLength {
+            let scanRange = nsText.rangeOfComposedCharacterSequence(at: punctuationScanCursor)
+            let value = nsText.substring(with: scanRange)
+            if let character = value.first,
+               !character.isWhitespace,
+               !isIgnorableBoundaryCharacterForSmartInsert(character) {
+                nextNonWhitespaceAfterPunctuationStartsUppercase =
+                    String(character).rangeOfCharacter(from: .uppercaseLetters) != nil
+                break
+            }
+            if value.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) {
+                hasLineBreakBeforeNextNonWhitespaceAfterPunctuation = true
+            }
+            punctuationScanCursor = scanRange.location + scanRange.length
+        }
+
+        nextCharacterAfterRightIsParagraphFinalPunctuation =
+            hasLineBreakBeforeNextNonWhitespaceAfterPunctuation &&
+            nextNonWhitespaceAfterPunctuationStartsUppercase
+    } else {
+        nextCharacterAfterRightIsParagraphFinalPunctuation = false
+    }
+
+    return (
+        SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+            caretX: Double(caretBounds.minX),
+            rightCharacterMaxX: Double(rightBounds.maxX),
+            caretAndRightShareLine: abs(caretBounds.midY - rightBounds.midY) < 4,
+            rightCharacterIsWhitespace: rightCharacter.isWhitespace,
+            rightCharacterIsWord: isSmartInsertWordCharacter(rightCharacter),
+            rightCharacterIsTerminalPunctuation: ".!?".contains(rightCharacter),
+            nextCharacterAfterRightIsWhitespace: nextCharacterAfterRight?.isWhitespace == true,
+            nextCharacterAfterRightIsParagraphFinalPunctuation: nextCharacterAfterRightIsParagraphFinalPunctuation,
+            rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: hasLineBreakBeforeNextNonWhitespaceAfterRight,
+            nextNonWhitespaceAfterRightStartsUppercase: nextNonWhitespaceAfterRightStartsUppercase
+        ),
+        nextCursor
+    )
+}
+
+private func resolvedBrowserAmbiguousNewlineSnapshot(
+    from snapshot: InputInsertionContextSnapshot
+) -> InputInsertionContextSnapshot {
     guard snapshot.depth == 0,
           snapshot.selectedRange.length == 0,
           SmartInsertHeuristics.isAmbiguousBrowserNewlineBoundary(
@@ -1008,7 +1184,7 @@ private func resolvedBrowserAmbiguousNewlineContext(
             rightNonWhitespaceCharacter: snapshot.context.rightNonWhitespaceCharacter,
             rightHasLineBreakBeforeNextNonWhitespace: snapshot.context.rightHasLineBreakBeforeNextNonWhitespace
           ) else {
-        return snapshot.context
+        return snapshot
     }
 
     let resolution = resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(for: snapshot)
@@ -1021,14 +1197,23 @@ private func resolvedBrowserAmbiguousNewlineContext(
         logDebug("[SmartInsert] Browser ambiguous newline boundary unresolved by geometry; trusting root before-newline boundary")
     }
 
-    return InputInsertionContext(
-        leftCharacter: snapshot.context.leftCharacter,
-        leftNonWhitespaceCharacter: snapshot.context.leftNonWhitespaceCharacter,
-        leftLinePrefix: snapshot.context.leftLinePrefix,
-        rightCharacter: snapshot.context.rightCharacter,
-        rightNonWhitespaceCharacter: snapshot.context.rightNonWhitespaceCharacter,
-        rightHasLineBreakBeforeNextNonWhitespace: snapshot.context.rightHasLineBreakBeforeNextNonWhitespace,
-        browserAmbiguousNewlineBoundaryResolution: resolution
+    return InputInsertionContextSnapshot(
+        element: snapshot.element,
+        context: InputInsertionContext(
+            leftCharacter: snapshot.context.leftCharacter,
+            leftNonWhitespaceCharacter: snapshot.context.leftNonWhitespaceCharacter,
+            leftLinePrefix: snapshot.context.leftLinePrefix,
+            rightCharacter: snapshot.context.rightCharacter,
+            rightNonWhitespaceCharacter: snapshot.context.rightNonWhitespaceCharacter,
+            rightHasLineBreakBeforeNextNonWhitespace: snapshot.context.rightHasLineBreakBeforeNextNonWhitespace,
+            browserAmbiguousNewlineBoundaryResolution: resolution
+        ),
+        role: snapshot.role,
+        textLength: snapshot.textLength,
+        selectedRange: snapshot.selectedRange,
+        depth: snapshot.depth,
+        neighborhood: snapshot.neighborhood,
+        fullText: snapshot.fullText
     )
 }
 

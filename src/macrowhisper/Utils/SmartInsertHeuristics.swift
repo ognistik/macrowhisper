@@ -15,6 +15,19 @@ enum SmartInsertHeuristics {
         let nextMidY: Double
     }
 
+    struct BrowserInlineCaretDriftEvidence {
+        let caretX: Double
+        let rightCharacterMaxX: Double
+        let caretAndRightShareLine: Bool
+        let rightCharacterIsWhitespace: Bool
+        let rightCharacterIsWord: Bool
+        let rightCharacterIsTerminalPunctuation: Bool
+        let nextCharacterAfterRightIsWhitespace: Bool
+        let nextCharacterAfterRightIsParagraphFinalPunctuation: Bool
+        let rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: Bool
+        let nextNonWhitespaceAfterRightStartsUppercase: Bool
+    }
+
     struct BrowserRootSelectionEvidence {
         let selectionLocation: Int
         let selectionLength: Int
@@ -102,6 +115,41 @@ enum SmartInsertHeuristics {
         browserAmbiguousNewlineBoundaryResolution: BrowserAmbiguousNewlineBoundaryResolution
     ) -> Bool {
         insertionIsSentenceLike && browserAmbiguousNewlineBoundaryResolution == .lineStart
+    }
+
+    static func shouldCorrectBrowserInlineCaretDrift(
+        _ evidence: BrowserInlineCaretDriftEvidence
+    ) -> Bool {
+        guard evidence.caretAndRightShareLine else {
+            return false
+        }
+
+        let caretPastRightCharacter = evidence.caretX >= evidence.rightCharacterMaxX - 1.5
+        guard caretPastRightCharacter else {
+            return false
+        }
+
+        if evidence.rightCharacterIsWhitespace {
+            return true
+        }
+
+        if evidence.rightCharacterIsWord && evidence.nextCharacterAfterRightIsWhitespace {
+            return true
+        }
+
+        if evidence.rightCharacterIsWord && evidence.nextCharacterAfterRightIsParagraphFinalPunctuation {
+            return true
+        }
+
+        return shouldStopBrowserInlineCaretDriftAfterCorrection(evidence)
+    }
+
+    static func shouldStopBrowserInlineCaretDriftAfterCorrection(
+        _ evidence: BrowserInlineCaretDriftEvidence
+    ) -> Bool {
+        evidence.rightCharacterIsTerminalPunctuation &&
+            evidence.rightCharacterFollowedByLineBreakBeforeNextNonWhitespace &&
+            evidence.nextNonWhitespaceAfterRightStartsUppercase
     }
 
     static func shouldInspectBrowserDescendants(_ evidence: BrowserRootSelectionEvidence) -> Bool {
