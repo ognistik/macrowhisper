@@ -1,10 +1,26 @@
 import ApplicationServices
 import Cocoa
 
-// Thread-local cache for input field detection results
-private var inputFieldDetectionCache: [String: (result: Bool, timestamp: Date)] = [:]
-private let cacheValidityDuration: TimeInterval = 0.5 // Cache result for 500ms
-private let cacheQueue = DispatchQueue(label: "inputFieldDetectionCache", attributes: .concurrent)
+private struct InputFieldDetectionCacheKey: Equatable {
+    let appPid: pid_t
+    let focusedElementHash: CFHashCode
+}
+
+private struct InputFieldDetectionCacheEntry {
+    let key: InputFieldDetectionCacheKey
+    let result: Bool
+    let reason: String
+    let timestamp: Date
+}
+
+private struct FocusedAXContext {
+    let app: NSRunningApplication
+    let element: AXUIElement
+}
+
+private var inputFieldDetectionCacheEntry: InputFieldDetectionCacheEntry?
+private let inputFieldDetectionCacheValidity: TimeInterval = 0.5
+private let inputFieldDetectionCacheQueue = DispatchQueue(label: "inputFieldDetectionCache", attributes: .concurrent)
 private let axFrontAppRetryAttempts = 3
 private let axFrontAppRetryDelay: TimeInterval = 0.02
 private let recentAXFrontAppFallbackWindow: TimeInterval = 0.75
@@ -114,14 +130,18 @@ private func getWorkspaceFrontmostApplication(timeout: TimeInterval = 0.1) -> NS
     return frontApp
 }
 
-private func getAXFocusedApplicationOnce() -> NSRunningApplication? {
+private func getAXFocusedElementOnce() -> AXUIElement? {
     let systemWideElement = AXUIElementCreateSystemWide()
+    return copyAXElementAttribute(systemWideElement, attribute: kAXFocusedUIElementAttribute as CFString)
+}
 
-    if let focusedElement = copyAXElementAttribute(systemWideElement, attribute: kAXFocusedUIElementAttribute as CFString),
+private func getAXFocusedApplicationOnce() -> NSRunningApplication? {
+    if let focusedElement = getAXFocusedElementOnce(),
        let focusedElementApp = runningApplication(for: pidForAXElement(focusedElement)) {
         return focusedElementApp
     }
 
+    let systemWideElement = AXUIElementCreateSystemWide()
     if let focusedAppElement = copyAXElementAttribute(systemWideElement, attribute: kAXFocusedApplicationAttribute as CFString),
        let focusedApp = runningApplication(for: pidForAXElement(focusedAppElement)) {
         return focusedApp
@@ -148,7 +168,62 @@ private func getAXFocusedApplicationWithRetries() -> NSRunningApplication? {
     return nil
 }
 
+private func getAXFocusedElementWithRetries() -> AXUIElement? {
+    guard AXIsProcessTrusted() else {
+        return nil
+    }
+
+    for attempt in 0..<axFrontAppRetryAttempts {
+        if let focusedElement = getAXFocusedElementOnce() {
+            return focusedElement
+        }
+
+        if attempt + 1 < axFrontAppRetryAttempts {
+            Thread.sleep(forTimeInterval: axFrontAppRetryDelay)
+        }
+    }
+
+    return nil
+}
+
+private func focusedAXContext(for app: NSRunningApplication) -> FocusedAXContext? {
+    let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    guard let focusedElement = copyAXElementAttribute(appElement, attribute: kAXFocusedUIElementAttribute as CFString) else {
+        return nil
+    }
+    return FocusedAXContext(app: app, element: focusedElement)
+}
+
+private func resolveFocusedAXContext(timeout: TimeInterval = 0.1) -> FocusedAXContext? {
+    if let focusedElement = getAXFocusedElementWithRetries(),
+       let app = runningApplication(for: pidForAXElement(focusedElement)) {
+        cacheRecentAXFrontApp(app)
+        globalState.lastDetectedFrontApp = app
+        return FocusedAXContext(app: app, element: focusedElement)
+    }
+
+    if let recentApp = getRecentAXFrontApp(),
+       let context = focusedAXContext(for: recentApp) {
+        globalState.lastDetectedFrontApp = recentApp
+        return context
+    }
+
+    let workspaceApp = getWorkspaceFrontmostApplication(timeout: timeout)
+    if let workspaceApp,
+       let context = focusedAXContext(for: workspaceApp) {
+        globalState.lastDetectedFrontApp = workspaceApp
+        return context
+    }
+
+    globalState.lastDetectedFrontApp = workspaceApp
+    return nil
+}
+
 func resolveFrontApp(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
+    if let context = resolveFocusedAXContext(timeout: timeout) {
+        return context.app
+    }
+
     if let axFocusedApp = getAXFocusedApplicationWithRetries() {
         cacheRecentAXFrontApp(axFocusedApp)
         globalState.lastDetectedFrontApp = axFocusedApp
@@ -219,151 +294,164 @@ func requestSystemEventsPermissionOnStartup() {
 }
 
 func isInInputField() -> Bool {
-    let currentThread = Thread.current
-    let threadId = String(describing: Unmanaged.passUnretained(currentThread).toOpaque())
     let startedAt = CFAbsoluteTimeGetCurrent()
 
-    func finish(_ result: Bool, reason: String) -> Bool {
+    func finish(
+        _ result: Bool,
+        reason: String,
+        cacheKey: InputFieldDetectionCacheKey? = nil
+    ) -> Bool {
         let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
         logDebug("[InputField] Completed detection result=\(result) elapsedMs=\(elapsedMs) reason=\(reason)")
-        cacheResult(threadId: threadId, result: result)
+        if let cacheKey {
+            cacheInputFieldDetectionResult(result, reason: reason, for: cacheKey)
+        }
         return result
     }
-    
-    // Check if we have a recent cached result for this thread
-    var cachedResult: (result: Bool, timestamp: Date)?
-    cacheQueue.sync {
-        cachedResult = inputFieldDetectionCache[threadId]
-    }
-    
-    if let cached = cachedResult,
-       Date().timeIntervalSince(cached.timestamp) < cacheValidityDuration {
-        let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
-        logDebug("[InputField] Using cached input field detection result: \(cached.result) elapsedMs=\(elapsedMs)")
-        return cached.result
-    }
-    
+
     logDebug("[InputField] Starting input field detection")
-    
-    // Small delay to ensure UI has settled after transcription
-    Thread.sleep(forTimeInterval: 0.05)
-    
-    // Check accessibility permissions first
+
     if !AXIsProcessTrusted() {
         logDebug("[InputField] ❌ Accessibility permissions not granted")
         return finish(false, reason: "permissions")
     }
-    
-    guard let app = resolveFrontApp() else {
-        logDebug("[InputField] No frontmost app detected")
-        globalState.lastDetectedFrontApp = nil
-        return finish(false, reason: "noFrontApp")
-    }
-    
-    // Log the detected app
-    logDebug("[InputField] Detected app: \(app.localizedName ?? "Unknown") (PID: \(app.processIdentifier))")
-    
-    // Store reference to current app
-    globalState.lastDetectedFrontApp = app
-    
-    // Get the application's process ID and create accessibility element
-    let appElement = AXUIElementCreateApplication(app.processIdentifier)
-    
-    // Get the focused UI element in the application
-    var focusedElement: AnyObject?
-    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
-    
-    if focusedError != .success {
-        logDebug("[InputField] Failed to get focused element, error: \(focusedError.rawValue)")
-        return finish(false, reason: "focusedElementError:\(focusedError.rawValue)")
-    }
-    
-    if focusedElement == nil {
+
+    guard let context = resolveFocusedAXContext() else {
+        if resolveFrontApp() == nil {
+            logDebug("[InputField] No frontmost app detected")
+            globalState.lastDetectedFrontApp = nil
+            return finish(false, reason: "noFrontApp")
+        }
         logDebug("[InputField] No focused element found")
         return finish(false, reason: "noFocusedElement")
     }
-    
-    let axElement = focusedElement as! AXUIElement
+
+    let app = context.app
+    let axElement = context.element
+
+    logDebug("[InputField] Detected app: \(app.localizedName ?? "Unknown") (PID: \(app.processIdentifier))")
+    globalState.lastDetectedFrontApp = app
+
+    let cacheKey = InputFieldDetectionCacheKey(
+        appPid: app.processIdentifier,
+        focusedElementHash: CFHash(axElement)
+    )
+    if let cached = cachedInputFieldDetectionResult(for: cacheKey) {
+        let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
+        logDebug(
+            "[InputField] Using cached input field detection result: \(cached.result) " +
+            "elapsedMs=\(elapsedMs) reason=\(cached.reason)"
+        )
+        return cached.result
+    }
+
+    guard pidForAXElement(axElement) != nil else {
+        logDebug("[InputField] Failed to resolve focused element PID")
+        return finish(false, reason: "focusedElementPid", cacheKey: cacheKey)
+    }
+
+    if let focusedApp = runningApplication(for: pidForAXElement(axElement)),
+       focusedApp.processIdentifier != app.processIdentifier {
+        logDebug(
+            "[InputField] Focused element PID mismatch: appPID=\(app.processIdentifier) " +
+            "focusedPID=\(focusedApp.processIdentifier)"
+        )
+    }
+
     logDebug("[InputField] Found focused element, checking attributes...")
-    
-    // Check role (fastest check)
+
     var roleValue: AnyObject?
     if AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &roleValue) == .success,
        let role = roleValue as? String {
-        
+
         logDebug("[InputField] Element role: \(role)")
-        
-        // Definitive input field roles - quick return
+
         let definiteInputRoles = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"]
         if definiteInputRoles.contains(role) {
             logDebug("[InputField] ✅ Input field detected by role: \(role)")
-            return finish(true, reason: "role:\(role)")
+            return finish(true, reason: "role:\(role)", cacheKey: cacheKey)
         }
     } else {
         logDebug("[InputField] Could not get role attribute")
     }
-    
-    // Check subrole
+
     var subroleValue: AnyObject?
     if AXUIElementCopyAttributeValue(axElement, kAXSubroleAttribute as CFString, &subroleValue) == .success,
        let subrole = subroleValue as? String {
-        
+
         logDebug("[InputField] Element subrole: \(subrole)")
-        
+
         let definiteInputSubroles = ["AXSearchField", "AXSecureTextField", "AXTextInput"]
         if definiteInputSubroles.contains(subrole) {
             logDebug("[InputField] ✅ Input field detected by subrole: \(subrole)")
-            return finish(true, reason: "subrole:\(subrole)")
+            return finish(true, reason: "subrole:\(subrole)", cacheKey: cacheKey)
         }
     } else {
         logDebug("[InputField] No subrole attribute found")
     }
-    
-    // Check editable attribute
+
     var editableValue: AnyObject?
     if AXUIElementCopyAttributeValue(axElement, "AXEditable" as CFString, &editableValue) == .success,
        let isEditable = editableValue as? Bool {
-        
+
         logDebug("[InputField] Element editable: \(isEditable)")
         if isEditable {
             logDebug("[InputField] ✅ Input field detected by editable attribute")
-            return finish(true, reason: "editable")
+            return finish(true, reason: "editable", cacheKey: cacheKey)
         }
     } else {
         logDebug("[InputField] No editable attribute found")
     }
-    
-    // Only check actions if we haven't determined it's an input field yet
+
     var actionsRef: CFArray?
     if AXUIElementCopyActionNames(axElement, &actionsRef) == .success,
        let actions = actionsRef as? [String] {
-        
+
         logDebug("[InputField] Element actions: \(actions)")
-        
+
         let inputActions = ["AXInsertText", "AXDelete"]
         let foundInputActions = actions.filter { inputActions.contains($0) }
         if !foundInputActions.isEmpty {
             logDebug("[InputField] ✅ Input field detected by actions: \(foundInputActions)")
-            return finish(true, reason: "actions:\(foundInputActions.joined(separator: ","))")
+            return finish(
+                true,
+                reason: "actions:\(foundInputActions.joined(separator: ","))",
+                cacheKey: cacheKey
+            )
         }
     } else {
         logInfo("[InputField] Could not get actions")
     }
-    
+
     logInfo("[InputField] ❌ No input field detected")
-    return finish(false, reason: "noMatch")
+    return finish(false, reason: "noMatch", cacheKey: cacheKey)
 }
 
-/// Cache the input field detection result for the current thread
-private func cacheResult(threadId: String, result: Bool) {
-    cacheQueue.async(flags: .barrier) {
-        inputFieldDetectionCache[threadId] = (result: result, timestamp: Date())
-        
-        // Clean up old cache entries to prevent memory leaks
-        let now = Date()
-        inputFieldDetectionCache = inputFieldDetectionCache.filter { 
-            now.timeIntervalSince($0.value.timestamp) < cacheValidityDuration 
+private func cachedInputFieldDetectionResult(
+    for key: InputFieldDetectionCacheKey
+) -> InputFieldDetectionCacheEntry? {
+    inputFieldDetectionCacheQueue.sync {
+        guard let cached = inputFieldDetectionCacheEntry,
+              cached.key == key,
+              Date().timeIntervalSince(cached.timestamp) < inputFieldDetectionCacheValidity else {
+            return nil
         }
+        return cached
+    }
+}
+
+private func cacheInputFieldDetectionResult(
+    _ result: Bool,
+    reason: String,
+    for key: InputFieldDetectionCacheKey
+) {
+    inputFieldDetectionCacheQueue.async(flags: .barrier) {
+        inputFieldDetectionCacheEntry = InputFieldDetectionCacheEntry(
+            key: key,
+            result: result,
+            reason: reason,
+            timestamp: Date()
+        )
     }
 }
 
@@ -555,21 +643,12 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
         return nil
     }
 
-    guard let frontApp = resolveFrontApp(timeout: 0.2) else {
+    guard let context = resolveFocusedAXContext(timeout: 0.2) else {
         logDebug("[SmartInsert] No frontmost application found")
         return nil
     }
-
-    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
-
-    var focusedElement: CFTypeRef?
-    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
-    guard focusedError == .success, let focusedElement = focusedElement else {
-        logDebug("[SmartInsert] Could not get focused element")
-        return nil
-    }
-
-    let element = focusedElement as! AXUIElement
+    let frontApp = context.app
+    let element = context.element
 
     var roleValue: CFTypeRef?
     let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)

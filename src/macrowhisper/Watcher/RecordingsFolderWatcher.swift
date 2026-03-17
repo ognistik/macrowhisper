@@ -1168,19 +1168,6 @@ class RecordingsFolderWatcher {
         return (.insert, nil) // Default type for not found
     }
 
-    private func hasAnyConfiguredURLTriggers() -> Bool {
-        let hasTriggerUrls: (String?) -> Bool = { rawValue in
-            !(rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        }
-
-        let config = configManager.config
-        return config.inserts.values.contains { hasTriggerUrls($0.triggerUrls) } ||
-            config.urls.values.contains { hasTriggerUrls($0.triggerUrls) } ||
-            config.shortcuts.values.contains { hasTriggerUrls($0.triggerUrls) } ||
-            config.scriptsShell.values.contains { hasTriggerUrls($0.triggerUrls) } ||
-            config.scriptsAS.values.contains { hasTriggerUrls($0.triggerUrls) }
-    }
-
     private func ensureFrozenFrontAppUrlIfNeeded(
         metaJson: [String: Any],
         action: Any,
