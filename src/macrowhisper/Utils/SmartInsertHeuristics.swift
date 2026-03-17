@@ -23,8 +23,8 @@ enum SmartInsertHeuristics {
         let rightCharacterIsWord: Bool
         let rightCharacterIsTerminalPunctuation: Bool
         let nextCharacterAfterRightIsWhitespace: Bool
-        let nextCharacterAfterRightIsParagraphFinalPunctuation: Bool
-        let rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: Bool
+        let nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: Bool
+        let rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: Bool
         let nextNonWhitespaceAfterRightStartsUppercase: Bool
     }
 
@@ -137,7 +137,7 @@ enum SmartInsertHeuristics {
             return true
         }
 
-        if evidence.rightCharacterIsWord && evidence.nextCharacterAfterRightIsParagraphFinalPunctuation {
+        if evidence.rightCharacterIsWord && evidence.nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation {
             return true
         }
 
@@ -148,7 +148,7 @@ enum SmartInsertHeuristics {
         _ evidence: BrowserInlineCaretDriftEvidence
     ) -> Bool {
         evidence.rightCharacterIsTerminalPunctuation &&
-            evidence.rightCharacterFollowedByLineBreakBeforeNextNonWhitespace &&
+            evidence.rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace &&
             evidence.nextNonWhitespaceAfterRightStartsUppercase
     }
 

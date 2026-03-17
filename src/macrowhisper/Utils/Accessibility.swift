@@ -1105,7 +1105,7 @@ private func browserInlineCaretDriftCandidate(
         nextCharacterAfterRightRange = nil
     }
 
-    var hasLineBreakBeforeNextNonWhitespaceAfterRight = false
+    var hasWhitespaceBeforeNextNonWhitespaceAfterRight = false
     var nextNonWhitespaceAfterRightStartsUppercase = false
     var scanCursor = nextCursor
     while scanCursor < snapshot.textLength {
@@ -1118,17 +1118,17 @@ private func browserInlineCaretDriftCandidate(
                 String(character).rangeOfCharacter(from: .uppercaseLetters) != nil
             break
         }
-        if value.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) {
-            hasLineBreakBeforeNextNonWhitespaceAfterRight = true
+        if value.contains(where: { $0.isWhitespace }) {
+            hasWhitespaceBeforeNextNonWhitespaceAfterRight = true
         }
         scanCursor = scanRange.location + scanRange.length
     }
 
-    let nextCharacterAfterRightIsParagraphFinalPunctuation: Bool
+    let nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: Bool
     if let nextCharacterAfterRight,
        ".!?".contains(nextCharacterAfterRight),
        let nextCharacterAfterRightRange {
-        var hasLineBreakBeforeNextNonWhitespaceAfterPunctuation = false
+        var hasWhitespaceBeforeNextNonWhitespaceAfterPunctuation = false
         var nextNonWhitespaceAfterPunctuationStartsUppercase = false
         var punctuationScanCursor = nextCharacterAfterRightRange.location + nextCharacterAfterRightRange.length
 
@@ -1142,17 +1142,17 @@ private func browserInlineCaretDriftCandidate(
                     String(character).rangeOfCharacter(from: .uppercaseLetters) != nil
                 break
             }
-            if value.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) {
-                hasLineBreakBeforeNextNonWhitespaceAfterPunctuation = true
+            if value.contains(where: { $0.isWhitespace }) {
+                hasWhitespaceBeforeNextNonWhitespaceAfterPunctuation = true
             }
             punctuationScanCursor = scanRange.location + scanRange.length
         }
 
-        nextCharacterAfterRightIsParagraphFinalPunctuation =
-            hasLineBreakBeforeNextNonWhitespaceAfterPunctuation &&
+        nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation =
+            hasWhitespaceBeforeNextNonWhitespaceAfterPunctuation &&
             nextNonWhitespaceAfterPunctuationStartsUppercase
     } else {
-        nextCharacterAfterRightIsParagraphFinalPunctuation = false
+        nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation = false
     }
 
     return (
@@ -1164,8 +1164,8 @@ private func browserInlineCaretDriftCandidate(
             rightCharacterIsWord: isSmartInsertWordCharacter(rightCharacter),
             rightCharacterIsTerminalPunctuation: ".!?".contains(rightCharacter),
             nextCharacterAfterRightIsWhitespace: nextCharacterAfterRight?.isWhitespace == true,
-            nextCharacterAfterRightIsParagraphFinalPunctuation: nextCharacterAfterRightIsParagraphFinalPunctuation,
-            rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: hasLineBreakBeforeNextNonWhitespaceAfterRight,
+            nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation,
+            rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: hasWhitespaceBeforeNextNonWhitespaceAfterRight,
             nextNonWhitespaceAfterRightStartsUppercase: nextNonWhitespaceAfterRightStartsUppercase
         ),
         nextCursor

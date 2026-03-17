@@ -145,8 +145,8 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: false,
                 rightCharacterIsTerminalPunctuation: false,
                 nextCharacterAfterRightIsWhitespace: false,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
                 nextNonWhitespaceAfterRightStartsUppercase: false
             )
         ),
@@ -164,8 +164,8 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: true,
                 rightCharacterIsTerminalPunctuation: false,
                 nextCharacterAfterRightIsWhitespace: true,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
                 nextNonWhitespaceAfterRightStartsUppercase: false
             )
         ),
@@ -183,8 +183,8 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: true,
                 rightCharacterIsTerminalPunctuation: false,
                 nextCharacterAfterRightIsWhitespace: true,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
                 nextNonWhitespaceAfterRightStartsUppercase: false
             )
         ),
@@ -202,8 +202,8 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: false,
                 rightCharacterIsTerminalPunctuation: false,
                 nextCharacterAfterRightIsWhitespace: false,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
                 nextNonWhitespaceAfterRightStartsUppercase: false
             )
         ),
@@ -221,13 +221,13 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: false,
                 rightCharacterIsTerminalPunctuation: true,
                 nextCharacterAfterRightIsWhitespace: true,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: true,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: true,
                 nextNonWhitespaceAfterRightStartsUppercase: true
             )
         ),
         true,
-        "browser inline caret drift correction shifts right when AX reports the caret one character before paragraph-final punctuation"
+        "browser inline caret drift correction shifts right when AX reports the caret one character before sentence-final punctuation"
     )
 
     assertEqual(
@@ -240,32 +240,13 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: false,
                 rightCharacterIsTerminalPunctuation: true,
                 nextCharacterAfterRightIsWhitespace: true,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: false,
-                nextNonWhitespaceAfterRightStartsUppercase: true
-            )
-        ),
-        false,
-        "browser inline caret drift correction stays off for punctuation drift when there is no paragraph break after the reported character"
-    )
-
-    assertEqual(
-        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
-            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
-                caretX: 322,
-                rightCharacterMaxX: 320,
-                caretAndRightShareLine: true,
-                rightCharacterIsWhitespace: false,
-                rightCharacterIsWord: true,
-                rightCharacterIsTerminalPunctuation: false,
-                nextCharacterAfterRightIsWhitespace: false,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: true,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: true,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: true,
                 nextNonWhitespaceAfterRightStartsUppercase: true
             )
         ),
         true,
-        "browser inline caret drift correction shifts right when AX reports the caret before a word character whose next boundary is paragraph-final punctuation"
+        "browser inline caret drift correction shifts right when AX reports the caret one character before sentence-final punctuation followed by a space"
     )
 
     assertEqual(
@@ -278,13 +259,32 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: true,
                 rightCharacterIsTerminalPunctuation: false,
                 nextCharacterAfterRightIsWhitespace: false,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: true,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: true,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: true,
+                nextNonWhitespaceAfterRightStartsUppercase: true
+            )
+        ),
+        true,
+        "browser inline caret drift correction shifts right when AX reports the caret before a word character whose next boundary is sentence-final punctuation"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 322,
+                rightCharacterMaxX: 320,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: false,
+                rightCharacterIsWord: true,
+                rightCharacterIsTerminalPunctuation: false,
+                nextCharacterAfterRightIsWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: true,
                 nextNonWhitespaceAfterRightStartsUppercase: true
             )
         ),
         false,
-        "browser inline caret drift correction stays off for a word character when the following punctuation is not a paragraph boundary"
+        "browser inline caret drift correction stays off for a word character when the following punctuation is not a sentence boundary"
     )
 
     assertEqual(
@@ -297,13 +297,13 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: false,
                 rightCharacterIsTerminalPunctuation: true,
                 nextCharacterAfterRightIsWhitespace: true,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: true,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: true,
                 nextNonWhitespaceAfterRightStartsUppercase: true
             )
         ),
         true,
-        "browser inline caret drift walk stops at paragraph-final punctuation so generic|.⏎This stays before the newline"
+        "browser inline caret drift walk stops at sentence-final punctuation so generic|.⏎This stays before the newline"
     )
 
     assertEqual(
@@ -316,13 +316,13 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: true,
                 rightCharacterIsTerminalPunctuation: false,
                 nextCharacterAfterRightIsWhitespace: false,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: true,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: true,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: true,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: true,
                 nextNonWhitespaceAfterRightStartsUppercase: true
             )
         ),
         false,
-        "browser inline caret drift walk does not stop early on tha|t.⏎You before it reaches the paragraph-final punctuation"
+        "browser inline caret drift walk does not stop early on tha|t.⏎You before it reaches the sentence-final punctuation"
     )
 
     assertEqual(
@@ -335,13 +335,32 @@ private func runSmartInsertHeuristicsRegressionTests() {
                 rightCharacterIsWord: false,
                 rightCharacterIsTerminalPunctuation: false,
                 nextCharacterAfterRightIsWhitespace: false,
-                nextCharacterAfterRightIsParagraphFinalPunctuation: false,
-                rightCharacterFollowedByLineBreakBeforeNextNonWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
                 nextNonWhitespaceAfterRightStartsUppercase: false
             )
         ),
         false,
         "browser inline caret drift walk keeps existing space and NBSP corrections from stopping early"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldStopBrowserInlineCaretDriftAfterCorrection(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 322,
+                rightCharacterMaxX: 320,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: false,
+                rightCharacterIsWord: false,
+                rightCharacterIsTerminalPunctuation: true,
+                nextCharacterAfterRightIsWhitespace: true,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: true,
+                nextNonWhitespaceAfterRightStartsUppercase: true
+            )
+        ),
+        true,
+        "browser inline caret drift walk stops at sentence-final punctuation so use|. Sometimes stays before the space"
     )
 
     let suspiciousStaticTextOverride = SmartInsertHeuristics.BrowserOverrideEvidence(
