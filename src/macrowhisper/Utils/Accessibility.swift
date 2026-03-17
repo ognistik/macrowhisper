@@ -1358,7 +1358,10 @@ private func makeBrowserInsertionReconciliation(
         hasLocalLeftEvidence: hasLocalLeftEvidence,
         hasLocalRightEvidence: hasLocalRightEvidence,
         hasMappedLeftEvidence: hasMappedLeftEvidence,
-        hasMappedRightEvidence: hasMappedRightEvidence
+        hasMappedRightEvidence: hasMappedRightEvidence,
+        mappedLeftCharacter: mappedContext.leftCharacter,
+        mappedLeftNonWhitespaceCharacter: mappedContext.leftNonWhitespaceCharacter,
+        mappedRightNonWhitespaceCharacter: mappedContext.rightNonWhitespaceCharacter
     )
     guard SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(overrideEvidence) else {
         return nil

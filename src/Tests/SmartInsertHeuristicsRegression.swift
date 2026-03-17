@@ -16,7 +16,10 @@ private func runSmartInsertHeuristicsRegressionTests() {
         hasLocalLeftEvidence: false,
         hasLocalRightEvidence: true,
         hasMappedLeftEvidence: true,
-        hasMappedRightEvidence: true
+        hasMappedRightEvidence: true,
+        mappedLeftCharacter: " ",
+        mappedLeftNonWhitespaceCharacter: "t",
+        mappedRightNonWhitespaceCharacter: "e"
     )
     assertEqual(
         SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(suspiciousStaticTextOverride),
@@ -31,7 +34,10 @@ private func runSmartInsertHeuristicsRegressionTests() {
         hasLocalLeftEvidence: false,
         hasLocalRightEvidence: true,
         hasMappedLeftEvidence: true,
-        hasMappedRightEvidence: true
+        hasMappedRightEvidence: true,
+        mappedLeftCharacter: " ",
+        mappedLeftNonWhitespaceCharacter: ",",
+        mappedRightNonWhitespaceCharacter: "t"
     )
     assertEqual(
         SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(exactMatchStaticTextOverride),
@@ -46,12 +52,69 @@ private func runSmartInsertHeuristicsRegressionTests() {
         hasLocalLeftEvidence: false,
         hasLocalRightEvidence: true,
         hasMappedLeftEvidence: true,
-        hasMappedRightEvidence: true
+        hasMappedRightEvidence: true,
+        mappedLeftCharacter: " ",
+        mappedLeftNonWhitespaceCharacter: "t",
+        mappedRightNonWhitespaceCharacter: "e"
     )
     assertEqual(
         SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(inputRoleOverride),
         true,
         "input-like descendants are not blocked by the non-input override guard"
+    )
+
+    let paragraphStartStaticTextOverride = SmartInsertHeuristics.BrowserOverrideEvidence(
+        role: "AXStaticText",
+        mappedRootLocation: 1025,
+        rootSelectionLocation: 1021,
+        hasLocalLeftEvidence: false,
+        hasLocalRightEvidence: true,
+        hasMappedLeftEvidence: true,
+        hasMappedRightEvidence: true,
+        mappedLeftCharacter: "\n",
+        mappedLeftNonWhitespaceCharacter: ".",
+        mappedRightNonWhitespaceCharacter: "Y"
+    )
+    assertEqual(
+        SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(paragraphStartStaticTextOverride),
+        true,
+        "browser descendant override keeps paragraph-start static text when the mapped root boundary is structural"
+    )
+
+    let sentenceStartStaticTextOverride = SmartInsertHeuristics.BrowserOverrideEvidence(
+        role: "AXStaticText",
+        mappedRootLocation: 52,
+        rootSelectionLocation: 48,
+        hasLocalLeftEvidence: false,
+        hasLocalRightEvidence: true,
+        hasMappedLeftEvidence: true,
+        hasMappedRightEvidence: true,
+        mappedLeftCharacter: " ",
+        mappedLeftNonWhitespaceCharacter: ".",
+        mappedRightNonWhitespaceCharacter: "Y"
+    )
+    assertEqual(
+        SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(sentenceStartStaticTextOverride),
+        true,
+        "browser descendant override keeps nearby sentence-start static text when the mapped boundary is strong"
+    )
+
+    let suspiciousGroupOverride = SmartInsertHeuristics.BrowserOverrideEvidence(
+        role: "AXGroup",
+        mappedRootLocation: 1025,
+        rootSelectionLocation: 1021,
+        hasLocalLeftEvidence: false,
+        hasLocalRightEvidence: true,
+        hasMappedLeftEvidence: true,
+        hasMappedRightEvidence: true,
+        mappedLeftCharacter: "\n",
+        mappedLeftNonWhitespaceCharacter: ".",
+        mappedRightNonWhitespaceCharacter: "Y"
+    )
+    assertEqual(
+        SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(suspiciousGroupOverride),
+        false,
+        "browser descendant override recovery stays narrow and does not reopen generic group descendants"
     )
 
     assertEqual(

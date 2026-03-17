@@ -9,6 +9,9 @@ enum SmartInsertHeuristics {
         let hasLocalRightEvidence: Bool
         let hasMappedLeftEvidence: Bool
         let hasMappedRightEvidence: Bool
+        let mappedLeftCharacter: Character?
+        let mappedLeftNonWhitespaceCharacter: Character?
+        let mappedRightNonWhitespaceCharacter: Character?
     }
 
     private static let inputLikeRoles: Set<String> = [
@@ -17,6 +20,8 @@ enum SmartInsertHeuristics {
         "AXSearchField",
         "AXComboBox"
     ]
+    private static let recoverableStaticTextDeltaThreshold = 48
+    private static let terminalSentencePunctuation = ".!?"
 
     static func shouldAllowBrowserDescendantOverride(_ evidence: BrowserOverrideEvidence) -> Bool {
         guard !inputLikeRoles.contains(evidence.role) else {
@@ -28,7 +33,12 @@ enum SmartInsertHeuristics {
             return true
         }
 
-        if !evidence.hasLocalLeftEvidence && evidence.hasMappedLeftEvidence {
+        if !evidence.hasLocalLeftEvidence &&
+            evidence.hasMappedLeftEvidence &&
+            !allowsRecoverableStaticTextLeftBoundaryGap(
+                evidence,
+                deltaFromRootSelection: deltaFromRootSelection
+            ) {
             return false
         }
 
@@ -37,6 +47,36 @@ enum SmartInsertHeuristics {
         }
 
         return true
+    }
+
+    private static func allowsRecoverableStaticTextLeftBoundaryGap(
+        _ evidence: BrowserOverrideEvidence,
+        deltaFromRootSelection: Int
+    ) -> Bool {
+        guard evidence.role == "AXStaticText" else {
+            return false
+        }
+
+        guard deltaFromRootSelection <= recoverableStaticTextDeltaThreshold else {
+            return false
+        }
+
+        if evidence.mappedRootLocation > 0 &&
+            SmartInsertBoundary.isLineStartBoundary(evidence.mappedLeftCharacter) {
+            return true
+        }
+
+        guard let mappedLeftNonWhitespaceCharacter = evidence.mappedLeftNonWhitespaceCharacter,
+              let mappedRightNonWhitespaceCharacter = evidence.mappedRightNonWhitespaceCharacter else {
+            return false
+        }
+
+        return terminalSentencePunctuation.contains(mappedLeftNonWhitespaceCharacter) &&
+            startsWithUppercaseLetter(mappedRightNonWhitespaceCharacter)
+    }
+
+    private static func startsWithUppercaseLetter(_ character: Character) -> Bool {
+        String(character).rangeOfCharacter(from: .uppercaseLetters) != nil
     }
 
     static func shouldInsertLeadingSpace(
