@@ -538,6 +538,26 @@ struct InputInsertionContext {
     let rightCharacter: Character?
     let rightNonWhitespaceCharacter: Character?
     let rightHasLineBreakBeforeNextNonWhitespace: Bool
+
+    let browserAmbiguousNewlineBoundaryResolution: SmartInsertHeuristics.BrowserAmbiguousNewlineBoundaryResolution
+
+    init(
+        leftCharacter: Character?,
+        leftNonWhitespaceCharacter: Character?,
+        leftLinePrefix: String,
+        rightCharacter: Character?,
+        rightNonWhitespaceCharacter: Character?,
+        rightHasLineBreakBeforeNextNonWhitespace: Bool,
+        browserAmbiguousNewlineBoundaryResolution: SmartInsertHeuristics.BrowserAmbiguousNewlineBoundaryResolution = .unresolved
+    ) {
+        self.leftCharacter = leftCharacter
+        self.leftNonWhitespaceCharacter = leftNonWhitespaceCharacter
+        self.leftLinePrefix = leftLinePrefix
+        self.rightCharacter = rightCharacter
+        self.rightNonWhitespaceCharacter = rightNonWhitespaceCharacter
+        self.rightHasLineBreakBeforeNextNonWhitespace = rightHasLineBreakBeforeNextNonWhitespace
+        self.browserAmbiguousNewlineBoundaryResolution = browserAmbiguousNewlineBoundaryResolution
+    }
 }
 
 private struct InputInsertionContextSnapshot {
@@ -733,6 +753,10 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
         "depth=\(chosenSnapshot.depth) neighborhood=\(chosenSnapshot.neighborhood) " +
         "elapsedMs=\(Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded()))"
     )
+
+    if isBrowserApp {
+        return resolvedBrowserAmbiguousNewlineContext(from: chosenSnapshot)
+    }
 
     return chosenSnapshot.context
 }
@@ -970,6 +994,161 @@ private func deriveInputInsertionContext(
         rightNonWhitespaceCharacter: rightNonWhitespaceCharacter,
         rightHasLineBreakBeforeNextNonWhitespace: rightHasLineBreakBeforeNextNonWhitespace
     )
+}
+
+private func resolvedBrowserAmbiguousNewlineContext(
+    from snapshot: InputInsertionContextSnapshot
+) -> InputInsertionContext {
+    guard snapshot.depth == 0,
+          snapshot.selectedRange.length == 0,
+          SmartInsertHeuristics.isAmbiguousBrowserNewlineBoundary(
+            leftCharacter: snapshot.context.leftCharacter,
+            leftNonWhitespaceCharacter: snapshot.context.leftNonWhitespaceCharacter,
+            rightCharacter: snapshot.context.rightCharacter,
+            rightNonWhitespaceCharacter: snapshot.context.rightNonWhitespaceCharacter,
+            rightHasLineBreakBeforeNextNonWhitespace: snapshot.context.rightHasLineBreakBeforeNextNonWhitespace
+          ) else {
+        return snapshot.context
+    }
+
+    let resolution = resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(for: snapshot)
+    switch resolution {
+    case .lineStart:
+        logDebug("[SmartInsert] Browser ambiguous newline boundary resolved via geometry as line-start")
+    case .beforeNewline:
+        logDebug("[SmartInsert] Browser ambiguous newline boundary resolved via geometry as before-newline")
+    case .unresolved:
+        logDebug("[SmartInsert] Browser ambiguous newline boundary unresolved by geometry; trusting root before-newline boundary")
+    }
+
+    return InputInsertionContext(
+        leftCharacter: snapshot.context.leftCharacter,
+        leftNonWhitespaceCharacter: snapshot.context.leftNonWhitespaceCharacter,
+        leftLinePrefix: snapshot.context.leftLinePrefix,
+        rightCharacter: snapshot.context.rightCharacter,
+        rightNonWhitespaceCharacter: snapshot.context.rightNonWhitespaceCharacter,
+        rightHasLineBreakBeforeNextNonWhitespace: snapshot.context.rightHasLineBreakBeforeNextNonWhitespace,
+        browserAmbiguousNewlineBoundaryResolution: resolution
+    )
+}
+
+private func resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(
+    for snapshot: InputInsertionContextSnapshot
+) -> SmartInsertHeuristics.BrowserAmbiguousNewlineBoundaryResolution {
+    guard let geometryEvidence = browserAmbiguousNewlineGeometryEvidence(for: snapshot) else {
+        return .unresolved
+    }
+
+    return SmartInsertHeuristics.resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(geometryEvidence)
+}
+
+private func browserAmbiguousNewlineGeometryEvidence(
+    for snapshot: InputInsertionContextSnapshot
+) -> SmartInsertHeuristics.BrowserAmbiguousNewlineGeometryEvidence? {
+    let insertionLocation = Int(snapshot.selectedRange.location)
+
+    guard let previousRange = previousMeaningfulSmartInsertCharacterRange(
+        in: snapshot.fullText,
+        before: insertionLocation
+    ),
+    let nextRange = nextMeaningfulSmartInsertCharacterRange(
+        in: snapshot.fullText,
+        from: insertionLocation
+    ),
+    let caretBounds = copyAXBoundsForRange(
+        NSRange(location: insertionLocation, length: 0),
+        from: snapshot.element
+    ),
+    let previousBounds = copyAXBoundsForRange(previousRange, from: snapshot.element),
+    let nextBounds = copyAXBoundsForRange(nextRange, from: snapshot.element) else {
+        return nil
+    }
+
+    return SmartInsertHeuristics.BrowserAmbiguousNewlineGeometryEvidence(
+        caretMidY: Double(caretBounds.midY),
+        previousMidY: Double(previousBounds.midY),
+        nextMidY: Double(nextBounds.midY)
+    )
+}
+
+private func previousMeaningfulSmartInsertCharacterRange(
+    in fullText: String,
+    before location: Int
+) -> NSRange? {
+    let nsText = fullText as NSString
+    var cursor = location
+
+    while cursor > 0 {
+        let range = nsText.rangeOfComposedCharacterSequence(at: cursor - 1)
+        let value = nsText.substring(with: range)
+        if let character = value.first,
+           !character.isWhitespace,
+           !isIgnorableBoundaryCharacterForSmartInsert(character) {
+            return range
+        }
+        cursor = range.location
+    }
+
+    return nil
+}
+
+private func nextMeaningfulSmartInsertCharacterRange(
+    in fullText: String,
+    from location: Int
+) -> NSRange? {
+    let nsText = fullText as NSString
+    let textLength = nsText.length
+    var cursor = location
+
+    while cursor < textLength {
+        let range = nsText.rangeOfComposedCharacterSequence(at: cursor)
+        let value = nsText.substring(with: range)
+        if let character = value.first,
+           !character.isWhitespace,
+           !isIgnorableBoundaryCharacterForSmartInsert(character) {
+            return range
+        }
+        cursor = range.location + range.length
+    }
+
+    return nil
+}
+
+private func copyAXBoundsForRange(
+    _ range: NSRange,
+    from element: AXUIElement
+) -> CGRect? {
+    var cfRange = CFRange(location: range.location, length: range.length)
+    guard let parameter = AXValueCreate(.cfRange, &cfRange) else {
+        return nil
+    }
+
+    var boundsValue: CFTypeRef?
+    let error = AXUIElementCopyParameterizedAttributeValue(
+        element,
+        "AXBoundsForRange" as CFString,
+        parameter,
+        &boundsValue
+    )
+    guard error == .success, let boundsValue else {
+        return nil
+    }
+
+    guard CFGetTypeID(boundsValue) == AXValueGetTypeID() else {
+        return nil
+    }
+
+    let axValue = unsafeBitCast(boundsValue, to: AXValue.self)
+    guard AXValueGetType(axValue) == .cgRect else {
+        return nil
+    }
+
+    var rect = CGRect.zero
+    guard AXValueGetValue(axValue, .cgRect, &rect) else {
+        return nil
+    }
+
+    return rect
 }
 
 private func findBestBrowserInsertionContextSnapshot(

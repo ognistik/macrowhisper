@@ -1539,8 +1539,6 @@ class SocketCommunication {
         var context = initialContext
         var lowConfidenceContext = false
         let insertionIsSentenceLike = isSentenceLikeInsertionText(resolved)
-        let frontBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
-        let shouldAllowBrowserAmbiguousNewlineBias = appVocabularyBrowserBundleIds.contains(frontBundleId)
 
         if shouldRetryInsertionContextRead(initialContext, insertionText: resolved) {
             if let retryContext = getInputInsertionContext(insertionText: resolved) {
@@ -1568,11 +1566,10 @@ class SocketCommunication {
 
         if let normalizedContext = normalizedContextForAmbiguousNewlineBoundary(
             context,
-            insertionIsSentenceLike: insertionIsSentenceLike,
-            shouldAllowBrowserAmbiguousNewlineBias: shouldAllowBrowserAmbiguousNewlineBias
+            insertionIsSentenceLike: insertionIsSentenceLike
         ) {
             context = normalizedContext
-            logDebug("[SmartInsert] Normalized ambiguous browser newline boundary to line-start context")
+            logDebug("[SmartInsert] Normalized ambiguous browser newline boundary to line-start context after geometry resolution")
         }
 
         if smartCasingEnabled {
@@ -1612,7 +1609,8 @@ class SocketCommunication {
             "[SmartInsert] Context left=\(summarizeForLogs(leftChar, maxPreview: 40)) leftNonWs=\(summarizeForLogs(leftNonWs, maxPreview: 40)) " +
             "right=\(summarizeForLogs(rightChar, maxPreview: 40)) rightNonWs=\(summarizeForLogs(rightNonWs, maxPreview: 40)) " +
             "rightHasLineBreak=\(context.rightHasLineBreakBeforeNextNonWhitespace) " +
-            "linePrefix=\(summarizeForLogs(context.leftLinePrefix, maxPreview: 80))"
+            "linePrefix=\(summarizeForLogs(context.leftLinePrefix, maxPreview: 80)) " +
+            "browserAmbiguousNewlineResolution=\(context.browserAmbiguousNewlineBoundaryResolution.label)"
         )
         logDebug("[SmartInsert] Text before: \(summarizeForLogs(original, maxPreview: 120)) | after: \(summarizeForLogs(resolved, maxPreview: 120))")
         logDebug(
@@ -1655,6 +1653,7 @@ class SocketCommunication {
         if lhs.rightCharacter != rhs.rightCharacter { return true }
         if lhs.rightNonWhitespaceCharacter != rhs.rightNonWhitespaceCharacter { return true }
         if lhs.rightHasLineBreakBeforeNextNonWhitespace != rhs.rightHasLineBreakBeforeNextNonWhitespace { return true }
+        if lhs.browserAmbiguousNewlineBoundaryResolution != rhs.browserAmbiguousNewlineBoundaryResolution { return true }
         return lhs.leftLinePrefix != rhs.leftLinePrefix
     }
 
@@ -1670,17 +1669,11 @@ class SocketCommunication {
 
     private func normalizedContextForAmbiguousNewlineBoundary(
         _ context: InputInsertionContext,
-        insertionIsSentenceLike: Bool,
-        shouldAllowBrowserAmbiguousNewlineBias: Bool
+        insertionIsSentenceLike: Bool
     ) -> InputInsertionContext? {
         guard SmartInsertHeuristics.shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
-            isBrowserApp: shouldAllowBrowserAmbiguousNewlineBias,
-            leftCharacter: context.leftCharacter,
-            leftNonWhitespaceCharacter: context.leftNonWhitespaceCharacter,
-            rightCharacter: context.rightCharacter,
-            rightNonWhitespaceCharacter: context.rightNonWhitespaceCharacter,
-            rightHasLineBreakBeforeNextNonWhitespace: context.rightHasLineBreakBeforeNextNonWhitespace,
-            insertionIsSentenceLike: insertionIsSentenceLike
+            insertionIsSentenceLike: insertionIsSentenceLike,
+            browserAmbiguousNewlineBoundaryResolution: context.browserAmbiguousNewlineBoundaryResolution
         ),
         let normalizedRightCharacter = context.rightNonWhitespaceCharacter else {
             return nil
@@ -1692,7 +1685,8 @@ class SocketCommunication {
             leftLinePrefix: "",
             rightCharacter: normalizedRightCharacter,
             rightNonWhitespaceCharacter: normalizedRightCharacter,
-            rightHasLineBreakBeforeNextNonWhitespace: false
+            rightHasLineBreakBeforeNextNonWhitespace: false,
+            browserAmbiguousNewlineBoundaryResolution: context.browserAmbiguousNewlineBoundaryResolution
         )
     }
 

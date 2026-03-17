@@ -49,45 +49,90 @@ private func runSmartInsertHeuristicsRegressionTests() {
     )
 
     assertEqual(
-        SmartInsertHeuristics.shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
-            isBrowserApp: true,
+        SmartInsertHeuristics.isAmbiguousBrowserNewlineBoundary(
             leftCharacter: ".".first,
             leftNonWhitespaceCharacter: ".".first,
             rightCharacter: "\n".first,
             rightNonWhitespaceCharacter: "S".first,
-            rightHasLineBreakBeforeNextNonWhitespace: true,
-            insertionIsSentenceLike: true
+            rightHasLineBreakBeforeNextNonWhitespace: true
         ),
         true,
-        "ambiguous newline boundary is normalized to line-start context for sentence insertion"
+        "ambiguous browser newline boundary is detected from root AX punctuation-newline-uppercase evidence"
     )
 
     assertEqual(
-        SmartInsertHeuristics.shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
-            isBrowserApp: true,
+        SmartInsertHeuristics.isAmbiguousBrowserNewlineBoundary(
             leftCharacter: ".".first,
             leftNonWhitespaceCharacter: ".".first,
             rightCharacter: "\n".first,
             rightNonWhitespaceCharacter: "s".first,
-            rightHasLineBreakBeforeNextNonWhitespace: true,
-            insertionIsSentenceLike: true
+            rightHasLineBreakBeforeNextNonWhitespace: true
         ),
         false,
-        "ambiguous newline boundary normalization stays off for lowercase continuation"
+        "ambiguous browser newline detection stays off for lowercase continuation"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(
+            SmartInsertHeuristics.BrowserAmbiguousNewlineGeometryEvidence(
+                caretMidY: 114,
+                previousMidY: 112,
+                nextMidY: 132
+            )
+        ),
+        .beforeNewline,
+        "browser ambiguous newline geometry resolves to before-newline when the caret stays closer to the previous line"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(
+            SmartInsertHeuristics.BrowserAmbiguousNewlineGeometryEvidence(
+                caretMidY: 130,
+                previousMidY: 112,
+                nextMidY: 132
+            )
+        ),
+        .lineStart,
+        "browser ambiguous newline geometry resolves to line-start when the caret stays closer to the next line"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(
+            SmartInsertHeuristics.BrowserAmbiguousNewlineGeometryEvidence(
+                caretMidY: 122,
+                previousMidY: 112,
+                nextMidY: 132
+            )
+        ),
+        .unresolved,
+        "browser ambiguous newline geometry stays unresolved when the caret is not clearly closer to either line"
     )
 
     assertEqual(
         SmartInsertHeuristics.shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
-            isBrowserApp: false,
-            leftCharacter: ".".first,
-            leftNonWhitespaceCharacter: ".".first,
-            rightCharacter: "\n".first,
-            rightNonWhitespaceCharacter: "T".first,
-            rightHasLineBreakBeforeNextNonWhitespace: true,
-            insertionIsSentenceLike: true
+            insertionIsSentenceLike: true,
+            browserAmbiguousNewlineBoundaryResolution: .lineStart
+        ),
+        true,
+        "sentence insertion normalizes only when browser geometry resolves the ambiguity to line-start"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
+            insertionIsSentenceLike: true,
+            browserAmbiguousNewlineBoundaryResolution: .beforeNewline
         ),
         false,
-        "ambiguous newline boundary normalization stays off for non-browser text areas with a trustworthy root boundary"
+        "sentence insertion keeps the root before-newline boundary when browser geometry resolves to paragraph end"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
+            insertionIsSentenceLike: true,
+            browserAmbiguousNewlineBoundaryResolution: .unresolved
+        ),
+        false,
+        "sentence insertion falls back to the root before-newline boundary when browser geometry is unavailable"
     )
 
     let suspiciousStaticTextOverride = SmartInsertHeuristics.BrowserOverrideEvidence(

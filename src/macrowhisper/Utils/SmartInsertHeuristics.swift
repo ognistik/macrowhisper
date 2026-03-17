@@ -1,6 +1,20 @@
 import Foundation
 
 enum SmartInsertHeuristics {
+    enum BrowserAmbiguousNewlineBoundaryResolution: String {
+        case unresolved
+        case beforeNewline
+        case lineStart
+
+        var label: String { rawValue }
+    }
+
+    struct BrowserAmbiguousNewlineGeometryEvidence {
+        let caretMidY: Double
+        let previousMidY: Double
+        let nextMidY: Double
+    }
+
     struct BrowserRootSelectionEvidence {
         let selectionLocation: Int
         let selectionLength: Int
@@ -32,19 +46,13 @@ enum SmartInsertHeuristics {
     private static let recoverableStaticTextDeltaThreshold = 48
     private static let terminalSentencePunctuation = ".!?"
 
-    static func shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
-        isBrowserApp: Bool,
+    static func isAmbiguousBrowserNewlineBoundary(
         leftCharacter: Character?,
         leftNonWhitespaceCharacter: Character?,
         rightCharacter: Character?,
         rightNonWhitespaceCharacter: Character?,
-        rightHasLineBreakBeforeNextNonWhitespace: Bool,
-        insertionIsSentenceLike: Bool
+        rightHasLineBreakBeforeNextNonWhitespace: Bool
     ) -> Bool {
-        guard isBrowserApp, insertionIsSentenceLike else {
-            return false
-        }
-
         guard rightHasLineBreakBeforeNextNonWhitespace,
               rightCharacter?.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) == true,
               let rightNonWhitespaceCharacter,
@@ -64,6 +72,36 @@ enum SmartInsertHeuristics {
         }
 
         return terminalSentencePunctuation.contains(effectiveLeft)
+    }
+
+    static func resolveAmbiguousBrowserNewlineBoundaryUsingGeometry(
+        _ evidence: BrowserAmbiguousNewlineGeometryEvidence
+    ) -> BrowserAmbiguousNewlineBoundaryResolution {
+        let lineSeparation = abs(evidence.nextMidY - evidence.previousMidY)
+        guard lineSeparation >= 4 else {
+            return .unresolved
+        }
+
+        let distanceToPrevious = abs(evidence.caretMidY - evidence.previousMidY)
+        let distanceToNext = abs(evidence.caretMidY - evidence.nextMidY)
+        let minimumConfidenceGap = max(1.5, lineSeparation * 0.12)
+
+        if distanceToPrevious + minimumConfidenceGap < distanceToNext {
+            return .beforeNewline
+        }
+
+        if distanceToNext + minimumConfidenceGap < distanceToPrevious {
+            return .lineStart
+        }
+
+        return .unresolved
+    }
+
+    static func shouldNormalizeAmbiguousNewlineBoundaryForSentenceInsertion(
+        insertionIsSentenceLike: Bool,
+        browserAmbiguousNewlineBoundaryResolution: BrowserAmbiguousNewlineBoundaryResolution
+    ) -> Bool {
+        insertionIsSentenceLike && browserAmbiguousNewlineBoundaryResolution == .lineStart
     }
 
     static func shouldInspectBrowserDescendants(_ evidence: BrowserRootSelectionEvidence) -> Bool {
