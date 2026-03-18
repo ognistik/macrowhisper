@@ -1107,7 +1107,12 @@ private func validateBrowserOffByOneDescendant(
 
     let mappedLocation = matchedRange.location + candidate.selectedRange.location
     let rootLocation = rootSnapshot.selectedRange.location
-    guard mappedLocation == rootLocation + 1 else {
+    guard mappedLocation > rootLocation else {
+        return nil
+    }
+
+    let expectedDelta = countNewlinesBeforePosition(mappedLocation, in: rootSnapshot.fullText)
+    guard expectedDelta > 0, mappedLocation == rootLocation + expectedDelta else {
         return nil
     }
 
@@ -1124,8 +1129,8 @@ private func validateBrowserOffByOneDescendant(
     }
 
     logDebug(
-        "[SmartInsert] Browser off-by-one corrected via descendant rawLocation=\(rootLocation) " +
-        "correctedLocation=\(mappedLocation) depth=\(candidate.depth) " +
+        "[SmartInsert] Browser newline-offset corrected via descendant rawLocation=\(rootLocation) " +
+        "correctedLocation=\(mappedLocation) delta=\(expectedDelta) depth=\(candidate.depth) " +
         "matchedLength=\(matchedRange.length)"
     )
 
@@ -1144,6 +1149,23 @@ private func validateBrowserOffByOneDescendant(
     )
 }
 
+private func countNewlinesBeforePosition(_ position: Int, in text: String) -> Int {
+    let nsText = text as NSString
+    let upperBound = min(position, nsText.length)
+    guard upperBound > 0 else { return 0 }
+    var count = 0
+    var cursor = 0
+    while cursor < upperBound {
+        let range = nsText.rangeOfComposedCharacterSequence(at: cursor)
+        let str = nsText.substring(with: range)
+        if str.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }) {
+            count += 1
+        }
+        cursor = range.location + range.length
+    }
+    return count
+}
+
 private func correctedBrowserTextPatternCaretSnapshot(
     from snapshot: InputInsertionContextSnapshot
 ) -> InputInsertionContextSnapshot {
@@ -1159,31 +1181,51 @@ private func correctedBrowserTextPatternCaretSnapshot(
         return snapshot
     }
 
-    let leftRange = nsText.rangeOfComposedCharacterSequence(at: currentLocation - 1)
-    let rightRange = nsText.rangeOfComposedCharacterSequence(at: currentLocation)
-    guard let leftChar = nsText.substring(with: leftRange).first,
-          let rightChar = nsText.substring(with: rightRange).first else {
+    // Verify left is a word character (we're inside or at the end of a word)
+    let initialLeftRange = nsText.rangeOfComposedCharacterSequence(at: currentLocation - 1)
+    guard let initialLeftChar = nsText.substring(with: initialLeftRange).first,
+          initialLeftChar.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }) else {
         return snapshot
     }
 
-    let leftIsWord = leftChar.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
-    let rightIsTerminalPunctuation = ".!?".contains(rightChar)
+    // Scan right through word characters to find the next non-word character.
+    // If it's terminal punctuation followed by whitespace/end, advance past it.
+    var scanPos = currentLocation
+    let maxScan = min(currentLocation + 5, snapshot.textLength)
+    var foundTerminalPunct = false
 
-    guard leftIsWord && rightIsTerminalPunctuation else {
-        return snapshot
-    }
+    while scanPos < maxScan {
+        let charRange = nsText.rangeOfComposedCharacterSequence(at: scanPos)
+        let charStr = nsText.substring(with: charRange)
+        guard let ch = charStr.first else { break }
 
-    let afterPunctCursor = rightRange.location + rightRange.length
-    if afterPunctCursor < snapshot.textLength {
-        let afterRange = nsText.rangeOfComposedCharacterSequence(at: afterPunctCursor)
-        if let afterChar = nsText.substring(with: afterRange).first,
-           !afterChar.isWhitespace {
-            return snapshot
+        if ch.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }) {
+            scanPos = charRange.location + charRange.length
+            continue
         }
+
+        if ".!?".contains(ch) {
+            let afterPunct = charRange.location + charRange.length
+            var afterPunctOk = afterPunct >= snapshot.textLength
+            if !afterPunctOk, afterPunct < snapshot.textLength {
+                let afterRange = nsText.rangeOfComposedCharacterSequence(at: afterPunct)
+                if let afterChar = nsText.substring(with: afterRange).first {
+                    afterPunctOk = afterChar.isWhitespace
+                }
+            }
+            if afterPunctOk {
+                currentLocation = afterPunct
+                foundTerminalPunct = true
+            }
+        }
+        break
     }
 
-    currentLocation = afterPunctCursor
+    guard foundTerminalPunct else {
+        return snapshot
+    }
 
+    // Optionally advance past a space at a sentence boundary (punct + space + Uppercase)
     if currentLocation < snapshot.textLength {
         let newRightRange = nsText.rangeOfComposedCharacterSequence(at: currentLocation)
         if let newRight = nsText.substring(with: newRightRange).first,
