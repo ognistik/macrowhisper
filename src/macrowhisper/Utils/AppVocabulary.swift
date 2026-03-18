@@ -287,7 +287,7 @@ private func resolveVocabularyTargetApp(targetPid: Int32?) -> NSRunningApplicati
             return app
         }
     }
-    return resolveFrontApp()
+    return resolveFrontAppIdentity()
 }
 
 private func collectVocabularySnippets(

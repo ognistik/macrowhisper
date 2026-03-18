@@ -240,6 +240,22 @@ func resolveFrontApp(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
     return workspaceApp
 }
 
+/// Fast front-app resolution for paths that only need the app identity, not the focused element.
+/// Prefers NSWorkspace to avoid cold AX focused-element lookups during app startup.
+func resolveFrontAppIdentity(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
+    if let workspaceApp = getWorkspaceFrontmostApplication(timeout: timeout), !workspaceApp.isTerminated {
+        globalState.lastDetectedFrontApp = workspaceApp
+        return workspaceApp
+    }
+
+    if let recentApp = getRecentAXFrontApp() {
+        globalState.lastDetectedFrontApp = recentApp
+        return recentApp
+    }
+
+    return resolveFrontApp(timeout: timeout)
+}
+
 /// Checks if System Events control permission is granted (used by System Events automation features)
 func checkSystemEventsPermission() -> Bool {
     let script = "tell application \"System Events\" to get name"
@@ -1966,8 +1982,8 @@ func getSelectedText() -> String {
         return ""
     }
     
-    // Get the frontmost application using the same thread-safe path as other AX helpers.
-    guard let frontApp = resolveFrontApp(timeout: 0.2) else {
+    // Resolve the front app cheaply; focused-element AX access happens on the target app below.
+    guard let frontApp = resolveFrontAppIdentity(timeout: 0.2) else {
         logDebug("[SelectedText] No frontmost application found")
         return ""
     }
@@ -2214,7 +2230,7 @@ private func resolveTargetApp(targetPid: Int32?) -> NSRunningApplication? {
             return app
         }
     }
-    return resolveFrontApp()
+    return resolveFrontAppIdentity()
 }
 
 /// Gets active URL for the target app (or current frontmost app when pid is nil).

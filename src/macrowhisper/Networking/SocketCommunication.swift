@@ -578,7 +578,7 @@ class SocketCommunication {
     }
 
     private func captureFrontAppSnapshotForCLI() -> (name: String?, bundleId: String?, pid: Int32?, url: String?) {
-        let frontApp = resolveFrontApp()
+        let frontApp = resolveFrontAppIdentity()
         globalState.lastDetectedFrontApp = frontApp
         let appName = frontApp?.localizedName
         let bundleId = frontApp?.bundleIdentifier

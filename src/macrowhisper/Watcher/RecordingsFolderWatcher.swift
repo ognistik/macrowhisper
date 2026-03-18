@@ -713,7 +713,7 @@ class RecordingsFolderWatcher {
             }
             
             // Always update lastDetectedFrontApp to the current frontmost app for app triggers and input field detection
-            let frontApp = resolveFrontApp()
+            let frontApp = resolveFrontAppIdentity()
             globalState.lastDetectedFrontApp = frontApp
             
             // Get front app info for app triggers
@@ -1133,7 +1133,9 @@ class RecordingsFolderWatcher {
             }
         }
 
-        historyManager.performHistoryCleanup()
+        // Run retention cleanup off the interactive dictation path.
+        // It still runs at most once per 24 hours, but no longer competes with first-action responsiveness.
+        historyManager.scheduleHistoryCleanup()
         
         // Check for version updates during active usage with a 30-second delay
         // This ensures users get update notifications during normal app usage, but not immediately

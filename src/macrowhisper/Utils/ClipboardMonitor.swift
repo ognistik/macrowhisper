@@ -992,9 +992,9 @@ class ClipboardMonitor {
                 return
             }
             
-            // CRITICAL: Capture frontmost app info IMMEDIATELY when detecting clipboard change
-            // This prevents race conditions where the user switches apps before we can check
-            let frontApp = resolveFrontApp()
+            // Capture the current front-app identity immediately when the clipboard changes.
+            // This preserves app attribution without paying the focused-element AX cost here.
+            let frontApp = resolveFrontAppIdentity()
             let appName = frontApp?.localizedName ?? ""
             let bundleId = frontApp?.bundleIdentifier ?? ""
             
@@ -1591,7 +1591,7 @@ class ClipboardMonitor {
     /// Checks if the frontmost application should be ignored based on clipboardIgnore pattern
     /// Returns true if the app matches the ignore pattern, false otherwise
     private func shouldIgnoreFrontmostApp() -> Bool {
-        let frontApp = resolveFrontApp()
+        let frontApp = resolveFrontAppIdentity()
         guard let app = frontApp else { return false }
         
         // Get app name and bundle ID for matching
@@ -1791,12 +1791,6 @@ class ClipboardMonitor {
         let currentClipboard = pasteboard.string(forType: .string)
         let now = Date()
         
-        // CRITICAL: Capture frontmost app info IMMEDIATELY when detecting clipboard change
-        // This prevents race conditions where the user switches apps before we can check
-        let frontApp = resolveFrontApp()
-        let appName = frontApp?.localizedName ?? ""
-        let bundleId = frontApp?.bundleIdentifier ?? ""
-        
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
             
@@ -1811,6 +1805,12 @@ class ClipboardMonitor {
             
             // Use changeCount for more reliable change detection - track ANY clipboard operation
             if currentChangeCount != self.lastSeenChangeCount {
+                // Only resolve the front app once we've confirmed the clipboard actually changed.
+                // Global monitoring only needs app identity for attribution and ignore rules.
+                let frontApp = resolveFrontAppIdentity()
+                let appName = frontApp?.localizedName ?? ""
+                let bundleId = frontApp?.bundleIdentifier ?? ""
+
                 if self.shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount

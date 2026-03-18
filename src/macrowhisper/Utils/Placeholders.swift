@@ -1537,7 +1537,7 @@ func processDynamicPlaceholders(
 }
 
 private func getCurrentFrontAppName() -> String {
-    resolveFrontApp()?.localizedName ?? ""
+    resolveFrontAppIdentity()?.localizedName ?? ""
 }
 
 private func extractFrontAppPid(from metaJson: [String: Any]) -> Int32? {

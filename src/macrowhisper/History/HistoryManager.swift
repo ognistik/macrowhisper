@@ -5,32 +5,74 @@ class HistoryManager {
     private let configManager: ConfigurationManager
     private var lastHistoryCheck: Date?
     private let historyCheckInterval: TimeInterval = 24 * 60 * 60 // 24 hours
+    private let cleanupQueue = DispatchQueue(label: "com.macrowhisper.history.cleanup", qos: .utility)
+    private var scheduledCleanupWorkItem: DispatchWorkItem?
+    private var isCleanupInProgress = false
     
     init(configManager: ConfigurationManager) {
         self.configManager = configManager
     }
     
     func shouldPerformHistoryCleanup() -> Bool {
+        cleanupQueue.sync {
+            shouldPerformHistoryCleanup(at: Date())
+        }
+    }
+
+    func scheduleHistoryCleanup(after delay: TimeInterval = 30.0) {
+        let sanitizedDelay = max(0.0, delay)
+        cleanupQueue.async {
+            guard self.shouldPerformHistoryCleanup(at: Date()),
+                  !self.isCleanupInProgress,
+                  self.scheduledCleanupWorkItem == nil else {
+                return
+            }
+
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.runHistoryCleanupIfNeeded()
+            }
+            self.scheduledCleanupWorkItem = workItem
+            self.cleanupQueue.asyncAfter(deadline: .now() + sanitizedDelay, execute: workItem)
+        }
+    }
+
+    func performHistoryCleanup() {
+        cleanupQueue.async {
+            if let workItem = self.scheduledCleanupWorkItem {
+                workItem.cancel()
+                self.scheduledCleanupWorkItem = nil
+            }
+            self.runHistoryCleanupIfNeeded()
+        }
+    }
+
+    private func shouldPerformHistoryCleanup(at now: Date) -> Bool {
         // Check if history management is enabled
         guard configManager.getHistoryRetentionDays() != nil else {
             return false // History management disabled
         }
-        
+
         // Check if we've done this recently (within 24 hours)
         if let lastCheck = lastHistoryCheck,
-           Date().timeIntervalSince(lastCheck) < historyCheckInterval {
+           now.timeIntervalSince(lastCheck) < historyCheckInterval {
             return false
         }
-        
+
         return true
     }
-    
-    func performHistoryCleanup() {
-        guard shouldPerformHistoryCleanup(),
+
+    private func runHistoryCleanupIfNeeded() {
+        scheduledCleanupWorkItem = nil
+
+        guard !isCleanupInProgress,
+              shouldPerformHistoryCleanup(at: Date()),
               let historyDays = configManager.getHistoryRetentionDays() else {
             return
         }
-        
+
+        isCleanupInProgress = true
+        defer { isCleanupInProgress = false }
+
         logDebug("Starting history cleanup with \(historyDays) days retention")
         
         // Expand tilde in the watch path

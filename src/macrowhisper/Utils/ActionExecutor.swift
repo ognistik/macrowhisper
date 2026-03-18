@@ -994,6 +994,8 @@ class ActionExecutor {
     private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String, actionTemplate: String) -> [String: Any] {
         var enhanced = metaJson
         let contextRecordingPath = clipboardMonitor.getContextRootRecordingPath(for: recordingPath)
+        let requiresAppContext = actionUsesPlaceholder(actionTemplate, key: "appContext")
+        let requiresAppVocabulary = actionUsesPlaceholder(actionTemplate, key: "appVocabulary")
         
         let existingSelectedText = (metaJson["selectedText"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1050,7 +1052,7 @@ class ActionExecutor {
             enhanced["frontAppPid"] = Int(frontAppPid)
         }
 
-        if actionUsesPlaceholder(actionTemplate, key: "appContext") {
+        if requiresAppContext {
             if !snapshot.didResolveAppContext {
                 snapshot.appContext = getAppContext(
                     targetPid: snapshot.frontAppPid,
@@ -1061,7 +1063,7 @@ class ActionExecutor {
             enhanced["appContext"] = snapshot.appContext
         }
 
-        if actionUsesPlaceholder(actionTemplate, key: "appVocabulary") {
+        if requiresAppVocabulary {
             if !snapshot.didResolveAppVocabulary {
                 snapshot.appVocabulary = getAppVocabulary(
                     targetPid: snapshot.frontAppPid,

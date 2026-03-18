@@ -1,6 +1,8 @@
 # CHANGELOG
 
 ## UNRELEASED
+* Reduced first-dictation latency after app restart by avoiding expensive Accessibility front-app lookups in app-identity-only paths.
+* Moved automatic history retention cleanup off the action execution path so it no longer competes with initial dictation responsiveness.
 * **Improvement.** Input field detection has been refactored to improve the speed of action execution (especially on browsers)
 * **Improved detection of front app.** It resolves with AX detection first, uses NSWorkspace as fallback.
   * It should be more reliable with special window types.
