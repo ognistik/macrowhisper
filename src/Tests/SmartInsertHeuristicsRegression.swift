@@ -157,6 +157,92 @@ private func runSmartInsertHeuristicsRegressionTests() {
     assertEqual(
         SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
             SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 148,
+                rightCharacterMinX: 146,
+                rightCharacterMaxX: 150,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: true,
+                rightCharacterIsWord: false,
+                rightCharacterIsTerminalPunctuation: false,
+                hasNextNonWhitespaceAfterRight: true,
+                nextCharacterAfterRightMinX: 151,
+                nextCharacterAfterRightIsWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
+                nextNonWhitespaceAfterRightStartsUppercase: false
+            )
+        ),
+        false,
+        "browser inline caret drift correction stays off when caret has not yet reached the next character start after whitespace"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 151,
+                rightCharacterMinX: 146,
+                rightCharacterMaxX: 150,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: true,
+                rightCharacterIsWord: false,
+                rightCharacterIsTerminalPunctuation: false,
+                hasNextNonWhitespaceAfterRight: true,
+                nextCharacterAfterRightMinX: 151,
+                nextCharacterAfterRightIsWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
+                nextNonWhitespaceAfterRightStartsUppercase: false
+            )
+        ),
+        true,
+        "browser inline caret drift correction advances when caret is at the next character start after whitespace"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 148,
+                rightCharacterMaxX: 146,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: true,
+                rightCharacterContainsLineBreak: true,
+                rightCharacterIsWord: false,
+                rightCharacterIsTerminalPunctuation: false,
+                hasNextNonWhitespaceAfterRight: false,
+                nextCharacterAfterRightIsWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
+                nextNonWhitespaceAfterRightStartsUppercase: false
+            )
+        ),
+        false,
+        "browser inline caret drift correction stays off at a trailing newline sentinel with no following text"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 148,
+                rightCharacterMaxX: 146,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: true,
+                rightCharacterContainsLineBreak: true,
+                rightCharacterIsWord: false,
+                rightCharacterIsTerminalPunctuation: false,
+                hasNextNonWhitespaceAfterRight: true,
+                nextCharacterAfterRightIsWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
+                nextNonWhitespaceAfterRightStartsUppercase: true
+            )
+        ),
+        true,
+        "browser inline caret drift correction still advances across a real newline boundary when text exists on the next line"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
                 caretX: 221,
                 rightCharacterMaxX: 220,
                 caretAndRightShareLine: true,
@@ -513,6 +599,46 @@ private func runSmartInsertHeuristicsRegressionTests() {
         SmartInsertHeuristics.shouldAllowBrowserDescendantOverride(newlineSeparatedSentenceStartOverride),
         false,
         "browser descendant override rejects sentence-start static text when the mapped gap crosses a real line break"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 322,
+                rightCharacterMaxX: 320,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: false,
+                rightCharacterIsWord: false,
+                rightCharacterIsTerminalPunctuation: true,
+                hasNextNonWhitespaceAfterRight: false,
+                nextCharacterAfterRightIsWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
+                nextNonWhitespaceAfterRightStartsUppercase: false
+            )
+        ),
+        true,
+        "browser inline caret drift correction advances past terminal punctuation at end of text when no non-whitespace follows"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldCorrectBrowserInlineCaretDrift(
+            SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
+                caretX: 218,
+                rightCharacterMaxX: 220,
+                caretAndRightShareLine: true,
+                rightCharacterIsWhitespace: false,
+                rightCharacterIsWord: false,
+                rightCharacterIsTerminalPunctuation: true,
+                hasNextNonWhitespaceAfterRight: false,
+                nextCharacterAfterRightIsWhitespace: false,
+                nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: false,
+                rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: false,
+                nextNonWhitespaceAfterRightStartsUppercase: false
+            )
+        ),
+        false,
+        "browser inline caret drift correction stays off for end-of-text punctuation when the caret is still visually before it"
     )
 
     assertEqual(

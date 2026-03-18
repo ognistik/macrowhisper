@@ -674,6 +674,7 @@ func getInputInsertionContext(insertionText: String? = nil) -> InputInsertionCon
 
 private func readInputInsertionContext(insertionText: String?) -> InputInsertionContext? {
     let startedAt = CFAbsoluteTimeGetCurrent()
+
     guard AXIsProcessTrusted() else {
         logDebug("[SmartInsert] No accessibility permissions, cannot get insertion context")
         return nil
@@ -1064,7 +1065,7 @@ private func correctedBrowserInlineCaretDriftRange(
     guard let caretBounds = copyAXBoundsForRange(
         NSRange(location: insertionLocation, length: 0),
         from: snapshot.element
-    ) else {
+    ), caretBounds.height >= 2 else {
         return nil
     }
 
@@ -1105,23 +1106,32 @@ private func browserInlineCaretDriftCandidate(
     let rightRange = nsText.rangeOfComposedCharacterSequence(at: location)
     let rightString = nsText.substring(with: rightRange)
     guard let rightCharacter = rightString.first,
-          let rightBounds = copyAXBoundsForRange(rightRange, from: snapshot.element) else {
+          let rightBounds = copyAXBoundsForRange(rightRange, from: snapshot.element),
+          rightBounds.height >= 2 else {
         return nil
     }
 
     let nextCursor = rightRange.location + rightRange.length
     let nextCharacterAfterRight: Character?
     let nextCharacterAfterRightRange: NSRange?
+    let nextCharacterAfterRightMinX: Double?
     if nextCursor < snapshot.textLength {
         let nextRange = nsText.rangeOfComposedCharacterSequence(at: nextCursor)
         nextCharacterAfterRight = nsText.substring(with: nextRange).first
         nextCharacterAfterRightRange = nextRange
+        if let nextBounds = copyAXBoundsForRange(nextRange, from: snapshot.element) {
+            nextCharacterAfterRightMinX = Double(nextBounds.minX)
+        } else {
+            nextCharacterAfterRightMinX = nil
+        }
     } else {
         nextCharacterAfterRight = nil
         nextCharacterAfterRightRange = nil
+        nextCharacterAfterRightMinX = nil
     }
 
     var hasWhitespaceBeforeNextNonWhitespaceAfterRight = false
+    var hasNextNonWhitespaceAfterRight = false
     var nextNonWhitespaceAfterRightStartsUppercase = false
     var scanCursor = nextCursor
     while scanCursor < snapshot.textLength {
@@ -1130,6 +1140,7 @@ private func browserInlineCaretDriftCandidate(
         if let character = value.first,
            !character.isWhitespace,
            !isIgnorableBoundaryCharacterForSmartInsert(character) {
+            hasNextNonWhitespaceAfterRight = true
             nextNonWhitespaceAfterRightStartsUppercase =
                 String(character).rangeOfCharacter(from: .uppercaseLetters) != nil
             break
@@ -1174,11 +1185,15 @@ private func browserInlineCaretDriftCandidate(
     return (
         SmartInsertHeuristics.BrowserInlineCaretDriftEvidence(
             caretX: Double(caretBounds.minX),
+            rightCharacterMinX: Double(rightBounds.minX),
             rightCharacterMaxX: Double(rightBounds.maxX),
             caretAndRightShareLine: abs(caretBounds.midY - rightBounds.midY) < 4,
             rightCharacterIsWhitespace: rightCharacter.isWhitespace,
+            rightCharacterContainsLineBreak: rightString.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }),
             rightCharacterIsWord: isSmartInsertWordCharacter(rightCharacter),
             rightCharacterIsTerminalPunctuation: ".!?".contains(rightCharacter),
+            hasNextNonWhitespaceAfterRight: hasNextNonWhitespaceAfterRight,
+            nextCharacterAfterRightMinX: nextCharacterAfterRightMinX,
             nextCharacterAfterRightIsWhitespace: nextCharacterAfterRight?.isWhitespace == true,
             nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation,
             rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: hasWhitespaceBeforeNextNonWhitespaceAfterRight,
@@ -1613,6 +1628,18 @@ private func browserInsertionSnapshotScore(
         }
         if snapshot.selectedRange.location == 0 && snapshot.selectedRange.length == 0 {
             score -= 40
+        }
+
+        if let reconciliation,
+           reconciliation.method == .exactFragment,
+           reconciliation.deltaFromRootSelection == 0 {
+            let hasLocalLeftEvidence =
+                snapshot.context.leftCharacter != nil || snapshot.context.leftNonWhitespaceCharacter != nil
+            let hasLocalRightEvidence =
+                snapshot.context.rightCharacter != nil || snapshot.context.rightNonWhitespaceCharacter != nil
+            if hasLocalLeftEvidence && hasLocalRightEvidence {
+                score += 80
+            }
         }
     }
 

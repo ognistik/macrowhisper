@@ -17,15 +17,51 @@ enum SmartInsertHeuristics {
 
     struct BrowserInlineCaretDriftEvidence {
         let caretX: Double
+        let rightCharacterMinX: Double
         let rightCharacterMaxX: Double
         let caretAndRightShareLine: Bool
         let rightCharacterIsWhitespace: Bool
+        let rightCharacterContainsLineBreak: Bool
         let rightCharacterIsWord: Bool
         let rightCharacterIsTerminalPunctuation: Bool
+        let hasNextNonWhitespaceAfterRight: Bool
+        let nextCharacterAfterRightMinX: Double?
         let nextCharacterAfterRightIsWhitespace: Bool
         let nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: Bool
         let rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: Bool
         let nextNonWhitespaceAfterRightStartsUppercase: Bool
+
+        init(
+            caretX: Double,
+            rightCharacterMinX: Double = 0,
+            rightCharacterMaxX: Double,
+            caretAndRightShareLine: Bool,
+            rightCharacterIsWhitespace: Bool,
+            rightCharacterContainsLineBreak: Bool = false,
+            rightCharacterIsWord: Bool,
+            rightCharacterIsTerminalPunctuation: Bool,
+            hasNextNonWhitespaceAfterRight: Bool = false,
+            nextCharacterAfterRightMinX: Double? = nil,
+            nextCharacterAfterRightIsWhitespace: Bool,
+            nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation: Bool,
+            rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace: Bool,
+            nextNonWhitespaceAfterRightStartsUppercase: Bool
+        ) {
+            self.caretX = caretX
+            self.rightCharacterMinX = rightCharacterMinX
+            self.rightCharacterMaxX = rightCharacterMaxX
+            self.caretAndRightShareLine = caretAndRightShareLine
+            self.rightCharacterIsWhitespace = rightCharacterIsWhitespace
+            self.rightCharacterContainsLineBreak = rightCharacterContainsLineBreak
+            self.rightCharacterIsWord = rightCharacterIsWord
+            self.rightCharacterIsTerminalPunctuation = rightCharacterIsTerminalPunctuation
+            self.hasNextNonWhitespaceAfterRight = hasNextNonWhitespaceAfterRight
+            self.nextCharacterAfterRightMinX = nextCharacterAfterRightMinX
+            self.nextCharacterAfterRightIsWhitespace = nextCharacterAfterRightIsWhitespace
+            self.nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation = nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation
+            self.rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace = rightCharacterFollowedBySentenceBoundaryBeforeNextNonWhitespace
+            self.nextNonWhitespaceAfterRightStartsUppercase = nextNonWhitespaceAfterRightStartsUppercase
+        }
     }
 
     struct BrowserRootSelectionEvidence {
@@ -130,6 +166,26 @@ enum SmartInsertHeuristics {
         }
 
         if evidence.rightCharacterIsWhitespace {
+            if evidence.rightCharacterContainsLineBreak && !evidence.hasNextNonWhitespaceAfterRight {
+                return false
+            }
+
+            if let nextCharacterAfterRightMinX = evidence.nextCharacterAfterRightMinX,
+               !evidence.nextCharacterAfterRightIsWhitespace {
+                let caretAtNextCharacterStart = evidence.caretX >= nextCharacterAfterRightMinX - 1.0
+                if !caretAtNextCharacterStart {
+                    return false
+                }
+            } else {
+                let rightCharacterWidth = evidence.rightCharacterMaxX - evidence.rightCharacterMinX
+                if rightCharacterWidth >= 2.0 {
+                    let whitespaceCommitThreshold = evidence.rightCharacterMinX + (rightCharacterWidth * 0.6)
+                    if evidence.caretX < whitespaceCommitThreshold {
+                        return false
+                    }
+                }
+            }
+
             return true
         }
 
@@ -138,6 +194,10 @@ enum SmartInsertHeuristics {
         }
 
         if evidence.rightCharacterIsWord && evidence.nextCharacterAfterRightIsSentenceBoundaryTerminalPunctuation {
+            return true
+        }
+
+        if evidence.rightCharacterIsTerminalPunctuation && !evidence.hasNextNonWhitespaceAfterRight {
             return true
         }
 
