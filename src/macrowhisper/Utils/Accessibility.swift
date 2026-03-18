@@ -26,9 +26,12 @@ private let axFrontAppRetryDelay: TimeInterval = 0.02
 private let recentAXFrontAppFallbackWindow: TimeInterval = 0.75
 private var recentAXFrontApp: (app: NSRunningApplication, timestamp: Date)?
 private let recentAXFrontAppQueue = DispatchQueue(label: "frontAppResolutionCache", attributes: .concurrent)
+private let browserURLCacheValidity: TimeInterval = 2.0
+private let browserURLCacheQueue = DispatchQueue(label: "browserURLCache", attributes: .concurrent)
 private let browserInsertionCandidateCacheValidity: TimeInterval = 1.0
 private let browserInsertionCandidateCacheQueue = DispatchQueue(label: "browserInsertionCandidateCache", attributes: .concurrent)
 private var browserInsertionCandidateCache: BrowserInsertionCandidateCacheEntry?
+private var browserURLCacheEntry: BrowserURLCacheEntry?
 
 func requestAccessibilityPermission() -> Bool {
     let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
@@ -2545,21 +2548,59 @@ func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> S
 }
 
 private let arcBrowserBundleId = "company.thebrowser.Browser"
-private let arcURLWebAreaAttributes: [String] = [
+private let genericBrowserURLCandidateRoles: Set<String> = [
+    "AXWebArea",
+    "AXTextField",
+    "AXComboBox",
+    "AXSearchField"
+]
+private let genericBrowserURLAttributes: [String] = [
     "AXURL",
     "AXDocument",
-    kAXValueAttribute as String
+    kAXValueAttribute as String,
+    "AXPlaceholderValue"
 ]
 
-private enum ArcURLSourceKind: String {
-    case webArea
-    case commandBar
+private enum BrowserURLSourceKind: String {
+    case genericShallow
+    case genericDeep
+    case arcCommandBarFallback
 }
 
-private struct ArcURLSourceRef {
-    let kind: ArcURLSourceKind
+private struct BrowserURLSource {
+    let kind: BrowserURLSourceKind
     let attribute: String
     let element: AXUIElement
+    let role: String
+    let depth: Int
+    let discoveryIndex: Int
+}
+
+private struct BrowserURLCandidate {
+    let url: String
+    let specificity: BrowserURLSpecificity
+    let source: BrowserURLSource
+}
+
+private struct BrowserURLCacheEntry {
+    let identity: BrowserURLCacheIdentity
+    let source: BrowserURLSource
+    let normalizedURL: String
+    let specificity: BrowserURLSpecificity
+    let timestamp: Date
+}
+
+private struct BrowserURLScanResult {
+    let candidate: BrowserURLCandidate?
+    let nodesVisited: Int
+}
+
+private struct BrowserURLResolutionResult {
+    let candidate: BrowserURLCandidate?
+    let cacheHit: Bool
+    let stage: String
+    let fallbackUsed: Bool
+    let nodesVisited: Int
 }
 
 /// Gets the current URL from browser applications
@@ -2582,92 +2623,198 @@ private func getBrowserURL(appElement: AXUIElement, frontApp: NSRunningApplicati
     }
     
     let windowElement = focusedWindow as! AXUIElement
+    let resolution = resolveBrowserURL(
+        windowElement: windowElement,
+        bundleId: bundleId,
+        appPid: frontApp.processIdentifier,
+        windowHash: CFHash(windowElement)
+    )
+    logBrowserURLResolution(bundleId: bundleId, resolution: resolution)
 
-    if bundleId == arcBrowserBundleId {
-        if let arcURL = getArcURLViaAccessibility(windowElement: windowElement, bundleId: bundleId) {
-            logDebug("[AppContext] Found Arc URL via accessibility: \(redactForLogs(arcURL))")
-            return arcURL
-        }
-        logDebug("[AppContext] Arc URL not found via accessibility")
-        return nil
+    if let browserURL = resolution.candidate?.url {
+        logDebug("[AppContext] Found browser URL via accessibility: \(redactForLogs(browserURL))")
+        return browserURL
     }
 
-    // Accessibility-only extraction for known non-Arc browsers.
-    if let axURL = getBrowserURLViaAccessibility(windowElement: windowElement) {
-        logDebug("[AppContext] Found browser URL via accessibility: \(redactForLogs(axURL))")
-        return axURL
-    }
-    
     logDebug("[AppContext] No URL found in browser window")
     return nil
 }
 
-/// Browser-agnostic URL extraction using accessibility only.
-/// Order matters: prioritize browser chrome (address bar), then web content attributes.
-private func getBrowserURLViaAccessibility(windowElement: AXUIElement) -> String? {
-    if let addressBarUrl = findAddressBarURL(windowElement) {
-        return addressBarUrl
-    }
-
-    if let webAreaUrl = findWebAreaURL(windowElement) {
-        return webAreaUrl
-    }
-
-    return nil
-}
-
-private func getArcURLViaAccessibility(windowElement: AXUIElement, bundleId: String) -> String? {
-    let startedAt = CFAbsoluteTimeGetCurrent()
-
-    guard let resolved = resolveArcURLSource(windowElement: windowElement) else {
-        logArcURLResolution(
-            bundleId: bundleId,
-            sourceKind: nil,
-            attribute: nil,
-            cacheHit: false,
-            url: nil,
-            startedAt: startedAt
+private func resolveBrowserURL(
+    windowElement: AXUIElement,
+    bundleId: String,
+    appPid: pid_t,
+    windowHash: CFHashCode
+) -> BrowserURLResolutionResult {
+    let cacheIdentity = BrowserURLCacheIdentity(appPid: Int32(appPid), windowHash: Int(windowHash))
+    if let cachedEntry = currentBrowserURLCacheEntry(identity: cacheIdentity),
+       let replayedCandidate = replayBrowserURLCacheEntry(cachedEntry) {
+        return BrowserURLResolutionResult(
+            candidate: replayedCandidate,
+            cacheHit: true,
+            stage: "cache",
+            fallbackUsed: cachedEntry.source.kind == .arcCommandBarFallback,
+            nodesVisited: 0
         )
-        return nil
     }
 
-    logArcURLResolution(
-        bundleId: bundleId,
-        sourceKind: resolved.source.kind,
-        attribute: resolved.source.attribute,
-        cacheHit: false,
-        url: resolved.url,
-        startedAt: startedAt
+    var totalNodesVisited = 0
+    let shallowScan = scanBrowserURLCandidates(
+        from: windowElement,
+        maxDepth: 4,
+        maxNodes: 160,
+        sourceKind: .genericShallow
     )
-    return resolved.url
-}
+    totalNodesVisited += shallowScan.nodesVisited
 
-private func resolveArcURLSource(windowElement: AXUIElement) -> (url: String, source: ArcURLSourceRef)? {
-    if let webArea = findBestWebArea(from: windowElement, maxDepth: 10, maxNodes: 2200) {
-        for attribute in arcURLWebAreaAttributes {
-            let source = ArcURLSourceRef(kind: .webArea, attribute: attribute, element: webArea)
-            if let url = readArcURLFromSource(source) {
-                return (url, source)
+    var bestCandidate = shallowScan.candidate
+    var stage = shallowScan.candidate == nil ? "none" : "genericShallow"
+
+    if bestCandidate == nil || bestCandidate?.specificity == .originOnly {
+        let deepScan = scanBrowserURLCandidates(
+            from: windowElement,
+            maxDepth: 10,
+            maxNodes: 800,
+            sourceKind: .genericDeep
+        )
+        totalNodesVisited += deepScan.nodesVisited
+
+        if let deepCandidate = deepScan.candidate,
+           bestCandidate == nil || shouldPreferBrowserURLCandidateDescriptor(deepCandidate, over: bestCandidate!) {
+            bestCandidate = deepCandidate
+            stage = "genericDeep"
+        }
+    }
+
+    var fallbackUsed = false
+    if bundleId == arcBrowserBundleId {
+        let fallbackScan = scanArcCommandBarFallbackCandidate(
+            from: windowElement,
+            maxDepth: 10,
+            maxNodes: 800
+        )
+        totalNodesVisited += fallbackScan.nodesVisited
+        if let fallbackCandidate = fallbackScan.candidate {
+            fallbackUsed = true
+            if bestCandidate == nil || shouldPreferBrowserURLCandidateDescriptor(fallbackCandidate, over: bestCandidate!) {
+                bestCandidate = fallbackCandidate
+                stage = "arcCommandBarFallback"
             }
         }
     }
 
-    if let commandBarElement = findElementByAXIdentifier(
-        "commandBarPlaceholderTextField",
-        from: windowElement,
-        maxDepth: 10,
-        maxNodes: 1800
-    ) {
-        let source = ArcURLSourceRef(kind: .commandBar, attribute: kAXValueAttribute as String, element: commandBarElement)
-        if let url = readArcURLFromSource(source) {
-            return (url, source)
+    if let bestCandidate {
+        cacheBrowserURLCandidate(identity: cacheIdentity, candidate: bestCandidate)
+    } else {
+        clearBrowserURLCacheEntry(identity: cacheIdentity)
+    }
+
+    return BrowserURLResolutionResult(
+        candidate: bestCandidate,
+        cacheHit: false,
+        stage: stage,
+        fallbackUsed: fallbackUsed,
+        nodesVisited: totalNodesVisited
+    )
+}
+
+private func scanBrowserURLCandidates(
+    from root: AXUIElement,
+    maxDepth: Int,
+    maxNodes: Int,
+    sourceKind: BrowserURLSourceKind
+) -> BrowserURLScanResult {
+    var queue: [(element: AXUIElement, depth: Int)] = [(root, 0)]
+    var visited = 0
+    var discoveryIndex = 0
+    var seenHashes = Set<CFHashCode>()
+    var bestCandidate: BrowserURLCandidate?
+
+    while !queue.isEmpty && visited < maxNodes {
+        let current = queue.removeFirst()
+        visited += 1
+
+        let currentHash = CFHash(current.element)
+        if !seenHashes.insert(currentHash).inserted {
+            continue
+        }
+
+        let role = copyAXRole(from: current.element) ?? ""
+        if genericBrowserURLCandidateRoles.contains(role) {
+            for attribute in genericBrowserURLAttributes {
+                let source = BrowserURLSource(
+                    kind: sourceKind,
+                    attribute: attribute,
+                    element: current.element,
+                    role: role,
+                    depth: current.depth,
+                    discoveryIndex: discoveryIndex
+                )
+                discoveryIndex += 1
+
+                guard let url = readBrowserURLFromSource(source) else {
+                    continue
+                }
+
+                let candidate = BrowserURLCandidate(
+                    url: url,
+                    specificity: browserURLSpecificity(for: url),
+                    source: source
+                )
+                if bestCandidate == nil || shouldPreferBrowserURLCandidateDescriptor(candidate, over: bestCandidate!) {
+                    bestCandidate = candidate
+                }
+            }
+        }
+
+        guard current.depth < maxDepth else {
+            continue
+        }
+
+        for child in getAXTraversalChildren(of: current.element) {
+            queue.append((child, current.depth + 1))
         }
     }
 
-    return nil
+    return BrowserURLScanResult(candidate: bestCandidate, nodesVisited: visited)
 }
 
-private func readArcURLFromSource(_ source: ArcURLSourceRef) -> String? {
+private func scanArcCommandBarFallbackCandidate(
+    from root: AXUIElement,
+    maxDepth: Int,
+    maxNodes: Int
+) -> BrowserURLScanResult {
+    let fallbackSearch = findElementByAXIdentifier(
+        "commandBarPlaceholderTextField",
+        from: root,
+        maxDepth: maxDepth,
+        maxNodes: maxNodes
+    )
+    guard let commandBarElement = fallbackSearch.element else {
+        return BrowserURLScanResult(candidate: nil, nodesVisited: fallbackSearch.visitedNodes)
+    }
+
+    let source = BrowserURLSource(
+        kind: .arcCommandBarFallback,
+        attribute: kAXValueAttribute as String,
+        element: commandBarElement,
+        role: copyAXRole(from: commandBarElement) ?? "AXTextField",
+        depth: 0,
+        discoveryIndex: 0
+    )
+    guard let url = readBrowserURLFromSource(source) else {
+        return BrowserURLScanResult(candidate: nil, nodesVisited: fallbackSearch.visitedNodes)
+    }
+
+    let candidate = BrowserURLCandidate(
+        url: url,
+        specificity: browserURLSpecificity(for: url),
+        source: source
+    )
+    return BrowserURLScanResult(candidate: candidate, nodesVisited: fallbackSearch.visitedNodes)
+}
+
+private func readBrowserURLFromSource(_ source: BrowserURLSource) -> String? {
     var valueRef: CFTypeRef?
     let error = AXUIElementCopyAttributeValue(source.element, source.attribute as CFString, &valueRef)
     guard error == .success, let valueRef = valueRef else {
@@ -2675,14 +2822,103 @@ private func readArcURLFromSource(_ source: ArcURLSourceRef) -> String? {
     }
 
     switch source.kind {
-    case .webArea:
+    case .genericShallow, .genericDeep:
         return normalizeBrowserURLCandidate(valueRef)
-    case .commandBar:
+    case .arcCommandBarFallback:
         return normalizeArcCommandBarURLCandidate(valueRef)
     }
 }
 
-private func findElementByAXIdentifier(_ identifier: String, from root: AXUIElement, maxDepth: Int, maxNodes: Int) -> AXUIElement? {
+private func shouldPreferBrowserURLCandidateDescriptor(
+    _ candidate: BrowserURLCandidate,
+    over current: BrowserURLCandidate
+) -> Bool {
+    shouldPreferBrowserURLCandidate(
+        BrowserURLCandidateDescriptor(
+            normalizedURL: candidate.url,
+            attribute: candidate.source.attribute,
+            role: candidate.source.role,
+            depth: candidate.source.depth,
+            discoveryIndex: candidate.source.discoveryIndex,
+            specificity: candidate.specificity
+        ),
+        over: BrowserURLCandidateDescriptor(
+            normalizedURL: current.url,
+            attribute: current.source.attribute,
+            role: current.source.role,
+            depth: current.source.depth,
+            discoveryIndex: current.source.discoveryIndex,
+            specificity: current.specificity
+        )
+    )
+}
+
+private func currentBrowserURLCacheEntry(identity: BrowserURLCacheIdentity) -> BrowserURLCacheEntry? {
+    browserURLCacheQueue.sync {
+        guard let cacheEntry = browserURLCacheEntry else {
+            return nil
+        }
+
+        let age = Date().timeIntervalSince(cacheEntry.timestamp)
+        guard shouldReuseBrowserURLCacheEntry(
+            entryIdentity: cacheEntry.identity,
+            requestedIdentity: identity,
+            age: age,
+            ttl: browserURLCacheValidity
+        ) else {
+            return nil
+        }
+
+        return cacheEntry
+    }
+}
+
+private func cacheBrowserURLCandidate(identity: BrowserURLCacheIdentity, candidate: BrowserURLCandidate) {
+    browserURLCacheQueue.sync(flags: .barrier) {
+        browserURLCacheEntry = BrowserURLCacheEntry(
+            identity: identity,
+            source: candidate.source,
+            normalizedURL: candidate.url,
+            specificity: candidate.specificity,
+            timestamp: Date()
+        )
+    }
+}
+
+private func clearBrowserURLCacheEntry(identity: BrowserURLCacheIdentity) {
+    browserURLCacheQueue.sync(flags: .barrier) {
+        guard let cacheEntry = browserURLCacheEntry,
+              cacheEntry.identity == identity else {
+            return
+        }
+        browserURLCacheEntry = nil
+    }
+}
+
+private func replayBrowserURLCacheEntry(_ cacheEntry: BrowserURLCacheEntry) -> BrowserURLCandidate? {
+    let normalizedURL = readBrowserURLFromSource(cacheEntry.source)
+    switch browserURLCacheReplayDisposition(normalizedURL: normalizedURL) {
+    case .useValue:
+        guard let normalizedURL else {
+            return nil
+        }
+        return BrowserURLCandidate(
+            url: normalizedURL,
+            specificity: browserURLSpecificity(for: normalizedURL),
+            source: cacheEntry.source
+        )
+    case .invalidate:
+        clearBrowserURLCacheEntry(identity: cacheEntry.identity)
+        return nil
+    }
+}
+
+private func findElementByAXIdentifier(
+    _ identifier: String,
+    from root: AXUIElement,
+    maxDepth: Int,
+    maxNodes: Int
+) -> (element: AXUIElement?, visitedNodes: Int) {
     var queue: [(element: AXUIElement, depth: Int)] = [(root, 0)]
     var visited = 0
     var seenHashes = Set<CFHashCode>()
@@ -2700,7 +2936,7 @@ private func findElementByAXIdentifier(_ identifier: String, from root: AXUIElem
         if AXUIElementCopyAttributeValue(current.element, "AXIdentifier" as CFString, &identifierRef) == .success,
            let currentIdentifier = identifierRef as? String,
            currentIdentifier == identifier {
-            return current.element
+            return (current.element, visited)
         }
 
         guard current.depth < maxDepth else { continue }
@@ -2709,124 +2945,28 @@ private func findElementByAXIdentifier(_ identifier: String, from root: AXUIElem
         }
     }
 
-    return nil
+    return (nil, visited)
 }
 
-private func shouldLogArcURLDiagnostics() -> Bool {
+private func shouldLogBrowserURLDiagnostics() -> Bool {
     return verboseLogging || !redactedLogsEnabled
 }
 
-private func logArcURLResolution(
+private func logBrowserURLResolution(
     bundleId: String,
-    sourceKind: ArcURLSourceKind?,
-    attribute: String?,
-    cacheHit: Bool,
-    url: String?,
-    startedAt: CFAbsoluteTime
+    resolution: BrowserURLResolutionResult
 ) {
-    guard shouldLogArcURLDiagnostics() else { return }
+    guard shouldLogBrowserURLDiagnostics() else { return }
 
-    let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded())
-    let sourceDescription = sourceKind?.rawValue ?? "none"
-    let attributeDescription = attribute ?? "none"
-    let urlDescription = url.map { redactForLogs($0) } ?? "nil"
+    let sourceDescription = resolution.candidate?.source.kind.rawValue ?? "none"
+    let attributeDescription = resolution.candidate?.source.attribute ?? "none"
+    let urlDescription = resolution.candidate.map { redactForLogs($0.url) } ?? "nil"
+    let specificity = resolution.candidate?.specificity.logLabel ?? "none"
     logDebug(
-        "[ArcURL] bundle=\(bundleId) source=\(sourceDescription) attribute=\(attributeDescription) " +
-        "cacheHit=\(cacheHit) elapsedMs=\(elapsedMs) url=\(urlDescription)"
+        "[BrowserURL] bundle=\(bundleId) stage=\(resolution.stage) source=\(sourceDescription) " +
+        "attribute=\(attributeDescription) cacheHit=\(resolution.cacheHit) fallbackUsed=\(resolution.fallbackUsed) " +
+        "nodesVisited=\(resolution.nodesVisited) specificity=\(specificity) url=\(urlDescription)"
     )
-}
-
-/// Specifically searches for address bar URLs in browser windows
-private func findAddressBarURL(_ element: AXUIElement) -> String? {
-    // Look for address bar by checking for text fields with URL-like content
-    return findAddressBarRecursively(element, depth: 0)
-}
-
-/// Recursively searches for address bar URLs with depth limiting for performance
-private func findAddressBarRecursively(_ element: AXUIElement, depth: Int) -> String? {
-    // Limit recursion depth for performance
-    guard depth < 10 else { return nil }
-    
-    // Check if this element is a text field (potential address bar)
-    var role: CFTypeRef?
-    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
-    
-    if roleError == .success, let role = role, let roleString = role as? String {
-        if roleString == "AXTextField" || roleString == "AXComboBox" {
-            // Check if it contains a URL
-            var value: CFTypeRef?
-            let valueError = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
-            
-            if valueError == .success, let value = value, let text = value as? String {
-                // Use strict URL validation
-                if isValidURL(text) {
-                    return text.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-            }
-            
-            // Also check for placeholder or title attributes that might contain URL
-            let urlAttributes = ["AXPlaceholderValue"]
-            for attribute in urlAttributes {
-                var attrValue: CFTypeRef?
-                let attrError = AXUIElementCopyAttributeValue(element, attribute as CFString, &attrValue)
-                
-                if attrError == .success, let attrValue = attrValue, let text = attrValue as? String {
-                    if isValidURL(text) {
-                        return text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                }
-            }
-        }
-    }
-    
-    let children = getAXTraversalChildren(of: element)
-    if !children.isEmpty {
-        for child in children {
-            if let foundURL = findAddressBarRecursively(child, depth: depth + 1) {
-                return foundURL
-            }
-        }
-    }
-    
-    return nil
-}
-
-/// Attempts to read URL-like values from the active AXWebArea subtree.
-/// This complements address-bar scraping for browsers that expose location on web content.
-private func findWebAreaURL(_ root: AXUIElement) -> String? {
-    return findWebAreaURLRecursively(root, depth: 0)
-}
-
-private func findWebAreaURLRecursively(_ element: AXUIElement, depth: Int) -> String? {
-    guard depth < 12 else { return nil }
-
-    var roleRef: CFTypeRef?
-    let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
-    if roleError == .success, let role = roleRef as? String, role == "AXWebArea" {
-        let urlAttributes = [
-            "AXURL",
-            "AXDocument",
-            kAXValueAttribute as String
-        ]
-        for attribute in urlAttributes {
-            var valueRef: CFTypeRef?
-            let valueError = AXUIElementCopyAttributeValue(element, attribute as CFString, &valueRef)
-            guard valueError == .success, let valueRef = valueRef else { continue }
-
-            if let normalizedURL = normalizeBrowserURLCandidate(valueRef) {
-                return normalizedURL
-            }
-        }
-    }
-
-    let children = getAXTraversalChildren(of: element)
-    for child in children {
-        if let found = findWebAreaURLRecursively(child, depth: depth + 1) {
-            return found
-        }
-    }
-
-    return nil
 }
 
 /// Validates if a string is a proper URL

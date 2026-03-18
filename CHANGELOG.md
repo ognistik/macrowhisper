@@ -3,10 +3,11 @@
 ## UNRELEASED
 * Reduced first-dictation latency after app restart by avoiding expensive Accessibility front-app lookups in app-identity-only paths.
 * Moved automatic history retention cleanup off the action execution path so it no longer competes with initial dictation responsiveness.
-* **Improvement.** Input field detection has been refactored to improve the speed of action execution (especially on browsers)
+* **Improved browser URL detection** performance by replacing the old content-heavy accessibility crawl with a bounded, cache-first URL resolver. 
+  * This keeps URL triggers and page detection working while significantly reducing paste delays on complex websites.
+* **Improved input field detection for browsers.** Should have better performance.
 * **Improved detection of front app.** It resolves with AX detection first, uses NSWorkspace as fallback.
   * It should be more reliable with special window types.
-* More improvements and better fallbacks for smart insertion in supported browsers.
 * Improved smart insertion around paragraph boundaries, especially in supported browsers. 
   * Ambiguous newline caret positions now use a safer browser-only resolution path and fall back to the correct paragraph-end behavior instead of forcing the wrong line-start interpretation.
 * Also fixed a related regression in non-browser text areas, where smart insertion could incorrectly rewrite valid before-newline positions.

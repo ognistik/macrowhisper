@@ -39,6 +39,108 @@ private func runBrowserURLNormalizationRegressionTests() {
         urlObjectCandidate == "https://resources.arc.net/docs",
         "URL object candidates are normalized"
     )
+
+    let originDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com",
+        attribute: "AXValue",
+        role: "AXTextField",
+        depth: 2,
+        discoveryIndex: 0
+    )
+    let subpageDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com/docs/getting-started",
+        attribute: "AXValue",
+        role: "AXTextField",
+        depth: 3,
+        discoveryIndex: 5
+    )
+    assertTrue(
+        shouldPreferBrowserURLCandidate(subpageDescriptor, over: originDescriptor),
+        "More specific subpage beats origin-only candidate"
+    )
+
+    let axValueDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com/docs",
+        attribute: "AXValue",
+        role: "AXTextField",
+        depth: 2,
+        discoveryIndex: 0
+    )
+    let axURLDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com/docs",
+        attribute: "AXURL",
+        role: "AXTextField",
+        depth: 2,
+        discoveryIndex: 1
+    )
+    assertTrue(
+        shouldPreferBrowserURLCandidate(axURLDescriptor, over: axValueDescriptor),
+        "AXURL beats AXValue at equal specificity"
+    )
+
+    let chromeDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com/docs",
+        attribute: "AXURL",
+        role: "AXTextField",
+        depth: 1,
+        discoveryIndex: 0
+    )
+    let webAreaDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com/docs",
+        attribute: "AXURL",
+        role: "AXWebArea",
+        depth: 4,
+        discoveryIndex: 3
+    )
+    assertTrue(
+        shouldPreferBrowserURLCandidate(webAreaDescriptor, over: chromeDescriptor),
+        "AXWebArea beats chrome text field at equal specificity"
+    )
+
+    let earlierOriginDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com",
+        attribute: "AXURL",
+        role: "AXWebArea",
+        depth: 1,
+        discoveryIndex: 0
+    )
+    let laterSpecificDescriptor = BrowserURLCandidateDescriptor(
+        normalizedURL: "https://example.com/docs?ref=abc",
+        attribute: "AXValue",
+        role: "AXTextField",
+        depth: 5,
+        discoveryIndex: 20
+    )
+    assertTrue(
+        shouldPreferBrowserURLCandidate(laterSpecificDescriptor, over: earlierOriginDescriptor),
+        "Later candidate replaces earlier candidate when specificity is higher"
+    )
+
+    let cacheIdentity = BrowserURLCacheIdentity(appPid: 42, windowHash: 99)
+    assertTrue(
+        shouldReuseBrowserURLCacheEntry(
+            entryIdentity: cacheIdentity,
+            requestedIdentity: cacheIdentity,
+            age: 1.0,
+            ttl: 2.0
+        ),
+        "Cache entry is reusable for same window within TTL"
+    )
+
+    assertTrue(
+        !shouldReuseBrowserURLCacheEntry(
+            entryIdentity: cacheIdentity,
+            requestedIdentity: BrowserURLCacheIdentity(appPid: 42, windowHash: 100),
+            age: 0.5,
+            ttl: 2.0
+        ),
+        "Window change invalidates browser URL cache reuse"
+    )
+
+    assertTrue(
+        browserURLCacheReplayDisposition(normalizedURL: nil) == .invalidate,
+        "Failed cache replay invalidates the cache entry"
+    )
 }
 
 @main

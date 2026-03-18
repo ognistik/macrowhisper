@@ -720,7 +720,13 @@ class RecordingsFolderWatcher {
             let frontAppName = frontApp?.localizedName
             let frontAppBundleId = frontApp?.bundleIdentifier
             let frontAppPid = frontApp?.processIdentifier
-            let frontAppUrl = getActiveURL(targetPid: frontAppPid, fallbackBundleId: frontAppBundleId)
+            let shouldResolveFrontAppUrl = shouldResolveFrontAppURLDuringValidation()
+            let frontAppUrl = shouldResolveFrontAppUrl
+                ? getActiveURL(targetPid: frontAppPid, fallbackBundleId: frontAppBundleId)
+                : nil
+            if !shouldResolveFrontAppUrl {
+                logDebug("[ActiveURL] Skipping eager frontAppUrl lookup for this recording")
+            }
             
             // Create enhanced metaJson with app metadata captured at processing time
             var enhancedMetaJson = metaJson
@@ -1196,6 +1202,121 @@ class RecordingsFolderWatcher {
         var enhancedMetaJson = metaJson
         enhancedMetaJson["frontAppUrl"] = frontAppUrl
         return enhancedMetaJson
+    }
+
+    private func shouldResolveFrontAppURLDuringValidation() -> Bool {
+        if configurationHasAnyURLTriggers() {
+            return true
+        }
+
+        if let scheduledActionName = globalState.scheduledActionName,
+           actionChainUsesPlaceholder(actionName: scheduledActionName, key: "frontAppUrl") {
+            return true
+        }
+
+        if let activeActionName = configManager.config.defaults.activeAction?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !activeActionName.isEmpty,
+           actionChainUsesPlaceholder(actionName: activeActionName, key: "frontAppUrl") {
+            return true
+        }
+
+        return configuredTriggerRootsUsePlaceholder("frontAppUrl")
+    }
+
+    private func configurationHasAnyURLTriggers() -> Bool {
+        configuredActions().contains { _, type, action in
+            actionHasURLTrigger(action: action, type: type)
+        }
+    }
+
+    private func configuredTriggerRootsUsePlaceholder(_ key: String) -> Bool {
+        for (name, type, action) in configuredActions() {
+            guard actionHasAnyTrigger(action: action, type: type) else {
+                continue
+            }
+
+            if actionChainUsesPlaceholder(
+                initialAction: action,
+                name: name,
+                type: type,
+                key: key
+            ) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func actionChainUsesPlaceholder(actionName: String, key: String) -> Bool {
+        let normalizedName = actionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty else {
+            return false
+        }
+
+        let (type, action) = findActionByName(normalizedName, configManager: configManager)
+        guard let action else {
+            return false
+        }
+
+        return actionChainUsesPlaceholder(
+            initialAction: action,
+            name: normalizedName,
+            type: type,
+            key: key
+        )
+    }
+
+    private func configuredActions() -> [(name: String, type: ActionType, action: Any)] {
+        var actions: [(name: String, type: ActionType, action: Any)] = []
+        actions.append(contentsOf: configManager.config.inserts.map { ($0.key, .insert, $0.value as Any) })
+        actions.append(contentsOf: configManager.config.urls.map { ($0.key, .url, $0.value as Any) })
+        actions.append(contentsOf: configManager.config.shortcuts.map { ($0.key, .shortcut, $0.value as Any) })
+        actions.append(contentsOf: configManager.config.scriptsShell.map { ($0.key, .shell, $0.value as Any) })
+        actions.append(contentsOf: configManager.config.scriptsAS.map { ($0.key, .appleScript, $0.value as Any) })
+        return actions
+    }
+
+    private func actionHasURLTrigger(action: Any, type: ActionType) -> Bool {
+        let triggerUrls: String?
+        switch type {
+        case .insert:
+            triggerUrls = (action as? AppConfiguration.Insert)?.triggerUrls
+        case .url:
+            triggerUrls = (action as? AppConfiguration.Url)?.triggerUrls
+        case .shortcut:
+            triggerUrls = (action as? AppConfiguration.Shortcut)?.triggerUrls
+        case .shell:
+            triggerUrls = (action as? AppConfiguration.ScriptShell)?.triggerUrls
+        case .appleScript:
+            triggerUrls = (action as? AppConfiguration.ScriptAppleScript)?.triggerUrls
+        }
+
+        return !(triggerUrls?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    private func actionHasAnyTrigger(action: Any, type: ActionType) -> Bool {
+        let triggerValues: [String?]
+        switch type {
+        case .insert:
+            let typedAction = action as? AppConfiguration.Insert
+            triggerValues = [typedAction?.triggerVoice, typedAction?.triggerApps, typedAction?.triggerModes, typedAction?.triggerUrls]
+        case .url:
+            let typedAction = action as? AppConfiguration.Url
+            triggerValues = [typedAction?.triggerVoice, typedAction?.triggerApps, typedAction?.triggerModes, typedAction?.triggerUrls]
+        case .shortcut:
+            let typedAction = action as? AppConfiguration.Shortcut
+            triggerValues = [typedAction?.triggerVoice, typedAction?.triggerApps, typedAction?.triggerModes, typedAction?.triggerUrls]
+        case .shell:
+            let typedAction = action as? AppConfiguration.ScriptShell
+            triggerValues = [typedAction?.triggerVoice, typedAction?.triggerApps, typedAction?.triggerModes, typedAction?.triggerUrls]
+        case .appleScript:
+            let typedAction = action as? AppConfiguration.ScriptAppleScript
+            triggerValues = [typedAction?.triggerVoice, typedAction?.triggerApps, typedAction?.triggerModes, typedAction?.triggerUrls]
+        }
+
+        return triggerValues.contains { !($0?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
     }
 
     private func actionChainUsesPlaceholder(
