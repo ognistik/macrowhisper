@@ -712,7 +712,7 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
     let rootHash = CFHash(element)
     let shouldInspectDescendants = isBrowserApp && shouldInspectBrowserDescendants(rootSnapshot)
 
-    let chosenSnapshot: InputInsertionContextSnapshot
+    var chosenSnapshot: InputInsertionContextSnapshot
     if shouldInspectDescendants,
        let cachedSnapshot = cachedBrowserInsertionContextSnapshot(
         appPid: frontApp.processIdentifier,
@@ -761,6 +761,16 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
     } else {
         clearBrowserInsertionCandidate(appPid: frontApp.processIdentifier, rootHash: rootHash)
         chosenSnapshot = rootSnapshot
+    }
+
+    if isBrowserApp && chosenSnapshot.depth == 0 && chosenSnapshot.selectedRange.length == 0 {
+        if let corrected = correctBrowserOffByOneUsingDescendants(
+            rootSnapshot: chosenSnapshot,
+            rootElement: element,
+            frontApp: frontApp
+        ) {
+            chosenSnapshot = corrected
+        }
     }
 
     let effectiveSnapshot: InputInsertionContextSnapshot
@@ -1020,7 +1030,208 @@ private func resolvedBrowserInsertionContextSnapshot(
     from snapshot: InputInsertionContextSnapshot
 ) -> InputInsertionContextSnapshot {
     let inlineCorrectedSnapshot = correctedBrowserInlineCaretDriftSnapshot(from: snapshot)
-    return resolvedBrowserAmbiguousNewlineSnapshot(from: inlineCorrectedSnapshot)
+    let effectiveSnapshot: InputInsertionContextSnapshot
+    if inlineCorrectedSnapshot.selectedRange.location == snapshot.selectedRange.location {
+        effectiveSnapshot = correctedBrowserTextPatternCaretSnapshot(from: snapshot)
+    } else {
+        effectiveSnapshot = inlineCorrectedSnapshot
+    }
+    return resolvedBrowserAmbiguousNewlineSnapshot(from: effectiveSnapshot)
+}
+
+private func correctBrowserOffByOneUsingDescendants(
+    rootSnapshot: InputInsertionContextSnapshot,
+    rootElement: AXUIElement,
+    frontApp: NSRunningApplication
+) -> InputInsertionContextSnapshot? {
+    var queue: [(element: AXUIElement, depth: Int)] = [(rootElement, 0)]
+    var seen = Set<CFHashCode>()
+    var visited = 0
+    let maxDepth = 6
+    let maxNodes = 200
+
+    while !queue.isEmpty && visited < maxNodes {
+        let current = queue.removeFirst()
+        visited += 1
+
+        let hash = CFHash(current.element)
+        if !seen.insert(hash).inserted { continue }
+
+        if current.depth > 0 {
+            let role = copyAXRole(from: current.element)
+            if shouldConsiderBrowserSelectionCandidate(current.element, roleHint: role),
+               let snapshot = buildInputInsertionContextSnapshot(
+                for: current.element,
+                role: role ?? "unknown",
+                frontApp: frontApp,
+                depth: current.depth
+               ),
+               let corrected = validateBrowserOffByOneDescendant(
+                snapshot,
+                rootSnapshot: rootSnapshot
+               ) {
+                return corrected
+            }
+        }
+
+        guard current.depth < maxDepth else { continue }
+        for child in getAXTraversalChildren(of: current.element) {
+            queue.append((child, current.depth + 1))
+        }
+    }
+
+    return nil
+}
+
+private func validateBrowserOffByOneDescendant(
+    _ candidate: InputInsertionContextSnapshot,
+    rootSnapshot: InputInsertionContextSnapshot
+) -> InputInsertionContextSnapshot? {
+    guard candidate.depth > 0,
+          candidate.textLength >= 10,
+          candidate.textLength < rootSnapshot.textLength,
+          candidate.fullText != rootSnapshot.fullText else {
+        return nil
+    }
+
+    guard candidate.selectedRange.location >= 3 else {
+        return nil
+    }
+
+    guard let matchedRange = uniqueBrowserTextRange(
+        of: candidate.fullText,
+        in: rootSnapshot.fullText
+    ) else {
+        return nil
+    }
+
+    let mappedLocation = matchedRange.location + candidate.selectedRange.location
+    let rootLocation = rootSnapshot.selectedRange.location
+    guard mappedLocation == rootLocation + 1 else {
+        return nil
+    }
+
+    let mappedRange = CFRange(location: mappedLocation, length: rootSnapshot.selectedRange.length)
+    guard let mappedContext = deriveInputInsertionContext(
+        fullText: rootSnapshot.fullText,
+        selectedRange: mappedRange
+    ) else {
+        return nil
+    }
+
+    guard browserContextsMatch(candidate.context, mappedContext) else {
+        return nil
+    }
+
+    logDebug(
+        "[SmartInsert] Browser off-by-one corrected via descendant rawLocation=\(rootLocation) " +
+        "correctedLocation=\(mappedLocation) depth=\(candidate.depth) " +
+        "matchedLength=\(matchedRange.length)"
+    )
+
+    return InputInsertionContextSnapshot(
+        element: rootSnapshot.element,
+        context: mappedContext,
+        role: rootSnapshot.role,
+        textLength: rootSnapshot.textLength,
+        selectedRange: mappedRange,
+        depth: rootSnapshot.depth,
+        neighborhood: debugCaretNeighborhoodSnippet(
+            fullText: rootSnapshot.fullText,
+            selectedRange: mappedRange
+        ),
+        fullText: rootSnapshot.fullText
+    )
+}
+
+private func correctedBrowserTextPatternCaretSnapshot(
+    from snapshot: InputInsertionContextSnapshot
+) -> InputInsertionContextSnapshot {
+    guard snapshot.depth == 0,
+          snapshot.selectedRange.length == 0 else {
+        return snapshot
+    }
+
+    let nsText = snapshot.fullText as NSString
+    var currentLocation = Int(snapshot.selectedRange.location)
+
+    guard currentLocation > 0, currentLocation < snapshot.textLength else {
+        return snapshot
+    }
+
+    let leftRange = nsText.rangeOfComposedCharacterSequence(at: currentLocation - 1)
+    let rightRange = nsText.rangeOfComposedCharacterSequence(at: currentLocation)
+    guard let leftChar = nsText.substring(with: leftRange).first,
+          let rightChar = nsText.substring(with: rightRange).first else {
+        return snapshot
+    }
+
+    let leftIsWord = leftChar.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+    let rightIsTerminalPunctuation = ".!?".contains(rightChar)
+
+    guard leftIsWord && rightIsTerminalPunctuation else {
+        return snapshot
+    }
+
+    let afterPunctCursor = rightRange.location + rightRange.length
+    if afterPunctCursor < snapshot.textLength {
+        let afterRange = nsText.rangeOfComposedCharacterSequence(at: afterPunctCursor)
+        if let afterChar = nsText.substring(with: afterRange).first,
+           !afterChar.isWhitespace {
+            return snapshot
+        }
+    }
+
+    currentLocation = afterPunctCursor
+
+    if currentLocation < snapshot.textLength {
+        let newRightRange = nsText.rangeOfComposedCharacterSequence(at: currentLocation)
+        if let newRight = nsText.substring(with: newRightRange).first,
+           newRight == " " || newRight == "\u{00A0}" {
+            var scanCursor = newRightRange.location + newRightRange.length
+            while scanCursor < snapshot.textLength {
+                let scanRange = nsText.rangeOfComposedCharacterSequence(at: scanCursor)
+                if let c = nsText.substring(with: scanRange).first, !c.isWhitespace {
+                    if String(c).rangeOfCharacter(from: .uppercaseLetters) != nil {
+                        currentLocation = newRightRange.location + newRightRange.length
+                    }
+                    break
+                }
+                scanCursor = scanRange.location + scanRange.length
+            }
+        }
+    }
+
+    guard currentLocation != Int(snapshot.selectedRange.location) else {
+        return snapshot
+    }
+
+    let correctedRange = CFRange(location: currentLocation, length: snapshot.selectedRange.length)
+    guard let correctedContext = deriveInputInsertionContext(
+        fullText: snapshot.fullText,
+        selectedRange: correctedRange
+    ) else {
+        return snapshot
+    }
+
+    logDebug(
+        "[SmartInsert] Browser text-pattern caret correction rawLocation=\(snapshot.selectedRange.location) " +
+        "correctedLocation=\(currentLocation)"
+    )
+
+    return InputInsertionContextSnapshot(
+        element: snapshot.element,
+        context: correctedContext,
+        role: snapshot.role,
+        textLength: snapshot.textLength,
+        selectedRange: correctedRange,
+        depth: snapshot.depth,
+        neighborhood: debugCaretNeighborhoodSnippet(
+            fullText: snapshot.fullText,
+            selectedRange: correctedRange
+        ),
+        fullText: snapshot.fullText
+    )
 }
 
 private func correctedBrowserInlineCaretDriftSnapshot(
