@@ -1597,7 +1597,8 @@ class SocketCommunication {
                 to: resolved,
                 leftCharacter: context.leftCharacter,
                 leftLinePrefix: context.leftLinePrefix,
-                rightCharacter: context.rightCharacter
+                rightCharacter: context.rightCharacter,
+                rightMeaningfulCharacter: context.rightMeaningfulCharacter
             )
         }
 
@@ -1652,6 +1653,7 @@ class SocketCommunication {
         if lhs.leftNonWhitespaceCharacter != rhs.leftNonWhitespaceCharacter { return true }
         if lhs.rightCharacter != rhs.rightCharacter { return true }
         if lhs.rightNonWhitespaceCharacter != rhs.rightNonWhitespaceCharacter { return true }
+        if lhs.rightMeaningfulCharacter != rhs.rightMeaningfulCharacter { return true }
         if lhs.rightHasLineBreakBeforeNextNonWhitespace != rhs.rightHasLineBreakBeforeNextNonWhitespace { return true }
         if lhs.browserAmbiguousNewlineBoundaryResolution != rhs.browserAmbiguousNewlineBoundaryResolution { return true }
         return lhs.leftLinePrefix != rhs.leftLinePrefix
@@ -1685,6 +1687,7 @@ class SocketCommunication {
             leftLinePrefix: "",
             rightCharacter: normalizedRightCharacter,
             rightNonWhitespaceCharacter: normalizedRightCharacter,
+            rightMeaningfulCharacter: normalizedRightCharacter,
             rightHasLineBreakBeforeNextNonWhitespace: false,
             browserAmbiguousNewlineBoundaryResolution: context.browserAmbiguousNewlineBoundaryResolution
         )
@@ -1834,7 +1837,8 @@ class SocketCommunication {
         to text: String,
         leftCharacter: Character?,
         leftLinePrefix: String,
-        rightCharacter: Character?
+        rightCharacter: Character?,
+        rightMeaningfulCharacter: Character?
     ) -> String {
         var updated = text
 
@@ -1870,7 +1874,8 @@ class SocketCommunication {
             }
         }
 
-        if let right = rightCharacter, isWordCharacter(right), let last = updated.last {
+        let effectiveRight = rightMeaningfulCharacter ?? rightCharacter
+        if let right = effectiveRight, isWordCharacter(right), let last = updated.last {
             if isWordCharacter(last) || ".,;:!?".contains(last) || isClosingWrapperCharacter(last) {
                 updated += " "
             }

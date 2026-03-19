@@ -556,6 +556,7 @@ struct InputInsertionContext {
     let leftLinePrefix: String
     let rightCharacter: Character?
     let rightNonWhitespaceCharacter: Character?
+    let rightMeaningfulCharacter: Character?
     let rightHasLineBreakBeforeNextNonWhitespace: Bool
 
     let browserAmbiguousNewlineBoundaryResolution: SmartInsertHeuristics.BrowserAmbiguousNewlineBoundaryResolution
@@ -566,6 +567,7 @@ struct InputInsertionContext {
         leftLinePrefix: String,
         rightCharacter: Character?,
         rightNonWhitespaceCharacter: Character?,
+        rightMeaningfulCharacter: Character?,
         rightHasLineBreakBeforeNextNonWhitespace: Bool,
         browserAmbiguousNewlineBoundaryResolution: SmartInsertHeuristics.BrowserAmbiguousNewlineBoundaryResolution = .unresolved
     ) {
@@ -574,6 +576,7 @@ struct InputInsertionContext {
         self.leftLinePrefix = leftLinePrefix
         self.rightCharacter = rightCharacter
         self.rightNonWhitespaceCharacter = rightNonWhitespaceCharacter
+        self.rightMeaningfulCharacter = rightMeaningfulCharacter
         self.rightHasLineBreakBeforeNextNonWhitespace = rightHasLineBreakBeforeNextNonWhitespace
         self.browserAmbiguousNewlineBoundaryResolution = browserAmbiguousNewlineBoundaryResolution
     }
@@ -1000,8 +1003,12 @@ private func deriveInputInsertionContext(
     }
 
     var rightNonWhitespaceCharacter: Character?
+    var rightMeaningfulCharacter: Character?
     var rightHasLineBreakBeforeNextNonWhitespace = false
     if insertionEnd < textLength {
+        let rightText = nsText.substring(with: NSRange(location: insertionEnd, length: textLength - insertionEnd))
+        rightMeaningfulCharacter = SmartInsertBoundary.effectiveRightContextCharacter(in: rightText)
+
         var cursor = insertionEnd
         while cursor < textLength {
             let range = nsText.rangeOfComposedCharacterSequence(at: cursor)
@@ -1025,6 +1032,7 @@ private func deriveInputInsertionContext(
         leftLinePrefix: leftLinePrefix,
         rightCharacter: rightCharacter,
         rightNonWhitespaceCharacter: rightNonWhitespaceCharacter,
+        rightMeaningfulCharacter: rightMeaningfulCharacter,
         rightHasLineBreakBeforeNextNonWhitespace: rightHasLineBreakBeforeNextNonWhitespace
     )
 }
@@ -1492,6 +1500,7 @@ private func resolvedBrowserAmbiguousNewlineSnapshot(
             leftLinePrefix: snapshot.context.leftLinePrefix,
             rightCharacter: snapshot.context.rightCharacter,
             rightNonWhitespaceCharacter: snapshot.context.rightNonWhitespaceCharacter,
+            rightMeaningfulCharacter: snapshot.context.rightMeaningfulCharacter,
             rightHasLineBreakBeforeNextNonWhitespace: snapshot.context.rightHasLineBreakBeforeNextNonWhitespace,
             browserAmbiguousNewlineBoundaryResolution: resolution
         ),

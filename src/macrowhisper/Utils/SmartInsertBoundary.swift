@@ -56,6 +56,20 @@ enum SmartInsertBoundary {
         return nil
     }
 
+    static func effectiveRightContextCharacter(in rightText: String) -> Character? {
+        for character in rightText {
+            if character.isWhitespace || isIgnorableBoundaryCharacter(character) {
+                continue
+            }
+            if isSkippableTrailingDelimiterForBoundary(character) {
+                continue
+            }
+            return character
+        }
+
+        return nil
+    }
+
     static func isLineStartBoundary(_ leftCharacter: Character?) -> Bool {
         if leftCharacter == nil {
             return true

@@ -41,6 +41,18 @@ private func runSmartInsertBoundaryRegressionTests() {
         "inline code boundary preserves sentence punctuation behind attachment character"
     )
 
+    assertEqual(
+        SmartInsertBoundary.effectiveRightContextCharacter(in: "**This is a text.**"),
+        "T",
+        "right context skips markdown bold delimiters to find the next meaningful character"
+    )
+
+    assertEqual(
+        SmartInsertBoundary.effectiveRightContextCharacter(in: "*Italics.*"),
+        "I",
+        "right context skips markdown italics delimiters to find the next meaningful character"
+    )
+
     assertTrue(
         SmartInsertBoundary.isIgnorableBoundaryCharacter(zeroWidthJoiner.first!),
         "zero-width joiner is classified as an ignorable boundary character"

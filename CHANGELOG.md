@@ -3,6 +3,7 @@
 ## UNRELEASED
 * Reduced first-dictation latency after app restart by avoiding expensive Accessibility front-app lookups in app-identity-only paths.
 * Moved automatic history retention cleanup off the action execution path so it no longer competes with initial dictation responsiveness.
+* Fixed smart insertion spacing before markdown emphasis so inserts now add the expected space before *italic* and **bold** content.
 * **Improved browser URL detection** performance by replacing the old content-heavy accessibility crawl with a bounded, cache-first URL resolver. 
   * This keeps URL triggers and page detection working while significantly reducing paste delays on complex websites.
 * **Improved input field detection for browsers.** Should have better performance.
