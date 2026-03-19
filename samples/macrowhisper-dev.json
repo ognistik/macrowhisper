@@ -138,7 +138,7 @@
       "triggerVoice" : null
     },
     "terminals" : {
-      "action" : "{{swResult::lowercaseFirst}}",
+      "action" : "{{swResult::lowercaseFirst||`||}}",
       "actionDelay" : null,
       "icon" : null,
       "inputCondition" : null,
@@ -170,7 +170,7 @@
       "simEsc" : null,
       "simKeypress" : null,
       "simReturn" : null,
-      "smartCasing" : null,
+      "smartCasing" : false,
       "smartPunctuation" : null,
       "smartSpacing" : null,
       "triggerApps" : null,
