@@ -668,6 +668,36 @@ private func runSmartInsertHeuristicsRegressionTests() {
         true,
         "leading space is still added after punctuation when the left boundary has no whitespace"
     )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldInsertTrailingSpace(
+            immediateRightIsWhitespace: true,
+            effectiveRightIsWord: true,
+            insertedTextEndsWithJoinableBoundary: true
+        ),
+        false,
+        "trailing space is not added when replacement keeps an immediate right-side space"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldInsertTrailingSpace(
+            immediateRightIsWhitespace: false,
+            effectiveRightIsWord: true,
+            insertedTextEndsWithJoinableBoundary: true
+        ),
+        true,
+        "trailing space is still added when a caret insertion runs directly into a following word"
+    )
+
+    assertEqual(
+        SmartInsertHeuristics.shouldInsertTrailingSpace(
+            immediateRightIsWhitespace: false,
+            effectiveRightIsWord: false,
+            insertedTextEndsWithJoinableBoundary: true
+        ),
+        false,
+        "trailing space is not added when the effective right boundary is not a word"
+    )
 }
 
 @main

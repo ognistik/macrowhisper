@@ -304,4 +304,20 @@ enum SmartInsertHeuristics {
             shouldInsertLeadingSpaceAfterPunctuation ||
             shouldInsertLeadingSpaceBeforeOpeningWrapper
     }
+
+    static func shouldInsertTrailingSpace(
+        immediateRightIsWhitespace: Bool,
+        effectiveRightIsWord: Bool,
+        insertedTextEndsWithJoinableBoundary: Bool
+    ) -> Bool {
+        guard !immediateRightIsWhitespace else {
+            return false
+        }
+
+        guard effectiveRightIsWord else {
+            return false
+        }
+
+        return insertedTextEndsWithJoinableBoundary
+    }
 }

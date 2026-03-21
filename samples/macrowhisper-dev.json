@@ -74,6 +74,27 @@
       "triggerUrls" : null,
       "triggerVoice" : null
     },
+    "noPeriod" : {
+      "action" : "{{swResult::ensureSentence||\\.$||}}",
+      "actionDelay" : null,
+      "icon" : null,
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "restoreClipboard" : null,
+      "restoreClipboardDelay" : null,
+      "simEsc" : null,
+      "simKeypress" : null,
+      "simReturn" : null,
+      "smartCasing" : null,
+      "smartPunctuation" : null,
+      "smartSpacing" : null,
+      "triggerApps" : null,
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerUrls" : null,
+      "triggerVoice" : "==no period[.,\\s]*$=="
+    },
     "pasteChat" : {
       "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
       "actionDelay" : 0,

@@ -1875,8 +1875,17 @@ class SocketCommunication {
         }
 
         let effectiveRight = rightMeaningfulCharacter ?? rightCharacter
-        if let right = effectiveRight, isWordCharacter(right), let last = updated.last {
-            if isWordCharacter(last) || ".,;:!?".contains(last) || isClosingWrapperCharacter(last) {
+        if let right = effectiveRight, let last = updated.last {
+            let immediateRightIsWhitespace = rightCharacter?.isWhitespace == true
+            let effectiveRightIsWord = isWordCharacter(right)
+            let insertedTextEndsWithJoinableBoundary =
+                isWordCharacter(last) || ".,;:!?".contains(last) || isClosingWrapperCharacter(last)
+
+            if SmartInsertHeuristics.shouldInsertTrailingSpace(
+                immediateRightIsWhitespace: immediateRightIsWhitespace,
+                effectiveRightIsWord: effectiveRightIsWord,
+                insertedTextEndsWithJoinableBoundary: insertedTextEndsWithJoinableBoundary
+            ) {
                 updated += " "
             }
         }
