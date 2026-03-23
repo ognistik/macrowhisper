@@ -1,20 +1,23 @@
 # CHANGELOG
 
 ## UNRELEASED
-* Reduced first-dictation latency after app restart by avoiding expensive Accessibility front-app lookups in app-identity-only paths.
-* Moved automatic history retention cleanup off the action execution path so it no longer competes with initial dictation responsiveness.
-* Fixed smart insertion spacing before markdown emphasis so inserts now add the expected space before *italic* and **bold** content.
+
+## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.2) - 2026/03/22
+### Changed
+* **Improved first-dictation latency** after app restart by avoiding expensive Accessibility front-app lookups in app-identity-only paths.
+* **Improvement.** Moved automatic history retention cleanup off the action execution path so it no longer competes with initial dictation responsiveness.
 * **Improved browser URL detection** performance by replacing the old content-heavy accessibility crawl with a bounded, cache-first URL resolver. 
   * This keeps URL triggers and page detection working while significantly reducing paste delays on complex websites.
-* **Improved input field detection for browsers.** Should have better performance.
+* **Improved input field detection for browsers.** Should have much better performance.
 * **Improved detection of front app.** It resolves with AX detection first, uses NSWorkspace as fallback.
   * It should be more reliable with special window types.
-* Improved smart insertion around paragraph boundaries, especially in supported browsers. 
+* **Improved smart insertion around paragraph boundaries**, especially in supported browsers. 
   * Ambiguous newline caret positions now use a safer browser-only resolution path and fall back to the correct paragraph-end behavior instead of forcing the wrong line-start interpretation.
-* Also fixed a related regression in non-browser text areas, where smart insertion could incorrectly rewrite valid before-newline positions.
+* **Fixed smart insertion spacing before markdown emphasis** so inserts now add the expected space before *italic* and **bold** content.
+* **fixed a related regression in non-browser text areas**, where smart insertion could incorrectly rewrite valid before-newline positions.
   * Added focused regression coverage for browser ambiguity resolution and newline-boundary handling.
 
-## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.1) - 2026/03/16
+## [v2.0.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.1) - 2026/03/16
 ### Changed
 * **Improvements** to Context Placeholders in `--copy-action`
   * Fixed `--copy-action` so context placeholders are resolved from live invocation-time state instead of reusing stale recording metadata.

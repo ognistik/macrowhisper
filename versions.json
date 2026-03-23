@@ -1,4 +1,4 @@
 {
-  "version" : "2.0.1",
-  "description" : "Enhanced context placeholders, smarter punctuation handling, and improved smart insertion in supported browsers."
+  "version" : "2.0.2",
+  "description" : "This update provides improved latency for browser dictations, several performance fixes, better fallbacks for front-app detection, and enhancements to smart insertion."
   }

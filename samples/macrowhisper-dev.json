@@ -47,7 +47,7 @@
       "smartCasing" : null,
       "smartPunctuation" : null,
       "smartSpacing" : null,
-      "triggerApps" : "Alter",
+      "triggerApps" : "Alter|Codex",
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerUrls" : null,
@@ -75,7 +75,7 @@
       "triggerVoice" : null
     },
     "noPeriod" : {
-      "action" : "{{swResult::ensureSentence||\\.$||}}",
+      "action" : "{{swResult||(?im)[\\.\\,\\s]+no period[\\.\\,\\s]*$||}}",
       "actionDelay" : null,
       "icon" : null,
       "inputCondition" : null,
