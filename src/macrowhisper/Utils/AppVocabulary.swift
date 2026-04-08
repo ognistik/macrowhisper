@@ -73,7 +73,10 @@ let supportedBrowserBundleIds: Set<String> = [
     "app.zen-browser.zen",
     "net.imput.helium",
     "company.thebrowser.Browser",
-    "org.chromium.Chromium"
+    "org.chromium.Chromium",
+    "com.operasoftware.OperaGX",
+    "org.chromium.Thorium",
+    "io.wavebox.wavebox"
 ]
 
 let appVocabularyBrowserBundleIds = supportedBrowserBundleIds
