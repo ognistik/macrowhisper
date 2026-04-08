@@ -275,8 +275,10 @@ class ServiceManager {
         return (binaryPathChanged || envVarsNeedUpdate || argumentsChanged, currentBinaryPath)
     }
     
-    /// Start the service
-    func startService() -> (success: Bool, message: String) {
+    private func startService(
+        recordLaunchIntent: Bool,
+        launchIntentReason: String
+    ) -> (success: Bool, message: String) {
         // Install service if it doesn't exist
         if !isServiceInstalled() {
             let installResult = installService()
@@ -297,6 +299,10 @@ class ServiceManager {
         if isServiceRunning() {
             return (true, "Service is already running")
         }
+
+        if recordLaunchIntent {
+            ServiceLifecycleDiagnostics.shared.recordLaunchIntent(launchIntentReason)
+        }
         
         // Bootstrap the service
         let task = Process()
@@ -315,6 +321,7 @@ class ServiceManager {
                 logInfo("Service started successfully")
                 return (true, "Service started successfully")
             } else {
+                ServiceLifecycleDiagnostics.shared.clearPendingLaunchIntent()
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let output = String(data: data, encoding: .utf8) ?? "Unknown error"
                 let message = "Failed to start service: \(output)"
@@ -322,10 +329,19 @@ class ServiceManager {
                 return (false, message)
             }
         } catch {
+            ServiceLifecycleDiagnostics.shared.clearPendingLaunchIntent()
             let message = "Failed to execute launchctl bootstrap: \(error)"
             logError(message)
             return (false, message)
         }
+    }
+
+    /// Start the service
+    func startService() -> (success: Bool, message: String) {
+        startService(
+            recordLaunchIntent: true,
+            launchIntentReason: "service start requested via CLI or socket command"
+        )
     }
     
     /// Stop the service
@@ -366,9 +382,12 @@ class ServiceManager {
     
     /// Restart the service
     func restartService() -> (success: Bool, message: String) {
+        ServiceLifecycleDiagnostics.shared.recordLaunchIntent("service restart requested via CLI or socket command")
+
         // Stop the service first
         let stopResult = stopService()
         if !stopResult.success && stopResult.message != "Service is not running" {
+            ServiceLifecycleDiagnostics.shared.clearPendingLaunchIntent()
             return stopResult
         }
         
@@ -376,7 +395,14 @@ class ServiceManager {
         Thread.sleep(forTimeInterval: 1.0)
         
         // Start the service
-        return startService()
+        let startResult = startService(
+            recordLaunchIntent: false,
+            launchIntentReason: "service restart requested via CLI or socket command"
+        )
+        if !startResult.success {
+            ServiceLifecycleDiagnostics.shared.clearPendingLaunchIntent()
+        }
+        return startResult
     }
     
     /// Uninstall the service

@@ -483,7 +483,7 @@ class RecordingsFolderWatcher {
             
             // Add a delay to avoid false positives during file rewrites
             // This gives Superwhisper time to finish writing/rewriting the file
-            DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self.queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 guard let self = self else { return }
                 
                 // Re-check if already processed after delay
@@ -511,7 +511,7 @@ class RecordingsFolderWatcher {
                 // 3. No .wav files are present now (they were removed)
                 if directoryExists && hadWavFilesBefore && !hasWavFiles {
                     // Double-check after another brief delay to be absolutely sure
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                         guard let self = self else { return }
                         
                         // Final verification

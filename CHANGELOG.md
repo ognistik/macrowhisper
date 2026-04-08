@@ -1,6 +1,13 @@
 # CHANGELOG
 
 ## UNRELEASED
+* Support for more browsers.
+  * Chromium
+  * OperaGX
+  * Thorium
+  * wavebox
+* Improved blackout clipboard window to ignore transient/concealed clipboard types
+* Superwhisper's transient window type can now also speed up action execution (since it is correctly detected)
 
 ## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.2) - 2026/03/22
 ### Changed

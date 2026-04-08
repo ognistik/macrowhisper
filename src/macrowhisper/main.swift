@@ -1449,7 +1449,8 @@ let isStartedByLaunchd = env["LAUNCHED_BY_LAUNCHD"] == "1" ||
                          parentPID == 1  // Parent process ID is 1 (launchd)
 
 // Debug logging to understand the startup context
-logDebug("Startup context - Parent PID: \(parentPID), LAUNCHED_BY_LAUNCHD: \(env["LAUNCHED_BY_LAUNCHD"] ?? "nil"), XPC_SERVICE_NAME: \(env["XPC_SERVICE_NAME"] ?? "nil"), isStartedByLaunchd: \(isStartedByLaunchd)")
+let startupContextMessage = "Parent PID: \(parentPID), LAUNCHED_BY_LAUNCHD: \(env["LAUNCHED_BY_LAUNCHD"] ?? "nil"), XPC_SERVICE_NAME: \(env["XPC_SERVICE_NAME"] ?? "nil"), isStartedByLaunchd: \(isStartedByLaunchd)"
+logDebug("Startup context - \(startupContextMessage)")
 
 if !isStartedByLaunchd {
     let serviceManager = ServiceManager()
@@ -1461,6 +1462,11 @@ if !isStartedByLaunchd {
 } else {
     logDebug("Started by launchd - proceeding with daemon initialization")
 }
+
+ServiceLifecycleDiagnostics.shared.beginDaemonSession(
+    startupSource: isStartedByLaunchd ? "launchd" : "manual",
+    startupContext: startupContextMessage
+)
 
 // MARK: - Argument Parsing and Startup
 

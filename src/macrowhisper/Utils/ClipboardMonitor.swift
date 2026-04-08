@@ -27,6 +27,53 @@ private let DEFAULT_CLIPBOARD_RESTORE_DELAY: TimeInterval = 0.3
 private let CLIPBOARD_CLEANUP_GRACE: TimeInterval = 0.2
 private let DUPLICATE_CAPTURE_BLACKOUT_WINDOW: TimeInterval = 3.0
 
+struct SessionClipboardObservationDecision {
+    let shouldCaptureInSessionHistory: Bool
+    let shouldCountAsRecentActivity: Bool
+}
+
+func decideSessionClipboardObservation(
+    currentClipboard: String?,
+    lastCapturedClipboardContent: String?,
+    isInIgnoreWindow: Bool,
+    shouldIgnoreApp: Bool,
+    containsIgnoredMarker: Bool
+) -> SessionClipboardObservationDecision {
+    if containsIgnoredMarker {
+        return SessionClipboardObservationDecision(
+            shouldCaptureInSessionHistory: false,
+            shouldCountAsRecentActivity: true
+        )
+    }
+
+    if isInIgnoreWindow {
+        guard let currentClipboard,
+              currentClipboard != lastCapturedClipboardContent else {
+            return SessionClipboardObservationDecision(
+                shouldCaptureInSessionHistory: false,
+                shouldCountAsRecentActivity: false
+            )
+        }
+
+        return SessionClipboardObservationDecision(
+            shouldCaptureInSessionHistory: true,
+            shouldCountAsRecentActivity: true
+        )
+    }
+
+    if shouldIgnoreApp {
+        return SessionClipboardObservationDecision(
+            shouldCaptureInSessionHistory: false,
+            shouldCountAsRecentActivity: false
+        )
+    }
+
+    return SessionClipboardObservationDecision(
+        shouldCaptureInSessionHistory: true,
+        shouldCountAsRecentActivity: true
+    )
+}
+
 /// Handles clipboard monitoring and synchronization for action execution triggered by valid results
 /// This solves timing issues where Superwhisper and Macrowhisper can modify clipboard around the same time.
 class ClipboardMonitor {
@@ -85,6 +132,7 @@ class ClipboardMonitor {
         let ignoreClipboardUntil: Date  // Ignore clipboard changes until this time (3s blackout period)
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
         var ignoredClipboardChangeCounts: Set<Int> = []
+        var lastObservedClipboardActivityAt: Date? = nil
     }
 
     private struct ExecutionGroup {
@@ -1003,14 +1051,21 @@ class ClipboardMonitor {
             
             // Check if the captured app should be ignored (using the app info we captured atomically)
             let shouldIgnoreAppFlag = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
-            let containsSensitiveMarkers = self.containsIgnoredMarkerType(pasteboard: pasteboard) // NEW LINE
+            let containsSensitiveMarkers = self.containsIgnoredMarkerType(pasteboard: pasteboard)
+            let observationDecision = decideSessionClipboardObservation(
+                currentClipboard: currentClipboard,
+                lastCapturedClipboardContent: sessionData.lastCapturedClipboardContent,
+                isInIgnoreWindow: isInIgnoreWindow,
+                shouldIgnoreApp: shouldIgnoreAppFlag,
+                containsIgnoredMarker: containsSensitiveMarkers
+            )
 
-            if !shouldIgnoreAppFlag && !isInIgnoreWindow && !containsSensitiveMarkers {
+            if observationDecision.shouldCaptureInSessionHistory && !isInIgnoreWindow {
                 // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
                 // Store the app info with the change so we know which app made it
                 let change = ClipboardChange(
                     content: currentClipboard, 
-                    timestamp: Date(), 
+                    timestamp: now,
                     changeCount: currentChangeCount,
                     frontAppName: appName.isEmpty ? nil : appName,
                     frontAppBundleId: bundleId.isEmpty ? nil : bundleId
@@ -1036,6 +1091,8 @@ class ClipboardMonitor {
                         }
                         
                         session.lastSeenChangeCount = currentChangeCount
+                        session.lastObservedClipboardActivityAt = now
+                        session.lastCapturedClipboardContent = currentClipboard
                         self.earlyMonitoringSessions[recordingPath] = session
                     }
                     
@@ -1044,14 +1101,14 @@ class ClipboardMonitor {
                         logDebug("[ClipboardMonitor] Detected clipboard change during action execution (changeCount: \(currentChangeCount))")
                     }
                 }
-            } else if isInIgnoreWindow {
+            } else if observationDecision.shouldCaptureInSessionHistory && isInIgnoreWindow {
                 // If we're in the ignore window, we only ignore if the content is a duplicate of the last captured.
                 // If it's a new, unique clipboard entry, we should capture it.
-                if let currentClipboard = currentClipboard, currentClipboard != sessionData.lastCapturedClipboardContent {
+                if let currentClipboard = currentClipboard {
                     // It's a unique clipboard entry, so capture it
                     let change = ClipboardChange(
                         content: currentClipboard,
-                        timestamp: Date(),
+                        timestamp: now,
                         changeCount: currentChangeCount,
                         frontAppName: appName.isEmpty ? nil : appName,
                         frontAppBundleId: bundleId.isEmpty ? nil : bundleId
@@ -1076,6 +1133,7 @@ class ClipboardMonitor {
                         }
 
                         session.lastSeenChangeCount = currentChangeCount
+                        session.lastObservedClipboardActivityAt = now
                         self.earlyMonitoringSessions[recordingPath] = session
 
                         if session.isExecutingAction {
@@ -1098,10 +1156,16 @@ class ClipboardMonitor {
                     let timeRemaining = sessionData.ignoreClipboardUntil.timeIntervalSince(now)
                     logDebug("[ClipboardMonitor] Ignoring duplicate clipboard change during 3s blackout window (\(String(format: "%.2f", timeRemaining))s remaining)")
                 }
-            } else if shouldIgnoreAppFlag || containsSensitiveMarkers { // MODIFIED LINE
-                if containsSensitiveMarkers { // NEW LOGIC
+            } else if observationDecision.shouldCountAsRecentActivity {
+                self.noteRecentClipboardActivity(
+                    for: recordingPath,
+                    changeCount: currentChangeCount,
+                    timestamp: now
+                )
+                if containsSensitiveMarkers {
                     logDebug("[ClipboardMonitor] Skipping clipboard capture due to sensitive marker types.")
                 }
+            } else if shouldIgnoreAppFlag {
                 // RETROACTIVE CLEANUP: When an ignored app becomes frontmost and triggers clipboard changes,
                 // check if there were recent clipboard changes that might have actually been caused by this
                 // ignored app before it gained focus (e.g., during window activation).
@@ -1321,7 +1385,8 @@ class ClipboardMonitor {
         let cutoff = Date().addingTimeInterval(-window)
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
-            hasRecentActivity = session.clipboardChanges.contains { $0.timestamp >= cutoff }
+            hasRecentActivity = (session.lastObservedClipboardActivityAt.map { $0 >= cutoff } ?? false)
+                || session.clipboardChanges.contains { $0.timestamp >= cutoff }
         }
         return hasRecentActivity
     }
@@ -1655,6 +1720,28 @@ class ClipboardMonitor {
         }
         return false
     }
+
+    private func noteRecentClipboardActivity(
+        for recordingPath: String,
+        changeCount: Int,
+        timestamp: Date,
+        lastCapturedClipboardContent: String? = nil
+    ) {
+        sessionsQueue.async(flags: .barrier) { [weak self] in
+            guard let self,
+                  var session = self.earlyMonitoringSessions[recordingPath],
+                  session.isActive else {
+                return
+            }
+
+            session.lastSeenChangeCount = changeCount
+            session.lastObservedClipboardActivityAt = timestamp
+            if let lastCapturedClipboardContent {
+                session.lastCapturedClipboardContent = lastCapturedClipboardContent
+            }
+            self.earlyMonitoringSessions[recordingPath] = session
+        }
+    }
     
     /// Triggers clipboard cleanup for CLI actions that bypass the normal action execution flow
     /// This ensures CLI actions also get the full reset treatment to prevent contamination
@@ -1779,6 +1866,7 @@ class ClipboardMonitor {
 
             session.lastSeenChangeCount = change.changeCount
             session.lastCapturedClipboardContent = change.content
+            session.lastObservedClipboardActivityAt = change.timestamp
             self.earlyMonitoringSessions[recordingPath] = session
             logDebug("[ClipboardMonitor] Mirrored global clipboard change into active session (changeCount: \(change.changeCount))")
         }
