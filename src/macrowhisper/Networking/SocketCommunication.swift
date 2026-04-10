@@ -860,7 +860,7 @@ class SocketCommunication {
         var chainMetaJson = metaJson
         var stepNumber = 1
 
-        while true {
+        chainLoop: while true {
             if visited.contains(currentName) {
                 throw CLIActionChainError.cycleDetected(currentName)
             }
@@ -898,7 +898,7 @@ class SocketCommunication {
                 executedSteps.append(resolvedStep)
 
                 guard let nextActionName, !nextActionName.isEmpty else {
-                    break
+                    break chainLoop
                 }
 
                 guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
@@ -931,7 +931,7 @@ class SocketCommunication {
                 clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
 
                 guard let nextActionName, !nextActionName.isEmpty else {
-                    break
+                    break chainLoop
                 }
 
                 guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
@@ -965,7 +965,7 @@ class SocketCommunication {
                 clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
 
                 guard let nextActionName, !nextActionName.isEmpty else {
-                    break
+                    break chainLoop
                 }
 
                 guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
@@ -999,7 +999,7 @@ class SocketCommunication {
                 clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
 
                 guard let nextActionName, !nextActionName.isEmpty else {
-                    break
+                    break chainLoop
                 }
 
                 guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
@@ -1033,7 +1033,7 @@ class SocketCommunication {
                 clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
 
                 guard let nextActionName, !nextActionName.isEmpty else {
-                    break
+                    break chainLoop
                 }
 
                 guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
