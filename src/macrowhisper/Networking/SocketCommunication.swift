@@ -69,6 +69,11 @@ class SocketCommunication {
         let executedSteps: [CLIResolvedActionStep]
     }
 
+    private struct CLIScriptExecutionResult {
+        let succeeded: Bool
+        let output: String?
+    }
+
     struct ProcessedInsertAction {
         let text: String
         let isAutoPaste: Bool
@@ -852,6 +857,7 @@ class SocketCommunication {
         var finalStep: CLIResolvedActionStep?
         var executedSteps: [CLIResolvedActionStep] = []
         var clipboardState = CLIClipboardChainState(initialClipboardContent: initialClipboardContent)
+        var chainMetaJson = metaJson
         var stepNumber = 1
 
         while true {
@@ -869,7 +875,7 @@ class SocketCommunication {
                 let (resolvedInsert, isAutoPasteTemplate) = resolveInsertForCLIExecution(insert)
                 let processedInsert = processInsertAction(
                     resolvedInsert.action,
-                    metaJson: metaJson,
+                    metaJson: chainMetaJson,
                     activeInsert: resolvedInsert
                 )
                 let nextActionName = getEffectiveNextActionNameForCLI(
@@ -918,7 +924,7 @@ class SocketCommunication {
                     configManager: configManager
                 )
                 logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
-                executeUrlForCLI(resolvedUrl, metaJson: metaJson)
+                executeUrlForCLI(resolvedUrl, metaJson: chainMetaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedUrl)
                 finalStep = resolvedStep
                 executedSteps.append(resolvedStep)
@@ -951,7 +957,8 @@ class SocketCommunication {
                     configManager: configManager
                 )
                 logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
-                executeShortcutForCLI(resolvedShortcut, shortcutName: currentName, metaJson: metaJson)
+                let scriptResult = executeShortcutForCLI(resolvedShortcut, shortcutName: currentName, metaJson: chainMetaJson)
+                chainMetaJson = appendCLIActionResult(scriptResult.output, to: chainMetaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedShortcut)
                 finalStep = resolvedStep
                 executedSteps.append(resolvedStep)
@@ -984,7 +991,8 @@ class SocketCommunication {
                     configManager: configManager
                 )
                 logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
-                executeShellForCLI(resolvedShell, metaJson: metaJson)
+                let scriptResult = executeShellForCLI(resolvedShell, metaJson: chainMetaJson)
+                chainMetaJson = appendCLIActionResult(scriptResult.output, to: chainMetaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedShell)
                 finalStep = resolvedStep
                 executedSteps.append(resolvedStep)
@@ -1017,7 +1025,8 @@ class SocketCommunication {
                     configManager: configManager
                 )
                 logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
-                executeAppleScriptForCLI(resolvedAppleScript, metaJson: metaJson)
+                let scriptResult = executeAppleScriptForCLI(resolvedAppleScript, metaJson: chainMetaJson)
+                chainMetaJson = appendCLIActionResult(scriptResult.output, to: chainMetaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedAppleScript)
                 finalStep = resolvedStep
                 executedSteps.append(resolvedStep)
@@ -1085,6 +1094,24 @@ class SocketCommunication {
             "[ActionChain-CLI] Completed action chain starting at '\(requestedActionName)' " +
             "and ending at '\(finalStep.name)' (\(stepCount) steps, final type: \(finalStep.type))"
         )
+    }
+
+    private func appendCLIActionResult(_ output: String?, to metaJson: [String: Any]) -> [String: Any] {
+        guard let output = output?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !output.isEmpty else {
+            return metaJson
+        }
+
+        var updatedMetaJson = metaJson
+        var results = (updatedMetaJson["actionResults"] as? [String])
+            ?? ((updatedMetaJson["actionResults"] as? [Any])?.compactMap { $0 as? String } ?? [])
+        results.append(output)
+        updatedMetaJson["actionResults"] = results
+        if updatedMetaJson["actionResult"] == nil {
+            updatedMetaJson["actionResult"] = output
+        }
+        logDebug("[ActionChain-CLI] Captured script output for actionResult (index \(results.count - 1), len=\(output.count))")
+        return updatedMetaJson
     }
 
     private func effectiveRestoreClipboardDelayForCLI(
@@ -2789,9 +2816,11 @@ class SocketCommunication {
         }
     }
     
-    func executeShortcutForCLI(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) {
+    private func executeShortcutForCLI(_ shortcut: AppConfiguration.Shortcut, shortcutName: String, metaJson: [String: Any]) -> CLIScriptExecutionResult {
         let actionDelay = shortcut.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
+        let scriptAsync = shortcut.scriptAsync ?? globalConfigManager?.config.defaults.scriptAsync ?? true
+        let scriptWaitTimeout = shortcut.scriptWaitTimeout ?? globalConfigManager?.config.defaults.scriptWaitTimeout ?? 3.0
         
         let processedAction = processAllPlaceholders(action: shortcut.action, metaJson: metaJson, actionType: .shortcut).text
         logDebug("[Shortcut-CLI] Processed action: \(summarizeForLogs(processedAction, maxPreview: 120))")
@@ -2801,20 +2830,18 @@ class SocketCommunication {
             let task = Process()
             task.launchPath = "/usr/bin/shortcuts"
             task.arguments = ["run", shortcutName]
-            task.standardOutput = FileHandle.nullDevice
-            task.standardError = FileHandle.nullDevice
 
-            do {
-                try task.run()
-            } catch {
-                logError("Failed to execute shortcut action without input: \(error)")
-            }
-            return
+            return executeCLIScriptTask(
+                task,
+                scriptAsync: scriptAsync,
+                scriptWaitTimeout: scriptWaitTimeout,
+                logPrefix: "Shortcut-CLI"
+            )
         }
 
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[Shortcut-CLI] Action is empty or '.none' - skipping shortcut execution")
-            return
+            return CLIScriptExecutionResult(succeeded: true, output: nil)
         }
         
         let tempDir = NSTemporaryDirectory()
@@ -2826,68 +2853,114 @@ class SocketCommunication {
             let task = Process()
             task.launchPath = "/usr/bin/shortcuts"
             task.arguments = ["run", shortcutName, "-i", tempFile]
-            task.standardOutput = FileHandle.nullDevice
-            task.standardError = FileHandle.nullDevice
-            
-            try task.run()
+            let result = executeCLIScriptTask(
+                task,
+                scriptAsync: scriptAsync,
+                scriptWaitTimeout: scriptWaitTimeout,
+                logPrefix: "Shortcut-CLI"
+            )
             
             // Clean up temp file after delay
             DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
                 try? FileManager.default.removeItem(atPath: tempFile)
             }
+            return result
         } catch {
             logError("Failed to execute shortcut action: \(error)")
             try? FileManager.default.removeItem(atPath: tempFile)
+            return CLIScriptExecutionResult(succeeded: false, output: nil)
         }
     }
     
-    func executeShellForCLI(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) {
+    private func executeShellForCLI(_ shell: AppConfiguration.ScriptShell, metaJson: [String: Any]) -> CLIScriptExecutionResult {
         let actionDelay = shell.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
+        let scriptAsync = shell.scriptAsync ?? globalConfigManager?.config.defaults.scriptAsync ?? true
+        let scriptWaitTimeout = shell.scriptWaitTimeout ?? globalConfigManager?.config.defaults.scriptWaitTimeout ?? 3.0
         
         let processedAction = processAllPlaceholders(action: shell.action, metaJson: metaJson, actionType: .shell).text
         logDebug("[Shell-CLI] Processed action: \(summarizeForLogs(processedAction, maxPreview: 120))")
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[Shell-CLI] Action is empty or '.none' - skipping shell execution")
-            return
+            return CLIScriptExecutionResult(succeeded: true, output: nil)
         }
         
         let task = Process()
         task.launchPath = "/bin/bash"
         task.arguments = ["-c", processedAction]
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        
-        do {
-            try task.run()
-        } catch {
-            logError("Failed to execute shell script: \(error)")
-        }
+        return executeCLIScriptTask(
+            task,
+            scriptAsync: scriptAsync,
+            scriptWaitTimeout: scriptWaitTimeout,
+            logPrefix: "Shell-CLI"
+        )
     }
     
-    func executeAppleScriptForCLI(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) {
+    private func executeAppleScriptForCLI(_ ascript: AppConfiguration.ScriptAppleScript, metaJson: [String: Any]) -> CLIScriptExecutionResult {
         let actionDelay = ascript.actionDelay ?? globalConfigManager?.config.defaults.actionDelay ?? 0.0
         if actionDelay > 0 { Thread.sleep(forTimeInterval: actionDelay) }
+        let scriptAsync = ascript.scriptAsync ?? globalConfigManager?.config.defaults.scriptAsync ?? true
+        let scriptWaitTimeout = ascript.scriptWaitTimeout ?? globalConfigManager?.config.defaults.scriptWaitTimeout ?? 3.0
         
         let processedAction = processAllPlaceholders(action: ascript.action, metaJson: metaJson, actionType: .appleScript).text
         logDebug("[AppleScript-CLI] Processed action: \(summarizeForLogs(processedAction, maxPreview: 120))")
         let normalized = processedAction.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty || normalized == ".none" {
             logDebug("[AppleScript-CLI] Action is empty or '.none' - skipping AppleScript execution")
-            return
+            return CLIScriptExecutionResult(succeeded: true, output: nil)
         }
         
         let task = Process()
         task.launchPath = "/usr/bin/osascript"
         task.arguments = ["-e", processedAction]
-        task.standardOutput = FileHandle.nullDevice
+        return executeCLIScriptTask(
+            task,
+            scriptAsync: scriptAsync,
+            scriptWaitTimeout: scriptWaitTimeout,
+            logPrefix: "AppleScript-CLI"
+        )
+    }
+
+    private func executeCLIScriptTask(
+        _ task: Process,
+        scriptAsync: Bool,
+        scriptWaitTimeout: TimeInterval,
+        logPrefix: String
+    ) -> CLIScriptExecutionResult {
+        let stdoutPipe = scriptAsync ? nil : Pipe()
+        task.standardOutput = stdoutPipe?.fileHandleForWriting ?? FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
-        
+
         do {
             try task.run()
+            if scriptAsync {
+                logDebug("[\(logPrefix)] Script launched asynchronously")
+                return CLIScriptExecutionResult(succeeded: true, output: nil)
+            }
+
+            let timeout = max(0.1, scriptWaitTimeout)
+            let deadline = Date().addingTimeInterval(timeout)
+            while task.isRunning {
+                if Date() >= deadline {
+                    task.terminate()
+                    logError("[\(logPrefix)] Script wait timed out after \(timeout)s")
+                    return CLIScriptExecutionResult(succeeded: false, output: nil)
+                }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+
+            stdoutPipe?.fileHandleForWriting.closeFile()
+            let data = stdoutPipe?.fileHandleForReading.readDataToEndOfFile() ?? Data()
+            let output = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return CLIScriptExecutionResult(
+                succeeded: task.terminationStatus == 0,
+                output: output?.isEmpty == false ? output : nil
+            )
         } catch {
-            logError("Failed to execute AppleScript action: \(error)")
+            logError("[\(logPrefix)] Failed to execute script: \(error)")
+            return CLIScriptExecutionResult(succeeded: false, output: nil)
         }
     }
 

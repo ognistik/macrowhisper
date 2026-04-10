@@ -9,6 +9,7 @@
 * Improved blackout clipboard window to ignore transient/concealed clipboard types
 * Superwhisper's transient window type can now also speed up action execution (since it is correctly detected)
 * Addes chained step logging for clear debugging
+* Fix for chained actions via CLI. `{{actionResult}}` now works properly for `--exec-action` and `--run-auto`
 
 ## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.2) - 2026/03/22
 ### Changed
