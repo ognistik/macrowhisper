@@ -246,7 +246,7 @@
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
-      "nextAction" : null,
+      "nextAction" : "",
       "restoreClipboard" : null,
       "restoreClipboardDelay" : null,
       "scriptAsync" : null,

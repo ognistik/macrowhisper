@@ -66,6 +66,7 @@ class SocketCommunication {
     private struct CLIActionChainExecutionResult {
         let finalStep: CLIResolvedActionStep
         let clipboardState: CLIClipboardChainState
+        let executedSteps: [CLIResolvedActionStep]
     }
 
     struct ProcessedInsertAction {
@@ -849,7 +850,9 @@ class SocketCommunication {
         var currentAction: Any = initialAction
         var visited: Set<String> = []
         var finalStep: CLIResolvedActionStep?
+        var executedSteps: [CLIResolvedActionStep] = []
         var clipboardState = CLIClipboardChainState(initialClipboardContent: initialClipboardContent)
+        var stepNumber = 1
 
         while true {
             if visited.contains(currentName) {
@@ -876,6 +879,7 @@ class SocketCommunication {
                     isFirstStep: clipboardState.isFirstStep,
                     configManager: configManager
                 )
+                logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
                 clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
                 let didMutateClipboard = applyInsertForExec(
                     processedInsert.text,
@@ -885,6 +889,7 @@ class SocketCommunication {
                 clipboardState.noteClipboardMutation(didMutateClipboard)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedInsert)
                 finalStep = resolvedStep
+                executedSteps.append(resolvedStep)
 
                 guard let nextActionName, !nextActionName.isEmpty else {
                     break
@@ -898,65 +903,151 @@ class SocketCommunication {
                 currentType = next.type
                 currentAction = next.action
                 clipboardState.advanceToNextStep()
+                stepNumber += 1
                 continue
             case .url:
                 guard let url = currentAction as? AppConfiguration.Url else {
                     throw CLIActionChainError.missingAction(currentName)
                 }
                 let resolvedUrl = resolveUrlForCLIExecution(url)
+                let nextActionName = getEffectiveNextActionNameForCLI(
+                    action: resolvedUrl,
+                    actionName: currentName,
+                    type: currentType,
+                    isFirstStep: clipboardState.isFirstStep,
+                    configManager: configManager
+                )
+                logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
                 executeUrlForCLI(resolvedUrl, metaJson: metaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedUrl)
+                finalStep = resolvedStep
+                executedSteps.append(resolvedStep)
+                clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
+
+                guard let nextActionName, !nextActionName.isEmpty else {
+                    break
+                }
+
+                guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
+                    throw CLIActionChainError.missingAction(nextActionName)
+                }
+
+                currentName = nextActionName
+                currentType = next.type
+                currentAction = next.action
+                clipboardState.advanceToNextStep()
+                stepNumber += 1
+                continue
             case .shortcut:
                 guard let shortcut = currentAction as? AppConfiguration.Shortcut else {
                     throw CLIActionChainError.missingAction(currentName)
                 }
                 let resolvedShortcut = resolveShortcutForCLIExecution(shortcut)
+                let nextActionName = getEffectiveNextActionNameForCLI(
+                    action: resolvedShortcut,
+                    actionName: currentName,
+                    type: currentType,
+                    isFirstStep: clipboardState.isFirstStep,
+                    configManager: configManager
+                )
+                logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
                 executeShortcutForCLI(resolvedShortcut, shortcutName: currentName, metaJson: metaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedShortcut)
+                finalStep = resolvedStep
+                executedSteps.append(resolvedStep)
+                clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
+
+                guard let nextActionName, !nextActionName.isEmpty else {
+                    break
+                }
+
+                guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
+                    throw CLIActionChainError.missingAction(nextActionName)
+                }
+
+                currentName = nextActionName
+                currentType = next.type
+                currentAction = next.action
+                clipboardState.advanceToNextStep()
+                stepNumber += 1
+                continue
             case .shell:
                 guard let shell = currentAction as? AppConfiguration.ScriptShell else {
                     throw CLIActionChainError.missingAction(currentName)
                 }
                 let resolvedShell = resolveShellForCLIExecution(shell)
+                let nextActionName = getEffectiveNextActionNameForCLI(
+                    action: resolvedShell,
+                    actionName: currentName,
+                    type: currentType,
+                    isFirstStep: clipboardState.isFirstStep,
+                    configManager: configManager
+                )
+                logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
                 executeShellForCLI(resolvedShell, metaJson: metaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedShell)
+                finalStep = resolvedStep
+                executedSteps.append(resolvedStep)
+                clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
+
+                guard let nextActionName, !nextActionName.isEmpty else {
+                    break
+                }
+
+                guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
+                    throw CLIActionChainError.missingAction(nextActionName)
+                }
+
+                currentName = nextActionName
+                currentType = next.type
+                currentAction = next.action
+                clipboardState.advanceToNextStep()
+                stepNumber += 1
+                continue
             case .appleScript:
                 guard let ascript = currentAction as? AppConfiguration.ScriptAppleScript else {
                     throw CLIActionChainError.missingAction(currentName)
                 }
                 let resolvedAppleScript = resolveAppleScriptForCLIExecution(ascript)
+                let nextActionName = getEffectiveNextActionNameForCLI(
+                    action: resolvedAppleScript,
+                    actionName: currentName,
+                    type: currentType,
+                    isFirstStep: clipboardState.isFirstStep,
+                    configManager: configManager
+                )
+                logInfo("[ActionChain-CLI] Executing action '\(currentName)' (step \(stepNumber), type: \(currentType))")
                 executeAppleScriptForCLI(resolvedAppleScript, metaJson: metaJson)
                 resolvedStep = CLIResolvedActionStep(name: currentName, type: currentType, action: resolvedAppleScript)
+                finalStep = resolvedStep
+                executedSteps.append(resolvedStep)
+                clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
+
+                guard let nextActionName, !nextActionName.isEmpty else {
+                    break
+                }
+
+                guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
+                    throw CLIActionChainError.missingAction(nextActionName)
+                }
+
+                currentName = nextActionName
+                currentType = next.type
+                currentAction = next.action
+                clipboardState.advanceToNextStep()
+                stepNumber += 1
+                continue
             }
-
-            finalStep = resolvedStep
-            let nextActionName = getEffectiveNextActionNameForCLI(
-                action: resolvedStep.action,
-                actionName: resolvedStep.name,
-                type: resolvedStep.type,
-                isFirstStep: clipboardState.isFirstStep,
-                configManager: configManager
-            )
-            clipboardState.beginStep(isLastStep: (nextActionName?.isEmpty ?? true))
-
-            guard let nextActionName, !nextActionName.isEmpty else {
-                break
-            }
-
-            guard let next = try findUniqueActionByName(nextActionName, configManager: configManager) else {
-                throw CLIActionChainError.missingAction(nextActionName)
-            }
-
-            currentName = nextActionName
-            currentType = next.type
-            currentAction = next.action
-            clipboardState.advanceToNextStep()
         }
 
         guard let finalStep else {
             throw CLIActionChainError.missingAction(initialActionName)
         }
-        return CLIActionChainExecutionResult(finalStep: finalStep, clipboardState: clipboardState)
+        return CLIActionChainExecutionResult(
+            finalStep: finalStep,
+            clipboardState: clipboardState,
+            executedSteps: executedSteps
+        )
     }
 
     private func effectiveRestoreClipboardSettingForCLI(
@@ -976,6 +1067,24 @@ class SocketCommunication {
         case .appleScript:
             return (action as? AppConfiguration.ScriptAppleScript)?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
         }
+    }
+
+    private func logCLIChainCompletion(
+        requestedActionName: String,
+        requestedActionType: ActionType,
+        chainResult: CLIActionChainExecutionResult
+    ) {
+        let stepCount = chainResult.executedSteps.count
+        guard stepCount > 1 else {
+            logInfo("Successfully executed \(requestedActionType) action: \(requestedActionName)")
+            return
+        }
+
+        let finalStep = chainResult.finalStep
+        logInfo(
+            "[ActionChain-CLI] Completed action chain starting at '\(requestedActionName)' " +
+            "and ending at '\(finalStep.name)' (\(stepCount) steps, final type: \(finalStep.type))"
+        )
     }
 
     private func effectiveRestoreClipboardDelayForCLI(
@@ -3598,6 +3707,11 @@ class SocketCommunication {
                     } else {
                         response = "Executed \(selectedAction.type) action '\(selectedAction.name)' via active action fallback"
                     }
+                    logCLIChainCompletion(
+                        requestedActionName: selectedAction.name,
+                        requestedActionType: selectedAction.type,
+                        chainResult: chainResult
+                    )
                     logInfo(response)
                 } catch {
                     response = error.localizedDescription
@@ -3686,7 +3800,11 @@ class SocketCommunication {
                         clipboardMonitorRef?.triggerClipboardCleanupForCLI()
                         
                         response = "Executed \(actionType) action '\(actionName)'"
-                        logInfo("Successfully executed \(actionType) action: \(actionName)")
+                        logCLIChainCompletion(
+                            requestedActionName: actionName,
+                            requestedActionType: actionType,
+                            chainResult: chainResult
+                        )
                     } catch {
                         response = error.localizedDescription
                         logError(response)
