@@ -11,6 +11,7 @@
 * Addes chained step logging for clear debugging
 * Fix for chained actions via CLI. `{{actionResult}}` now works properly for `--exec-action` and `--run-auto`
 * More targetted prevention for Superwhisper clipboard polution
+* Patches for daemon crashes and better logging when daemon restarts
 
 ## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.2) - 2026/03/22
 ### Changed

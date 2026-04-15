@@ -107,37 +107,48 @@ class RecordingsFolderWatcher {
     }
 
     func stop() {
-        source?.cancel()
-        source = nil
-        
-        // Cancel all pending meta.json watchers
-        for (_, watcher) in pendingMetaJsonFiles {
-            watcher.cancel()
+        performQueueSynchronized {
+            source?.cancel()
+            source = nil
+            
+            // Cancel all pending meta.json watchers
+            for (_, watcher) in pendingMetaJsonFiles {
+                watcher.cancel()
+            }
+            pendingMetaJsonFiles.removeAll()
+            
+            // Cancel all pending audio file watchers
+            for (_, watcher) in pendingAudioFileWatchers {
+                watcher.cancel()
+            }
+            pendingAudioFileWatchers.removeAll()
+            recordingHadWavFiles.removeAll()
+            
+            // Cancel all timeout timers
+            for (_, timer) in recordingTimeoutTimers {
+                timer.cancel()
+            }
+            recordingTimeoutTimers.removeAll()
+            
+            // Stop all early clipboard monitoring sessions
+            let currentSubdirectories = getCurrentSubdirectories()
+            for dirName in currentSubdirectories {
+                let fullPath = "\(path)/\(dirName)"
+                clipboardMonitor.stopEarlyMonitoring(for: fullPath)
+            }
+            
+            // Save processed recordings list
+            saveProcessedRecordings()
         }
-        pendingMetaJsonFiles.removeAll()
-        
-        // Cancel all pending audio file watchers
-        for (_, watcher) in pendingAudioFileWatchers {
-            watcher.cancel()
+    }
+
+    /// Ensures watcher-owned mutable state is only touched on the watcher queue.
+    private func performQueueSynchronized(_ block: () -> Void) {
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+            block()
+        } else {
+            queue.sync(execute: block)
         }
-        pendingAudioFileWatchers.removeAll()
-        recordingHadWavFiles.removeAll()
-        
-        // Cancel all timeout timers
-        for (_, timer) in recordingTimeoutTimers {
-            timer.cancel()
-        }
-        recordingTimeoutTimers.removeAll()
-        
-        // Stop all early clipboard monitoring sessions
-        let currentSubdirectories = getCurrentSubdirectories()
-        for dirName in currentSubdirectories {
-            let fullPath = "\(path)/\(dirName)"
-            clipboardMonitor.stopEarlyMonitoring(for: fullPath)
-        }
-        
-        // Save processed recordings list
-        saveProcessedRecordings()
     }
     
     private func loadProcessedRecordings() {
@@ -604,7 +615,7 @@ class RecordingsFolderWatcher {
              // Check if the file still exists (it might have been deleted or overwritten)
             guard FileManager.default.fileExists(atPath: metaJsonPath) else {
                 // File might be temporarily unavailable during overwrite, add delay to check if it reappears
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self.queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                     guard let self = self else { return }
                     
                     // Re-check if file exists after delay
