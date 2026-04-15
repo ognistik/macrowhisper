@@ -1594,7 +1594,7 @@ Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrow
 
 - a short wait for Superwhisper clipboard sync before the first action in a chain: `0.1s`
 - a recent-activity window to avoid unnecessary waiting: `0.5s`
-- a startup duplicate-ignore window: `3s`
+- a one-time session-start clipboard replay guard before audio begins
 - the user-controlled pre-recording capture window from `clipboardBuffer`
 
 ### 15.3 The settings that matter most

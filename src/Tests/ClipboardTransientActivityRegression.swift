@@ -10,9 +10,6 @@ private func assertEqual(_ actual: Bool, _ expected: Bool, _ label: String) {
 
 private func runClipboardTransientActivityRegressionTests() {
     let normalDecision = decideSessionClipboardObservation(
-        currentClipboard: "fresh",
-        lastCapturedClipboardContent: "older",
-        isInIgnoreWindow: false,
         shouldIgnoreApp: false,
         containsIgnoredMarker: false
     )
@@ -20,54 +17,90 @@ private func runClipboardTransientActivityRegressionTests() {
     assertEqual(normalDecision.shouldCountAsRecentActivity, true, "normal clipboard activity counts for recent sync detection")
 
     let transientDecision = decideSessionClipboardObservation(
-        currentClipboard: nil,
-        lastCapturedClipboardContent: "older",
-        isInIgnoreWindow: false,
         shouldIgnoreApp: false,
         containsIgnoredMarker: true
     )
     assertEqual(transientDecision.shouldCaptureInSessionHistory, false, "transient clipboard activity stays out of session capture")
     assertEqual(transientDecision.shouldCountAsRecentActivity, true, "transient clipboard activity still counts for recent sync detection")
 
-    let transientBlackoutDecision = decideSessionClipboardObservation(
-        currentClipboard: "transient",
-        lastCapturedClipboardContent: "older",
-        isInIgnoreWindow: true,
-        shouldIgnoreApp: false,
-        containsIgnoredMarker: true
-    )
-    assertEqual(transientBlackoutDecision.shouldCaptureInSessionHistory, false, "transient clipboard activity is not captured during blackout window")
-    assertEqual(transientBlackoutDecision.shouldCountAsRecentActivity, true, "transient clipboard activity still counts during blackout window")
-
-    let blackoutUniqueDecision = decideSessionClipboardObservation(
-        currentClipboard: "fresh",
-        lastCapturedClipboardContent: "older",
-        isInIgnoreWindow: true,
-        shouldIgnoreApp: false,
-        containsIgnoredMarker: false
-    )
-    assertEqual(blackoutUniqueDecision.shouldCaptureInSessionHistory, true, "unique non-transient clipboard activity is still captured during blackout window")
-    assertEqual(blackoutUniqueDecision.shouldCountAsRecentActivity, true, "unique non-transient blackout activity counts for recent sync detection")
-
-    let blackoutDuplicateDecision = decideSessionClipboardObservation(
-        currentClipboard: "same",
-        lastCapturedClipboardContent: "same",
-        isInIgnoreWindow: true,
-        shouldIgnoreApp: false,
-        containsIgnoredMarker: false
-    )
-    assertEqual(blackoutDuplicateDecision.shouldCaptureInSessionHistory, false, "duplicate blackout clipboard activity is not captured")
-    assertEqual(blackoutDuplicateDecision.shouldCountAsRecentActivity, false, "duplicate blackout clipboard activity does not force recent sync detection")
-
     let ignoredAppDecision = decideSessionClipboardObservation(
-        currentClipboard: "fresh",
-        lastCapturedClipboardContent: "older",
-        isInIgnoreWindow: false,
         shouldIgnoreApp: true,
         containsIgnoredMarker: false
     )
-    assertEqual(ignoredAppDecision.shouldCaptureInSessionHistory, false, "ignored-app clipboard activity stays uncaptured outside blackout window")
+    assertEqual(ignoredAppDecision.shouldCaptureInSessionHistory, false, "ignored-app clipboard activity stays uncaptured")
     assertEqual(ignoredAppDecision.shouldCountAsRecentActivity, false, "ignored-app clipboard activity does not trigger recent sync detection")
+
+    assertEqual(
+        shouldIgnoreFirstSessionClipboardReplay(
+            currentClipboard: "seed",
+            userOriginalClipboard: "seed",
+            sessionStartInputFieldState: .outsideInputField,
+            hasAudioRecordingStarted: false,
+            hasAlreadyIgnoredReplay: false
+        ),
+        true,
+        "outside-input-field sessions ignore the first replay of the session-start clipboard before audio starts"
+    )
+
+    assertEqual(
+        shouldIgnoreFirstSessionClipboardReplay(
+            currentClipboard: "seed",
+            userOriginalClipboard: "seed",
+            sessionStartInputFieldState: .unknown,
+            hasAudioRecordingStarted: false,
+            hasAlreadyIgnoredReplay: false
+        ),
+        true,
+        "unknown input-field state still enables the first replay guard before audio starts"
+    )
+
+    assertEqual(
+        shouldIgnoreFirstSessionClipboardReplay(
+            currentClipboard: "seed",
+            userOriginalClipboard: "seed",
+            sessionStartInputFieldState: .inInputField,
+            hasAudioRecordingStarted: false,
+            hasAlreadyIgnoredReplay: false
+        ),
+        false,
+        "sessions that clearly started in an input field do not ignore the replay"
+    )
+
+    assertEqual(
+        shouldIgnoreFirstSessionClipboardReplay(
+            currentClipboard: "seed",
+            userOriginalClipboard: "seed",
+            sessionStartInputFieldState: .outsideInputField,
+            hasAudioRecordingStarted: true,
+            hasAlreadyIgnoredReplay: false
+        ),
+        false,
+        "audio start ends the initial replay guard"
+    )
+
+    assertEqual(
+        shouldIgnoreFirstSessionClipboardReplay(
+            currentClipboard: "seed",
+            userOriginalClipboard: "seed",
+            sessionStartInputFieldState: .outsideInputField,
+            hasAudioRecordingStarted: false,
+            hasAlreadyIgnoredReplay: true
+        ),
+        false,
+        "the initial replay guard only applies once per session"
+    )
+
+    assertEqual(
+        shouldIgnoreFirstSessionClipboardReplay(
+            currentClipboard: "fresh",
+            userOriginalClipboard: "seed",
+            sessionStartInputFieldState: .outsideInputField,
+            hasAudioRecordingStarted: false,
+            hasAlreadyIgnoredReplay: false
+        ),
+        false,
+        "different clipboard content is still captured normally"
+    )
 }
 
 @main

@@ -7,6 +7,7 @@ func getSelectedText() -> String { "" }
 func sanitizeContextPlaceholderValue(_ value: String) -> String { value }
 func resolveFrontAppIdentity() -> NSRunningApplication? { nil }
 func requestAccessibilityPermission() -> Bool { false }
+func checkAccessibilityPermission() -> Bool { false }
 func isInInputField() -> Bool { false }
 func simulateKeyDown(key: Int) {}
 func shouldEmitRateLimitedLog(key: String, cooldown: TimeInterval) -> Bool { false }

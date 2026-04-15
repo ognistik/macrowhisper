@@ -500,6 +500,7 @@ class RecordingsFolderWatcher {
                 if hasWavFiles && !hadWavFilesBefore {
                     self.recordingHadWavFiles[recordingPath] = true
                     logDebug("Audio recording started: .wav file detected in \(recordingPath)")
+                    self.clipboardMonitor.markAudioRecordingStarted(for: recordingPath)
                     
                     // Cancel timeout timer since WAV file appeared
                     self.cancelRecordingTimeout(for: recordingPath)
