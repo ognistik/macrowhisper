@@ -1,4 +1,4 @@
 {
-  "version" : "2.0.2",
-  "description" : "This update provides improved latency for browser dictations, several performance fixes, better fallbacks for front-app detection, and enhancements to smart insertion."
+  "version" : "2.0.3",
+  "description": "This update fixes daemon crashes that were interrupting action execution for some users, fixes chained actions executed via the CLI, improves logging, and includes other bug fixes."
   }

@@ -1,18 +1,22 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v2.0.3](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.3) - 2026/04/15
+### Changed
+* Added chained step logging for improved debugging
+* Fix for chained actions via CLI. `{{actionResult}}` now works properly for `--exec-action` and `--run-auto`
+* More targetted prevention for Superwhisper clipboard polution
+* Fixes for daemon crashes and better logging when daemon restarts
+* Superwhisper's transient clipboard types can now also speed up action execution (since it is correctly detected)
 * Support for more browsers.
   * Chromium
   * OperaGX
   * Thorium
   * wavebox
-* Improved blackout clipboard window to ignore transient/concealed clipboard types
-* Superwhisper's transient window type can now also speed up action execution (since it is correctly detected)
-* Addes chained step logging for clear debugging
-* Fix for chained actions via CLI. `{{actionResult}}` now works properly for `--exec-action` and `--run-auto`
-* More targetted prevention for Superwhisper clipboard polution
-* Patches for daemon crashes and better logging when daemon restarts
 
+---
 ## [v2.0.2](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.2) - 2026/03/22
 ### Changed
 * **Improved first-dictation latency** after app restart by avoiding expensive Accessibility front-app lookups in app-identity-only paths.
@@ -28,6 +32,7 @@
 * **fixed a related regression in non-browser text areas**, where smart insertion could incorrectly rewrite valid before-newline positions.
   * Added focused regression coverage for browser ambiguity resolution and newline-boundary handling.
 
+---
 ## [v2.0.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.1) - 2026/03/16
 ### Changed
 * **Improvements** to Context Placeholders in `--copy-action`
@@ -42,6 +47,7 @@
   * Noticeable improvement in text editing interfaces (for example, ChatGPT Canvas)
 * **Improved** `ensureSentence` transformation for normalizing sentences that may have wrappers (parenthesis, asterisks, brackets, etc.)
 
+---
 ## [v2.0.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.0) - 2026/03/08
 ### TLDR;
 * For existing users, keep `autoUpdateConfig` set to `true` in your existing configuration. Macrowhisper will handle the migration to `configVersion 2` when you restart the service after the update.
