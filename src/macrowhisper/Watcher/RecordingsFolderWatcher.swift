@@ -19,6 +19,8 @@ class RecordingsFolderWatcher {
     private var recordingHadWavFiles: [String: Bool] = [:] // Track if recording ever had .wav files
     private var recordingTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout timers for recordings
     private var processedRecordings: Set<String> = []
+    private var watcherStartedAt: Date?
+    private var lastFolderEventAt: Date?
     private let configManager: ConfigurationManager
     private let historyManager: HistoryManager
     private let socketCommunication: SocketCommunication
@@ -103,6 +105,7 @@ class RecordingsFolderWatcher {
         }
 
         source?.resume()
+        watcherStartedAt = Date()
         logDebug("Started watching for new recordings in: \(path)")
     }
 
@@ -110,6 +113,7 @@ class RecordingsFolderWatcher {
         performQueueSynchronized {
             source?.cancel()
             source = nil
+            watcherStartedAt = nil
             
             // Cancel all pending meta.json watchers
             for (_, watcher) in pendingMetaJsonFiles {
@@ -142,13 +146,61 @@ class RecordingsFolderWatcher {
         }
     }
 
-    /// Ensures watcher-owned mutable state is only touched on the watcher queue.
-    private func performQueueSynchronized(_ block: () -> Void) {
-        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
-            block()
-        } else {
-            queue.sync(execute: block)
+    func statusSummary() -> String {
+        let snapshot = performQueueSynchronized {
+            (
+                isArmed: source != nil,
+                folderExists: FileManager.default.fileExists(atPath: path),
+                startedAt: watcherStartedAt,
+                lastEventAt: lastFolderEventAt,
+                pendingCount: pendingMetaJsonFiles.count + pendingAudioFileWatchers.count + recordingTimeoutTimers.count
+            )
         }
+
+        guard snapshot.folderExists else {
+            return "no (folder missing)"
+        }
+
+        guard snapshot.isArmed else {
+            return "no (not armed)"
+        }
+
+        return "yes (armed, started \(describeStatusAge(snapshot.startedAt)), last event \(describeStatusAge(snapshot.lastEventAt)), pending \(snapshot.pendingCount))"
+    }
+
+    /// Ensures watcher-owned mutable state is only touched on the watcher queue.
+    private func performQueueSynchronized<T>(_ block: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
+            return block()
+        } else {
+            return queue.sync(execute: block)
+        }
+    }
+
+    private func describeStatusAge(_ date: Date?) -> String {
+        guard let date = date else {
+            return "never"
+        }
+
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 5 {
+            return "just now"
+        }
+        if seconds < 60 {
+            return "\(seconds)s ago"
+        }
+
+        let minutes = seconds / 60
+        if minutes < 60 {
+            return "\(minutes)m ago"
+        }
+
+        let hours = minutes / 60
+        if hours < 24 {
+            return "\(hours)h ago"
+        }
+
+        return "\(hours / 24)d ago"
     }
     
     private func loadProcessedRecordings() {
@@ -210,6 +262,7 @@ class RecordingsFolderWatcher {
     }
 
     private func handleFolderChangeEvent() {
+        lastFolderEventAt = Date()
         let currentSubdirectories = getCurrentSubdirectories()
         
         // Check for new directories

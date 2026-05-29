@@ -9,6 +9,8 @@ class SuperwhisperFolderWatcher {
     private let parentPath: String
     private let recordingsPath: String
     private var source: DispatchSourceFileSystemObject?
+    private var watcherStartedAt: Date?
+    private var lastFolderEventAt: Date?
     private let queue = DispatchQueue(label: "com.macrowhisper.superwhisperwatcher")
     private let onRecordingsFolderAppeared: () -> Void
 
@@ -67,16 +69,36 @@ class SuperwhisperFolderWatcher {
         }
 
         source?.resume()
+        watcherStartedAt = Date()
         logDebug("SuperwhisperFolderWatcher: Started watching parent directory \(parentPath) for recordings folder creation")
     }
 
     func stop() {
         source?.cancel()
         source = nil
+        watcherStartedAt = nil
         logDebug("SuperwhisperFolderWatcher: Stopped watching for recordings folder")
     }
 
+    func statusSummary() -> String {
+        if FileManager.default.fileExists(atPath: recordingsPath) {
+            return "no (recordings folder exists)"
+        }
+
+        if !FileManager.default.fileExists(atPath: parentPath) {
+            return "no (parent folder missing)"
+        }
+
+        guard source != nil else {
+            return "no (not armed)"
+        }
+
+        return "yes (waiting, started \(describeStatusAge(watcherStartedAt)), last event \(describeStatusAge(lastFolderEventAt)))"
+    }
+
     private func handleDirectoryChange() {
+        lastFolderEventAt = Date()
+
         // Check if the recordings folder now exists
         if FileManager.default.fileExists(atPath: recordingsPath) {
             logInfo("SuperwhisperFolderWatcher: Recordings folder detected at \(recordingsPath)!")
@@ -87,5 +109,31 @@ class SuperwhisperFolderWatcher {
             // Notify that the recordings folder appeared
             onRecordingsFolderAppeared()
         }
+    }
+
+    private func describeStatusAge(_ date: Date?) -> String {
+        guard let date = date else {
+            return "never"
+        }
+
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 5 {
+            return "just now"
+        }
+        if seconds < 60 {
+            return "\(seconds)s ago"
+        }
+
+        let minutes = seconds / 60
+        if minutes < 60 {
+            return "\(minutes)m ago"
+        }
+
+        let hours = minutes / 60
+        if hours < 24 {
+            return "\(hours)h ago"
+        }
+
+        return "\(hours / 24)d ago"
     }
 } 

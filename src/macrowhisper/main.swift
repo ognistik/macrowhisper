@@ -384,6 +384,54 @@ func initializeWatcher(_ path: String, versionChecker: VersionChecker? = nil) {
     }
 }
 
+func rearmFilesystemWatchersAfterWake(versionChecker: VersionChecker? = nil) {
+    let currentWatchPath = expandTilde(configManager.config.defaults.watch)
+    let recordingsPath = "\(currentWatchPath)/recordings"
+
+    logDebug("Re-arming filesystem watchers after wake for path: \(currentWatchPath)")
+
+    recordingsWatcher?.stop()
+    recordingsWatcher = nil
+    superwhisperFolderWatcher?.stop()
+    superwhisperFolderWatcher = nil
+
+    guard let currentHistoryManager = historyManager else {
+        logError("History manager not initialized. Cannot re-arm watchers after wake.")
+        return
+    }
+
+    if FileManager.default.fileExists(atPath: recordingsPath) {
+        recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: currentHistoryManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
+        if recordingsWatcher == nil {
+            logWarning("Failed to re-arm recordings folder watcher after wake")
+        } else {
+            logDebug("Re-armed recordings folder watcher after wake at \(recordingsPath)")
+            recordingsWatcher?.start()
+        }
+    } else {
+        logWarning("Recordings folder not found after wake at \(recordingsPath). Waiting for it to appear.")
+
+        superwhisperFolderWatcher = SuperwhisperFolderWatcher(parentPath: currentWatchPath) {
+            logInfo("Recordings folder appeared after wake! Initializing recordings watcher...")
+
+            guard let historyManager = historyManager else {
+                logError("History manager not initialized during post-wake watcher initialization.")
+                return
+            }
+
+            recordingsWatcher = RecordingsFolderWatcher(basePath: currentWatchPath, configManager: configManager, historyManager: historyManager, socketCommunication: socketCommunication, versionChecker: versionChecker)
+            if recordingsWatcher == nil {
+                logWarning("Failed to initialize recordings folder watcher after wake")
+                notify(title: "Macrowhisper", message: "Failed to initialize recordings watcher")
+            } else {
+                logDebug("Successfully started post-wake recordings watcher at \(recordingsPath)")
+                recordingsWatcher?.start()
+            }
+        }
+        superwhisperFolderWatcher?.start()
+    }
+}
+
 func acquireSingleInstanceLock(lockFilePath: String) -> Bool {
     // Try to create and lock the file
     let fd = open(lockFilePath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
@@ -469,7 +517,7 @@ func recoverSocket() {
     }
 }
 
-func registerForSleepWakeNotifications() {
+func registerForSleepWakeNotifications(versionChecker: VersionChecker? = nil) {
     logDebug("Registering for sleep/wake notifications")
     
     let center = NSWorkspace.shared.notificationCenter
@@ -478,8 +526,9 @@ func registerForSleepWakeNotifications() {
         object: nil,
         queue: .main
     ) { _ in
-        logDebug("System woke from sleep, restarting socket health monitor")
+        logDebug("System woke from sleep, restarting socket health monitor and re-arming filesystem watchers")
         startSocketHealthMonitor()
+        rearmFilesystemWatchersAfterWake(versionChecker: versionChecker)
     }
 
     center.addObserver(
@@ -1931,7 +1980,7 @@ let versionChecker = VersionChecker()
 // Check for updates on startup (respects disableUpdateCheck setting and timing constraints)
 versionChecker.checkForUpdates()
 
-registerForSleepWakeNotifications()
+registerForSleepWakeNotifications(versionChecker: versionChecker)
 startSocketHealthMonitor()
 // Log that we're ready
 logInfo("Macrowhisper initialized and ready")

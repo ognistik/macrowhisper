@@ -1,6 +1,9 @@
 # CHANGELOG
 
 ## UNRELEASED
+### Changed
+* Re-arm filesystem watchers after system wake so recordings continue to be detected after real sleep/wake cycles.
+* Improve `--status` watcher reporting with armed, folder, event, and pending-state details instead of only checking object presence.
 
 ---
 ## [v2.0.3](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.3) - 2026/04/15

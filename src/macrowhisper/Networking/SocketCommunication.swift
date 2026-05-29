@@ -3183,6 +3183,8 @@ class SocketCommunication {
                 let socketPathStr = self.socketPath
                 let watcherRunning = recordingsWatcher != nil
                 let folderWatcherRunning = superwhisperFolderWatcher != nil
+                let watcherStatus = recordingsWatcher?.statusSummary() ?? "no (not initialized)"
+                let folderWatcherStatus = superwhisperFolderWatcher?.statusSummary() ?? "no (not initialized)"
                 let watchPath = defaults.watch
                 let expandedWatchPath = (watchPath as NSString).expandingTildeInPath
                 let recordingsPath = "\(expandedWatchPath)/recordings"
@@ -3194,8 +3196,8 @@ class SocketCommunication {
                 // Config
                 lines.append("Config file: \(configPath ?? ".unknown")")
                 // Watcher
-                lines.append("Recordings watcher: \(watcherRunning ? "yes" : "no")")
-                lines.append("Folder watcher: \(folderWatcherRunning ? "yes (waiting for recordings folder)" : "no")")
+                lines.append("Recordings watcher: \(watcherStatus)")
+                lines.append("Folder watcher: \(folderWatcherStatus)")
                 lines.append("Superwhisper folder: \(expandedWatchPath)")
                 lines.append("Recordings folder: \(recordingsPath) (exists: \(recordingsFolderExists ? "yes" : "no"))")
                 // Active action
