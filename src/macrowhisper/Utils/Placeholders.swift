@@ -1324,13 +1324,6 @@ func processDynamicPlaceholders(
                     }
                 }
 
-                if !useProvidedLiveContextOnly, value.isEmpty {
-                    value = sanitizeContextPlaceholderValue(getSelectedText())
-                    if !value.isEmpty {
-                        logDebug("[SelectedTextPlaceholder] Captured selected text at placeholder execution time")
-                    }
-                }
-                
                 // Check if value is empty - if so, remove the placeholder entirely
                 if value.isEmpty {
                     result.replaceSubrange(fullMatchRange, with: "")

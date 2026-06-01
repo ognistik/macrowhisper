@@ -466,6 +466,9 @@ class SocketCommunication {
         
         // Add clipboard stacking setting for CLI context
         enhanced["clipboardStacking"] = configManager.config.defaults.clipboardStacking
+
+        // CLI commands resolve context placeholders from invocation-time state.
+        enhanced["selectedText"] = sanitizeContextPlaceholderValue(getSelectedText())
         
         // Add CLI execution context flag
         enhanced["isCLIExecution"] = true

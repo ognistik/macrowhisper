@@ -150,8 +150,21 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         stubAppVocabulary = "live-app-vocabulary"
         stubActiveURL = "https://live.example.com"
 
-        let action22 = "{{selectedText}}|{{clipboardContext}}|{{frontApp}}|{{frontAppUrl}}|{{appContext}}|{{appVocabulary}}"
-        let meta22: [String: Any] = [
+        let action22 = "{{selectedText}}"
+        let meta22: [String: Any] = ["selectedText": ""]
+        let result22 = processDynamicPlaceholders(action: action22, metaJson: meta22, actionType: .insert).text
+        assertEqual(result22, "", "selectedText without session/meta value does not fall back to live capture")
+
+        watcher.activeRecordingSessions = true
+        watcher.clipboardMonitor.activeSessionSelectedText = "session-selected"
+
+        let action23 = "{{selectedText}}"
+        let meta23: [String: Any] = ["selectedText": ""]
+        let result23 = processDynamicPlaceholders(action: action23, metaJson: meta23, actionType: .insert).text
+        assertEqual(result23, "session-selected", "selectedText still falls back to active session snapshot")
+
+        let action24 = "{{selectedText}}|{{clipboardContext}}|{{frontApp}}|{{frontAppUrl}}|{{appContext}}|{{appVocabulary}}"
+        let meta24: [String: Any] = [
             runtimeCopyActionLiveContextKey: true,
             "selectedText": "live-selection",
             "clipboardContext": "live-clipboard",
@@ -161,9 +174,9 @@ private func runPlaceholderRegexPipelineRegressionTests() {
             "appContext": "live-app-context",
             "appVocabulary": "live-app-vocabulary"
         ]
-        let result22 = processDynamicPlaceholders(action: action22, metaJson: meta22, actionType: .insert).text
+        let result24 = processDynamicPlaceholders(action: action24, metaJson: meta24, actionType: .insert).text
         assertEqual(
-            result22,
+            result24,
             "live-selection|live-clipboard|Live App|https://live.example.com|live-app-context|live-app-vocabulary",
             "copy-action live context flag uses provided live values for all context placeholders"
         )
@@ -174,95 +187,95 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         watcher.clipboardMonitor.recentClipboardContent = "global-fallback"
         watcher.clipboardMonitor.recentClipboardContentWithStacking = "<clipboard-context-1>\nglobal-fallback\n</clipboard-context-1>"
 
-        let action23 = "{{selectedText}}"
-        let meta23: [String: Any] = [
+        let action25 = "{{selectedText}}"
+        let meta25: [String: Any] = [
             runtimeCopyActionLiveContextKey: true,
             "selectedText": ""
         ]
-        let result23 = processDynamicPlaceholders(action: action23, metaJson: meta23, actionType: .insert).text
-        assertEqual(result23, "", "copy-action live context keeps empty selectedText without fallback")
+        let result25 = processDynamicPlaceholders(action: action25, metaJson: meta25, actionType: .insert).text
+        assertEqual(result25, "", "copy-action live context keeps empty selectedText without fallback")
 
-        let action24 = "{{clipboardContext}}"
-        let meta24: [String: Any] = [
+        let action26 = "{{clipboardContext}}"
+        let meta26: [String: Any] = [
             runtimeCopyActionLiveContextKey: true,
             runtimeClipboardContextLockedKey: true,
             "clipboardContext": ""
         ]
-        let result24 = processDynamicPlaceholders(action: action24, metaJson: meta24, actionType: .insert).text
-        assertEqual(result24, "", "copy-action live context keeps empty clipboardContext without fallback")
+        let result26 = processDynamicPlaceholders(action: action26, metaJson: meta26, actionType: .insert).text
+        assertEqual(result26, "", "copy-action live context keeps empty clipboardContext without fallback")
 
-        let action25 = "{{frontApp}}"
-        let meta25: [String: Any] = [
+        let action27 = "{{frontApp}}"
+        let meta27: [String: Any] = [
             runtimeCopyActionLiveContextKey: true,
             "frontApp": "",
             "frontAppName": ""
         ]
-        let result25 = processDynamicPlaceholders(action: action25, metaJson: meta25, actionType: .insert).text
-        assertEqual(result25, "", "copy-action live context keeps empty frontApp without fallback")
+        let result27 = processDynamicPlaceholders(action: action27, metaJson: meta27, actionType: .insert).text
+        assertEqual(result27, "", "copy-action live context keeps empty frontApp without fallback")
 
-        let action26 = "{{frontAppUrl}}"
-        let meta26: [String: Any] = [
+        let action28 = "{{frontAppUrl}}"
+        let meta28: [String: Any] = [
             runtimeCopyActionLiveContextKey: true,
             "frontAppUrl": ""
         ]
-        let result26 = processDynamicPlaceholders(action: action26, metaJson: meta26, actionType: .insert).text
-        assertEqual(result26, "", "copy-action live context keeps empty frontAppUrl without fallback")
+        let result28 = processDynamicPlaceholders(action: action28, metaJson: meta28, actionType: .insert).text
+        assertEqual(result28, "", "copy-action live context keeps empty frontAppUrl without fallback")
 
-        let action27 = "{{appContext}}"
-        let meta27: [String: Any] = [
+        let action29 = "{{appContext}}"
+        let meta29: [String: Any] = [
             runtimeCopyActionLiveContextKey: true,
             "appContext": ""
         ]
-        let result27 = processDynamicPlaceholders(action: action27, metaJson: meta27, actionType: .insert).text
-        assertEqual(result27, "", "copy-action live context keeps empty appContext without fallback")
+        let result29 = processDynamicPlaceholders(action: action29, metaJson: meta29, actionType: .insert).text
+        assertEqual(result29, "", "copy-action live context keeps empty appContext without fallback")
 
-        let action28 = "{{appVocabulary}}"
-        let meta28: [String: Any] = [
+        let action30 = "{{appVocabulary}}"
+        let meta30: [String: Any] = [
             runtimeCopyActionLiveContextKey: true,
             "appVocabulary": ""
         ]
-        let result28 = processDynamicPlaceholders(action: action28, metaJson: meta28, actionType: .insert).text
-        assertEqual(result28, "", "copy-action live context keeps empty appVocabulary without fallback")
-
-        let action29 = "{{swResult::ensureSentence}}"
-        let meta29: [String: Any] = ["llmResult": "in this case,"]
-        let result29 = processDynamicPlaceholders(action: action29, metaJson: meta29, actionType: .insert).text
-        assertEqual(result29, "In this case,", "ensureSentence preserves trailing comma")
-
-        let action30 = "{{swResult::ensureSentence}}"
-        let meta30: [String: Any] = ["llmResult": "in this case;"]
         let result30 = processDynamicPlaceholders(action: action30, metaJson: meta30, actionType: .insert).text
-        assertEqual(result30, "In this case;", "ensureSentence preserves trailing semicolon")
+        assertEqual(result30, "", "copy-action live context keeps empty appVocabulary without fallback")
 
         let action31 = "{{swResult::ensureSentence}}"
-        let meta31: [String: Any] = ["llmResult": "in this case:"]
+        let meta31: [String: Any] = ["llmResult": "in this case,"]
         let result31 = processDynamicPlaceholders(action: action31, metaJson: meta31, actionType: .insert).text
-        assertEqual(result31, "In this case:", "ensureSentence preserves trailing colon")
+        assertEqual(result31, "In this case,", "ensureSentence preserves trailing comma")
 
-        let action32 = "{{swResult::EnSuReSeNtEnCe}}"
-        let meta32: [String: Any] = ["llmResult": "hello world"]
+        let action32 = "{{swResult::ensureSentence}}"
+        let meta32: [String: Any] = ["llmResult": "in this case;"]
         let result32 = processDynamicPlaceholders(action: action32, metaJson: meta32, actionType: .insert).text
-        assertEqual(result32, "Hello world.", "placeholder transform names are case-insensitive")
+        assertEqual(result32, "In this case;", "ensureSentence preserves trailing semicolon")
 
         let action33 = "{{swResult::ensureSentence}}"
-        let meta33: [String: Any] = ["llmResult": "this is perhaps beyond the scope of this class, but…"]
+        let meta33: [String: Any] = ["llmResult": "in this case:"]
         let result33 = processDynamicPlaceholders(action: action33, metaJson: meta33, actionType: .insert).text
-        assertEqual(result33, "This is perhaps beyond the scope of this class, but…", "ensureSentence preserves trailing unicode ellipsis")
+        assertEqual(result33, "In this case:", "ensureSentence preserves trailing colon")
 
-        let action34 = "{{swResult::ensureSentence}}"
-        let meta34: [String: Any] = ["llmResult": "*one. two. three.*"]
+        let action34 = "{{swResult::EnSuReSeNtEnCe}}"
+        let meta34: [String: Any] = ["llmResult": "hello world"]
         let result34 = processDynamicPlaceholders(action: action34, metaJson: meta34, actionType: .insert).text
-        assertEqual(result34, "*One. two. three.*", "ensureSentence preserves punctuation inside trailing markdown emphasis")
+        assertEqual(result34, "Hello world.", "placeholder transform names are case-insensitive")
 
         let action35 = "{{swResult::ensureSentence}}"
-        let meta35: [String: Any] = ["llmResult": "(\"hello world.\")"]
+        let meta35: [String: Any] = ["llmResult": "this is perhaps beyond the scope of this class, but…"]
         let result35 = processDynamicPlaceholders(action: action35, metaJson: meta35, actionType: .insert).text
-        assertEqual(result35, "(\"Hello world.\")", "ensureSentence preserves punctuation inside trailing wrappers")
+        assertEqual(result35, "This is perhaps beyond the scope of this class, but…", "ensureSentence preserves trailing unicode ellipsis")
 
-        let action36 = "{{swResult||\\b(api|sdk)\\b||${1::UpPeRcAsE}}}"
-        let meta36: [String: Any] = ["llmResult": "api and sdk"]
+        let action36 = "{{swResult::ensureSentence}}"
+        let meta36: [String: Any] = ["llmResult": "*one. two. three.*"]
         let result36 = processDynamicPlaceholders(action: action36, metaJson: meta36, actionType: .insert).text
-        assertEqual(result36, "API and SDK", "capture transform names are case-insensitive")
+        assertEqual(result36, "*One. two. three.*", "ensureSentence preserves punctuation inside trailing markdown emphasis")
+
+        let action37 = "{{swResult::ensureSentence}}"
+        let meta37: [String: Any] = ["llmResult": "(\"hello world.\")"]
+        let result37 = processDynamicPlaceholders(action: action37, metaJson: meta37, actionType: .insert).text
+        assertEqual(result37, "(\"Hello world.\")", "ensureSentence preserves punctuation inside trailing wrappers")
+
+        let action38 = "{{swResult||\\b(api|sdk)\\b||${1::UpPeRcAsE}}}"
+        let meta38: [String: Any] = ["llmResult": "api and sdk"]
+        let result38 = processDynamicPlaceholders(action: action38, metaJson: meta38, actionType: .insert).text
+        assertEqual(result38, "API and SDK", "capture transform names are case-insensitive")
 
         stubSelectedText = ""
         stubAppContext = ""

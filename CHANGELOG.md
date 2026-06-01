@@ -4,6 +4,8 @@
 ### Changed
 * Re-arm filesystem watchers after system wake so recordings continue to be detected after real sleep/wake cycles.
 * Improve `--status` watcher reporting with armed, folder, event, and pending-state details instead of only checking object presence.
+* Keep `{{selectedText}}` session-only during normal recording execution. If no text was selected when the recording started, the placeholder now resolves empty instead of capturing a later selection at action time.
+* Preserve invocation-time `{{selectedText}}` behavior for CLI commands such as `--exec-action` and `--get-action` by explicitly adding live selected text to CLI placeholder metadata.
 
 ---
 ## [v2.0.3](https://github.com/ognistik/macrowhisper/releases/tag/v2.0.3) - 2026/04/15
