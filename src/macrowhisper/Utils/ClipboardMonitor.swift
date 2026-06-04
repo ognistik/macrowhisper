@@ -206,7 +206,7 @@ class ClipboardMonitor {
     /// This captures the user's original clipboard before anyone (Superwhisper or CLI) modifies it
     /// Also captures selected text at the moment the recording folder appears
     /// Enhanced to also capture clipboard content from approximately 5 seconds before recording
-    func startEarlyMonitoring(for recordingPath: String) {
+    func startEarlyMonitoring(for recordingPath: String, sessionStartTime: Date = Date()) {
         let pasteboard = NSPasteboard.general
         let userOriginal = pasteboard.string(forType: .string)
         
@@ -220,7 +220,6 @@ class ClipboardMonitor {
         }
         
         // Capture pre-recording clipboard from global history (5 seconds before this recording started)
-        let sessionStartTime = Date()
         let preRecordingClipboard = capturePreRecordingClipboard(beforeTime: sessionStartTime)
         let preRecordingClipboardStack = capturePreRecordingClipboardStack(beforeTime: sessionStartTime)
         

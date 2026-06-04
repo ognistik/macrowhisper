@@ -262,7 +262,8 @@ class RecordingsFolderWatcher {
     }
 
     private func handleFolderChangeEvent() {
-        lastFolderEventAt = Date()
+        let folderEventTime = Date()
+        lastFolderEventAt = folderEventTime
         let currentSubdirectories = getCurrentSubdirectories()
         
         // Check for new directories
@@ -318,7 +319,7 @@ class RecordingsFolderWatcher {
                         performRecordingRecovery(reason: "Superwhisper crash detected - new recording \(dirName) appeared while previous recording was being processed", preserveRecording: fullPath)
                     }
                     
-                    processNewRecording(atPath: fullPath)
+                    processNewRecording(atPath: fullPath, detectedAt: folderEventTime)
                 }
             }
         }
@@ -384,7 +385,7 @@ class RecordingsFolderWatcher {
         lastKnownSubdirectories = currentSubdirectories
     }
     
-    private func processNewRecording(atPath path: String) {
+    private func processNewRecording(atPath path: String, detectedAt: Date = Date()) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: path) {
             logDebug("Skipping already processed recording: \(path)")
@@ -393,7 +394,7 @@ class RecordingsFolderWatcher {
         
         // Start early monitoring immediately when the recording folder appears
         // This captures selected text and clipboard context at session start
-        clipboardMonitor.startEarlyMonitoring(for: path)
+        clipboardMonitor.startEarlyMonitoring(for: path, sessionStartTime: detectedAt)
         
         // Start monitoring for .wav file changes to detect cancellation
         setupAudioFileMonitoring(for: path)
