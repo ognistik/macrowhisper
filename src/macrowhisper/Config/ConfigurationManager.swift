@@ -139,9 +139,31 @@ class ConfigurationManager {
                 return (expandedPath as NSString).appendingPathComponent("macrowhisper.json")
             }
         }
-        
-        // Path points to a file or looks like a file path
-        return expandedPath
+
+        // Resolve symlink chain so configPath always points to the real file.
+        // This ensures all operations (read, write, watch) consistently target the
+        // actual inode rather than the symlink, even if the target doesn't exist yet.
+        return resolveSymlink(expandedPath)
+    }
+
+    /// Follows the symlink chain for `path` and returns the final real path.
+    /// Works even when the symlink target doesn't exist yet (broken symlink).
+    private static func resolveSymlink(_ path: String) -> String {
+        var current = path
+        var seen = Set<String>()
+        while !seen.contains(current) {
+            seen.insert(current)
+            guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: current) else {
+                break
+            }
+            if dest.hasPrefix("/") {
+                current = (dest as NSString).standardizingPath
+            } else {
+                let dir = (current as NSString).deletingLastPathComponent
+                current = ((dir as NSString).appendingPathComponent(dest) as NSString).standardizingPath
+            }
+        }
+        return current
     }
 
     /// Creates a default configuration file at path when missing.
