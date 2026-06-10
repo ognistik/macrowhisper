@@ -140,14 +140,10 @@ class ConfigurationManager {
             }
         }
 
-        // Resolve symlink chain so configPath always points to the real file.
-        // This ensures all operations (read, write, watch) consistently target the
-        // actual inode rather than the symlink, even if the target doesn't exist yet.
-        return resolveSymlink(expandedPath)
+        // Path points to a file or looks like a file path
+        return expandedPath
     }
 
-    /// Follows the symlink chain for `path` and returns the final real path.
-    /// Works even when the symlink target doesn't exist yet (broken symlink).
     private static func resolveSymlink(_ path: String) -> String {
         var current = path
         var seen = Set<String>()
@@ -1101,28 +1097,33 @@ class ConfigurationManager {
                 
                 // Write the formatted JSON back to data with atomic write and error recovery
                 if let formattedData = formattedJson.data(using: .utf8) {
-                    let configDir = (configPath as NSString).deletingLastPathComponent
-                    
+                    let writePath = Self.resolveSymlink(configPath)
+                    let configDir = (writePath as NSString).deletingLastPathComponent
+
                     // Ensure parent directory exists with proper error handling
                     do {
                         if !fileManager.fileExists(atPath: configDir) {
                             try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
                             logDebug("Created configuration directory: \(configDir)")
                         }
-                        
+
                         // Perform atomic write to prevent corruption
-                        let tempPath = configPath + ".tmp"
+                        let tempPath = writePath + ".tmp"
                         try formattedData.write(to: URL(fileURLWithPath: tempPath))
-                        
+
                         // Verify the written file can be parsed before replacing original
                         if let _ = Self.loadConfig(from: tempPath) {
-                            // Atomic move (replace original with verified temp file)
-                            _ = try fileManager.replaceItem(at: URL(fileURLWithPath: configPath), 
-                                                       withItemAt: URL(fileURLWithPath: tempPath), 
-                                                       backupItemName: nil, 
-                                                       options: [], 
-                                                       resultingItemURL: nil)
-                            logDebug("Configuration saved atomically to \(configPath)")
+                            if fileManager.fileExists(atPath: writePath) {
+                                // Atomic move (replace original with verified temp file)
+                                _ = try fileManager.replaceItem(at: URL(fileURLWithPath: writePath),
+                                                           withItemAt: URL(fileURLWithPath: tempPath),
+                                                           backupItemName: nil,
+                                                           options: [],
+                                                           resultingItemURL: nil)
+                            } else {
+                                try fileManager.moveItem(atPath: tempPath, toPath: writePath)
+                            }
+                            logDebug("Configuration saved atomically to \(writePath)")
                         } else {
                             // Generated JSON is invalid (should not happen), clean up temp file
                             try? fileManager.removeItem(atPath: tempPath)
@@ -1131,14 +1132,14 @@ class ConfigurationManager {
                     } catch {
                         // Handle directory creation or file write errors
                         logError("Failed to write configuration file: \(error.localizedDescription)")
-                        
+
                         // Check for common issues and provide specific guidance
                         if (error as NSError).code == NSFileWriteFileExistsError {
                             logError("Configuration directory cannot be created - file exists with same name")
                         } else if (error as NSError).code == NSFileWriteNoPermissionError {
                             logError("Permission denied writing to configuration directory. Check file permissions.")
                         }
-                        
+
                         throw error
                     }
                 }

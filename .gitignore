@@ -1,0 +1,14 @@
+# Swift Package Manager
+src/.build/
+src/Package.resolved
+
+# Xcode
+src/*.xcodeproj/xcuserdata/
+src/*.xcodeproj/project.xcworkspace/xcuserdata/
+src/DerivedData/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+
+# macOS
+.DS_Store
