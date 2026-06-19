@@ -1122,6 +1122,9 @@ class ConfigurationManager {
                                                            resultingItemURL: nil)
                             } else {
                                 try fileManager.moveItem(atPath: tempPath, toPath: writePath)
+                                // Target was just created in a potentially different directory than the
+                                // symlink — reset the watcher so it follows the resolved path.
+                                DispatchQueue.main.async { self.setupFileWatcher() }
                             }
                             logDebug("Configuration saved atomically to \(writePath)")
                         } else {
