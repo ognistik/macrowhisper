@@ -139,9 +139,27 @@ class ConfigurationManager {
                 return (expandedPath as NSString).appendingPathComponent("macrowhisper.json")
             }
         }
-        
+
         // Path points to a file or looks like a file path
         return expandedPath
+    }
+
+    private static func resolveSymlink(_ path: String) -> String {
+        var current = path
+        var seen = Set<String>()
+        while !seen.contains(current) {
+            seen.insert(current)
+            guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: current) else {
+                break
+            }
+            if dest.hasPrefix("/") {
+                current = (dest as NSString).standardizingPath
+            } else {
+                let dir = (current as NSString).deletingLastPathComponent
+                current = ((dir as NSString).appendingPathComponent(dest) as NSString).standardizingPath
+            }
+        }
+        return current
     }
 
     /// Creates a default configuration file at path when missing.
@@ -1079,28 +1097,41 @@ class ConfigurationManager {
                 
                 // Write the formatted JSON back to data with atomic write and error recovery
                 if let formattedData = formattedJson.data(using: .utf8) {
-                    let configDir = (configPath as NSString).deletingLastPathComponent
-                    
+                    let writePath = Self.resolveSymlink(configPath)
+                    let configDir = (writePath as NSString).deletingLastPathComponent
+
                     // Ensure parent directory exists with proper error handling
                     do {
                         if !fileManager.fileExists(atPath: configDir) {
                             try fileManager.createDirectory(atPath: configDir, withIntermediateDirectories: true, attributes: nil)
                             logDebug("Created configuration directory: \(configDir)")
                         }
-                        
+
                         // Perform atomic write to prevent corruption
-                        let tempPath = configPath + ".tmp"
+                        let tempPath = writePath + ".tmp"
                         try formattedData.write(to: URL(fileURLWithPath: tempPath))
-                        
+
                         // Verify the written file can be parsed before replacing original
                         if let _ = Self.loadConfig(from: tempPath) {
-                            // Atomic move (replace original with verified temp file)
-                            _ = try fileManager.replaceItem(at: URL(fileURLWithPath: configPath), 
-                                                       withItemAt: URL(fileURLWithPath: tempPath), 
-                                                       backupItemName: nil, 
-                                                       options: [], 
-                                                       resultingItemURL: nil)
-                            logDebug("Configuration saved atomically to \(configPath)")
+                            if fileManager.fileExists(atPath: writePath) {
+                                // Atomic move (replace original with verified temp file)
+                                _ = try fileManager.replaceItem(at: URL(fileURLWithPath: writePath),
+                                                           withItemAt: URL(fileURLWithPath: tempPath),
+                                                           backupItemName: nil,
+                                                           options: [],
+                                                           resultingItemURL: nil)
+                            } else {
+                                try fileManager.moveItem(atPath: tempPath, toPath: writePath)
+                                // Target was just created in a potentially different directory than the
+                                // symlink — reset the watcher so it follows the resolved path.
+                                // Also clear suppressNextConfigReload: the old directory-mode watcher
+                                // never saw the write event, so the flag was never consumed.
+                                DispatchQueue.main.async {
+                                    self.suppressNextConfigReload = false
+                                    self.setupFileWatcher()
+                                }
+                            }
+                            logDebug("Configuration saved atomically to \(writePath)")
                         } else {
                             // Generated JSON is invalid (should not happen), clean up temp file
                             try? fileManager.removeItem(atPath: tempPath)
@@ -1109,14 +1140,14 @@ class ConfigurationManager {
                     } catch {
                         // Handle directory creation or file write errors
                         logError("Failed to write configuration file: \(error.localizedDescription)")
-                        
+
                         // Check for common issues and provide specific guidance
                         if (error as NSError).code == NSFileWriteFileExistsError {
                             logError("Configuration directory cannot be created - file exists with same name")
                         } else if (error as NSError).code == NSFileWriteNoPermissionError {
                             logError("Permission denied writing to configuration directory. Check file permissions.")
                         }
-                        
+
                         throw error
                     }
                 }
