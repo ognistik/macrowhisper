@@ -533,7 +533,7 @@
       "triggerVoice" : "==^google this[[:punct:]]?$=="
     },
     "Letterboxd" : {
-      "action" : "https://letterboxd.com/search/{{swResult||\\.$||}}{{selectedText||\\.|| }}{{clipboardContext||\\.|| }}",
+      "action" : "https://letterboxd.com/search/{{swResult||\\.||||\"||}}{{selectedText||\\.|| }}{{clipboardContext||\\.|| }}",
       "actionDelay" : null,
       "icon" : null,
       "inputCondition" : null,
@@ -548,7 +548,7 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerUrls" : null,
-      "triggerVoice" : "ask letterboxd|ask letterboxed|ask, letterboxed"
+      "triggerVoice" : "ask letterboxd|ask letterboxed|ask, letterboxed|ask. letterboxd"
     },
     "Rotten Tomatoes" : {
       "action" : "https://www.rottentomatoes.com/search?search={{swResult||\\.$||}}{{selectedText}}{{clipboardContext}}",

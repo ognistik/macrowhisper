@@ -1,6 +1,6 @@
 # Macrowhisper
 
-Automation helper for [Superwhisper](https://superwhisper.com/?via=robert) on macOS.
+Automation helper for [Superwhisper](https://superwhisper.link/robert) on macOS.
 
 Macrowhisper watches Superwhisper recordings and runs configured actions based on triggers (voice, app, mode, or browser URL) or a fallback active action.
 
