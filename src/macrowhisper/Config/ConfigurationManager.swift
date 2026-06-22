@@ -1124,7 +1124,12 @@ class ConfigurationManager {
                                 try fileManager.moveItem(atPath: tempPath, toPath: writePath)
                                 // Target was just created in a potentially different directory than the
                                 // symlink — reset the watcher so it follows the resolved path.
-                                DispatchQueue.main.async { self.setupFileWatcher() }
+                                // Also clear suppressNextConfigReload: the old directory-mode watcher
+                                // never saw the write event, so the flag was never consumed.
+                                DispatchQueue.main.async {
+                                    self.suppressNextConfigReload = false
+                                    self.setupFileWatcher()
+                                }
                             }
                             logDebug("Configuration saved atomically to \(writePath)")
                         } else {
