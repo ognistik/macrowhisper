@@ -9,6 +9,32 @@ private func assertEqual(_ actual: Bool, _ expected: Bool, _ label: String) {
 }
 
 private func runClipboardTransientActivityRegressionTests() {
+    let resetBoundary = Date(timeIntervalSince1970: 100)
+    assertEqual(
+        shouldIncludeClipboardChange(
+            timestamp: Date(timeIntervalSince1970: 99),
+            resetAt: resetBoundary
+        ),
+        false,
+        "clipboard changes captured before reset are excluded"
+    )
+    assertEqual(
+        shouldIncludeClipboardChange(
+            timestamp: Date(timeIntervalSince1970: 101),
+            resetAt: resetBoundary
+        ),
+        true,
+        "clipboard changes captured after reset are included"
+    )
+    assertEqual(
+        shouldIncludeClipboardChange(
+            timestamp: Date(timeIntervalSince1970: 99),
+            resetAt: nil
+        ),
+        true,
+        "clipboard changes remain eligible when no reset occurred"
+    )
+
     let normalDecision = decideSessionClipboardObservation(
         shouldIgnoreApp: false,
         containsIgnoredMarker: false

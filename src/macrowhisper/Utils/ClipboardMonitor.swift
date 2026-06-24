@@ -31,6 +31,19 @@ struct SessionClipboardObservationDecision {
     let shouldCountAsRecentActivity: Bool
 }
 
+enum ClipboardContextResetScope {
+    case activeSession(recordingPath: String)
+    case preRecordingBuffer
+}
+
+func shouldIncludeClipboardChange(
+    timestamp: Date,
+    resetAt: Date?
+) -> Bool {
+    guard let resetAt else { return true }
+    return timestamp >= resetAt
+}
+
 enum SessionStartInputFieldState: String {
     case inInputField
     case outsideInputField
@@ -121,6 +134,7 @@ class ClipboardMonitor {
     private var isFirstGlobalCheck = true // Track if this is the first clipboard check
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
     private var lastSeenChangeCount: Int = 0 // Track NSPasteboard changeCount for more reliable detection
+    private var clipboardContextResetAt: Date? = nil
     private var suppressedCliClipboardContent: String?
     private var suppressedCliClipboardUntil: Date = .distantPast
     
@@ -155,6 +169,7 @@ class ClipboardMonitor {
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
         var ignoredClipboardChangeCounts: Set<Int> = []
         var lastObservedClipboardActivityAt: Date? = nil
+        var clipboardContextResetAt: Date? = nil
     }
 
     private struct ExecutionGroup {
@@ -163,8 +178,9 @@ class ClipboardMonitor {
         let rootOriginalClipboard: String?
         let rootSelectedText: String?
         let rootSessionStartInputFieldState: SessionStartInputFieldState
-        let rootPreRecordingClipboard: String?
-        let rootPreRecordingClipboardStack: [String]
+        var rootPreRecordingClipboard: String?
+        var rootPreRecordingClipboardStack: [String]
+        var clipboardContextResetAt: Date?
         var memberRecordingPaths: Set<String>
         var pendingRestoreRecordingPath: String?
         var pendingRestoreDelay: TimeInterval
@@ -272,6 +288,7 @@ class ClipboardMonitor {
                     rootSessionStartInputFieldState: sessionStartInputFieldState,
                     rootPreRecordingClipboard: preRecordingClipboard,
                     rootPreRecordingClipboardStack: preRecordingClipboardStack,
+                    clipboardContextResetAt: nil,
                     memberRecordingPaths: [recordingPath],
                     pendingRestoreRecordingPath: nil,
                     pendingRestoreDelay: DEFAULT_CLIPBOARD_RESTORE_DELAY,
@@ -298,7 +315,8 @@ class ClipboardMonitor {
                 preRecordingClipboardStack: effectivePreRecordingClipboardStack,
                 startingChangeCount: currentChangeCount,
                 lastSeenChangeCount: currentChangeCount,
-                lastCapturedClipboardContent: effectiveUserOriginal
+                lastCapturedClipboardContent: effectiveUserOriginal,
+                clipboardContextResetAt: self.executionGroups[groupId]?.clipboardContextResetAt
             )
             self.earlyMonitoringSessions[recordingPath] = session
         }
@@ -324,6 +342,63 @@ class ClipboardMonitor {
             resolvedPath = group.rootRecordingPath
         }
         return resolvedPath
+    }
+
+    /// Discards captured clipboard context and starts a fresh capture boundary.
+    /// This never changes the user's actual pasteboard contents or restoration snapshot.
+    @discardableResult
+    func resetClipboardContextCapture(for recordingPath: String?) -> ClipboardContextResetScope {
+        let resetAt = Date()
+        let pasteboard = NSPasteboard.general
+        let currentClipboard = pasteboard.string(forType: .string)
+        let currentChangeCount = pasteboard.changeCount
+
+        // Reset the rolling pre-recording buffer and baseline the current pasteboard.
+        // Baseline prevents a copy that happened before this command from being rediscovered
+        // by the next global polling pass.
+        globalHistoryQueue.sync(flags: .barrier) {
+            globalClipboardHistory.removeAll()
+            clipboardContextResetAt = resetAt
+            lastSeenClipboardContent = currentClipboard
+            lastSeenChangeCount = currentChangeCount
+            isFirstGlobalCheck = false
+        }
+
+        var resetRootPath: String?
+        sessionsQueue.sync(flags: .barrier) {
+            guard let recordingPath,
+                  let groupId = recordingPathToGroupId[recordingPath],
+                  var group = executionGroups[groupId] else {
+                return
+            }
+
+            resetRootPath = group.rootRecordingPath
+            group.rootPreRecordingClipboard = nil
+            group.rootPreRecordingClipboardStack.removeAll()
+            group.clipboardContextResetAt = resetAt
+            executionGroups[groupId] = group
+
+            for path in recordingPathToGroupId.compactMap({ $0.value == groupId ? $0.key : nil }) {
+                guard var session = earlyMonitoringSessions[path] else { continue }
+                session.clipboardChanges.removeAll()
+                session.preRecordingClipboard = nil
+                session.preRecordingClipboardStack.removeAll()
+                session.ignoredClipboardChangeCounts.removeAll()
+                session.lastSeenChangeCount = currentChangeCount
+                session.lastCapturedClipboardContent = currentClipboard
+                session.lastObservedClipboardActivityAt = nil
+                session.clipboardContextResetAt = resetAt
+                earlyMonitoringSessions[path] = session
+            }
+        }
+
+        if let resetRootPath {
+            logInfo("[ClipboardMonitor] Reset clipboard context capture for active recording session: \(resetRootPath)")
+            return .activeSession(recordingPath: resetRootPath)
+        }
+
+        logInfo("[ClipboardMonitor] Reset pre-recording clipboard context buffer")
+        return .preRecordingBuffer
     }
 
     func appendScriptResult(_ result: String, for recordingPath: String) {
@@ -659,7 +734,11 @@ class ClipboardMonitor {
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
             let filteredChanges = session.clipboardChanges.filter { change in
-                !session.ignoredClipboardChangeCounts.contains(change.changeCount)
+                !session.ignoredClipboardChangeCounts.contains(change.changeCount) &&
+                    shouldIncludeClipboardChange(
+                        timestamp: change.timestamp,
+                        resetAt: session.clipboardContextResetAt
+                    )
             }
             
             // Priority 1: Return the last clipboard change during the session (maintains current behavior)
@@ -672,7 +751,9 @@ class ClipboardMonitor {
             }
             
             // Priority 2: If no changes during session, use pre-recording clipboard if available
-            if let preRecording = session.preRecordingClipboard, !preRecording.isEmpty {
+            if session.clipboardContextResetAt == nil,
+               let preRecording = session.preRecordingClipboard,
+               !preRecording.isEmpty {
                 clipboardContent = sanitizeContextPlaceholderValue(preRecording)
                 if shouldFilterOutAsSuperwhisperResult(clipboardContent, normalizedSwResult: normalizedSwResult) {
                     clipboardContent = ""
@@ -708,11 +789,13 @@ class ClipboardMonitor {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
             
             // First, add all pre-recording clipboard content if available (these should be the first entries)
-            for preRecording in session.preRecordingClipboardStack {
-                let normalized = sanitizeContextPlaceholderValue(preRecording)
-                if !normalized.isEmpty &&
-                    !shouldFilterOutAsSuperwhisperResult(normalized, normalizedSwResult: normalizedSwResult) {
-                    allClipboardChanges.append(normalized)
+            if session.clipboardContextResetAt == nil {
+                for preRecording in session.preRecordingClipboardStack {
+                    let normalized = sanitizeContextPlaceholderValue(preRecording)
+                    if !normalized.isEmpty &&
+                        !shouldFilterOutAsSuperwhisperResult(normalized, normalizedSwResult: normalizedSwResult) {
+                        allClipboardChanges.append(normalized)
+                    }
                 }
             }
             if !session.preRecordingClipboardStack.isEmpty {
@@ -721,7 +804,11 @@ class ClipboardMonitor {
             
             // Then collect all clipboard changes during the session (excluding swResult)
             for change in session.clipboardChanges {
-                if session.ignoredClipboardChangeCounts.contains(change.changeCount) {
+                if session.ignoredClipboardChangeCounts.contains(change.changeCount) ||
+                    !shouldIncludeClipboardChange(
+                        timestamp: change.timestamp,
+                        resetAt: session.clipboardContextResetAt
+                    ) {
                     continue
                 }
                 if let content = change.content {
@@ -796,7 +883,11 @@ class ClipboardMonitor {
 
         if !enableStacking {
             let filteredChanges = activeSession.clipboardChanges.filter { change in
-                !activeSession.ignoredClipboardChangeCounts.contains(change.changeCount)
+                !activeSession.ignoredClipboardChangeCounts.contains(change.changeCount) &&
+                    shouldIncludeClipboardChange(
+                        timestamp: change.timestamp,
+                        resetAt: activeSession.clipboardContextResetAt
+                    )
             }
             if let lastChange = filteredChanges.last,
                let content = lastChange.content {
@@ -806,7 +897,8 @@ class ClipboardMonitor {
                 }
             }
 
-            if let preRecording = activeSession.preRecordingClipboard,
+            if activeSession.clipboardContextResetAt == nil,
+               let preRecording = activeSession.preRecordingClipboard,
                !preRecording.isEmpty {
                 let normalized = sanitizeContextPlaceholderValue(preRecording)
                 if !normalized.isEmpty {
@@ -819,15 +911,21 @@ class ClipboardMonitor {
 
         var allClipboardChanges: [String] = []
 
-        for preRecording in activeSession.preRecordingClipboardStack {
-            let normalized = sanitizeContextPlaceholderValue(preRecording)
-            if !normalized.isEmpty {
-                allClipboardChanges.append(normalized)
+        if activeSession.clipboardContextResetAt == nil {
+            for preRecording in activeSession.preRecordingClipboardStack {
+                let normalized = sanitizeContextPlaceholderValue(preRecording)
+                if !normalized.isEmpty {
+                    allClipboardChanges.append(normalized)
+                }
             }
         }
 
         for change in activeSession.clipboardChanges {
-            if activeSession.ignoredClipboardChangeCounts.contains(change.changeCount) {
+            if activeSession.ignoredClipboardChangeCounts.contains(change.changeCount) ||
+                !shouldIncludeClipboardChange(
+                    timestamp: change.timestamp,
+                    resetAt: activeSession.clipboardContextResetAt
+                ) {
                 continue
             }
             if let content = change.content {
@@ -868,7 +966,9 @@ class ClipboardMonitor {
 
         globalHistoryQueue.sync {
             // Find the most recent clipboard change within the 5-second buffer
-            if let mostRecent = globalClipboardHistory.last {
+            if let mostRecent = globalClipboardHistory.last(where: {
+                shouldIncludeClipboardChange(timestamp: $0.timestamp, resetAt: clipboardContextResetAt)
+            }) {
                 let timeSinceLastChange = Date().timeIntervalSince(mostRecent.timestamp)
                 if timeSinceLastChange <= preRecordingBuffer {
                     recentContent = mostRecent.content ?? ""
@@ -914,7 +1014,11 @@ class ClipboardMonitor {
             let cutoffTime = now.addingTimeInterval(-preRecordingBuffer)
             
             let recentChanges = globalClipboardHistory.filter { change in
-                change.timestamp >= cutoffTime
+                change.timestamp >= cutoffTime &&
+                    shouldIncludeClipboardChange(
+                        timestamp: change.timestamp,
+                        resetAt: clipboardContextResetAt
+                    )
             }
             
             // Add all recent changes (excluding empty content)
@@ -966,7 +1070,12 @@ class ClipboardMonitor {
         globalHistoryQueue.sync {
             // Find clipboard changes that occurred within 5 seconds BEFORE the recording session started
             let preRecordingChanges = globalClipboardHistory.filter { change in
-                change.timestamp >= fiveSecondsBeforeSession && change.timestamp < sessionStartTime
+                change.timestamp >= fiveSecondsBeforeSession &&
+                    change.timestamp < sessionStartTime &&
+                    shouldIncludeClipboardChange(
+                        timestamp: change.timestamp,
+                        resetAt: clipboardContextResetAt
+                    )
             }
             
             // Use the most recent change from within the 5-second window before recording
@@ -1000,7 +1109,12 @@ class ClipboardMonitor {
         globalHistoryQueue.sync {
             // Find all clipboard changes that occurred within buffer window BEFORE the recording session started
             let preRecordingChanges = globalClipboardHistory.filter { change in
-                change.timestamp >= bufferStartTime && change.timestamp < sessionStartTime
+                change.timestamp >= bufferStartTime &&
+                    change.timestamp < sessionStartTime &&
+                    shouldIncludeClipboardChange(
+                        timestamp: change.timestamp,
+                        resetAt: clipboardContextResetAt
+                    )
             }
             
             // Add all changes from the buffer window (excluding empty content)
@@ -1128,7 +1242,11 @@ class ClipboardMonitor {
                 sessionsQueue.async(flags: .barrier) { [weak self] in
                     guard let self = self,
                           let session = self.earlyMonitoringSessions[recordingPath],
-                          session.isActive else {
+                          session.isActive,
+                          shouldIncludeClipboardChange(
+                              timestamp: change.timestamp,
+                              resetAt: session.clipboardContextResetAt
+                          ) else {
                         return
                     }
                     
@@ -1728,7 +1846,11 @@ class ClipboardMonitor {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             guard let self,
                   var session = self.earlyMonitoringSessions[recordingPath],
-                  session.isActive else {
+                  session.isActive,
+                  shouldIncludeClipboardChange(
+                      timestamp: timestamp,
+                      resetAt: session.clipboardContextResetAt
+                  ) else {
                 return
             }
 
@@ -1919,6 +2041,13 @@ class ClipboardMonitor {
             let recordingPath = target.key
             var session = target.value
 
+            guard shouldIncludeClipboardChange(
+                timestamp: change.timestamp,
+                resetAt: session.clipboardContextResetAt
+            ) else {
+                return
+            }
+
             if session.clipboardChanges.contains(where: { $0.changeCount == change.changeCount }) {
                 if session.lastSeenChangeCount != change.changeCount {
                     session.lastSeenChangeCount = change.changeCount
@@ -1951,6 +2080,15 @@ class ClipboardMonitor {
         
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
+
+            // A poll sampled before an explicit reset may reach this queue afterward.
+            // Ignore it entirely so it cannot roll the baseline backward or repopulate history.
+            guard shouldIncludeClipboardChange(
+                timestamp: now,
+                resetAt: self.clipboardContextResetAt
+            ) else {
+                return
+            }
             
             // On first check, just record what's there without treating it as a "change"
             if self.isFirstGlobalCheck {

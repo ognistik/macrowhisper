@@ -406,6 +406,7 @@ macrowhisper --start-service
 | `--mute-triggers true|false` | Saves trigger muting on or off in config. |
 | `--mute-triggers <duration>` | Temporarily mutes triggers for a runtime duration such as `30s`, `5m`, or `1h`. |
 | `--mute-triggers` | Unmutes and clears any temporary mute timer. |
+| `--reset-clipboard` | Discards clipboard context captured so far and starts a fresh capture boundary. |
 
 You can check mute state through `--status`.
 
@@ -1393,6 +1394,10 @@ Behavior details:
 - empty clipboard entries are ignored
 - apps matched by `clipboardIgnore` are ignored
 
+If unwanted clipboard content is captured, run `macrowhisper --reset-clipboard` before the recording finishes and its action runs. Macrowhisper discards the clipboard context captured so far and starts collecting new copies from that point. This works with both single-item capture and clipboard stacking, and it does not clear or modify the macOS clipboard itself.
+
+When no recording is active, the command resets the pre-recording clipboard buffer instead. This lets you clear unwanted buffered context before starting the next dictation.
+
 When several clipboard items are returned, the output looks like this:
 
 ```xml
@@ -1610,6 +1615,8 @@ How they work together:
 - `clipboardStacking = false` returns one best clipboard context value
 - `clipboardStacking = true` can return several ordered snippets
 - `restoreClipboard = true` restores the original clipboard when the action flow ends
+
+Use `macrowhisper --reset-clipboard` when you copied the wrong content or no longer want previously captured clipboard context sent to the action. During a recording it resets that recording's shared clipboard-context session; outside a recording it resets the pre-recording buffer. Any new copy made afterward can be captured normally.
 
 For CLI execution (`--exec-action` and `--run-auto`):
 

@@ -133,6 +133,7 @@ class SocketCommunication {
         case switchConfigPath
         case updateConfig
         case status
+        case resetClipboard
         case debug
         case version
         case listInserts
@@ -3237,6 +3238,23 @@ class SocketCommunication {
                 }
                 // Print all lines
                 response = lines.joined(separator: "\n")
+                _ = sendResponse(response, to: clientSocket)
+
+            case .resetClipboard:
+                guard let clipboardMonitor = clipboardMonitorRef else {
+                    response = "Clipboard monitoring is not available."
+                    logError(response)
+                    _ = sendResponse(response, to: clientSocket)
+                    break
+                }
+
+                let pendingRecordingPath = recordingsWatcher?.getMostRecentPendingRecordingPath()
+                switch clipboardMonitor.resetClipboardContextCapture(for: pendingRecordingPath) {
+                case .activeSession:
+                    response = "Reset clipboard context for the active recording. New copies will be captured from now on."
+                case .preRecordingBuffer:
+                    response = "Reset the pre-recording clipboard context buffer. New copies will be captured from now on."
+                }
                 _ = sendResponse(response, to: clientSocket)
                 
             case .debug:

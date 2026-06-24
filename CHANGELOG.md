@@ -2,6 +2,7 @@
 
 ## UNRELEASED
 ### Changed
+* Add `--reset-clipboard` to discard unwanted clipboard context captured for the active recording, or clear the pre-recording clipboard buffer when no recording is active, then begin capturing new copies from that point.
 * Re-arm filesystem watchers after system wake so recordings continue to be detected after real sleep/wake cycles.
 * Improve `--status` watcher reporting with armed, folder, event, and pending-state details instead of only checking object presence.
 * Keep `{{selectedText}}` session-only during normal recording execution. If no text was selected when the recording started, the placeholder now resolves empty instead of capturing a later selection at action time.

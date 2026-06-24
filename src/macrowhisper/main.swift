@@ -937,7 +937,7 @@ if args.contains("--service-status") {
 
 // Commands that require a running daemon
 let requireDaemonCommands = [
-    "-s", "--status", "--get-icon", "--list-inserts", 
+    "-s", "--status", "--reset-clipboard", "--get-icon", "--list-inserts",
     "--check-updates", "--auto-return", "--schedule-action", "--mute-triggers", "--add-url", 
     "--add-shortcut", "--add-shell", "--add-as", "--add-insert", 
     "--remove-action",
@@ -990,6 +990,15 @@ if hasDaemonCommand {
     }
     
     // Handle daemon-required commands
+    if args.contains("--reset-clipboard") {
+        if let response = socketCommunication.sendCommand(.resetClipboard) {
+            print(response)
+        } else {
+            print("Failed to reset clipboard context.")
+        }
+        exit(0)
+    }
+
     if args.contains("--get-icon") {
         if let response = socketCommunication.sendCommand(.getIcon) {
             print(response)
@@ -1563,6 +1572,8 @@ func printHelp() {
 
     RUNTIME COMMANDS (require running instance):
       -s, --status                  Get the status of the running instance
+      --reset-clipboard             Discard captured clipboard context and start fresh
+                                    for the active recording or pre-recording buffer
 
     ACTION MANAGEMENT (require running instance):
       --get-action [<name>]         Get name of active action (if run without <name>)
