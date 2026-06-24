@@ -138,7 +138,7 @@
       "triggerVoice" : null
     },
     "smartClip" : {
-      "action" : "{{clipboardContext}}\n\nUrl: {{frontAppUrl}}",
+      "action" : "{{clipboardContext}}",
       "actionDelay" : 0,
       "icon" : "",
       "inputCondition" : null,
