@@ -1,14 +1,17 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v2.1.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.0) - 2026/06/25
 ### Added
-* Add `--reset-clipboard` to discard unwanted clipboard context captured for the active recording, or clear the pre-recording clipboard buffer when no recording is active, then begin capturing new copies from that point.
+* Added `--reset-clipboard` to discard unwanted clipboard context captured for the active recording, or clear the pre-recording clipboard buffer when no recording is active, then begin capturing new copies from that point.
 * Support for symlinked configuration files, including missing targets, while preserving atomic saves and live configuration reloads. (thanks to @mtxr for this contribution!)
   
 ### Improved
-* Macrowhisper now re-arm filesystem watchers after system wake so recordings continue to be detected after real sleep/wake cycles.
-* Improve `--status` watcher reporting with armed, folder, event, and pending-state details instead of only checking object presence. (addressing [#27](https://github.com/ognistik/macrowhisper/issues/27))
-* Keep `{{selectedText}}` session-only during normal recording execution. If no text was selected when the recording started, the placeholder now resolves empty instead of capturing a later selection at action time.
+* Macrowhisper now re-arms filesystem watchers after system wake so recordings continue to be detected after real sleep/wake cycles.
+* Improved `--status` watcher reporting with armed, folder, event, and pending-state details instead of only checking object presence. (addressing [#27](https://github.com/ognistik/macrowhisper/issues/27))
+* Macrowhisper now keeps `{{selectedText}}` session-only during normal recording execution. If no text was selected when the recording started, the placeholder now resolves empty instead of capturing a later selection at action time.
 * Preserve invocation-time `{{selectedText}}` behavior for CLI commands such as `--exec-action` and `--get-action` by explicitly adding live selected text to CLI placeholder metadata.
 * Anchor pre-recording clipboard capture to the moment the recording folder is detected so startup clipboard replays do not pollute stacked `{{clipboardContext}}` entries.
 
