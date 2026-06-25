@@ -222,6 +222,8 @@ load_release_env() {
   : "${NOTARYTOOL_PROFILE:?NOTARYTOOL_PROFILE is missing from .release.env}"
   export DEVELOPER_ID_APPLICATION NOTARYTOOL_PROFILE
   FORMULA_PATH="${HOMEBREW_FORMULA:-$FORMULA_PATH}"
+  formula_dir="$(CDPATH= cd -- "$(dirname -- "$FORMULA_PATH")" && pwd -P)"
+  FORMULA_PATH="$formula_dir/$(basename -- "$FORMULA_PATH")"
 }
 
 verify_prepared_release() {
