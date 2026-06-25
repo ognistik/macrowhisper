@@ -492,9 +492,9 @@ publish_release() {
   formula_relative="${FORMULA_PATH#"$formula_repo"/}"
   git -C "$formula_repo" ls-files --error-unmatch "$formula_relative" >/dev/null 2>&1 \
     || fail "Formula is not tracked by its repository: $FORMULA_PATH"
-  formula_changes="$(git -C "$formula_repo" status --porcelain)"
-  [ "$formula_changes" = " M $formula_relative" ] \
-    || fail "Expected exactly one uncommitted formula update; found:\n${formula_changes:-none}"
+  formula_changed_files="$(git -C "$formula_repo" status --porcelain | sed 's/^...//')"
+  [ "$formula_changed_files" = "$formula_relative" ] \
+    || fail "Expected exactly one uncommitted formula update; found:\n${formula_changed_files:-none}"
 
   if [ "$assume_yes" -ne 1 ]; then
     printf 'Publish %s and push release metadata? [y/N] ' "$tag"
