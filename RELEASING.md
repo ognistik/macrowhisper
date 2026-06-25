@@ -4,6 +4,36 @@ The release helper keeps builds inside the repository, signs and notarizes the
 standalone executable, packages the executable with its JSON schema, and prepares
 the installer, Homebrew formula, and GitHub release.
 
+## Local test builds
+
+Use a local Xcode build when you only need a binary to test. This does not sign,
+notarize, package, update release metadata, or create a GitHub release.
+
+From the repository root, build a debug binary:
+
+```sh
+xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Debug -derivedDataPath .build/local-xcode build
+```
+
+Run the generated binary from:
+
+```sh
+.build/local-xcode/Build/Products/Debug/macrowhisper
+```
+
+For a release-optimized local binary, use the same build command with the
+`Release` configuration:
+
+```sh
+xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -derivedDataPath .build/local-xcode build
+```
+
+Run the generated release binary from:
+
+```sh
+.build/local-xcode/Build/Products/Release/macrowhisper
+```
+
 ## One-time setup
 
 Copy `.release.env.example` to `.release.env`, fill in the signing identity and
