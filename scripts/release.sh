@@ -291,7 +291,7 @@ macrowhisper --restart-service
 ### If Installed with Script
 
 ```sh
-curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sh
+curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 macrowhisper --restart-service
 ```
 EOF
