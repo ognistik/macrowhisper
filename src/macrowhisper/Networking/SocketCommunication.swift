@@ -1996,8 +1996,9 @@ class SocketCommunication {
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
                 !immediateLeftIsWhitespace
             let shouldInsertLeadingSpaceAfterWord = effectiveLeft.map { isWordCharacter($0) } ?? false
-            let punctuationNeedingTrailingSpace = ".,;:!?)]}\"”’»›"
-            let shouldInsertLeadingSpaceAfterPunctuation = effectiveLeft.map { punctuationNeedingTrailingSpace.contains($0) } ?? false
+            let shouldInsertLeadingSpaceAfterPunctuation = effectiveLeft.map {
+                SmartInsertBoundary.shouldInsertLeadingSpaceAfterPunctuation($0)
+            } ?? false
             let startsWithBoundaryNeedingLeadingSpace = isWordCharacter(first) || isOpeningWrapperCharacter(first)
             let shouldInsertLeadingSpaceBeforeOpeningWrapper = (effectiveLeft.map { isWordCharacter($0) } ?? false) && isOpeningWrapperCharacter(first)
 
@@ -2019,7 +2020,7 @@ class SocketCommunication {
             let immediateRightIsWhitespace = rightCharacter?.isWhitespace == true
             let effectiveRightIsWord = isWordCharacter(right)
             let insertedTextEndsWithJoinableBoundary =
-                isWordCharacter(last) || ".,;:!?".contains(last) || isClosingWrapperCharacter(last)
+                isWordCharacter(last) || SmartInsertBoundary.isJoinableTrailingBoundary(last) || isClosingWrapperCharacter(last)
 
             if SmartInsertHeuristics.shouldInsertTrailingSpace(
                 immediateRightIsWhitespace: immediateRightIsWhitespace,
@@ -2070,6 +2071,12 @@ class SocketCommunication {
             if isIgnorableBoundaryCharacter(effectivePrevious) {
                 return false
             }
+            if SmartInsertBoundary.isEllipsisContinuationBoundary(
+                leftCharacter: effectivePrevious,
+                leftLinePrefix: leftLinePrefix
+            ) {
+                return true
+            }
             return !".!?".contains(effectivePrevious)
         }
 
@@ -2079,6 +2086,12 @@ class SocketCommunication {
         )
         guard let effectiveLeft else {
             return false
+        }
+        if SmartInsertBoundary.isEllipsisContinuationBoundary(
+            leftCharacter: effectiveLeft,
+            leftLinePrefix: leftLinePrefix
+        ) {
+            return true
         }
         return !".!?".contains(effectiveLeft)
     }
@@ -2123,6 +2136,12 @@ class SocketCommunication {
             if isIgnorableBoundaryCharacter(effectivePrevious) {
                 return true
             }
+            if SmartInsertBoundary.isEllipsisContinuationBoundary(
+                leftCharacter: effectivePrevious,
+                leftLinePrefix: leftLinePrefix
+            ) {
+                return false
+            }
             return ".!?".contains(effectivePrevious)
         }
 
@@ -2135,6 +2154,12 @@ class SocketCommunication {
         }
         if isIgnorableBoundaryCharacter(effectiveLeft) {
             return true
+        }
+        if SmartInsertBoundary.isEllipsisContinuationBoundary(
+            leftCharacter: effectiveLeft,
+            leftLinePrefix: leftLinePrefix
+        ) {
+            return false
         }
         return ".!?".contains(effectiveLeft)
     }

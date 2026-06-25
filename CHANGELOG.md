@@ -1,6 +1,8 @@
 # CHANGELOG
 
 ## UNRELEASED
+### Fixed
+* Smart insertion now treats ASCII (`...`) and Unicode (`…`) ellipses as continuation punctuation for casing while still inserting the expected boundary space after them.
 
 ---
 ## [v2.1.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.0) - 2026/06/25

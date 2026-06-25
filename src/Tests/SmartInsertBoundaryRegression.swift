@@ -120,6 +120,48 @@ private func runSmartInsertBoundaryRegressionTests() {
             "mid-sentence stripping preserves \(character)"
         )
     }
+
+    assertTrue(
+        SmartInsertBoundary.shouldInsertLeadingSpaceAfterPunctuation("…"),
+        "unicode ellipsis requests a following boundary space"
+    )
+
+    assertTrue(
+        SmartInsertBoundary.isJoinableTrailingBoundary("…"),
+        "unicode ellipsis can request a trailing space before right-side word content"
+    )
+
+    assertTrue(
+        SmartInsertBoundary.isEllipsisContinuationBoundary(
+            leftCharacter: ".".first,
+            leftLinePrefix: "... "
+        ),
+        "ascii ellipsis before an existing space is treated as a continuation boundary"
+    )
+
+    assertTrue(
+        SmartInsertBoundary.isEllipsisContinuationBoundary(
+            leftCharacter: ".".first,
+            leftLinePrefix: "..."
+        ),
+        "ascii ellipsis at the caret is treated as a continuation boundary"
+    )
+
+    assertTrue(
+        SmartInsertBoundary.isEllipsisContinuationBoundary(
+            leftCharacter: "…".first,
+            leftLinePrefix: "…"
+        ),
+        "unicode ellipsis at the caret is treated as a continuation boundary"
+    )
+
+    assertTrue(
+        !SmartInsertBoundary.isEllipsisContinuationBoundary(
+            leftCharacter: ".".first,
+            leftLinePrefix: "Sentence. "
+        ),
+        "single period remains a sentence boundary"
+    )
 }
 
 @main

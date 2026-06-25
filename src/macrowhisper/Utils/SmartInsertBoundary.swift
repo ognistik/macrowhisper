@@ -27,6 +27,15 @@ enum SmartInsertBoundary {
         boundaryConflictPunctuation.contains(character)
     }
 
+    static func shouldInsertLeadingSpaceAfterPunctuation(_ character: Character) -> Bool {
+        let punctuationNeedingTrailingSpace = ".,;:!?…)]}\"”’»›"
+        return punctuationNeedingTrailingSpace.contains(character)
+    }
+
+    static func isJoinableTrailingBoundary(_ character: Character) -> Bool {
+        ".,;:!?…".contains(character)
+    }
+
     static func isMidSentenceStrippableTrailingPunctuation(_ character: Character) -> Bool {
         midSentenceStrippableTrailingPunctuation.contains(character)
     }
@@ -84,5 +93,25 @@ enum SmartInsertBoundary {
             return false
         }
         return String(rightNonWhitespaceCharacter).rangeOfCharacter(from: .uppercaseLetters) != nil
+    }
+
+    static func isEllipsisContinuationBoundary(
+        leftCharacter: Character?,
+        leftLinePrefix: String
+    ) -> Bool {
+        if leftCharacter == "…" {
+            return true
+        }
+
+        var meaningfulPrefix = leftLinePrefix
+        while let last = meaningfulPrefix.last {
+            if last.isWhitespace || isIgnorableBoundaryCharacter(last) || isSkippableTrailingDelimiterForBoundary(last) {
+                meaningfulPrefix.removeLast()
+                continue
+            }
+            break
+        }
+
+        return meaningfulPrefix.hasSuffix("...") || meaningfulPrefix.hasSuffix("…")
     }
 }
