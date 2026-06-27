@@ -189,6 +189,8 @@ Beyond this quick start, Macrowhisper supports advanced patterns and control:
 This README is intentionally concise. For complete reference, automation examples, and troubleshooting, see:
 - [by.afadingthought.com/macrowhisper](https://by.afadingthought.com/macrowhisper)
 
+You may also use AI directly with [the raw version of the docs.](https://github.com/ognistik/macrowhisper/blob/main/src/docs.md)
+
 ## Support
 If Macrowhisper is useful in your workflow, I'd be grateful if you [Buy me a coffee](https://buymeacoffee.com/afadingthought/)
 
