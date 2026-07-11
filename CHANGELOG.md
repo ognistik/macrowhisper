@@ -3,6 +3,7 @@
 ## UNRELEASED
 ### Fixed
 * Smart insertion now treats ASCII (`...`) and Unicode (`…`) ellipses as continuation punctuation for casing while still inserting the expected boundary space after them.
+* Smart insertion no longer adds a space inside opening Markdown emphasis delimiters (`*`, `**`, `_`, `__`, and `~~`), including at the beginning of a line, while preserving sentence-aware casing and normal spacing after closing delimiters.
 
 ---
 ## [v2.1.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.0) - 2026/06/25

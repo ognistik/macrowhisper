@@ -53,6 +53,38 @@ private func runSmartInsertBoundaryRegressionTests() {
         "right context skips markdown italics delimiters to find the next meaningful character"
     )
 
+    let openingEmphasisPrefixes = [
+        "This is some text *",
+        "This is some text **",
+        "This is some text _",
+        "This is some text __",
+        "This is some text ~~",
+        "*",
+        "**",
+        "__",
+        "~~"
+    ]
+    for prefix in openingEmphasisPrefixes {
+        assertTrue(
+            SmartInsertBoundary.isInsideOpeningMarkdownEmphasisDelimiter(prefix),
+            "opening markdown emphasis delimiter suppresses an inserted leading space: \(prefix)"
+        )
+    }
+
+    let closingEmphasisPrefixes = [
+        "italic*",
+        "bold**",
+        "underline_",
+        "underline__",
+        "strike~~"
+    ]
+    for prefix in closingEmphasisPrefixes {
+        assertTrue(
+            !SmartInsertBoundary.isInsideOpeningMarkdownEmphasisDelimiter(prefix),
+            "closing markdown emphasis delimiter remains a normal spacing boundary: \(prefix)"
+        )
+    }
+
     assertTrue(
         SmartInsertBoundary.isIgnorableBoundaryCharacter(zeroWidthJoiner.first!),
         "zero-width joiner is classified as an ignorable boundary character"

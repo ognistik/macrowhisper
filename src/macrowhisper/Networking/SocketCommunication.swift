@@ -1992,9 +1992,12 @@ class SocketCommunication {
 
         if let first = updated.first {
             let immediateLeftIsWhitespace = leftCharacter?.isWhitespace == true
+            let isInsideOpeningMarkdownEmphasisDelimiter =
+                SmartInsertBoundary.isInsideOpeningMarkdownEmphasisDelimiter(leftLinePrefix)
             let shouldInsertLeadingSpaceForMarkdownList =
                 shouldInsertLeadingSpaceForMarkdownListPrefix(leftLinePrefix) &&
-                !immediateLeftIsWhitespace
+                !immediateLeftIsWhitespace &&
+                !isInsideOpeningMarkdownEmphasisDelimiter
             let shouldInsertLeadingSpaceAfterWord = effectiveLeft.map { isWordCharacter($0) } ?? false
             let shouldInsertLeadingSpaceAfterPunctuation = effectiveLeft.map {
                 SmartInsertBoundary.shouldInsertLeadingSpaceAfterPunctuation($0)
@@ -2005,7 +2008,7 @@ class SocketCommunication {
             if SmartInsertHeuristics.shouldInsertLeadingSpace(
                 immediateLeftIsWhitespace: immediateLeftIsWhitespace,
                 startsWithBoundaryNeedingLeadingSpace: startsWithBoundaryNeedingLeadingSpace,
-                isImmediatelyAfterOpeningWrapper: isImmediatelyAfterOpeningWrapper,
+                isImmediatelyAfterOpeningWrapper: isImmediatelyAfterOpeningWrapper || isInsideOpeningMarkdownEmphasisDelimiter,
                 shouldInsertLeadingSpaceForMarkdownList: shouldInsertLeadingSpaceForMarkdownList,
                 shouldInsertLeadingSpaceAfterWord: shouldInsertLeadingSpaceAfterWord,
                 shouldInsertLeadingSpaceAfterPunctuation: shouldInsertLeadingSpaceAfterPunctuation,

@@ -23,6 +23,29 @@ enum SmartInsertBoundary {
         return delimiters.contains(character)
     }
 
+    static func isInsideOpeningMarkdownEmphasisDelimiter(_ leftLinePrefix: String) -> Bool {
+        guard let delimiter = leftLinePrefix.last, "*_~".contains(delimiter) else {
+            return false
+        }
+
+        var prefixBeforeDelimiterRun = leftLinePrefix
+        while prefixBeforeDelimiterRun.last == delimiter {
+            prefixBeforeDelimiterRun.removeLast()
+        }
+
+        // A delimiter run at line start, or one separated from preceding prose,
+        // opens emphasis. A run directly after a word is more likely closing it.
+        guard let characterBeforeRun = prefixBeforeDelimiterRun.last else {
+            return true
+        }
+        if characterBeforeRun.isWhitespace {
+            return true
+        }
+
+        let openingContext = "([{<\"'“‘«‹.,;:!?—–-"
+        return openingContext.contains(characterBeforeRun)
+    }
+
     static func isBoundaryConflictPunctuation(_ character: Character) -> Bool {
         boundaryConflictPunctuation.contains(character)
     }
