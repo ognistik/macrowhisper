@@ -2,21 +2,24 @@ import Foundation
 import Dispatch
 
 /// SuperwhisperFolderWatcher - Monitors parent directory for recordings folder creation
-/// This watcher monitors the Superwhisper parent directory (e.g., ~/Documents/superwhisper)
+/// This watcher monitors the configured Superwhisper parent directory (e.g., ~/superwhisper)
 /// and detects when the recordings subdirectory appears, allowing the app to continue
 /// running gracefully while waiting for the Superwhisper folder structure to be created.
 class SuperwhisperFolderWatcher {
     private let parentPath: String
     private let recordingsPath: String
+    private var monitoredPath: String?
     private var source: DispatchSourceFileSystemObject?
     private var watcherStartedAt: Date?
     private var lastFolderEventAt: Date?
     private let queue = DispatchQueue(label: "com.macrowhisper.superwhisperwatcher")
     private let onRecordingsFolderAppeared: () -> Void
+    private let onParentFolderInvalidated: ((String) -> Void)?
 
-    init(parentPath: String, onRecordingsFolderAppeared: @escaping () -> Void) {
+    init(parentPath: String, onParentFolderInvalidated: ((String) -> Void)? = nil, onRecordingsFolderAppeared: @escaping () -> Void) {
         self.parentPath = (parentPath as NSString).expandingTildeInPath
         self.recordingsPath = "\(self.parentPath)/recordings"
+        self.onParentFolderInvalidated = onParentFolderInvalidated
         self.onRecordingsFolderAppeared = onRecordingsFolderAppeared
     }
     
@@ -37,30 +40,48 @@ class SuperwhisperFolderWatcher {
             return
         }
 
-        // Check if parent directory exists, if not create it
-        if !FileManager.default.fileExists(atPath: parentPath) {
-            logDebug("SuperwhisperFolderWatcher: Parent directory doesn't exist, creating: \(parentPath)")
-            do {
-                try FileManager.default.createDirectory(atPath: parentPath, withIntermediateDirectories: true, attributes: nil)
-                logDebug("SuperwhisperFolderWatcher: Created parent directory: \(parentPath)")
-            } catch {
-                logError("SuperwhisperFolderWatcher: Failed to create parent directory \(parentPath): \(error)")
-                return
-            }
+        // If the configured Superwhisper folder is missing, watch its nearest
+        // existing ancestor. This lets the watcher notice when the original
+        // folder returns without creating directories or polling continuously.
+        guard let pathToMonitor = nearestExistingDirectory(to: parentPath) else {
+            logError("SuperwhisperFolderWatcher: No existing ancestor found for \(parentPath)")
+            return
         }
+        monitoredPath = pathToMonitor
 
-        logDebug("SuperwhisperFolderWatcher: Starting watcher for recordings folder at \(recordingsPath)")
+        logDebug("SuperwhisperFolderWatcher: Starting watcher at \(pathToMonitor) for recordings folder \(recordingsPath)")
 
-        let fileDescriptor = open(parentPath, O_EVTONLY)
+        let fileDescriptor = open(pathToMonitor, O_EVTONLY)
         guard fileDescriptor >= 0 else {
-            logError("SuperwhisperFolderWatcher: Failed to open file descriptor for path: \(parentPath)")
+            logError("SuperwhisperFolderWatcher: Failed to open file descriptor for path: \(pathToMonitor)")
             return
         }
 
-        source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fileDescriptor, eventMask: .write, queue: queue)
+        source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename, .revoke],
+            queue: queue
+        )
 
         source?.setEventHandler { [weak self] in
             guard let self = self else { return }
+            let event = self.source?.data ?? []
+            if event.contains(.delete) || event.contains(.rename) || event.contains(.revoke) ||
+                !FileManager.default.fileExists(atPath: pathToMonitor) {
+                let invalidatedPath = self.parentPath
+                self.stop()
+                self.onParentFolderInvalidated?(invalidatedPath)
+                return
+            }
+
+            // As missing path components reappear, move the event source closer
+            // to the target so creation of recordings is still observed.
+            if let nearestPath = self.nearestExistingDirectory(to: self.parentPath),
+               nearestPath != pathToMonitor {
+                self.stop()
+                self.start()
+                return
+            }
             self.handleDirectoryChange()
         }
 
@@ -70,12 +91,13 @@ class SuperwhisperFolderWatcher {
 
         source?.resume()
         watcherStartedAt = Date()
-        logDebug("SuperwhisperFolderWatcher: Started watching parent directory \(parentPath) for recordings folder creation")
+        logDebug("SuperwhisperFolderWatcher: Started watching \(pathToMonitor) for recordings folder creation")
     }
 
     func stop() {
         source?.cancel()
         source = nil
+        monitoredPath = nil
         watcherStartedAt = nil
         logDebug("SuperwhisperFolderWatcher: Stopped watching for recordings folder")
     }
@@ -85,15 +107,11 @@ class SuperwhisperFolderWatcher {
             return "no (recordings folder exists)"
         }
 
-        if !FileManager.default.fileExists(atPath: parentPath) {
-            return "no (parent folder missing)"
-        }
-
         guard source != nil else {
             return "no (not armed)"
         }
 
-        return "yes (waiting, started \(describeStatusAge(watcherStartedAt)), last event \(describeStatusAge(lastFolderEventAt)))"
+        return "yes (waiting via \(monitoredPath ?? "unknown"), started \(describeStatusAge(watcherStartedAt)), last event \(describeStatusAge(lastFolderEventAt)))"
     }
 
     private func handleDirectoryChange() {
@@ -108,6 +126,24 @@ class SuperwhisperFolderWatcher {
             
             // Notify that the recordings folder appeared
             onRecordingsFolderAppeared()
+        }
+    }
+
+    private func nearestExistingDirectory(to targetPath: String) -> String? {
+        var candidate = (targetPath as NSString).standardizingPath
+
+        while true {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return candidate
+            }
+
+            let parent = (candidate as NSString).deletingLastPathComponent
+            if parent == candidate || parent.isEmpty {
+                return nil
+            }
+            candidate = parent
         }
     }
 

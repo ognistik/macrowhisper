@@ -10,6 +10,162 @@ struct AppConfiguration: Codable {
     // v2: explicit empty-string semantics (null=inherits, ""=explicit empty)
     var configVersion: Int?
     static let currentConfigVersion = 2
+
+    /// Resolves the Superwhisper folder to persist in a newly created configuration.
+    /// Existing configuration values are never passed through this resolver.
+    static func resolvedWatchPathForNewConfiguration() -> String {
+        let configuredParentDirectory = UserDefaults(suiteName: "com.superduper.superwhisper")?
+            .string(forKey: "appFolderDirectory")
+
+        return resolveWatchPathForNewConfiguration(
+            homeDirectory: NSHomeDirectory(),
+            configuredParentDirectory: configuredParentDirectory,
+            pathExists: { FileManager.default.fileExists(atPath: $0) }
+        )
+    }
+
+    /// Finds a valid replacement for a configured watch path that no longer
+    /// contains a recordings folder. Healthy explicit paths are never changed.
+    static func resolvedWatchPathForRecovery(configuredWatchPath: String) -> String? {
+        let configuredParentDirectory = UserDefaults(suiteName: "com.superduper.superwhisper")?
+            .string(forKey: "appFolderDirectory")
+
+        return resolveWatchPathForRecovery(
+            configuredWatchPath: configuredWatchPath,
+            homeDirectory: NSHomeDirectory(),
+            configuredParentDirectory: configuredParentDirectory,
+            pathIsDirectory: { path in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+            }
+        )
+    }
+
+    /// Injectable form used by regression tests.
+    static func resolveWatchPathForNewConfiguration(
+        homeDirectory: String,
+        configuredParentDirectory: String?,
+        pathExists: (String) -> Bool
+    ) -> String {
+        let standardizedHome = (homeDirectory as NSString).standardizingPath
+        let currentDefault = (standardizedHome as NSString).appendingPathComponent("superwhisper")
+        let legacyDefault = (standardizedHome as NSString).appendingPathComponent("Documents/superwhisper")
+
+        func pathForPersistence(_ path: String) -> String {
+            let standardizedPath = (path as NSString).standardizingPath
+            if standardizedPath == standardizedHome {
+                return "~"
+            }
+            let homePrefix = standardizedHome + "/"
+            if standardizedPath.hasPrefix(homePrefix) {
+                return "~/" + String(standardizedPath.dropFirst(homePrefix.count))
+            }
+            return standardizedPath
+        }
+
+        // Superwhisper stores the parent of its app folder. This is the strongest
+        // signal and also supports custom locations outside the two defaults.
+        if let configuredParentDirectory = configuredParentDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredParentDirectory.isEmpty {
+            let expandedParent: String
+            if configuredParentDirectory == "~" {
+                expandedParent = standardizedHome
+            } else if configuredParentDirectory.hasPrefix("~/") {
+                expandedParent = (standardizedHome as NSString).appendingPathComponent(
+                    String(configuredParentDirectory.dropFirst(2))
+                )
+            } else {
+                expandedParent = configuredParentDirectory
+            }
+            let standardizedParent = (expandedParent as NSString).standardizingPath
+            let configuredFolder = (standardizedParent as NSString).appendingPathComponent("superwhisper")
+            return pathForPersistence(configuredFolder)
+        }
+
+        let currentRecordings = (currentDefault as NSString).appendingPathComponent("recordings")
+        let legacyRecordings = (legacyDefault as NSString).appendingPathComponent("recordings")
+
+        if pathExists(currentRecordings) { return pathForPersistence(currentDefault) }
+        if pathExists(legacyRecordings) { return pathForPersistence(legacyDefault) }
+        if pathExists(currentDefault) { return pathForPersistence(currentDefault) }
+        if pathExists(legacyDefault) { return pathForPersistence(legacyDefault) }
+
+        // Match Superwhisper 2.16.4+ for installations that have not created
+        // their folder yet.
+        return pathForPersistence(currentDefault)
+    }
+
+    /// Injectable recovery resolver used by runtime code and regression tests.
+    /// Preference-derived locations may repair any broken path. The filesystem
+    /// fallback to ~/superwhisper is intentionally limited to the known legacy
+    /// ~/Documents/superwhisper migration.
+    static func resolveWatchPathForRecovery(
+        configuredWatchPath: String,
+        homeDirectory: String,
+        configuredParentDirectory: String?,
+        pathIsDirectory: (String) -> Bool
+    ) -> String? {
+        let standardizedHome = (homeDirectory as NSString).standardizingPath
+
+        func expandedAndStandardized(_ path: String) -> String {
+            let expandedPath: String
+            if path == "~" {
+                expandedPath = standardizedHome
+            } else if path.hasPrefix("~/") {
+                expandedPath = (standardizedHome as NSString).appendingPathComponent(
+                    String(path.dropFirst(2))
+                )
+            } else {
+                expandedPath = path
+            }
+            return (expandedPath as NSString).standardizingPath
+        }
+
+        func pathForPersistence(_ path: String) -> String {
+            let standardizedPath = (path as NSString).standardizingPath
+            if standardizedPath == standardizedHome {
+                return "~"
+            }
+            let homePrefix = standardizedHome + "/"
+            if standardizedPath.hasPrefix(homePrefix) {
+                return "~/" + String(standardizedPath.dropFirst(homePrefix.count))
+            }
+            return standardizedPath
+        }
+
+        func hasRecordingsFolder(_ watchPath: String) -> Bool {
+            let recordingsPath = (watchPath as NSString).appendingPathComponent("recordings")
+            return pathIsDirectory(recordingsPath)
+        }
+
+        let configuredPath = expandedAndStandardized(configuredWatchPath)
+        guard !hasRecordingsFolder(configuredPath) else {
+            return nil
+        }
+
+        // Superwhisper's own configured parent is the strongest recovery signal,
+        // including when it points to a custom location.
+        if let configuredParentDirectory = configuredParentDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredParentDirectory.isEmpty {
+            let preferredParent = expandedAndStandardized(configuredParentDirectory)
+            let preferredFolder = (preferredParent as NSString).appendingPathComponent("superwhisper")
+            if preferredFolder != configuredPath, hasRecordingsFolder(preferredFolder) {
+                return pathForPersistence(preferredFolder)
+            }
+        }
+
+        // A stale Superwhisper preference is expected during a manual move. Only
+        // infer the new default directly for the unambiguous legacy -> current move.
+        let legacyDefault = (standardizedHome as NSString).appendingPathComponent("Documents/superwhisper")
+        let currentDefault = (standardizedHome as NSString).appendingPathComponent("superwhisper")
+        if configuredPath == legacyDefault, hasRecordingsFolder(currentDefault) {
+            return pathForPersistence(currentDefault)
+        }
+
+        return nil
+    }
     
     struct Defaults: Codable {
         var watch: String
@@ -821,6 +977,9 @@ struct AppConfiguration: Codable {
     }
 
     static func defaultConfig() -> AppConfiguration {
+        var resolvedDefaults = Defaults.defaultValues()
+        resolvedDefaults.watch = resolvedWatchPathForNewConfiguration()
+
         // Create the autoPaste insert with all default fields
         let autoPasteInsert = Insert(
             action: ".autoPaste",
@@ -844,6 +1003,7 @@ struct AppConfiguration: Codable {
         return AppConfiguration(
             schema: nil,
             configVersion: AppConfiguration.currentConfigVersion,
+            defaults: resolvedDefaults,
             inserts: ["autoPaste": autoPasteInsert]
         )
     }

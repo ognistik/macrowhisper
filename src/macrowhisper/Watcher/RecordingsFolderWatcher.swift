@@ -9,8 +9,10 @@ import Cocoa
 /// - When multiple new recordings appear simultaneously: Mark all as processed and skip execution
 /// - This prevents processing storms and handles cloud sync scenarios elegantly
 class RecordingsFolderWatcher {
+    private let basePath: String
     private let path: String
     private var source: DispatchSourceFileSystemObject?
+    private var basePathSource: DispatchSourceFileSystemObject?
     private let queue = DispatchQueue(label: "com.macrowhisper.recordingswatcher")
     private let queueSpecificKey = DispatchSpecificKey<Void>()
     private var lastKnownSubdirectories: Set<String> = []
@@ -29,11 +31,14 @@ class RecordingsFolderWatcher {
     private let clipboardMonitor: ClipboardMonitor
     private let processedRecordingsFile: String
     private let versionChecker: VersionChecker?
+    private let onWatchedFolderInvalidated: ((String) -> Void)?
+    private var invalidationReported = false
     
     // Constants
     private let RECORDING_TIMEOUT_SECONDS: Double = 17.0 // Timeout for recordings without WAV files
 
-    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?) {
+    init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?, onWatchedFolderInvalidated: ((String) -> Void)? = nil) {
+        self.basePath = basePath
         self.path = "\(basePath)/recordings"
         self.configManager = configManager
         self.historyManager = historyManager
@@ -46,6 +51,7 @@ class RecordingsFolderWatcher {
         socketCommunication.setClipboardMonitor(clipboardMonitor)
         
         self.versionChecker = versionChecker
+        self.onWatchedFolderInvalidated = onWatchedFolderInvalidated
         
         // Create a file to track processed recordings
         let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -93,10 +99,20 @@ class RecordingsFolderWatcher {
             return
         }
 
-        source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fileDescriptor, eventMask: .write, queue: queue)
+        source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .delete, .rename, .revoke],
+            queue: queue
+        )
 
         source?.setEventHandler { [weak self] in
             guard let self = self else { return }
+            let event = self.source?.data ?? []
+            if event.contains(.delete) || event.contains(.rename) || event.contains(.revoke) ||
+                !FileManager.default.fileExists(atPath: self.path) {
+                self.reportWatchedFolderInvalidation()
+                return
+            }
             self.handleFolderChangeEvent()
         }
 
@@ -105,6 +121,27 @@ class RecordingsFolderWatcher {
         }
 
         source?.resume()
+
+        // Watching the Superwhisper folder itself catches a move of the parent
+        // even when the recordings directory's vnode remains open and usable.
+        let basePathFileDescriptor = open(basePath, O_EVTONLY)
+        if basePathFileDescriptor >= 0 {
+            basePathSource = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: basePathFileDescriptor,
+                eventMask: [.delete, .rename, .revoke],
+                queue: queue
+            )
+            basePathSource?.setEventHandler { [weak self] in
+                self?.reportWatchedFolderInvalidation()
+            }
+            basePathSource?.setCancelHandler {
+                close(basePathFileDescriptor)
+            }
+            basePathSource?.resume()
+        } else {
+            logWarning("Failed to monitor Superwhisper folder for moves: \(basePath)")
+        }
+
         watcherStartedAt = Date()
         logDebug("Started watching for new recordings in: \(path)")
     }
@@ -113,6 +150,8 @@ class RecordingsFolderWatcher {
         performQueueSynchronized {
             source?.cancel()
             source = nil
+            basePathSource?.cancel()
+            basePathSource = nil
             watcherStartedAt = nil
             
             // Cancel all pending meta.json watchers
@@ -144,6 +183,13 @@ class RecordingsFolderWatcher {
             // Save processed recordings list
             saveProcessedRecordings()
         }
+    }
+
+    private func reportWatchedFolderInvalidation() {
+        guard !invalidationReported else { return }
+        invalidationReported = true
+        logWarning("RecordingsFolderWatcher: Watched folder moved or disappeared from \(basePath)")
+        onWatchedFolderInvalidated?(basePath)
     }
 
     func statusSummary() -> String {

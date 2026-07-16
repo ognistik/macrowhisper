@@ -174,6 +174,94 @@ private func runDefaultsWatchRegressionTests() {
         assertTrue(starterJson.contains("\"clipboardIgnore\":\"\""), "starter config persists empty clipboardIgnore")
         assertTrue(starterJson.contains("\"nextAction\":\"\""), "starter config persists empty nextAction")
 
+        let home = "/Users/example"
+        let currentPath = "/Users/example/superwhisper"
+        let legacyPath = "/Users/example/Documents/superwhisper"
+        let persistedCurrentPath = "~/superwhisper"
+        let persistedLegacyPath = "~/Documents/superwhisper"
+
+        let freshInstallPath = AppConfiguration.resolveWatchPathForNewConfiguration(
+            homeDirectory: home,
+            configuredParentDirectory: nil,
+            pathExists: { _ in false }
+        )
+        assertEqual(freshInstallPath, persistedCurrentPath, "fresh installations persist the current Superwhisper folder with tilde")
+
+        let legacyInstallPath = AppConfiguration.resolveWatchPathForNewConfiguration(
+            homeDirectory: home,
+            configuredParentDirectory: nil,
+            pathExists: { $0 == "\(legacyPath)/recordings" }
+        )
+        assertEqual(legacyInstallPath, persistedLegacyPath, "legacy recordings folder is detected and persisted with tilde")
+
+        let currentInstallPath = AppConfiguration.resolveWatchPathForNewConfiguration(
+            homeDirectory: home,
+            configuredParentDirectory: nil,
+            pathExists: { $0 == "\(currentPath)/recordings" }
+        )
+        assertEqual(currentInstallPath, persistedCurrentPath, "current recordings folder is detected and persisted with tilde")
+
+        let ambiguousPath = AppConfiguration.resolveWatchPathForNewConfiguration(
+            homeDirectory: home,
+            configuredParentDirectory: nil,
+            pathExists: { $0 == currentPath || $0 == legacyPath }
+        )
+        assertEqual(ambiguousPath, persistedCurrentPath, "current folder wins an ambiguous filesystem-only tie")
+
+        let configuredLegacyPath = AppConfiguration.resolveWatchPathForNewConfiguration(
+            homeDirectory: home,
+            configuredParentDirectory: "~/Documents",
+            pathExists: { _ in false }
+        )
+        assertEqual(configuredLegacyPath, persistedLegacyPath, "Superwhisper's configured legacy parent is honored with tilde")
+
+        let configuredCustomPath = AppConfiguration.resolveWatchPathForNewConfiguration(
+            homeDirectory: home,
+            configuredParentDirectory: "/Volumes/Voice Data",
+            pathExists: { _ in false }
+        )
+        assertEqual(configuredCustomPath, "/Volumes/Voice Data/superwhisper", "Superwhisper's custom parent is honored")
+
+        let healthyPathRecovery = AppConfiguration.resolveWatchPathForRecovery(
+            configuredWatchPath: persistedLegacyPath,
+            homeDirectory: home,
+            configuredParentDirectory: home,
+            pathIsDirectory: { $0 == "\(legacyPath)/recordings" || $0 == "\(currentPath)/recordings" }
+        )
+        assertNil(healthyPathRecovery, "a healthy explicit watch path is never migrated")
+
+        let manualMoveRecovery = AppConfiguration.resolveWatchPathForRecovery(
+            configuredWatchPath: persistedLegacyPath,
+            homeDirectory: home,
+            configuredParentDirectory: "~/Documents",
+            pathIsDirectory: { $0 == "\(currentPath)/recordings" }
+        )
+        assertEqual(manualMoveRecovery ?? "", persistedCurrentPath, "a manual legacy-to-current move recovers despite a stale Superwhisper preference")
+
+        let preferenceRecovery = AppConfiguration.resolveWatchPathForRecovery(
+            configuredWatchPath: persistedLegacyPath,
+            homeDirectory: home,
+            configuredParentDirectory: "/Volumes/Voice Data",
+            pathIsDirectory: { $0 == "/Volumes/Voice Data/superwhisper/recordings" }
+        )
+        assertEqual(preferenceRecovery ?? "", "/Volumes/Voice Data/superwhisper", "a valid Superwhisper preference repairs a broken watch path")
+
+        let protectedCustomPathRecovery = AppConfiguration.resolveWatchPathForRecovery(
+            configuredWatchPath: "/Volumes/Archived Voice/superwhisper",
+            homeDirectory: home,
+            configuredParentDirectory: nil,
+            pathIsDirectory: { $0 == "\(currentPath)/recordings" }
+        )
+        assertNil(protectedCustomPathRecovery, "the current default is not guessed for an unrelated custom path")
+
+        let missingReplacementRecovery = AppConfiguration.resolveWatchPathForRecovery(
+            configuredWatchPath: persistedLegacyPath,
+            homeDirectory: home,
+            configuredParentDirectory: home,
+            pathIsDirectory: { _ in false }
+        )
+        assertNil(missingReplacementRecovery, "recovery requires a real recordings folder")
+
         let newInsert = AppConfiguration.Insert(action: "")
         let insertData = try JSONEncoder().encode(newInsert)
         let insertJson = String(decoding: insertData, as: UTF8.self)

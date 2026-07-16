@@ -21,8 +21,8 @@
       "properties": {
         "watch": {
           "type": ["string", "null"],
-          "description": "Path to Superwhisper recordings folder. null or omitted = use the built-in default path.",
-          "examples": ["~/Documents/superwhisper", "/Users/username/Documents/superwhisper", null]
+          "description": "Path to the Superwhisper folder that contains recordings. Newly generated configs persist Superwhisper's configured folder, an existing standard folder, or ~/superwhisper for a fresh installation. Healthy explicit values are preserved; a missing path may be repaired only after Macrowhisper verifies an unambiguous replacement recordings folder. null or omitted = use the legacy built-in fallback path.",
+          "examples": ["~/superwhisper", "~/Documents/superwhisper", "/Volumes/Voice Data/superwhisper", null]
         },
         "disableUpdateCheck": {
           "type": ["boolean", "null"],

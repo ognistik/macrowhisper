@@ -102,6 +102,8 @@ src/
 - Keeps the service running even when the Superwhisper recordings folder does not exist yet
 - Hands off cleanly to `RecordingsFolderWatcher` once the folder appears
 
+`RecordingsFolderWatcher` also monitors the configured Superwhisper parent for rename/delete/revoke events. A broken path triggers a quick recovery sequence that checks Superwhisper's preference and the known legacy-to-current move and persists only a verified replacement. If no replacement is ready, a lightweight recovery state watches for the original path to return and checks Superwhisper's preference once per minute until service resumes.
+
 #### `ConfigChangeWatcher.swift`
 - Watches the config file path and triggers live reloads without restarting the daemon
 
@@ -212,7 +214,7 @@ src/
   "$schema": "file://path/to/macrowhisper-schema.json",
   "configVersion": 2,
   "defaults": {
-    "watch": "~/Documents/superwhisper",
+    "watch": "~/superwhisper",
     "activeAction": "autoPaste",
     "restoreClipboardDelay": 0.3,
     "clipboardBuffer": 5,

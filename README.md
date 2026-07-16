@@ -118,7 +118,7 @@ You can also bypass Macrowhisper entirely for specific Superwhisper modes with `
   "$schema": "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "configVersion" : 2,
   "defaults": {
-    "watch": "~/Documents/superwhisper",
+    "watch": "~/superwhisper",
     "activeAction": "autoPaste",
     "actionDelay": 0.02,
     "restoreClipboard": true,
@@ -145,6 +145,8 @@ You can also bypass Macrowhisper entirely for specific Superwhisper modes with `
   "scriptsAS": {}
 }
 ```
+
+Newly generated configurations detect and persist Superwhisper's active folder. New Superwhisper installations normally use `~/superwhisper`; existing `~/Documents/superwhisper` and custom locations remain supported. Healthy explicit configuration values are not changed. If the configured folder moves or disappears, Macrowhisper checks Superwhisper's preference and the known legacy-to-current location, verifies that the replacement `recordings` folder exists, and updates `defaults.watch` when the result is unambiguous. If no replacement is available yet, Macrowhisper waits for the original folder to return and checks Superwhisper's setting occasionally until recovery succeeds. This recovery monitoring runs only while the folder is missing. Home-relative paths are written with `~` to keep configs portable and private.
 
 Use `macrowhisper --validate-config` to catch config issues quickly, and `macrowhisper --update-config` after upgrades to apply new schema fields and formatting while preserving your settings.
 

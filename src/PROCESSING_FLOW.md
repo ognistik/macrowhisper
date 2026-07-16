@@ -75,7 +75,7 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
 The process begins when Superwhisper creates a new recording folder in the watched directory.
 
 #### Key Components:
-- **File System Watcher**: Uses `DispatchSourceFileSystemObject` to monitor `~/Documents/superwhisper/recordings`
+- **File System Watcher**: Uses `DispatchSourceFileSystemObject` to monitor the `recordings` directory under the configured `defaults.watch` path
 - **Duplicate Prevention**: Maintains `processedRecordings: Set<String>` to prevent reprocessing
 - **Startup Behavior**: Marks most recent recording as processed on startup to avoid reprocessing old recordings
 

@@ -29,7 +29,7 @@
     "smartCasing" : true,
     "smartPunctuation" : true,
     "smartSpacing" : true,
-    "watch" : "~/Documents/superwhisper"
+    "watch" : "~/superwhisper"
   },
   "inserts" : {
     "autoPaste" : {

@@ -453,7 +453,7 @@ macrowhisper --get-action summarizeEmail --meta 2026-03-01_10-00-00
 
 ```bash
 # Folder path that contains meta.json
-macrowhisper --copy-action summarizeEmail --meta ~/Documents/superwhisper/recordings/2026-03-01_10-00-00
+macrowhisper --copy-action summarizeEmail --meta ~/superwhisper/recordings/2026-03-01_10-00-00
 ```
 
 ```bash
@@ -687,9 +687,11 @@ These settings live under `defaults`.
 
 At the defaults level, `null` is accepted for backward compatibility, but auto-updated configs are normalized toward explicit persisted values.
 
+When Macrowhisper creates a configuration, it selects the Superwhisper folder once and writes the resolved path to `defaults.watch`. It first honors Superwhisper's configured folder, then checks the current `~/superwhisper` and legacy `~/Documents/superwhisper` locations. Paths inside the user's home directory are written with `~` so configs stay portable and do not expose the local username; custom locations outside the home directory remain absolute. If Superwhisper has not created either folder yet, Macrowhisper uses `~/superwhisper`, matching new Superwhisper installations. Healthy explicit `watch` values are never migrated automatically. If a configured recordings folder later moves or disappears, Macrowhisper checks Superwhisper's current preference and the known legacy-to-current location, requires a real replacement `recordings` folder, and persists an unambiguous repair. If recovery is not immediately possible, Macrowhisper waits for the original folder to return and occasionally checks whether Superwhisper's setting now points to a valid location. This lightweight recovery monitoring stops as soon as the recordings folder is available again.
+
 | Key | Type | Default | What it controls |
 | --- | --- | --- | --- |
-| `watch` | string/null | `~/Documents/superwhisper` | Path to the Superwhisper folder that contains `recordings`. Omit or use `null` to fall back to the built-in default path. |
+| `watch` | string/null | detected once when generated | Path to the Superwhisper folder that contains `recordings`. New configs usually use `~/superwhisper`; legacy and custom Superwhisper locations are detected and preserved. Omit or use `null` only for backward compatibility with the legacy built-in fallback. |
 | `disableUpdateCheck` | bool/null | `false` | Turns periodic update checks off. |
 | `muteNotifications` | bool/null | `false` | Turns notifications off. |
 | `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty or `null` means none. |
@@ -1733,7 +1735,7 @@ Example:
 {
   "configVersion": 2,
   "defaults": {
-    "watch": "~/Documents/superwhisper",
+    "watch": "~/superwhisper",
     "activeAction": "autoPaste",
     "actionDelay": 0,
     "returnDelay": 0.15,
@@ -1801,7 +1803,7 @@ In this example, the user dictates into an insert action, then a URL opens, then
 {
   "configVersion": 2,
   "defaults": {
-    "watch": "~/Documents/superwhisper",
+    "watch": "~/superwhisper",
     "activeAction": "compose",
     "nextAction": "",
     "restoreClipboard": true,
@@ -1846,7 +1848,7 @@ In this example:
 {
   "configVersion": 2,
   "defaults": {
-    "watch": "~/Documents/superwhisper",
+    "watch": "~/superwhisper",
     "activeAction": "buildTicketPayload",
     "nextAction": "",
     "restoreClipboard": true
