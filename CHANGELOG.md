@@ -1,10 +1,14 @@
 # CHANGELOG
 
 ## UNRELEASED
+### Added
+* `clipboardStacking` can now be overridden per action. `null` or omission inherits `defaults.clipboardStacking`, while explicit `true` or `false` applies to the full action chain.
+
 ### Improved
 * Macrowhisper now follows Superwhisper when its folder moves. It checks Superwhisper's folder setting, confirms that the new location contains the recordings folder, and updates the Macrowhisper configuration when the move is clear. Working custom locations are left unchanged.
 * If the Superwhisper folder is temporarily unavailable, Macrowhisper now waits for it to return and resumes automatically. This also works if the folder is moved back to its original location after the missing-folder notification, so restarting the service is no longer necessary. These checks stay lightweight and run only while the folder is missing.
 * New configurations now use Superwhisper's current folder automatically. New installations normally use `~/superwhisper`, while older and custom locations continue to work.
+* Single-item and stacked clipboard context now use the same eligible-item filtering, so single-item mode falls back to the previous valid clipboard entry when the latest entry is filtered as the Superwhisper result.
 
 ### Fixed
 * Smart insertion now treats ASCII (`...`) and Unicode (`…`) ellipses as continuation punctuation for casing while still inserting the expected boundary space after them.

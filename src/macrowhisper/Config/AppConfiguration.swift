@@ -1,5 +1,13 @@
 import Foundation
 
+protocol ClipboardStackingConfigurable {
+    var clipboardStacking: Bool? { get }
+}
+
+func effectiveClipboardStacking(for action: Any?, defaultValue: Bool) -> Bool {
+    (action as? any ClipboardStackingConfigurable)?.clipboardStacking ?? defaultValue
+}
+
 // MARK: - Configuration Manager
 
 struct AppConfiguration: Codable {
@@ -399,7 +407,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct Insert: Codable {
+    struct Insert: Codable, ClipboardStackingConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -412,6 +420,7 @@ struct AppConfiguration: Codable {
         var simReturn: Bool?
         var restoreClipboard: Bool?  // Action-level override for clipboard restoration
         var restoreClipboardDelay: Double?
+        var clipboardStacking: Bool?
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
@@ -428,7 +437,7 @@ struct AppConfiguration: Codable {
         // ---------------------------------------------
         
         enum CodingKeys: String, CodingKey {
-            case action, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, simReturn, restoreClipboard, restoreClipboardDelay, inputCondition, nextAction
+            case action, icon, moveTo, simEsc, simKeypress, smartCasing, smartPunctuation, smartSpacing, actionDelay, simReturn, restoreClipboard, restoreClipboardDelay, clipboardStacking, inputCondition, nextAction
             case triggerVoice, triggerApps, triggerModes, triggerUrls, triggerLogic
         }
         
@@ -447,6 +456,7 @@ struct AppConfiguration: Codable {
             try container.encode(simReturn, forKey: .simReturn)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
             try container.encode(restoreClipboardDelay, forKey: .restoreClipboardDelay)
+            try container.encode(clipboardStacking, forKey: .clipboardStacking)
             try container.encode(inputCondition, forKey: .inputCondition)
             try container.encode(nextAction, forKey: .nextAction)
             try container.encode(triggerVoice, forKey: .triggerVoice)
@@ -486,6 +496,7 @@ struct AppConfiguration: Codable {
             }
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard)
             restoreClipboardDelay = try container.decodeIfPresent(Double.self, forKey: .restoreClipboardDelay)
+            clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking)
             inputCondition = try container.decodeIfPresent(String.self, forKey: .inputCondition)
             nextAction = try container.decodeIfPresent(String.self, forKey: .nextAction)
             triggerVoice = try container.decodeIfPresent(String.self, forKey: .triggerVoice)
@@ -495,7 +506,7 @@ struct AppConfiguration: Codable {
             triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
         }
         // Default initializer for new inserts
-        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, simKeypress: Bool? = nil, smartCasing: Bool? = nil, smartPunctuation: Bool? = nil, smartSpacing: Bool? = nil, actionDelay: Double? = nil, simReturn: Bool? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
+        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, simKeypress: Bool? = nil, smartCasing: Bool? = nil, smartPunctuation: Bool? = nil, smartSpacing: Bool? = nil, actionDelay: Double? = nil, simReturn: Bool? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, clipboardStacking: Bool? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
@@ -508,6 +519,7 @@ struct AppConfiguration: Codable {
             self.simReturn = simReturn
             self.restoreClipboard = restoreClipboard
             self.restoreClipboardDelay = restoreClipboardDelay
+            self.clipboardStacking = clipboardStacking
             self.inputCondition = inputCondition
             self.nextAction = nextAction
             self.triggerVoice = triggerVoice
@@ -518,7 +530,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct Url: Codable {
+    struct Url: Codable, ClipboardStackingConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -526,6 +538,7 @@ struct AppConfiguration: Codable {
         var actionDelay: Double?
         var restoreClipboard: Bool?  // Action-level override for clipboard restoration
         var restoreClipboardDelay: Double?
+        var clipboardStacking: Bool?
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
@@ -544,7 +557,7 @@ struct AppConfiguration: Codable {
         var openBackground: Bool?  // nil/omitted means foreground behavior
         
         enum CodingKeys: String, CodingKey {
-            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, inputCondition, nextAction
+            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, clipboardStacking, inputCondition, nextAction
             case triggerVoice, triggerApps, triggerModes, triggerUrls, triggerLogic
             case openWith, openBackground
         }
@@ -559,6 +572,7 @@ struct AppConfiguration: Codable {
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
             try container.encode(restoreClipboardDelay, forKey: .restoreClipboardDelay)
+            try container.encode(clipboardStacking, forKey: .clipboardStacking)
             try container.encode(inputCondition, forKey: .inputCondition)
             try container.encode(nextAction, forKey: .nextAction)
             try container.encode(triggerVoice, forKey: .triggerVoice)
@@ -589,6 +603,7 @@ struct AppConfiguration: Codable {
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard)
             restoreClipboardDelay = try container.decodeIfPresent(Double.self, forKey: .restoreClipboardDelay)
+            clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking)
             inputCondition = try container.decodeIfPresent(String.self, forKey: .inputCondition)
             nextAction = try container.decodeIfPresent(String.self, forKey: .nextAction)
             triggerVoice = try container.decodeIfPresent(String.self, forKey: .triggerVoice)
@@ -600,7 +615,7 @@ struct AppConfiguration: Codable {
             openBackground = try container.decodeIfPresent(Bool.self, forKey: .openBackground)
         }
         // Default initializer for new URLs
-        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or", openWith: String? = nil, openBackground: Bool? = nil) {
+        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, clipboardStacking: Bool? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or", openWith: String? = nil, openBackground: Bool? = nil) {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
@@ -608,6 +623,7 @@ struct AppConfiguration: Codable {
             self.actionDelay = actionDelay
             self.restoreClipboard = restoreClipboard
             self.restoreClipboardDelay = restoreClipboardDelay
+            self.clipboardStacking = clipboardStacking
             self.inputCondition = inputCondition
             self.nextAction = nextAction
             self.triggerVoice = triggerVoice
@@ -620,7 +636,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct Shortcut: Codable {
+    struct Shortcut: Codable, ClipboardStackingConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -628,6 +644,7 @@ struct AppConfiguration: Codable {
         var actionDelay: Double?
         var restoreClipboard: Bool?  // Action-level override for clipboard restoration
         var restoreClipboardDelay: Double?
+        var clipboardStacking: Bool?
         var scriptAsync: Bool?
         var scriptWaitTimeout: Double?
         var inputCondition: String?
@@ -645,7 +662,7 @@ struct AppConfiguration: Codable {
         var triggerLogic: String? = "or"
         
         enum CodingKeys: String, CodingKey {
-            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, scriptAsync, scriptWaitTimeout, inputCondition, nextAction
+            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, clipboardStacking, scriptAsync, scriptWaitTimeout, inputCondition, nextAction
             case triggerVoice, triggerApps, triggerModes, triggerUrls, triggerLogic
         }
         
@@ -659,6 +676,7 @@ struct AppConfiguration: Codable {
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
             try container.encode(restoreClipboardDelay, forKey: .restoreClipboardDelay)
+            try container.encode(clipboardStacking, forKey: .clipboardStacking)
             try container.encode(scriptAsync, forKey: .scriptAsync)
             try container.encode(scriptWaitTimeout, forKey: .scriptWaitTimeout)
             try container.encode(inputCondition, forKey: .inputCondition)
@@ -690,6 +708,7 @@ struct AppConfiguration: Codable {
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard)
             restoreClipboardDelay = try container.decodeIfPresent(Double.self, forKey: .restoreClipboardDelay)
+            clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking)
             scriptAsync = try container.decodeIfPresent(Bool.self, forKey: .scriptAsync)
             scriptWaitTimeout = try container.decodeIfPresent(Double.self, forKey: .scriptWaitTimeout)
             inputCondition = try container.decodeIfPresent(String.self, forKey: .inputCondition)
@@ -702,7 +721,7 @@ struct AppConfiguration: Codable {
         }
         
         // Default initializer for new shortcuts
-        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, scriptAsync: Bool? = nil, scriptWaitTimeout: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
+        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, clipboardStacking: Bool? = nil, scriptAsync: Bool? = nil, scriptWaitTimeout: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
@@ -710,6 +729,7 @@ struct AppConfiguration: Codable {
             self.actionDelay = actionDelay
             self.restoreClipboard = restoreClipboard
             self.restoreClipboardDelay = restoreClipboardDelay
+            self.clipboardStacking = clipboardStacking
             self.scriptAsync = scriptAsync
             self.scriptWaitTimeout = scriptWaitTimeout
             self.inputCondition = inputCondition
@@ -722,7 +742,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct ScriptShell: Codable {
+    struct ScriptShell: Codable, ClipboardStackingConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -730,6 +750,7 @@ struct AppConfiguration: Codable {
         var actionDelay: Double?
         var restoreClipboard: Bool?  // Action-level override for clipboard restoration
         var restoreClipboardDelay: Double?
+        var clipboardStacking: Bool?
         var scriptAsync: Bool?
         var scriptWaitTimeout: Double?
         var inputCondition: String?
@@ -747,7 +768,7 @@ struct AppConfiguration: Codable {
         var triggerLogic: String? = "or"
         
         enum CodingKeys: String, CodingKey {
-            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, scriptAsync, scriptWaitTimeout, inputCondition, nextAction
+            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, clipboardStacking, scriptAsync, scriptWaitTimeout, inputCondition, nextAction
             case triggerVoice, triggerApps, triggerModes, triggerUrls, triggerLogic
         }
         
@@ -761,6 +782,7 @@ struct AppConfiguration: Codable {
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
             try container.encode(restoreClipboardDelay, forKey: .restoreClipboardDelay)
+            try container.encode(clipboardStacking, forKey: .clipboardStacking)
             try container.encode(scriptAsync, forKey: .scriptAsync)
             try container.encode(scriptWaitTimeout, forKey: .scriptWaitTimeout)
             try container.encode(inputCondition, forKey: .inputCondition)
@@ -792,6 +814,7 @@ struct AppConfiguration: Codable {
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard)
             restoreClipboardDelay = try container.decodeIfPresent(Double.self, forKey: .restoreClipboardDelay)
+            clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking)
             scriptAsync = try container.decodeIfPresent(Bool.self, forKey: .scriptAsync)
             scriptWaitTimeout = try container.decodeIfPresent(Double.self, forKey: .scriptWaitTimeout)
             inputCondition = try container.decodeIfPresent(String.self, forKey: .inputCondition)
@@ -804,7 +827,7 @@ struct AppConfiguration: Codable {
         }
         
         // Default initializer for new shell scripts
-        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, scriptAsync: Bool? = nil, scriptWaitTimeout: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
+        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, clipboardStacking: Bool? = nil, scriptAsync: Bool? = nil, scriptWaitTimeout: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
@@ -812,6 +835,7 @@ struct AppConfiguration: Codable {
             self.actionDelay = actionDelay
             self.restoreClipboard = restoreClipboard
             self.restoreClipboardDelay = restoreClipboardDelay
+            self.clipboardStacking = clipboardStacking
             self.scriptAsync = scriptAsync
             self.scriptWaitTimeout = scriptWaitTimeout
             self.inputCondition = inputCondition
@@ -824,7 +848,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct ScriptAppleScript: Codable {
+    struct ScriptAppleScript: Codable, ClipboardStackingConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -832,6 +856,7 @@ struct AppConfiguration: Codable {
         var actionDelay: Double?
         var restoreClipboard: Bool?  // Action-level override for clipboard restoration
         var restoreClipboardDelay: Double?
+        var clipboardStacking: Bool?
         var scriptAsync: Bool?
         var scriptWaitTimeout: Double?
         var inputCondition: String?
@@ -843,7 +868,7 @@ struct AppConfiguration: Codable {
         var triggerLogic: String? = "or"
 
         enum CodingKeys: String, CodingKey {
-            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, scriptAsync, scriptWaitTimeout, inputCondition, nextAction, triggerVoice, triggerApps, triggerModes, triggerUrls, triggerLogic
+            case action, icon, moveTo, simEsc, actionDelay, restoreClipboard, restoreClipboardDelay, clipboardStacking, scriptAsync, scriptWaitTimeout, inputCondition, nextAction, triggerVoice, triggerApps, triggerModes, triggerUrls, triggerLogic
         }
 
         func encode(to encoder: Encoder) throws {
@@ -855,6 +880,7 @@ struct AppConfiguration: Codable {
             try container.encode(actionDelay, forKey: .actionDelay)
             try container.encode(restoreClipboard, forKey: .restoreClipboard)
             try container.encode(restoreClipboardDelay, forKey: .restoreClipboardDelay)
+            try container.encode(clipboardStacking, forKey: .clipboardStacking)
             try container.encode(scriptAsync, forKey: .scriptAsync)
             try container.encode(scriptWaitTimeout, forKey: .scriptWaitTimeout)
             try container.encode(inputCondition, forKey: .inputCondition)
@@ -885,6 +911,7 @@ struct AppConfiguration: Codable {
             actionDelay = try container.decodeIfPresent(Double.self, forKey: .actionDelay)
             restoreClipboard = try container.decodeIfPresent(Bool.self, forKey: .restoreClipboard)
             restoreClipboardDelay = try container.decodeIfPresent(Double.self, forKey: .restoreClipboardDelay)
+            clipboardStacking = try container.decodeIfPresent(Bool.self, forKey: .clipboardStacking)
             scriptAsync = try container.decodeIfPresent(Bool.self, forKey: .scriptAsync)
             scriptWaitTimeout = try container.decodeIfPresent(Double.self, forKey: .scriptWaitTimeout)
             inputCondition = try container.decodeIfPresent(String.self, forKey: .inputCondition)
@@ -896,7 +923,7 @@ struct AppConfiguration: Codable {
             triggerLogic = try container.decodeIfPresent(String.self, forKey: .triggerLogic) ?? "or"
         }
 
-        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, scriptAsync: Bool? = nil, scriptWaitTimeout: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
+        init(action: String, icon: String? = nil, moveTo: String? = nil, simEsc: Bool? = nil, actionDelay: Double? = nil, restoreClipboard: Bool? = nil, restoreClipboardDelay: Double? = nil, clipboardStacking: Bool? = nil, scriptAsync: Bool? = nil, scriptWaitTimeout: Double? = nil, inputCondition: String? = nil, nextAction: String? = nil, triggerVoice: String? = nil, triggerApps: String? = nil, triggerModes: String? = nil, triggerUrls: String? = nil, triggerLogic: String? = "or") {
             self.action = action
             self.icon = icon
             self.moveTo = moveTo
@@ -904,6 +931,7 @@ struct AppConfiguration: Codable {
             self.actionDelay = actionDelay
             self.restoreClipboard = restoreClipboard
             self.restoreClipboardDelay = restoreClipboardDelay
+            self.clipboardStacking = clipboardStacking
             self.scriptAsync = scriptAsync
             self.scriptWaitTimeout = scriptWaitTimeout
             self.inputCondition = inputCondition

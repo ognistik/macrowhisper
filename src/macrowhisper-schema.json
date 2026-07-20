@@ -140,7 +140,7 @@
         },
         "clipboardStacking": {
           "type": ["boolean", "null"],
-          "description": "Enable clipboard stacking for clipboardContext placeholder. When enabled, multiple clipboard changes during recording are captured and formatted with XML tags (<clipboard_context_1>, <clipboard_context_2>, etc.). When disabled, only the last clipboard change is captured (default behavior). null or omitted = use built-in default (false).",
+          "description": "Default clipboard stacking behavior for the clipboardContext placeholder. When enabled, eligible clipboard changes are returned in order with XML tags (<clipboard-context-1>, <clipboard-context-2>, etc.). When disabled, the most recent eligible change is returned. null or omitted = use built-in default (false).",
           "default": false
         },
         "clipboardBuffer": {
@@ -279,6 +279,11 @@
           "type": ["number", "null"],
           "description": "Override clipboard restore delay for this action (seconds). null = use defaults.restoreClipboardDelay.",
           "minimum": 0,
+          "default": null
+        },
+        "clipboardStacking": {
+          "type": ["boolean", "null"],
+          "description": "Override clipboard stacking for this action and its chain. null or omitted = use defaults.clipboardStacking, true = return all eligible clipboard changes, false = return only the most recent eligible change.",
           "default": null
         },
         "nextAction": {

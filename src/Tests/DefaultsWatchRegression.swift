@@ -267,8 +267,42 @@ private func runDefaultsWatchRegressionTests() {
         let insertJson = String(decoding: insertData, as: UTF8.self)
         assertTrue(insertJson.contains("\"icon\":null"), "new insert action stays sparse with null icon")
         assertTrue(insertJson.contains("\"moveTo\":null"), "new insert action stays sparse with null moveTo")
+        assertTrue(insertJson.contains("\"clipboardStacking\":null"), "new insert action inherits clipboardStacking with null")
         assertTrue(insertJson.contains("\"nextAction\":null"), "new insert action stays sparse with null nextAction")
         assertTrue(insertJson.contains("\"triggerLogic\":\"or\""), "new insert action still persists triggerLogic")
+
+        let newActionEncodings: [(String, Data)] = [
+            ("URL", try JSONEncoder().encode(AppConfiguration.Url(action: ""))),
+            ("Shortcut", try JSONEncoder().encode(AppConfiguration.Shortcut(action: ""))),
+            ("Shell", try JSONEncoder().encode(AppConfiguration.ScriptShell(action: ""))),
+            ("AppleScript", try JSONEncoder().encode(AppConfiguration.ScriptAppleScript(action: "")))
+        ]
+        for (actionType, data) in newActionEncodings {
+            let json = String(decoding: data, as: UTF8.self)
+            assertTrue(json.contains("\"clipboardStacking\":null"), "new \(actionType) action inherits clipboardStacking with null")
+        }
+
+        assertEqual(
+            effectiveClipboardStacking(for: newInsert, defaultValue: true),
+            true,
+            "null action clipboardStacking inherits true default"
+        )
+        assertEqual(
+            effectiveClipboardStacking(
+                for: AppConfiguration.Insert(action: "", clipboardStacking: false),
+                defaultValue: true
+            ),
+            false,
+            "false action clipboardStacking overrides true default"
+        )
+        assertEqual(
+            effectiveClipboardStacking(
+                for: AppConfiguration.Insert(action: "", clipboardStacking: true),
+                defaultValue: false
+            ),
+            true,
+            "true action clipboardStacking overrides false default"
+        )
 
         do {
             _ = try decodeConfig("""

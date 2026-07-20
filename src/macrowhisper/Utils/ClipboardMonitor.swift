@@ -25,10 +25,50 @@ private let CONCEALED_MARKER_TYPES: [NSPasteboard.PasteboardType] = [
 private let RETROACTIVE_CLEANUP_WINDOW: TimeInterval = 0.5  // Look back 0.5 seconds for cleanup
 private let DEFAULT_CLIPBOARD_RESTORE_DELAY: TimeInterval = 0.3
 private let CLIPBOARD_CLEANUP_GRACE: TimeInterval = 0.2
+private let SESSION_START_CLIPBOARD_REPLAY_CLUSTER_WINDOW: TimeInterval = 1.0
 
 struct SessionClipboardObservationDecision {
     let shouldCaptureInSessionHistory: Bool
     let shouldCountAsRecentActivity: Bool
+}
+
+struct ClipboardContextRepresentations {
+    let single: String
+    let stacked: String
+
+    func value(enableStacking: Bool) -> String {
+        enableStacking ? stacked : single
+    }
+}
+
+func makeClipboardContextRepresentations(
+    candidates: [String],
+    swResult: String,
+    maxSwResultCompareChars: Int = 16_384
+) -> ClipboardContextRepresentations {
+    let normalizedSwResult = sanitizeContextPlaceholderValue(swResult)
+    let filteredCandidates = candidates.compactMap { candidate -> String? in
+        let normalized = sanitizeContextPlaceholderValue(candidate)
+        guard !normalized.isEmpty else { return nil }
+
+        let matchesSuperwhisperResult = !normalizedSwResult.isEmpty &&
+            normalized.count <= maxSwResultCompareChars &&
+            normalizedSwResult.count <= maxSwResultCompareChars &&
+            normalized == normalizedSwResult
+        return matchesSuperwhisperResult ? nil : normalized
+    }
+
+    let single = filteredCandidates.last ?? ""
+    guard filteredCandidates.count > 1 else {
+        return ClipboardContextRepresentations(single: single, stacked: single)
+    }
+
+    let stacked = filteredCandidates.enumerated().map { index, content in
+        let tagNumber = index + 1
+        return "<clipboard-context-\(tagNumber)>\n\(content)\n</clipboard-context-\(tagNumber)>"
+    }.joined(separator: "\n\n")
+
+    return ClipboardContextRepresentations(single: single, stacked: stacked)
 }
 
 enum ClipboardContextResetScope {
@@ -65,22 +105,98 @@ enum SessionStartInputFieldState: String {
     }
 }
 
-func shouldIgnoreFirstSessionClipboardReplay(
+enum SessionStartClipboardReplayDecision: String {
+    case ignoredInitialReplay = "ignored-initial-replay"
+    case ignoredReplayCluster = "ignored-replay-cluster"
+    case ignoredKnownChangeCount = "ignored-known-change-count"
+    case capturedAudioStarted = "captured-audio-started"
+    case capturedInputFieldSession = "captured-input-field-session"
+    case capturedMissingClipboardContent = "captured-missing-clipboard-content"
+    case capturedDifferentContent = "captured-different-content"
+    case capturedReplayClusterExpired = "captured-replay-cluster-expired"
+}
+
+struct SessionStartClipboardReplayEvaluation {
+    let shouldIgnore: Bool
+    let matchesSessionStartClipboard: Bool
+    let millisecondsSinceFirstReplay: Int?
+    let decision: SessionStartClipboardReplayDecision
+}
+
+func evaluateSessionStartClipboardReplay(
     currentClipboard: String?,
     userOriginalClipboard: String?,
     sessionStartInputFieldState: SessionStartInputFieldState,
     hasAudioRecordingStarted: Bool,
-    hasAlreadyIgnoredReplay: Bool
-) -> Bool {
-    guard !hasAudioRecordingStarted,
-          !hasAlreadyIgnoredReplay,
-          sessionStartInputFieldState.shouldIgnoreInitialClipboardReplay,
-          let currentClipboard,
-          let userOriginalClipboard else {
-        return false
+    observedAt: Date,
+    firstReplayObservedAt: Date?,
+    replayClusterWindow: TimeInterval
+) -> SessionStartClipboardReplayEvaluation {
+    let hasBothClipboardValues = currentClipboard != nil && userOriginalClipboard != nil
+    let matchesSessionStartClipboard = hasBothClipboardValues && currentClipboard == userOriginalClipboard
+
+    if hasAudioRecordingStarted {
+        return SessionStartClipboardReplayEvaluation(
+            shouldIgnore: false,
+            matchesSessionStartClipboard: matchesSessionStartClipboard,
+            millisecondsSinceFirstReplay: nil,
+            decision: .capturedAudioStarted
+        )
     }
 
-    return currentClipboard == userOriginalClipboard
+    if !sessionStartInputFieldState.shouldIgnoreInitialClipboardReplay {
+        return SessionStartClipboardReplayEvaluation(
+            shouldIgnore: false,
+            matchesSessionStartClipboard: matchesSessionStartClipboard,
+            millisecondsSinceFirstReplay: nil,
+            decision: .capturedInputFieldSession
+        )
+    }
+
+    guard hasBothClipboardValues else {
+        return SessionStartClipboardReplayEvaluation(
+            shouldIgnore: false,
+            matchesSessionStartClipboard: false,
+            millisecondsSinceFirstReplay: nil,
+            decision: .capturedMissingClipboardContent
+        )
+    }
+
+    guard matchesSessionStartClipboard else {
+        return SessionStartClipboardReplayEvaluation(
+            shouldIgnore: false,
+            matchesSessionStartClipboard: false,
+            millisecondsSinceFirstReplay: nil,
+            decision: .capturedDifferentContent
+        )
+    }
+
+    guard let firstReplayObservedAt else {
+        return SessionStartClipboardReplayEvaluation(
+            shouldIgnore: true,
+            matchesSessionStartClipboard: true,
+            millisecondsSinceFirstReplay: 0,
+            decision: .ignoredInitialReplay
+        )
+    }
+
+    let elapsed = max(0, observedAt.timeIntervalSince(firstReplayObservedAt))
+    let elapsedMilliseconds = Int((elapsed * 1_000).rounded())
+    if elapsed <= max(0, replayClusterWindow) {
+        return SessionStartClipboardReplayEvaluation(
+            shouldIgnore: true,
+            matchesSessionStartClipboard: true,
+            millisecondsSinceFirstReplay: elapsedMilliseconds,
+            decision: .ignoredReplayCluster
+        )
+    }
+
+    return SessionStartClipboardReplayEvaluation(
+        shouldIgnore: false,
+        matchesSessionStartClipboard: true,
+        millisecondsSinceFirstReplay: elapsedMilliseconds,
+        decision: .capturedReplayClusterExpired
+    )
 }
 
 func decideSessionClipboardObservation(
@@ -165,7 +281,7 @@ class ClipboardMonitor {
         let startingChangeCount: Int  // NSPasteboard changeCount at session start for better tracking
         var lastSeenChangeCount: Int  // Track last seen changeCount for this session
         var hasAudioRecordingStarted: Bool = false
-        var didIgnoreInitialOriginalClipboardReplay: Bool = false
+        var firstOriginalClipboardReplayObservedAt: Date? = nil
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
         var ignoredClipboardChangeCounts: Set<Int> = []
         var lastObservedClipboardActivityAt: Date? = nil
@@ -729,46 +845,64 @@ class ClipboardMonitor {
     /// Enhanced to also consider clipboard content from before recording started
     /// Returns empty string if no relevant clipboard changes occurred
     func getSessionClipboardContent(for recordingPath: String, swResult: String) -> String {
-        var clipboardContent = ""
-        let normalizedSwResult = sanitizeContextPlaceholderValue(swResult)
+        getSessionClipboardContextRepresentations(for: recordingPath, swResult: swResult).single
+    }
+
+    /// Freezes both clipboardContext projections from the same ordered, filtered candidate set.
+    /// The selected action can then choose single or stacked output without changing the capture boundary.
+    func getSessionClipboardContextRepresentations(
+        for recordingPath: String,
+        swResult: String
+    ) -> ClipboardContextRepresentations {
+        var candidates: [String] = []
+        var preRecordingCount = 0
+
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
-            let filteredChanges = session.clipboardChanges.filter { change in
-                !session.ignoredClipboardChangeCounts.contains(change.changeCount) &&
-                    shouldIncludeClipboardChange(
-                        timestamp: change.timestamp,
-                        resetAt: session.clipboardContextResetAt
-                    )
-            }
-            
-            // Priority 1: Return the last clipboard change during the session (maintains current behavior)
-            if let lastChange = filteredChanges.last {
-                clipboardContent = sanitizeContextPlaceholderValue(lastChange.content ?? "")
-                if shouldFilterOutAsSuperwhisperResult(clipboardContent, normalizedSwResult: normalizedSwResult) {
-                    clipboardContent = ""
+
+            if session.clipboardContextResetAt == nil {
+                candidates.append(contentsOf: session.preRecordingClipboardStack)
+                preRecordingCount = session.preRecordingClipboardStack.count
+
+                // The single and stacked pre-recording snapshots normally come from the same
+                // history read. Keep the single value as a defensive fallback for older state.
+                if session.preRecordingClipboardStack.isEmpty,
+                   let preRecording = session.preRecordingClipboard {
+                    candidates.append(preRecording)
+                    preRecordingCount = 1
                 }
-                return
             }
-            
-            // Priority 2: If no changes during session, use pre-recording clipboard if available
-            if session.clipboardContextResetAt == nil,
-               let preRecording = session.preRecordingClipboard,
-               !preRecording.isEmpty {
-                clipboardContent = sanitizeContextPlaceholderValue(preRecording)
-                if shouldFilterOutAsSuperwhisperResult(clipboardContent, normalizedSwResult: normalizedSwResult) {
-                    clipboardContent = ""
+
+            for change in session.clipboardChanges {
+                guard !session.ignoredClipboardChangeCounts.contains(change.changeCount),
+                      shouldIncludeClipboardChange(
+                          timestamp: change.timestamp,
+                          resetAt: session.clipboardContextResetAt
+                      ),
+                      let content = change.content else {
+                    continue
                 }
-                logDebug("[ClipboardMonitor] Using pre-recording clipboard content (within buffer window before recording)")
-                return
+                candidates.append(content)
             }
-            
-            // If we reach here, no clipboard content found (will return empty string)
+        }
+
+        let representations = makeClipboardContextRepresentations(
+            candidates: candidates,
+            swResult: swResult,
+            maxSwResultCompareChars: maxSwResultCompareChars
+        )
+
+        if preRecordingCount > 0 {
+            logDebug("[ClipboardMonitor] Added \(preRecordingCount) pre-recording clipboard item(s) from within the buffer window")
+        }
+        if representations.single.isEmpty {
             logNoContentIfNeeded(
                 "session_no_content",
-                "[ClipboardMonitor] No clipboard content found (no session changes, no pre-recording content within buffer window)"
+                "[ClipboardMonitor] No eligible clipboard content found after filtering"
             )
         }
-        return sanitizeContextPlaceholderValue(clipboardContent)
+
+        return representations
     }
     
     /// Gets clipboard content with stacking support - returns all clipboard changes when stacking is enabled
@@ -778,67 +912,11 @@ class ClipboardMonitor {
     ///   - enableStacking: Whether to enable clipboard stacking (from configuration)
     /// - Returns: Formatted clipboard content (single content or XML-tagged stack)
     func getSessionClipboardContentWithStacking(for recordingPath: String, swResult: String, enableStacking: Bool) -> String {
-        // If stacking is disabled, use the original behavior
-        if !enableStacking {
-            return getSessionClipboardContent(for: recordingPath, swResult: swResult)
-        }
-
-        var allClipboardChanges: [String] = []
-        let normalizedSwResult = sanitizeContextPlaceholderValue(swResult)
-        sessionsQueue.sync {
-            guard let session = earlyMonitoringSessions[recordingPath] else { return }
-            
-            // First, add all pre-recording clipboard content if available (these should be the first entries)
-            if session.clipboardContextResetAt == nil {
-                for preRecording in session.preRecordingClipboardStack {
-                    let normalized = sanitizeContextPlaceholderValue(preRecording)
-                    if !normalized.isEmpty &&
-                        !shouldFilterOutAsSuperwhisperResult(normalized, normalizedSwResult: normalizedSwResult) {
-                        allClipboardChanges.append(normalized)
-                    }
-                }
-            }
-            if !session.preRecordingClipboardStack.isEmpty {
-                logDebug("[ClipboardMonitor] Added \(session.preRecordingClipboardStack.count) pre-recording clipboard items for stacking (within buffer window before recording)")
-            }
-            
-            // Then collect all clipboard changes during the session (excluding swResult)
-            for change in session.clipboardChanges {
-                if session.ignoredClipboardChangeCounts.contains(change.changeCount) ||
-                    !shouldIncludeClipboardChange(
-                        timestamp: change.timestamp,
-                        resetAt: session.clipboardContextResetAt
-                    ) {
-                    continue
-                }
-                if let content = change.content {
-                    let normalized = sanitizeContextPlaceholderValue(content)
-                    if !normalized.isEmpty &&
-                        !shouldFilterOutAsSuperwhisperResult(normalized, normalizedSwResult: normalizedSwResult) {
-                        allClipboardChanges.append(normalized)
-                    }
-                }
-            }
-        }
-        
-        // Format the result based on number of clipboard changes
-        if allClipboardChanges.isEmpty {
-            logNoContentIfNeeded("session_stacking_no_content", "[ClipboardMonitor] No clipboard content found for stacking")
-            return ""
-        } else if allClipboardChanges.count == 1 {
-            // Single clipboard change - return without XML tags (maintains current behavior)
-            logDebug("[ClipboardMonitor] Single clipboard change for stacking - returning without XML tags")
-            return allClipboardChanges[0]
-        } else {
-            // Multiple clipboard changes - format with XML tags
-            var result = ""
-            for (index, content) in allClipboardChanges.enumerated() {
-                let tagNumber = index + 1
-                result += "<clipboard-context-\(tagNumber)>\n\(content)\n</clipboard-context-\(tagNumber)>\n\n"
-            }
-            logDebug("[ClipboardMonitor] Multiple clipboard changes for stacking - formatted with \(allClipboardChanges.count) XML tags")
-            return result.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let representations = getSessionClipboardContextRepresentations(
+            for: recordingPath,
+            swResult: swResult
+        )
+        return representations.value(enableStacking: enableStacking)
     }
 
     /// Gets selected text from the most recent active recording session for CLI usage.
@@ -1204,9 +1282,9 @@ class ClipboardMonitor {
             if self.shouldIgnoreInitialClipboardReplayForSession(
                 recordingPath: recordingPath,
                 content: currentClipboard,
-                changeCount: currentChangeCount
+                changeCount: currentChangeCount,
+                observedAt: now
             ) {
-                logDebug("[ClipboardMonitor] Ignored initial clipboard replay matching session-start clipboard before audio recording started")
                 DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
                     self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
                 }
@@ -1507,18 +1585,6 @@ class ClipboardMonitor {
         return hasRecentActivity
     }
 
-    private func shouldFilterOutAsSuperwhisperResult(
-        _ candidate: String,
-        normalizedSwResult: String
-    ) -> Bool {
-        guard !candidate.isEmpty, !normalizedSwResult.isEmpty else { return false }
-        guard candidate.count <= maxSwResultCompareChars,
-              normalizedSwResult.count <= maxSwResultCompareChars else {
-            return false
-        }
-        return candidate == normalizedSwResult
-    }
-    
     /// Proceeds with action execution: applies actionDelay, simulates ESC, executes action, restores clipboard
     private func proceedWithActionAndDelay(
         insertAction: @escaping () -> Bool,
@@ -1938,9 +2004,10 @@ class ClipboardMonitor {
     private func shouldIgnoreInitialClipboardReplayForSession(
         recordingPath: String,
         content: String?,
-        changeCount: Int
+        changeCount: Int,
+        observedAt: Date
     ) -> Bool {
-        var shouldIgnore = false
+        var evaluation: SessionStartClipboardReplayEvaluation?
 
         sessionsQueue.sync(flags: .barrier) {
             guard var session = earlyMonitoringSessions[recordingPath],
@@ -1953,35 +2020,52 @@ class ClipboardMonitor {
                     session.lastSeenChangeCount = changeCount
                     earlyMonitoringSessions[recordingPath] = session
                 }
-                shouldIgnore = true
+                evaluation = knownIgnoredClipboardReplayEvaluation(
+                    content: content,
+                    session: session,
+                    observedAt: observedAt
+                )
                 return
             }
 
-            guard shouldIgnoreFirstSessionClipboardReplay(
+            let replayEvaluation = evaluateSessionStartClipboardReplay(
                 currentClipboard: content,
                 userOriginalClipboard: session.userOriginalClipboard,
                 sessionStartInputFieldState: session.sessionStartInputFieldState,
                 hasAudioRecordingStarted: session.hasAudioRecordingStarted,
-                hasAlreadyIgnoredReplay: session.didIgnoreInitialOriginalClipboardReplay
-            ) else {
-                return
-            }
+                observedAt: observedAt,
+                firstReplayObservedAt: session.firstOriginalClipboardReplayObservedAt,
+                replayClusterWindow: SESSION_START_CLIPBOARD_REPLAY_CLUSTER_WINDOW
+            )
+            evaluation = replayEvaluation
 
-            session.didIgnoreInitialOriginalClipboardReplay = true
-            session.ignoredClipboardChangeCounts.insert(changeCount)
-            session.lastSeenChangeCount = changeCount
-            earlyMonitoringSessions[recordingPath] = session
-            shouldIgnore = true
+            if replayEvaluation.shouldIgnore {
+                if session.firstOriginalClipboardReplayObservedAt == nil {
+                    session.firstOriginalClipboardReplayObservedAt = observedAt
+                }
+                session.ignoredClipboardChangeCounts.insert(changeCount)
+                session.lastSeenChangeCount = changeCount
+                earlyMonitoringSessions[recordingPath] = session
+            }
         }
 
-        return shouldIgnore
+        if let evaluation {
+            logSessionStartClipboardReplayEvaluation(
+                evaluation,
+                source: "session",
+                changeCount: changeCount
+            )
+        }
+        return evaluation?.shouldIgnore ?? false
     }
 
     private func shouldIgnoreInitialClipboardReplayForGlobalCapture(
         content: String?,
-        changeCount: Int
+        changeCount: Int,
+        observedAt: Date
     ) -> Bool {
         var shouldIgnore = false
+        var evaluations: [SessionStartClipboardReplayEvaluation] = []
 
         sessionsQueue.sync(flags: .barrier) {
             let rootRecordingPaths = earlyMonitoringSessions.compactMap { path, session -> String? in
@@ -1997,29 +2081,81 @@ class ClipboardMonitor {
                 guard var session = earlyMonitoringSessions[path] else { continue }
 
                 if session.ignoredClipboardChangeCounts.contains(changeCount) {
+                    evaluations.append(
+                        knownIgnoredClipboardReplayEvaluation(
+                            content: content,
+                            session: session,
+                            observedAt: observedAt
+                        )
+                    )
                     shouldIgnore = true
                     continue
                 }
 
-                guard shouldIgnoreFirstSessionClipboardReplay(
+                let replayEvaluation = evaluateSessionStartClipboardReplay(
                     currentClipboard: content,
                     userOriginalClipboard: session.userOriginalClipboard,
                     sessionStartInputFieldState: session.sessionStartInputFieldState,
                     hasAudioRecordingStarted: session.hasAudioRecordingStarted,
-                    hasAlreadyIgnoredReplay: session.didIgnoreInitialOriginalClipboardReplay
-                ) else {
-                    continue
-                }
+                    observedAt: observedAt,
+                    firstReplayObservedAt: session.firstOriginalClipboardReplayObservedAt,
+                    replayClusterWindow: SESSION_START_CLIPBOARD_REPLAY_CLUSTER_WINDOW
+                )
+                evaluations.append(replayEvaluation)
 
-                session.didIgnoreInitialOriginalClipboardReplay = true
-                session.ignoredClipboardChangeCounts.insert(changeCount)
-                session.lastSeenChangeCount = changeCount
-                earlyMonitoringSessions[path] = session
-                shouldIgnore = true
+                if replayEvaluation.shouldIgnore {
+                    if session.firstOriginalClipboardReplayObservedAt == nil {
+                        session.firstOriginalClipboardReplayObservedAt = observedAt
+                    }
+                    session.ignoredClipboardChangeCounts.insert(changeCount)
+                    session.lastSeenChangeCount = changeCount
+                    earlyMonitoringSessions[path] = session
+                    shouldIgnore = true
+                }
             }
         }
 
+        for evaluation in evaluations {
+            logSessionStartClipboardReplayEvaluation(
+                evaluation,
+                source: "global",
+                changeCount: changeCount
+            )
+        }
         return shouldIgnore
+    }
+
+    private func knownIgnoredClipboardReplayEvaluation(
+        content: String?,
+        session: EarlyMonitoringSession,
+        observedAt: Date
+    ) -> SessionStartClipboardReplayEvaluation {
+        let matchesSessionStartClipboard = content != nil &&
+            session.userOriginalClipboard != nil &&
+            content == session.userOriginalClipboard
+        let elapsedMilliseconds = session.firstOriginalClipboardReplayObservedAt.map {
+            Int((max(0, observedAt.timeIntervalSince($0)) * 1_000).rounded())
+        }
+        return SessionStartClipboardReplayEvaluation(
+            shouldIgnore: true,
+            matchesSessionStartClipboard: matchesSessionStartClipboard,
+            millisecondsSinceFirstReplay: elapsedMilliseconds,
+            decision: .ignoredKnownChangeCount
+        )
+    }
+
+    private func logSessionStartClipboardReplayEvaluation(
+        _ evaluation: SessionStartClipboardReplayEvaluation,
+        source: String,
+        changeCount: Int
+    ) {
+        let elapsed = evaluation.millisecondsSinceFirstReplay.map(String.init) ?? "n/a"
+        logDebug(
+            "[ClipboardMonitor] Session-start clipboard replay evaluation " +
+            "source=\(source) changeCount=\(changeCount) " +
+            "matchesSessionStartClipboard=\(evaluation.matchesSessionStartClipboard) " +
+            "millisecondsSinceFirstReplay=\(elapsed) decision=\(evaluation.decision.rawValue)"
+        )
     }
 
     private func mirrorGlobalClipboardChangeIntoMostRecentActiveSession(_ change: ClipboardChange) {
@@ -2116,11 +2252,11 @@ class ClipboardMonitor {
 
                 if self.shouldIgnoreInitialClipboardReplayForGlobalCapture(
                     content: currentClipboard,
-                    changeCount: currentChangeCount
+                    changeCount: currentChangeCount,
+                    observedAt: now
                 ) {
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount
-                    logDebug("[ClipboardMonitor] Global monitoring skipped initial clipboard replay matching session-start clipboard before audio recording started")
                     return
                 }
 

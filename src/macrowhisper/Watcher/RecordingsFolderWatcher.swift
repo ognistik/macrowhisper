@@ -866,15 +866,10 @@ class RecordingsFolderWatcher {
             clipboardMonitor.markRecentClipboardActivityAsSystemSync(for: contextRecordingPath)
 
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            let enableStacking = configManager.config.defaults.clipboardStacking
-            let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(
+            let clipboardContextRepresentations = clipboardMonitor.getSessionClipboardContextRepresentations(
                 for: contextRecordingPath,
-                swResult: swResult,
-                enableStacking: enableStacking
+                swResult: swResult
             )
-            // Freeze clipboardContext at meta validation time (including explicit empty snapshot).
-            enhancedMetaJson["clipboardContext"] = sessionClipboardContent
-            enhancedMetaJson[runtimeClipboardContextLockedKey] = true
 
             // Bypass processing entirely for configured Superwhisper modes.
             let modeName = metaJson["modeName"] as? String
@@ -922,6 +917,11 @@ class RecordingsFolderWatcher {
                     frontAppUrl: frontAppUrl
                 )
                 var autoReturnMetaJson = resolvedCandidate?.metaJson ?? enhancedMetaJson
+                autoReturnMetaJson = freezeClipboardContext(
+                    in: autoReturnMetaJson,
+                    representations: clipboardContextRepresentations,
+                    rootAction: resolvedCandidate?.action
+                )
                 let fallbackSwResult = (autoReturnMetaJson["llmResult"] as? String) ?? (autoReturnMetaJson["result"] as? String) ?? ""
 
                 var textToInsert = fallbackSwResult
@@ -1031,8 +1031,13 @@ class RecordingsFolderWatcher {
                 
                 if let action = action {
                     logDebug("Executing scheduled action: \(actionName) (type: \(actionType))")
+                    let scheduledMetaJsonWithClipboard = freezeClipboardContext(
+                        in: enhancedMetaJson,
+                        representations: clipboardContextRepresentations,
+                        rootAction: action
+                    )
                     let scheduledMetaJson = ensureFrozenFrontAppUrlIfNeeded(
-                        metaJson: enhancedMetaJson,
+                        metaJson: scheduledMetaJsonWithClipboard,
                         action: action,
                         name: actionName,
                         type: actionType,
@@ -1095,10 +1100,15 @@ class RecordingsFolderWatcher {
                     type: type,
                     strippedResult: strippedResult
                 )
+                let updatedJsonWithClipboard = freezeClipboardContext(
+                    in: updatedJson,
+                    representations: clipboardContextRepresentations,
+                    rootAction: action
+                )
                 
                 // Execute the action on the main thread with cleanup callback
                 let triggerMetaJson = ensureFrozenFrontAppUrlIfNeeded(
-                    metaJson: updatedJson,
+                    metaJson: updatedJsonWithClipboard,
                     action: action,
                     name: name,
                     type: type,
@@ -1132,8 +1142,13 @@ class RecordingsFolderWatcher {
                 
                 if let action = action {
                     logDebug("Processing with active action: \(activeActionName) (type: \(actionType))")
+                    let activeMetaJsonWithClipboard = freezeClipboardContext(
+                        in: enhancedMetaJson,
+                        representations: clipboardContextRepresentations,
+                        rootAction: action
+                    )
                     let activeActionMetaJson = ensureFrozenFrontAppUrlIfNeeded(
-                        metaJson: enhancedMetaJson,
+                        metaJson: activeMetaJsonWithClipboard,
                         action: action,
                         name: activeActionName,
                         type: actionType,
@@ -1286,6 +1301,22 @@ class RecordingsFolderWatcher {
         }
         
         return (.insert, nil) // Default type for not found
+    }
+
+    private func freezeClipboardContext(
+        in metaJson: [String: Any],
+        representations: ClipboardContextRepresentations,
+        rootAction: Any?
+    ) -> [String: Any] {
+        let enableStacking = effectiveClipboardStacking(
+            for: rootAction,
+            defaultValue: configManager.config.defaults.clipboardStacking
+        )
+        var enhancedMetaJson = metaJson
+        enhancedMetaJson["clipboardStacking"] = enableStacking
+        enhancedMetaJson["clipboardContext"] = representations.value(enableStacking: enableStacking)
+        enhancedMetaJson[runtimeClipboardContextLockedKey] = true
+        return enhancedMetaJson
     }
 
     private func ensureFrozenFrontAppUrlIfNeeded(

@@ -477,6 +477,19 @@ class SocketCommunication {
         return enhanced
     }
 
+    private func applyingClipboardStackingOverrideForCLI(
+        to metaJson: [String: Any],
+        rootAction: Any,
+        configManager: ConfigurationManager
+    ) -> [String: Any] {
+        var enhanced = metaJson
+        enhanced["clipboardStacking"] = effectiveClipboardStacking(
+            for: rootAction,
+            defaultValue: configManager.config.defaults.clipboardStacking
+        )
+        return enhanced
+    }
+
     private func actionTemplateForCopyAction(actionType: ActionType, action: Any) -> String {
         switch actionType {
         case .insert:
@@ -522,7 +535,11 @@ class SocketCommunication {
             overwriteExisting: true
         )
 
-        let enableStacking = configManager.config.defaults.clipboardStacking
+        let enableStacking = effectiveClipboardStacking(
+            for: action,
+            defaultValue: configManager.config.defaults.clipboardStacking
+        )
+        enhanced["clipboardStacking"] = enableStacking
         var liveClipboardContext = ""
         if let watcher = recordingsWatcher {
             let clipboardMonitor = watcher.getClipboardMonitor()
@@ -861,7 +878,11 @@ class SocketCommunication {
         var finalStep: CLIResolvedActionStep?
         var executedSteps: [CLIResolvedActionStep] = []
         var clipboardState = CLIClipboardChainState(initialClipboardContent: initialClipboardContent)
-        var chainMetaJson = metaJson
+        var chainMetaJson = applyingClipboardStackingOverrideForCLI(
+            to: metaJson,
+            rootAction: initialAction,
+            configManager: configManager
+        )
         var stepNumber = 1
 
         chainLoop: while true {
@@ -3968,6 +3989,11 @@ class SocketCommunication {
                             frontAppPid: frontApp.pid,
                             frontAppUrl: frontApp.url,
                             overwriteExisting: false
+                        )
+                        enhancedMetaJson = applyingClipboardStackingOverrideForCLI(
+                            to: enhancedMetaJson,
+                            rootAction: action,
+                            configManager: configMgr
                         )
 
                         if let processedAction = processedActionContent(

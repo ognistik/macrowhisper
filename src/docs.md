@@ -711,7 +711,7 @@ When Macrowhisper creates a configuration, it selects the Superwhisper folder on
 | `scheduledActionTimeout` | number/null | `5` | How long one-time runtime actions stay pending when no recording starts. |
 | `scriptAsync` | bool/null | `true` | Whether Shortcut, shell, and AppleScript actions run asynchronously by default. |
 | `scriptWaitTimeout` | number/null | `3` | Max wait time when `scriptAsync` is `false`. |
-| `clipboardStacking` | bool/null | `false` | Whether `{{clipboardContext}}` can include several clipboard items. |
+| `clipboardStacking` | bool/null | `false` | Default for whether `{{clipboardContext}}` returns all eligible clipboard items or only the most recent one. Actions can override it. |
 | `clipboardBuffer` | number/null | `5` | How many seconds of clipboard history to capture before recording. |
 | `clipboardIgnore` | string/null | `""` | Regex for apps that should be ignored during clipboard capture. Empty or `null` means no ignore rules. |
 | `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. Empty or `null` disables bypass. |
@@ -764,6 +764,7 @@ Important: action names must be unique across all five groups.
 | `actionDelay` | number/null | Delay before this action starts |
 | `restoreClipboard` | bool/null | Override clipboard restoration |
 | `restoreClipboardDelay` | number/null | Override clipboard restoration delay |
+| `clipboardStacking` | bool/null | Override clipboard stacking for this action and its chain |
 | `scriptAsync` | bool/null | Override async behavior for Shortcut, shell, or AppleScript actions |
 | `scriptWaitTimeout` | number/null | Override how long Macrowhisper waits when `scriptAsync` is `false` |
 | `inputCondition` | string/null | Apply some fields only in or outside input fields |
@@ -777,6 +778,7 @@ Important: action names must be unique across all five groups.
 How to interpret those fields:
 
 - `null` on most boolean and number overrides means "use the default"
+- for `clipboardStacking`, `null` inherits `defaults.clipboardStacking`, while `true` and `false` explicitly override it
 - for `moveTo`, `icon`, and `nextAction`, `null` means inherit, while `""` means intentionally empty
 - `trigger*` fields only help Macrowhisper choose the action; they do not change the payload
 
@@ -800,6 +802,10 @@ How to interpret those fields:
 
 ```json
 "restoreClipboard": null
+```
+
+```json
+"clipboardStacking": true
 ```
 
 ### 7.1 Insert actions
@@ -1390,11 +1396,13 @@ Session flow:
 
 Behavior details:
 
-- if stacking is off, Macrowhisper returns one best clipboard candidate
-- if stacking is on, it can return multiple items in order
-- Superwhisper result text is filtered out from stacked clipboard entries
+- if stacking is off, Macrowhisper returns the most recent eligible clipboard candidate
+- if stacking is on, it can return all eligible items in order
+- Superwhisper result text is filtered before either representation is selected, so single-item mode falls back to the previous eligible item
 - empty clipboard entries are ignored
 - apps matched by `clipboardIgnore` are ignored
+
+The selected root action controls stacking for the full action chain. Its `clipboardStacking` value inherits from `defaults.clipboardStacking` when it is `null` or omitted. A chained action's override applies when that action is invoked directly as the root of its own chain.
 
 If unwanted clipboard content is captured, run `macrowhisper --reset-clipboard` before the recording finishes and its action runs. Macrowhisper discards the clipboard context captured so far and starts collecting new copies from that point. This works with both single-item capture and clipboard stacking, and it does not clear or modify the macOS clipboard itself.
 
@@ -1601,7 +1609,7 @@ Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrow
 
 - a short wait for Superwhisper clipboard sync before the first action in a chain: `0.1s`
 - a recent-activity window to avoid unnecessary waiting: `0.5s`
-- a one-time session-start clipboard replay guard before audio begins
+- a `1.0s` session-start replay-cluster guard that ignores repeated writes of the original clipboard before audio begins while still capturing different content
 - the user-controlled pre-recording capture window from `clipboardBuffer`
 
 ### 15.3 The settings that matter most
@@ -1614,8 +1622,9 @@ Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrow
 How they work together:
 
 - `clipboardBuffer = 0` turns off pre-recording clipboard capture
-- `clipboardStacking = false` returns one best clipboard context value
-- `clipboardStacking = true` can return several ordered snippets
+- `clipboardStacking = false` returns the most recent eligible clipboard context value
+- `clipboardStacking = true` returns all eligible snippets in order
+- an action-level `clipboardStacking` value overrides the default for the full chain; `null` or omission inherits the default
 - `restoreClipboard = true` restores the original clipboard when the action flow ends
 
 Use `macrowhisper --reset-clipboard` when you copied the wrong content or no longer want previously captured clipboard context sent to the action. During a recording it resets that recording's shared clipboard-context session; outside a recording it resets the pre-recording buffer. Any new copy made afterward can be captured normally.
@@ -1641,7 +1650,7 @@ Macrowhisper also respects clipboard items marked as concealed.
 
 1. Keep Superwhisper clipboard restoration off.
 2. Start with `clipboardBuffer: 5` if you use `{{clipboardContext}}`.
-3. Turn on `clipboardStacking` only when you actually need several clipboard items.
+3. Turn on `clipboardStacking` globally or only for the actions that actually need several clipboard items.
 4. Use `clipboardIgnore` for password managers and other noisy apps.
 5. If clipboard behavior feels racy, try a small `actionDelay` such as `0.05` to `0.2`.
 

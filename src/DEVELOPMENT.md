@@ -96,9 +96,10 @@ swift build
 #### Implementation Notes:
 - **selectedText**: Captured immediately when recording folder appears (if text is selected)
 - **clipboardContext**: Captured from clipboard monitoring session (works regardless of restoreClipboard setting)
-  - **Stacking**: When `clipboardStacking` is enabled in configuration, captures all clipboard changes with XML formatting
+  - **Stacking**: The root action's nullable `clipboardStacking` override falls back to `defaults.clipboardStacking` and applies to the full chain
+  - **Filtering**: Empty and Superwhisper-result entries are removed before choosing either the single or stacked representation
   - **Single change**: Returns content without XML tags (maintains current behavior)
-  - **Multiple changes**: Returns all changes with XML tags (`<clipboard_context_1>`, `<clipboard_context_2>`, etc.)
+  - **Multiple changes**: Returns all changes with XML tags (`<clipboard-context-1>`, `<clipboard-context-2>`, etc.)
 - **appContext**: Only captured when placeholder is used in action (performance optimization)
 - **appVocabulary**: Only captured when placeholder is used in action; uses bounded accessibility traversal
 - **frontApp/appContext/appVocabulary consistency**: In watcher flow, app identity is frozen once before first action step (`frontAppName`/`frontAppBundleId`/`frontAppPid`). `appContext` and `appVocabulary` resolve lazily on first use, then are reused for the full chain.

@@ -86,7 +86,15 @@ class ActionExecutor {
         isTriggeredAction: Bool = true,
         onCompletion: ((ChainExecutionResult) -> Void)? = nil
     ) {
-        initializeChainContextSnapshot(recordingPath: recordingPath, metaJson: metaJson)
+        var chainMetaJson = metaJson
+        let hasFrozenClipboardContext = (chainMetaJson[runtimeClipboardContextLockedKey] as? Bool) ?? false
+        if !hasFrozenClipboardContext {
+            chainMetaJson["clipboardStacking"] = effectiveClipboardStacking(
+                for: initialAction,
+                defaultValue: configManager.config.defaults.clipboardStacking
+            )
+        }
+        initializeChainContextSnapshot(recordingPath: recordingPath, metaJson: chainMetaJson)
         let initialStep = ResolvedActionStep(action: initialAction, name: name, type: type)
         let initialState = ChainRuntimeState(
             currentStep: initialStep,
@@ -97,7 +105,7 @@ class ActionExecutor {
         )
         executeActionChainStep(
             state: initialState,
-            metaJson: metaJson,
+            metaJson: chainMetaJson,
             recordingPath: recordingPath,
             isTriggeredAction: isTriggeredAction,
             onCompletion: onCompletion
@@ -1013,7 +1021,8 @@ class ActionExecutor {
         if !isClipboardContextLocked && existingClipboardContext.isEmpty {
             // Get clipboard content for the clipboardContext placeholder with stacking support
             let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            let enableStacking = configManager.config.defaults.clipboardStacking
+            let enableStacking = (metaJson["clipboardStacking"] as? Bool)
+                ?? configManager.config.defaults.clipboardStacking
             let sessionClipboardContent = clipboardMonitor.getSessionClipboardContentWithStacking(
                 for: contextRecordingPath,
                 swResult: swResult,
