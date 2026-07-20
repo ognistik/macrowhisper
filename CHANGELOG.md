@@ -1,6 +1,9 @@
 # CHANGELOG
 
 ## UNRELEASED
+
+---
+## [v2.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.1) - 2026/07/20
 ### Added
 * `clipboardStacking` can now be overridden per action. `null` or omission inherits `defaults.clipboardStacking`, while explicit `true` or `false` applies to the full action chain.
 

@@ -1,4 +1,4 @@
 {
-  "description" : "* Added `--reset-clipboard` to discard unwanted clipboard context captured for the active recording.\n* Support for symlinked configuration files, including missing targets, while preserving atomic saves and live configuration reloads.\n* Macrowhisper now re-arms filesystem watchers after system wake so recordings continue to be detected after real sleep.\n\nSeveral other fixes & improvements.",
-  "version" : "2.1.0"
+  "description": "* Per-action `clipboardStacking` overrides.\n* Improved Superwhisper folder detection and automatic reconnection.\n* Smart insertion refinements for ellipses and Markdown syntax.\n* Minor clipboard filtering and stability improvements.",
+  "version": "2.1.1"
 }
