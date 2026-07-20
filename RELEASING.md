@@ -52,7 +52,7 @@ agreement in the Apple developer account before retrying.
 Start from a clean working tree:
 
 ```sh
-scripts/release.sh prepare 2.0.4
+scripts/release.sh prepare 2.1.1
 ```
 
 Review the new changelog section and shorten the generated `description` in
@@ -65,13 +65,13 @@ scripts/release.sh preview
 Run a non-mutating preflight if desired:
 
 ```sh
-scripts/release.sh draft 2.0.4 --dry-run
+scripts/release.sh draft 2.1.1 --dry-run
 ```
 
 Build, sign, notarize, package, and create the GitHub draft:
 
 ```sh
-scripts/release.sh draft 2.0.4
+scripts/release.sh draft 2.1.1
 ```
 
 The final archive contains exactly:
@@ -81,11 +81,11 @@ macrowhisper
 macrowhisper-schema.json
 ```
 
-Review the draft release, its `v2.0.4` title and tag, the release notes, and the
+Review the draft release, its `v2.1.4` title and tag, the release notes, and the
 uploaded archive. Publishing is a separate, explicit action:
 
 ```sh
-scripts/release.sh publish 2.0.4
+scripts/release.sh publish 2.1.1
 ```
 
 The publish command asks for confirmation, publishes the GitHub draft, promotes

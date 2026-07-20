@@ -33,8 +33,9 @@
   },
   "inserts" : {
     "autoPaste" : {
-      "action" : "{{swResult::ensureSentence||\\bi\\b||I}}",
+      "action" : "{{swResult::ensureSentence||\\bi\\b||I}}\n{{clipboardContext}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : "•",
       "inputCondition" : "!restoreClipboard|!simEsc",
       "moveTo" : null,
@@ -56,6 +57,7 @@
     "insertContext" : {
       "action" : "{{swResult::ensureSentence}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : 0,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -77,6 +79,7 @@
     "noPeriod" : {
       "action" : "{{swResult||(?im)[\\.\\,\\s]+no period[\\.\\,\\s]*$||}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -98,6 +101,7 @@
     "pasteChat" : {
       "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
       "actionDelay" : 0,
+      "clipboardStacking" : null,
       "icon" : "⇄",
       "inputCondition" : null,
       "moveTo" : null,
@@ -119,6 +123,7 @@
     "pasteResult" : {
       "action" : "{{swResult::ensureSentence}}",
       "actionDelay" : 0,
+      "clipboardStacking" : null,
       "icon" : "⏎",
       "inputCondition" : null,
       "moveTo" : null,
@@ -140,6 +145,7 @@
     "smartClip" : {
       "action" : "{{clipboardContext}}",
       "actionDelay" : 0,
+      "clipboardStacking" : null,
       "icon" : "",
       "inputCondition" : null,
       "moveTo" : null,
@@ -161,6 +167,7 @@
     "terminals" : {
       "action" : "{{swResult::lowercaseFirst||`||}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -182,6 +189,7 @@
     "titleCase" : {
       "action" : "{{swResult::titleCase||\\.$||}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -205,6 +213,7 @@
     "swWebDebug" : {
       "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"DURATION: {{duration}}\nV PRCS: {{processingTime}}{{languageModelProcessingTime||^(.*)$||\nLLM PRCS: $1}}\n\nMODE: {{modeName}}\n{{modelName}}{{languageModelName||^(.*)$|| | $1}}\n\nVOICE RESULT:\n{{result}}{{llmResult||\\n\\n\\n||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\nLLM RESULT:\n$1||\\s+$||}}{{prompt||\\n\\s*\\n\\s*\\n(\\s*\\n)*||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n$1}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
       "actionDelay" : 0,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -223,6 +232,7 @@
     "swWebView" : {
       "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"{{swResult}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
       "actionDelay" : 0,
+      "clipboardStacking" : null,
       "icon" : "❑",
       "inputCondition" : null,
       "moveTo" : null,
@@ -243,6 +253,7 @@
     "Save on Desktop" : {
       "action" : "echo \"{{swResult}}\" > ~/Desktop/dictation.txt",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -263,6 +274,7 @@
     "Capture" : {
       "action" : "{\"title\": \"{{json:date:long}}\",\"memo\": \"{{json:swResult}}\"}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -283,6 +295,7 @@
     "1337" : {
       "action" : "https://1337x.to/search/{{selectedText::lowercase||(\\.$)||}}{{clipboardContext::lowercase||\\.$||}}/1/",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -301,6 +314,7 @@
     "Alter AI Humanizer" : {
       "action" : "alter://action/ai-humanizer?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -319,6 +333,7 @@
     "Alter Answerer ★" : {
       "action" : "alter://action/answerer?input={{swResult||(?s)^(.*)$||<user-message>$1</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : "༜",
       "inputCondition" : null,
       "moveTo" : null,
@@ -337,6 +352,7 @@
     "Alter Coder (★)" : {
       "action" : "alter://action/coder?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : "⌬",
       "inputCondition" : null,
       "moveTo" : null,
@@ -355,6 +371,7 @@
     "Alter Editor (★)" : {
       "action" : "alter://action/editor?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -373,6 +390,7 @@
     "Alter Helper" : {
       "action" : "alter://action/helper-simple?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : "☣",
       "inputCondition" : null,
       "moveTo" : null,
@@ -391,6 +409,7 @@
     "Alter Helper ★" : {
       "action" : "alter://action/helper?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : "⚛",
       "inputCondition" : null,
       "moveTo" : null,
@@ -409,6 +428,7 @@
     "Alter Prompter MD (★)" : {
       "action" : "alter://action/prompter-md?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -427,6 +447,7 @@
     "Alter Prompter XML (★)" : {
       "action" : "alter://action/prompter-xml?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}{{appContext||(?s)^(.*)$||\n\n<app-context>\n$1\n</app-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -445,6 +466,7 @@
     "Alter Remote" : {
       "action" : "alter://action/helper-remote?input={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>\n\n<note>IMPORTANT: User is communicating with you remotely and will not be able to continue this same conversation nor see your result in this interface. This is a one-shot request and you must NOT ask for feedback or additional information to the user, since he cannot answer. If he asks for an output in a way it not specified, your output text must go to a new Bear note. If something doesn't work properly, you cannot understand, or you cannot provide the output expected by user, explain that in the contents of a new Bear note.</note>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -463,6 +485,7 @@
     "Alter Translate" : {
       "action" : "alter://action/ask-anything?input={{selectedText||(?s)^(.*)$||Please translate into english my selected text: \n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||Please translate into english my clipboard content: \n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -481,6 +504,7 @@
     "ChatGPT" : {
       "action" : "https://chat.openai.com/?q={{swResult||(?s)^(.*)$||<user-message>\n$1\n</user-message>}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}-arcMain",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -499,6 +523,7 @@
     "Google" : {
       "action" : "https://www.google.com/search?q={{swResult||\\.$||}}{{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -517,6 +542,7 @@
     "Google This" : {
       "action" : "https://www.google.com/search?q={{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -535,6 +561,7 @@
     "Letterboxd" : {
       "action" : "https://letterboxd.com/search/{{swResult||\\.||||\"||}}{{selectedText||\\.|| }}{{clipboardContext||\\.|| }}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -553,6 +580,7 @@
     "Rotten Tomatoes" : {
       "action" : "https://www.rottentomatoes.com/search?search={{swResult||\\.$||}}{{selectedText}}{{clipboardContext}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
@@ -571,6 +599,7 @@
     "YouTube" : {
       "action" : "https://www.youtube.com/results?search_query={{selectedText}}{{clipboardContext}}{{swResult||\\.$||}}",
       "actionDelay" : null,
+      "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
       "moveTo" : null,
