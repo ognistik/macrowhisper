@@ -81,7 +81,7 @@ macrowhisper
 macrowhisper-schema.json
 ```
 
-Review the draft release, its `v2.1.4` title and tag, the release notes, and the
+Review the draft release, its `v2.1.1` title and tag, the release notes, and the
 uploaded archive. Publishing is a separate, explicit action:
 
 ```sh
