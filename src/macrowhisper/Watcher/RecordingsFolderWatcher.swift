@@ -20,7 +20,6 @@ class RecordingsFolderWatcher {
     private var pendingAudioFileWatchers: [String: DispatchSourceFileSystemObject] = [:]
     private var recordingHadWavFiles: [String: Bool] = [:] // Track if recording ever had .wav files
     private var recordingTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout timers for recordings
-    private var llmResultTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout after raw transcription completes but LLM output remains empty
     private var processedRecordings: Set<String> = []
     private var watcherStartedAt: Date?
     private var lastFolderEventAt: Date?
@@ -37,7 +36,6 @@ class RecordingsFolderWatcher {
     
     // Constants
     private let RECORDING_TIMEOUT_SECONDS: Double = 17.0 // Timeout for recordings without WAV files
-    private let LLM_RESULT_TIMEOUT_SECONDS: Double = 120.0
 
     init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?, onWatchedFolderInvalidated: ((String) -> Void)? = nil) {
         self.basePath = basePath
@@ -175,11 +173,6 @@ class RecordingsFolderWatcher {
             }
             recordingTimeoutTimers.removeAll()
 
-            for (_, timer) in llmResultTimeoutTimers {
-                timer.cancel()
-            }
-            llmResultTimeoutTimers.removeAll()
-            
             // Stop all early clipboard monitoring sessions
             let currentSubdirectories = getCurrentSubdirectories()
             for dirName in currentSubdirectories {
@@ -209,7 +202,6 @@ class RecordingsFolderWatcher {
                 pendingCount: pendingMetaJsonFiles.count
                     + pendingAudioFileWatchers.count
                     + recordingTimeoutTimers.count
-                    + llmResultTimeoutTimers.count
             )
         }
 
@@ -263,7 +255,6 @@ class RecordingsFolderWatcher {
         !pendingMetaJsonFiles.isEmpty
             || !pendingAudioFileWatchers.isEmpty
             || !recordingTimeoutTimers.isEmpty
-            || !llmResultTimeoutTimers.isEmpty
     }
     
     private func loadProcessedRecordings() {
@@ -429,13 +420,6 @@ class RecordingsFolderWatcher {
                     hadWatchers = true
                 }
 
-                if let timer = llmResultTimeoutTimers[fullPath] {
-                    timer.cancel()
-                    llmResultTimeoutTimers.removeValue(forKey: fullPath)
-                    logDebug("Cancelled LLM result timeout timer for deleted directory: \(fullPath)")
-                    hadWatchers = true
-                }
-                
                 // Cancel auto-return and scheduled action only if we had watchers (recording was being processed)
                 if hadWatchers {
                     cancelAutoReturn(reason: "recording folder \(dirName) was deleted during processing")
@@ -806,10 +790,6 @@ class RecordingsFolderWatcher {
                 watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
                 return
             }
-            if shouldStartLLMResultTimeout(metaJson) {
-                startLLMResultTimeout(for: recordingPath)
-            }
-            
             // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
             // If languageModelName is not empty, wait for llmResult
             // If languageModelName is empty, wait for result
@@ -838,7 +818,6 @@ class RecordingsFolderWatcher {
                     return
                 }
             } else {
-                cancelLLMResultTimeout(for: recordingPath)
                 // languageModelName is empty or missing, check for result
                 guard let result = metaJson["result"], !(result is NSNull) else {
                     logDebug("No valid result found in meta.json for \(recordingPath) (no languageModelName), watching for updates.")
@@ -916,7 +895,6 @@ class RecordingsFolderWatcher {
                 logInfo("Bypassing Macrowhisper processing for mode '\(readableMode)' due to defaults.bypassModes.")
                 markAsProcessed(recordingPath: recordingPath)
                 cancelRecordingTimeout(for: recordingPath)
-                cancelLLMResultTimeout(for: recordingPath)
                 cleanupPendingWatcher(for: recordingPath)
                 cleanupPendingWatcher(for: metaJsonPath)
                 clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
@@ -928,7 +906,6 @@ class RecordingsFolderWatcher {
             
             // Cancel timeout timer since recording completed successfully
             cancelRecordingTimeout(for: recordingPath)
-            cancelLLMResultTimeout(for: recordingPath)
             
             // IMMEDIATE CLEANUP: Clean up pending watchers as soon as recording is processed
             // This ensures hasActiveRecordingSessions() returns false immediately, allowing scheduled actions to work properly
@@ -1815,13 +1792,11 @@ class RecordingsFolderWatcher {
             let metaWatcherCount = self.pendingMetaJsonFiles.count
             let audioWatcherCount = self.pendingAudioFileWatchers.count
             let recordingTimerCount = self.recordingTimeoutTimers.count
-            let llmResultTimerCount = self.llmResultTimeoutTimers.count
 
             var recordingPathsToRecover = Set(
                 self.pendingMetaJsonFiles.keys.map(self.extractRecordingPath(from:))
                     + self.pendingAudioFileWatchers.keys.map(self.extractRecordingPath(from:))
                     + Array(self.recordingTimeoutTimers.keys)
-                    + Array(self.llmResultTimeoutTimers.keys)
             )
             if let preserveRecording {
                 recordingPathsToRecover.remove(preserveRecording)
@@ -1835,7 +1810,7 @@ class RecordingsFolderWatcher {
             logInfo(
                 "UNIFIED RECOVERY: Closing \(recordingPathsToRecover.count) incomplete recording session(s) " +
                 "before continuing (meta watchers: \(metaWatcherCount), audio watchers: \(audioWatcherCount), " +
-                "recording timers: \(recordingTimerCount), LLM result timers: \(llmResultTimerCount)) - \(reason)"
+                "recording timers: \(recordingTimerCount)) - \(reason)"
             )
 
             var cleanedUpWatcherCount = 0
@@ -1844,7 +1819,6 @@ class RecordingsFolderWatcher {
                 recordingPathsToRecover.contains(self.extractRecordingPath(from: path))
             }
             for (path, watcher) in metaWatchersToCancel {
-                let recordingPath = self.extractRecordingPath(from: path)
                 watcher.cancel()
                 self.pendingMetaJsonFiles.removeValue(forKey: path)
                 cleanedUpWatcherCount += 1
@@ -1865,9 +1839,6 @@ class RecordingsFolderWatcher {
 
             for recordingPath in recordingPathsToRecover {
                 if let timer = self.recordingTimeoutTimers.removeValue(forKey: recordingPath) {
-                    timer.cancel()
-                }
-                if let timer = self.llmResultTimeoutTimers.removeValue(forKey: recordingPath) {
                     timer.cancel()
                 }
                 self.recordingHadWavFiles.removeValue(forKey: recordingPath)
@@ -1969,63 +1940,6 @@ class RecordingsFolderWatcher {
         }
     }
 
-    /// Starts a timeout only after raw transcription is complete and an expected
-    /// LLM result is still empty. Active long-form recordings are therefore unaffected.
-    private func startLLMResultTimeout(for recordingPath: String) {
-        performQueueSynchronized {
-            guard self.llmResultTimeoutTimers[recordingPath] == nil else {
-                return
-            }
-
-            let timer = DispatchSource.makeTimerSource(queue: self.queue)
-            timer.schedule(deadline: .now() + self.LLM_RESULT_TIMEOUT_SECONDS)
-            timer.setEventHandler { [weak self] in
-                guard let self else { return }
-                defer {
-                    self.llmResultTimeoutTimers.removeValue(forKey: recordingPath)
-                }
-
-                guard !self.isAlreadyProcessed(recordingPath: recordingPath) else {
-                    return
-                }
-
-                let metaJsonPath = "\(recordingPath)/meta.json"
-                guard !self.isMetaJsonComplete(metaJsonPath: metaJsonPath) else {
-                    return
-                }
-
-                logInfo(
-                    "LLM RESULT TIMEOUT: Recording \((recordingPath as NSString).lastPathComponent) " +
-                    "did not receive its expected LLM output within \(self.LLM_RESULT_TIMEOUT_SECONDS) seconds " +
-                    "after raw transcription completed"
-                )
-                self.markAsProcessed(recordingPath: recordingPath)
-                self.performRecordingRecovery(
-                    reason: "expected LLM result timed out \(self.LLM_RESULT_TIMEOUT_SECONDS) seconds after raw transcription completed"
-                )
-            }
-
-            timer.resume()
-            self.llmResultTimeoutTimers[recordingPath] = timer
-            logDebug(
-                "Started \(self.LLM_RESULT_TIMEOUT_SECONDS)-second LLM result timeout timer for recording: " +
-                "\((recordingPath as NSString).lastPathComponent)"
-            )
-        }
-    }
-
-    private func cancelLLMResultTimeout(for recordingPath: String) {
-        performQueueSynchronized {
-            if let timer = self.llmResultTimeoutTimers.removeValue(forKey: recordingPath) {
-                timer.cancel()
-                logDebug(
-                    "Cancelled LLM result timeout timer for recording: " +
-                    "\((recordingPath as NSString).lastPathComponent)"
-                )
-            }
-        }
-    }
-    
     /// Strips trigger pattern from text using the same logic as TriggerEvaluator
     /// Returns stripped text if a trigger matches, nil otherwise
     private func stripTriggerFromText(text: String, triggerVoice: String) -> String? {

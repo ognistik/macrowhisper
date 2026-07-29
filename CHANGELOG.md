@@ -5,7 +5,6 @@
 ### Improved
 * Recording recovery is now a synchronous session boundary: a new dictation fully closes superseded watchers, timers, clipboard sessions, and execution-group state before monitoring begins for the replacement recording.
 * Execution groups are reused only for short, genuine action or clipboard-restoration overlaps. Recordings that are merely waiting for transcription or LLM output no longer share clipboard or selection context, and stale groups are rejected defensively.
-* Added a second-stage LLM result timeout after raw transcription completes, so an unavailable Superwhisper LLM service cannot keep a recording session and its clipboard capture alive indefinitely. Active long-form recordings are not timed out.
 * Recovery logging now reports aborted execution groups and context counts without exposing clipboard contents, while clipboard snapshot logs include the root recording and context age for diagnosis.
 
 ### Fixed
