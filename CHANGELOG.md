@@ -2,6 +2,16 @@
 
 ## UNRELEASED
 
+### Improved
+* Recording recovery is now a synchronous session boundary: a new dictation fully closes superseded watchers, timers, clipboard sessions, and execution-group state before monitoring begins for the replacement recording.
+* Execution groups are reused only for short, genuine action or clipboard-restoration overlaps. Recordings that are merely waiting for transcription or LLM output no longer share clipboard or selection context, and stale groups are rejected defensively.
+* Added a second-stage LLM result timeout after raw transcription completes, so an unavailable Superwhisper LLM service cannot keep a recording session and its clipboard capture alive indefinitely. Active long-form recordings are not timed out.
+* Recovery logging now reports aborted execution groups and context counts without exposing clipboard contents, while clipboard snapshot logs include the root recording and context age for diagnosis.
+
+### Fixed
+* Fixed stale `{{clipboardContext}}` stacks leaking into later dictations when a Superwhisper LLM request failed or never produced `llmResult`.
+* Recovery now clears the targeted session-level clipboard history and pre-recording stack—not only global clipboard history—while preserving the user's current clipboard instead of restoring an obsolete snapshot.
+
 ---
 ## [v2.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.1) - 2026/07/20
 ### Added

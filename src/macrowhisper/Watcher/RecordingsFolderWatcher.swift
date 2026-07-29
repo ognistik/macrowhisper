@@ -20,6 +20,7 @@ class RecordingsFolderWatcher {
     private var pendingAudioFileWatchers: [String: DispatchSourceFileSystemObject] = [:]
     private var recordingHadWavFiles: [String: Bool] = [:] // Track if recording ever had .wav files
     private var recordingTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout timers for recordings
+    private var llmResultTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout after raw transcription completes but LLM output remains empty
     private var processedRecordings: Set<String> = []
     private var watcherStartedAt: Date?
     private var lastFolderEventAt: Date?
@@ -36,6 +37,7 @@ class RecordingsFolderWatcher {
     
     // Constants
     private let RECORDING_TIMEOUT_SECONDS: Double = 17.0 // Timeout for recordings without WAV files
+    private let LLM_RESULT_TIMEOUT_SECONDS: Double = 120.0
 
     init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?, onWatchedFolderInvalidated: ((String) -> Void)? = nil) {
         self.basePath = basePath
@@ -172,6 +174,11 @@ class RecordingsFolderWatcher {
                 timer.cancel()
             }
             recordingTimeoutTimers.removeAll()
+
+            for (_, timer) in llmResultTimeoutTimers {
+                timer.cancel()
+            }
+            llmResultTimeoutTimers.removeAll()
             
             // Stop all early clipboard monitoring sessions
             let currentSubdirectories = getCurrentSubdirectories()
@@ -199,7 +206,10 @@ class RecordingsFolderWatcher {
                 folderExists: FileManager.default.fileExists(atPath: path),
                 startedAt: watcherStartedAt,
                 lastEventAt: lastFolderEventAt,
-                pendingCount: pendingMetaJsonFiles.count + pendingAudioFileWatchers.count + recordingTimeoutTimers.count
+                pendingCount: pendingMetaJsonFiles.count
+                    + pendingAudioFileWatchers.count
+                    + recordingTimeoutTimers.count
+                    + llmResultTimeoutTimers.count
             )
         }
 
@@ -247,6 +257,13 @@ class RecordingsFolderWatcher {
         }
 
         return "\(hours / 24)d ago"
+    }
+
+    private var hasPendingRecordingWork: Bool {
+        !pendingMetaJsonFiles.isEmpty
+            || !pendingAudioFileWatchers.isEmpty
+            || !recordingTimeoutTimers.isEmpty
+            || !llmResultTimeoutTimers.isEmpty
     }
     
     private func loadProcessedRecordings() {
@@ -340,7 +357,7 @@ class RecordingsFolderWatcher {
 
                 // UNIFIED RECOVERY: Clean up all pending watchers since multiple recordings appeared
                 // This can indicate a Superwhisper crash or restart scenario
-                if !pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty {
+                if hasPendingRecordingWork {
                     performRecordingRecovery(reason: "Superwhisper crash detected - multiple recordings appeared simultaneously while previous recording was being processed")
                 }
             } else {
@@ -358,11 +375,12 @@ class RecordingsFolderWatcher {
                     
                     // Cancel auto-return and scheduled action if this is a newer recording superseding a previous one being processed
                     // Only cancel if there are actually pending recordings being processed
-                    if (!pendingMetaJsonFiles.isEmpty || !pendingAudioFileWatchers.isEmpty), let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
-                        // UNIFIED RECOVERY: Clean up only OLD pending watchers since Superwhisper likely crashed
-                        // and started a new recording session. This prevents orphaned watchers from
-                        // interfering with the new recording session, but preserves the new recording's watcher.
-                        performRecordingRecovery(reason: "Superwhisper crash detected - new recording \(dirName) appeared while previous recording was being processed", preserveRecording: fullPath)
+                    if hasPendingRecordingWork, let mostRecentExisting = mostRecentExistingDir, dirName > mostRecentExisting {
+                        // A newer recording supersedes any incomplete recording. Recovery is a
+                        // synchronous boundary so the replacement starts with fresh context.
+                        performRecordingRecovery(
+                            reason: "new recording \(dirName) superseded an incomplete recording"
+                        )
                     }
                     
                     processNewRecording(atPath: fullPath, detectedAt: folderEventTime)
@@ -410,6 +428,13 @@ class RecordingsFolderWatcher {
                     logDebug("Cancelled timeout timer for deleted directory: \(fullPath)")
                     hadWatchers = true
                 }
+
+                if let timer = llmResultTimeoutTimers[fullPath] {
+                    timer.cancel()
+                    llmResultTimeoutTimers.removeValue(forKey: fullPath)
+                    logDebug("Cancelled LLM result timeout timer for deleted directory: \(fullPath)")
+                    hadWatchers = true
+                }
                 
                 // Cancel auto-return and scheduled action only if we had watchers (recording was being processed)
                 if hadWatchers {
@@ -417,8 +442,12 @@ class RecordingsFolderWatcher {
                     cancelScheduledAction(reason: "recording folder \(dirName) was deleted during processing")
                 }
                 
-                // Stop early clipboard monitoring for deleted folder
-                clipboardMonitor.stopEarlyMonitoring(for: fullPath)
+                // A deleted recording is an abnormal termination. Do not preserve
+                // root context or restore a clipboard snapshot from that session.
+                _ = clipboardMonitor.abortExecutionGroups(
+                    containing: [fullPath],
+                    reason: "recording folder \(dirName) was deleted during processing"
+                )
                 
                 // Remove from processed recordings list if it exists
                 if processedRecordings.contains(fullPath) {
@@ -516,7 +545,7 @@ class RecordingsFolderWatcher {
             return false
         }
     }
-    
+
     private func watchForMetaJsonCreation(recordingPath: String) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: recordingPath) {
@@ -570,7 +599,12 @@ class RecordingsFolderWatcher {
         }
         
         // Initialize tracking - check if .wav files exist initially (they might not yet)
-        recordingHadWavFiles[recordingPath] = checkForWavFiles(in: recordingPath)
+        let initiallyHasWavFiles = checkForWavFiles(in: recordingPath)
+        recordingHadWavFiles[recordingPath] = initiallyHasWavFiles
+        if initiallyHasWavFiles {
+            clipboardMonitor.markAudioRecordingStarted(for: recordingPath)
+            cancelRecordingTimeout(for: recordingPath)
+        }
         
         // Watch the recording directory for file changes to detect .wav file removal
         let fileDescriptor = open(recordingPath, O_EVTONLY)
@@ -724,13 +758,12 @@ class RecordingsFolderWatcher {
                         watcher.cancel()
                         self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
                         
-                        // Cancel auto-return and scheduled action if they were enabled - meta.json was deleted during processing
-                        cancelAutoReturn(reason: "meta.json was deleted during processing")
-                        cancelScheduledAction(reason: "meta.json was deleted during processing")
-                        
-                        // Stop clipboard monitoring for this recording path as well
-                        self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-                        logDebug("Stopped clipboard monitoring for \(recordingPath) - meta.json was deleted")
+                        // Treat permanent metadata deletion as cancellation so all watcher,
+                        // timer, and session-local clipboard state crosses the same hard
+                        // recovery boundary.
+                        self.performRecordingRecovery(
+                            reason: "meta.json was deleted during processing - \((recordingPath as NSString).lastPathComponent)"
+                        )
                     } else {
                         // File reappeared, it was just being overwritten - continue processing
                         logDebug("meta.json reappeared after overwrite in \(recordingPath) - continuing monitoring")
@@ -773,6 +806,9 @@ class RecordingsFolderWatcher {
                 watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
                 return
             }
+            if shouldStartLLMResultTimeout(metaJson) {
+                startLLMResultTimeout(for: recordingPath)
+            }
             
             // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
             // If languageModelName is not empty, wait for llmResult
@@ -802,6 +838,7 @@ class RecordingsFolderWatcher {
                     return
                 }
             } else {
+                cancelLLMResultTimeout(for: recordingPath)
                 // languageModelName is empty or missing, check for result
                 guard let result = metaJson["result"], !(result is NSNull) else {
                     logDebug("No valid result found in meta.json for \(recordingPath) (no languageModelName), watching for updates.")
@@ -879,6 +916,7 @@ class RecordingsFolderWatcher {
                 logInfo("Bypassing Macrowhisper processing for mode '\(readableMode)' due to defaults.bypassModes.")
                 markAsProcessed(recordingPath: recordingPath)
                 cancelRecordingTimeout(for: recordingPath)
+                cancelLLMResultTimeout(for: recordingPath)
                 cleanupPendingWatcher(for: recordingPath)
                 cleanupPendingWatcher(for: metaJsonPath)
                 clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
@@ -890,6 +928,7 @@ class RecordingsFolderWatcher {
             
             // Cancel timeout timer since recording completed successfully
             cancelRecordingTimeout(for: recordingPath)
+            cancelLLMResultTimeout(for: recordingPath)
             
             // IMMEDIATE CLEANUP: Clean up pending watchers as soon as recording is processed
             // This ensures hasActiveRecordingSessions() returns false immediately, allowing scheduled actions to work properly
@@ -1766,119 +1805,87 @@ class RecordingsFolderWatcher {
         }
     }
     
-    /// UNIFIED RECOVERY: Handles both crash recovery and cancellation recovery
-    /// This prevents orphaned watchers from interfering with new recording sessions
+    /// Handles crash recovery, cancellation, and superseded incomplete recordings.
+    ///
+    /// Recovery is deliberately synchronous on the watcher queue. A replacement
+    /// recording must not begin until old watchers, timers, and clipboard execution
+    /// groups have been fully removed.
     private func performRecordingRecovery(reason: String, preserveRecording: String? = nil) {
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            
+        performQueueSynchronized {
             let metaWatcherCount = self.pendingMetaJsonFiles.count
             let audioWatcherCount = self.pendingAudioFileWatchers.count
-            let totalWatchers = metaWatcherCount + audioWatcherCount
-            
-            if totalWatchers > 0 {
-                if let preserveRecording = preserveRecording {
-                    logInfo("UNIFIED RECOVERY: Cleaning up old pending watchers while preserving new recording \((preserveRecording as NSString).lastPathComponent) - \(reason)")
-                } else {
-                    logInfo("UNIFIED RECOVERY: Cleaning up \(totalWatchers) pending watchers (\(metaWatcherCount) meta, \(audioWatcherCount) audio) - \(reason)")
-                }
-                
-                // Track which recording paths had early monitoring stopped to avoid duplicate logs
-                var stoppedMonitoringPaths: Set<String> = []
-                var cleanedUpCount = 0
-                
-                // Cancel meta.json watchers
-                for (path, watcher) in self.pendingMetaJsonFiles {
-                    let recordingPath = self.extractRecordingPath(from: path)
-                    
-                    // Skip if this watcher belongs to the recording we want to preserve
-                    if let preserveRecording = preserveRecording, recordingPath == preserveRecording {
-                        logDebug("Preserving meta watcher for new recording: \(path)")
-                        continue
-                    }
-                    
-                    watcher.cancel()
-                    logDebug("Cancelled pending meta watcher for: \(path)")
-                    cleanedUpCount += 1
-                    
-                    // Only stop early monitoring if we haven't already stopped it for this recording
-                    if !stoppedMonitoringPaths.contains(recordingPath) {
-                        self.clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
-                        stoppedMonitoringPaths.insert(recordingPath)
-                    }
-                }
-                
-                // Cancel audio file watchers
-                for (path, watcher) in self.pendingAudioFileWatchers {
-                    let recordingPath = self.extractRecordingPath(from: path)
-                    
-                    // Skip if this watcher belongs to the recording we want to preserve
-                    if let preserveRecording = preserveRecording, recordingPath == preserveRecording {
-                        logDebug("Preserving audio watcher for new recording: \(path)")
-                        continue
-                    }
-                    
-                    watcher.cancel()
-                    logDebug("Cancelled pending audio watcher for: \(path)")
-                    cleanedUpCount += 1
-                }
-                
-                // Remove watchers from dictionaries
-                if let preserveRecording = preserveRecording {
-                    // Remove only old watchers, preserve new recording's watchers
-                    let oldMetaWatchers = self.pendingMetaJsonFiles.filter { (path, _) in
-                        self.extractRecordingPath(from: path) != preserveRecording
-                    }
-                    let oldAudioWatchers = self.pendingAudioFileWatchers.filter { (path, _) in
-                        self.extractRecordingPath(from: path) != preserveRecording
-                    }
-                    
-                    for (path, _) in oldMetaWatchers {
-                        self.pendingMetaJsonFiles.removeValue(forKey: path)
-                    }
-                    for (path, _) in oldAudioWatchers {
-                        self.pendingAudioFileWatchers.removeValue(forKey: path)
-                        self.recordingHadWavFiles.removeValue(forKey: path)
-                    }
-                    
-                    logInfo("UNIFIED RECOVERY: Cleaned up \(cleanedUpCount) old pending watchers, preserved new recording watcher")
-                } else {
-                    // Clear all pending watchers
-                    self.pendingMetaJsonFiles.removeAll()
-                    self.pendingAudioFileWatchers.removeAll()
-                    self.recordingHadWavFiles.removeAll()
-                    
-                    logInfo("UNIFIED RECOVERY: All pending watchers cleaned up successfully")
-                }
-                
-                // Cancel auto-return and scheduled actions for all recovery scenarios
-                cancelAutoReturn(reason: reason)
-                cancelScheduledAction(reason: reason)
-                
-                // Clean up timeout timers for all recordings (or preserve for new recording)
-                if let preserveRecording = preserveRecording {
-                    // Cancel timeout timers for old recordings only
-                    let recordingPathsToCleanup = self.recordingTimeoutTimers.keys.filter { $0 != preserveRecording }
-                    for recordingPath in recordingPathsToCleanup {
-                        if let timer = self.recordingTimeoutTimers[recordingPath] {
-                            timer.cancel()
-                            self.recordingTimeoutTimers.removeValue(forKey: recordingPath)
-                        }
-                    }
-                } else {
-                    // Cancel all timeout timers
-                    for (_, timer) in self.recordingTimeoutTimers {
-                        timer.cancel()
-                    }
-                    self.recordingTimeoutTimers.removeAll()
-                }
-                
-                // Trigger clipboard cleanup to reset state (same as action execution)
-                self.clipboardMonitor.triggerClipboardCleanupForCLI()
-                
-            } else {
-                logDebug("UNIFIED RECOVERY: No pending watchers to clean up")
+            let recordingTimerCount = self.recordingTimeoutTimers.count
+            let llmResultTimerCount = self.llmResultTimeoutTimers.count
+
+            var recordingPathsToRecover = Set(
+                self.pendingMetaJsonFiles.keys.map(self.extractRecordingPath(from:))
+                    + self.pendingAudioFileWatchers.keys.map(self.extractRecordingPath(from:))
+                    + Array(self.recordingTimeoutTimers.keys)
+                    + Array(self.llmResultTimeoutTimers.keys)
+            )
+            if let preserveRecording {
+                recordingPathsToRecover.remove(preserveRecording)
             }
+
+            guard !recordingPathsToRecover.isEmpty else {
+                logDebug("UNIFIED RECOVERY: No pending recording work to clean up")
+                return
+            }
+
+            logInfo(
+                "UNIFIED RECOVERY: Closing \(recordingPathsToRecover.count) incomplete recording session(s) " +
+                "before continuing (meta watchers: \(metaWatcherCount), audio watchers: \(audioWatcherCount), " +
+                "recording timers: \(recordingTimerCount), LLM result timers: \(llmResultTimerCount)) - \(reason)"
+            )
+
+            var cleanedUpWatcherCount = 0
+
+            let metaWatchersToCancel = self.pendingMetaJsonFiles.filter { path, _ in
+                recordingPathsToRecover.contains(self.extractRecordingPath(from: path))
+            }
+            for (path, watcher) in metaWatchersToCancel {
+                let recordingPath = self.extractRecordingPath(from: path)
+                watcher.cancel()
+                self.pendingMetaJsonFiles.removeValue(forKey: path)
+                cleanedUpWatcherCount += 1
+                logDebug("Cancelled pending meta watcher for: \(path)")
+            }
+
+            let audioWatchersToCancel = self.pendingAudioFileWatchers.filter { path, _ in
+                recordingPathsToRecover.contains(self.extractRecordingPath(from: path))
+            }
+            for (path, watcher) in audioWatchersToCancel {
+                let recordingPath = self.extractRecordingPath(from: path)
+                watcher.cancel()
+                self.pendingAudioFileWatchers.removeValue(forKey: path)
+                self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                cleanedUpWatcherCount += 1
+                logDebug("Cancelled pending audio watcher for: \(path)")
+            }
+
+            for recordingPath in recordingPathsToRecover {
+                if let timer = self.recordingTimeoutTimers.removeValue(forKey: recordingPath) {
+                    timer.cancel()
+                }
+                if let timer = self.llmResultTimeoutTimers.removeValue(forKey: recordingPath) {
+                    timer.cancel()
+                }
+                self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                self.markAsProcessed(recordingPath: recordingPath)
+            }
+
+            let abortSummary = self.clipboardMonitor.abortExecutionGroups(
+                containing: recordingPathsToRecover,
+                reason: reason
+            )
+
+            cancelAutoReturn(reason: reason)
+            cancelScheduledAction(reason: reason)
+
+            logInfo(
+                "UNIFIED RECOVERY: Recovery boundary complete; cleaned \(cleanedUpWatcherCount) watcher(s), " +
+                "aborted \(abortSummary.groupCount) clipboard execution group(s), and preserved the current clipboard"
+            )
         }
     }
     
@@ -1913,9 +1920,7 @@ class RecordingsFolderWatcher {
     
     /// Starts a timeout timer for a recording to detect stalled recordings without WAV files
     private func startRecordingTimeout(for recordingPath: String) {
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            
+        performQueueSynchronized {
             // Cancel any existing timer for this recording
             if let existingTimer = self.recordingTimeoutTimers[recordingPath] {
                 existingTimer.cancel()
@@ -1955,13 +1960,68 @@ class RecordingsFolderWatcher {
     
     /// Cancels the timeout timer for a recording (called when WAV file appears or recording completes)
     private func cancelRecordingTimeout(for recordingPath: String) {
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            
+        performQueueSynchronized {
             if let timer = self.recordingTimeoutTimers[recordingPath] {
                 timer.cancel()
                 self.recordingTimeoutTimers.removeValue(forKey: recordingPath)
                 logDebug("Cancelled timeout timer for recording: \((recordingPath as NSString).lastPathComponent)")
+            }
+        }
+    }
+
+    /// Starts a timeout only after raw transcription is complete and an expected
+    /// LLM result is still empty. Active long-form recordings are therefore unaffected.
+    private func startLLMResultTimeout(for recordingPath: String) {
+        performQueueSynchronized {
+            guard self.llmResultTimeoutTimers[recordingPath] == nil else {
+                return
+            }
+
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            timer.schedule(deadline: .now() + self.LLM_RESULT_TIMEOUT_SECONDS)
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                defer {
+                    self.llmResultTimeoutTimers.removeValue(forKey: recordingPath)
+                }
+
+                guard !self.isAlreadyProcessed(recordingPath: recordingPath) else {
+                    return
+                }
+
+                let metaJsonPath = "\(recordingPath)/meta.json"
+                guard !self.isMetaJsonComplete(metaJsonPath: metaJsonPath) else {
+                    return
+                }
+
+                logInfo(
+                    "LLM RESULT TIMEOUT: Recording \((recordingPath as NSString).lastPathComponent) " +
+                    "did not receive its expected LLM output within \(self.LLM_RESULT_TIMEOUT_SECONDS) seconds " +
+                    "after raw transcription completed"
+                )
+                self.markAsProcessed(recordingPath: recordingPath)
+                self.performRecordingRecovery(
+                    reason: "expected LLM result timed out \(self.LLM_RESULT_TIMEOUT_SECONDS) seconds after raw transcription completed"
+                )
+            }
+
+            timer.resume()
+            self.llmResultTimeoutTimers[recordingPath] = timer
+            logDebug(
+                "Started \(self.LLM_RESULT_TIMEOUT_SECONDS)-second LLM result timeout timer for recording: " +
+                "\((recordingPath as NSString).lastPathComponent)"
+            )
+        }
+    }
+
+    private func cancelLLMResultTimeout(for recordingPath: String) {
+        performQueueSynchronized {
+            if let timer = self.llmResultTimeoutTimers.removeValue(forKey: recordingPath) {
+                timer.cancel()
+                logDebug(
+                    "Cancelled LLM result timeout timer for recording: " +
+                    "\((recordingPath as NSString).lastPathComponent)"
+                )
             }
         }
     }

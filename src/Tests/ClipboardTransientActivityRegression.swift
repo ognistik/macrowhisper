@@ -180,6 +180,95 @@ private func runClipboardTransientActivityRegressionTests() {
     )
     assertEqual(audioStarted.shouldIgnore, false, "audio start ends replay-cluster suppression immediately")
     assertDecision(audioStarted.decision, .capturedAudioStarted, "post-audio capture has an explicit diagnostic decision")
+
+    assertEqual(
+        executionGroupJoinDecision(
+            age: 1,
+            hasExecutingAction: false,
+            hasPendingRestore: false
+        ) == .noActiveOperation,
+        true,
+        "a recording waiting only for a result is not eligible for execution-group reuse"
+    )
+    assertEqual(
+        executionGroupJoinDecision(
+            age: 1,
+            hasExecutingAction: true,
+            hasPendingRestore: false
+        ) == .executingAction,
+        true,
+        "a short active action overlap can reuse its execution group"
+    )
+    assertEqual(
+        executionGroupJoinDecision(
+            age: 1,
+            hasExecutingAction: false,
+            hasPendingRestore: true
+        ) == .pendingRestore,
+        true,
+        "a short pending clipboard restore can reuse its execution group"
+    )
+    assertEqual(
+        executionGroupJoinDecision(
+            age: 30,
+            hasExecutingAction: true,
+            hasPendingRestore: true,
+            maximumAge: 10
+        ) == .stale,
+        true,
+        "stale execution groups are never reused even if their flags remain active"
+    )
+
+    let monitor = ClipboardMonitor(
+        logger: Logger(),
+        preRecordingBufferSeconds: 0,
+        clipboardIgnore: ""
+    )
+    let overlappingRoot = "/tmp/macrowhisper-overlap-root"
+    let overlappingChild = "/tmp/macrowhisper-overlap-child"
+    monitor.startEarlyMonitoring(for: overlappingRoot)
+    monitor.startActionExecution(for: overlappingRoot)
+    monitor.startEarlyMonitoring(for: overlappingChild)
+    assertEqual(
+        monitor.getContextRootRecordingPath(for: overlappingChild) == overlappingRoot,
+        true,
+        "a genuine active-action overlap shares the root context"
+    )
+
+    let abortSummary = monitor.abortExecutionGroups(
+        containing: [overlappingRoot],
+        reason: "regression test"
+    )
+    assertEqual(abortSummary.groupCount == 1, true, "recovery abort removes the targeted execution group")
+    assertEqual(abortSummary.sessionCount == 2, true, "recovery abort removes every session in the targeted group")
+    assertEqual(
+        monitor.getContextRootRecordingPath(for: overlappingChild) == overlappingChild,
+        true,
+        "recovery abort removes stale child-to-root mappings"
+    )
+    assertEqual(
+        monitor.getMostRecentActiveRecordingPath() == nil,
+        true,
+        "recovery abort leaves no active clipboard session behind"
+    )
+
+    let staleRoot = "/tmp/macrowhisper-stale-root"
+    let freshRecording = "/tmp/macrowhisper-fresh-recording"
+    monitor.startEarlyMonitoring(
+        for: staleRoot,
+        sessionStartTime: Date().addingTimeInterval(-30)
+    )
+    monitor.startActionExecution(for: staleRoot)
+    monitor.startEarlyMonitoring(for: freshRecording)
+    assertEqual(
+        monitor.getContextRootRecordingPath(for: freshRecording) == freshRecording,
+        true,
+        "a fresh recording does not inherit context from a stale active group"
+    )
+    _ = monitor.abortExecutionGroups(
+        containing: [staleRoot, freshRecording],
+        reason: "regression test cleanup"
+    )
 }
 
 @main

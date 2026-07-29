@@ -26,6 +26,7 @@ private let RETROACTIVE_CLEANUP_WINDOW: TimeInterval = 0.5  // Look back 0.5 sec
 private let DEFAULT_CLIPBOARD_RESTORE_DELAY: TimeInterval = 0.3
 private let CLIPBOARD_CLEANUP_GRACE: TimeInterval = 0.2
 private let SESSION_START_CLIPBOARD_REPLAY_CLUSTER_WINDOW: TimeInterval = 1.0
+private let MAX_EXECUTION_GROUP_JOIN_AGE: TimeInterval = 10.0
 
 struct SessionClipboardObservationDecision {
     let shouldCaptureInSessionHistory: Bool
@@ -39,6 +40,47 @@ struct ClipboardContextRepresentations {
     func value(enableStacking: Bool) -> String {
         enableStacking ? stacked : single
     }
+}
+
+enum ExecutionGroupJoinDecision: Equatable {
+    case executingAction
+    case pendingRestore
+    case noActiveOperation
+    case stale
+
+    var shouldJoin: Bool {
+        switch self {
+        case .executingAction, .pendingRestore:
+            return true
+        case .noActiveOperation, .stale:
+            return false
+        }
+    }
+}
+
+func executionGroupJoinDecision(
+    age: TimeInterval,
+    hasExecutingAction: Bool,
+    hasPendingRestore: Bool,
+    maximumAge: TimeInterval = MAX_EXECUTION_GROUP_JOIN_AGE
+) -> ExecutionGroupJoinDecision {
+    guard age <= max(0, maximumAge) else {
+        return .stale
+    }
+    if hasExecutingAction {
+        return .executingAction
+    }
+    if hasPendingRestore {
+        return .pendingRestore
+    }
+    return .noActiveOperation
+}
+
+struct ClipboardRecoveryAbortSummary {
+    let groupCount: Int
+    let sessionCount: Int
+    let clipboardChangeCount: Int
+    let preRecordingItemCount: Int
 }
 
 func makeClipboardContextRepresentations(
@@ -290,6 +332,7 @@ class ClipboardMonitor {
 
     private struct ExecutionGroup {
         let id: String
+        let createdAt: Date
         let rootRecordingPath: String
         let rootOriginalClipboard: String?
         let rootSelectedText: String?
@@ -359,17 +402,73 @@ class ClipboardMonitor {
         sessionsQueue.async(flags: .barrier) { [weak self] in
             guard let self else { return }
 
-            let activeGroupId = self.executionGroups.values
-                .filter { !$0.memberRecordingPaths.isEmpty || $0.pendingRestoreRecordingPath != nil }
+            let now = Date()
+            let staleGroupIds = self.executionGroups.values.compactMap { group -> String? in
+                let age = now.timeIntervalSince(group.createdAt)
+                return age > MAX_EXECUTION_GROUP_JOIN_AGE ? group.id : nil
+            }
+            for staleGroupId in staleGroupIds {
+                guard let staleGroup = self.executionGroups[staleGroupId] else { continue }
+                let stalePaths = Set(self.recordingPathToGroupId.compactMap { path, groupId in
+                    groupId == staleGroupId ? path : nil
+                }).union(
+                    self.earlyMonitoringSessions.compactMap { path, session in
+                        session.groupId == staleGroupId ? path : nil
+                    }
+                )
+                let staleClipboardChangeCount = stalePaths.reduce(into: 0) { count, path in
+                    count += self.earlyMonitoringSessions[path]?.clipboardChanges.count ?? 0
+                }
+                for path in stalePaths {
+                    self.earlyMonitoringSessions.removeValue(forKey: path)
+                    self.recordingPathToGroupId.removeValue(forKey: path)
+                }
+                self.executionGroups.removeValue(forKey: staleGroupId)
+                let ageMilliseconds = Int(max(0, now.timeIntervalSince(staleGroup.createdAt)) * 1_000)
+                logWarning(
+                    "[ClipboardMonitor] Discarded stale execution group \(staleGroupId) before starting " +
+                    "\(recordingPath) (age: \(ageMilliseconds)ms, sessions: \(stalePaths.count), " +
+                    "clipboard changes: \(staleClipboardChangeCount)); pending restores were invalidated"
+                )
+            }
+
+            let joinableGroups = self.executionGroups.values.compactMap { group -> (ExecutionGroup, ExecutionGroupJoinDecision)? in
+                let hasExecutingAction = group.memberRecordingPaths.contains { path in
+                    self.earlyMonitoringSessions[path]?.isExecutingAction == true
+                }
+                let decision = executionGroupJoinDecision(
+                    age: now.timeIntervalSince(group.createdAt),
+                    hasExecutingAction: hasExecutingAction,
+                    hasPendingRestore: group.pendingRestoreRecordingPath != nil
+                )
+                return decision.shouldJoin ? (group, decision) : nil
+            }
+            let activeGroupId = joinableGroups
                 .max { lhs, rhs in
-                    let lhsStart = self.earlyMonitoringSessions[lhs.rootRecordingPath]?.startTime ?? .distantPast
-                    let rhsStart = self.earlyMonitoringSessions[rhs.rootRecordingPath]?.startTime ?? .distantPast
+                    let lhsStart = lhs.0.createdAt
+                    let rhsStart = rhs.0.createdAt
                     if lhsStart != rhsStart {
                         return lhsStart < rhsStart
                     }
-                    return lhs.id < rhs.id
+                    return lhs.0.id < rhs.0.id
                 }?
-                .id
+                .0.id
+
+            if activeGroupId == nil, !self.executionGroups.isEmpty {
+                let excluded = self.executionGroups.values.map { group -> String in
+                    let hasExecutingAction = group.memberRecordingPaths.contains { path in
+                        self.earlyMonitoringSessions[path]?.isExecutingAction == true
+                    }
+                    let decision = executionGroupJoinDecision(
+                        age: now.timeIntervalSince(group.createdAt),
+                        hasExecutingAction: hasExecutingAction,
+                        hasPendingRestore: group.pendingRestoreRecordingPath != nil
+                    )
+                    let ageMilliseconds = Int(max(0, now.timeIntervalSince(group.createdAt)) * 1_000)
+                    return "\(group.id):\(decision):\(ageMilliseconds)ms"
+                }.joined(separator: ", ")
+                logDebug("[ClipboardMonitor] Starting a fresh execution group; existing groups are not joinable (\(excluded))")
+            }
 
             let groupId: String
             let effectiveUserOriginal: String?
@@ -398,6 +497,7 @@ class ClipboardMonitor {
                 groupId = UUID().uuidString
                 let newGroup = ExecutionGroup(
                     id: groupId,
+                    createdAt: sessionStartTime,
                     rootRecordingPath: recordingPath,
                     rootOriginalClipboard: userOriginal,
                     rootSelectedText: selectedText,
@@ -458,6 +558,93 @@ class ClipboardMonitor {
             resolvedPath = group.rootRecordingPath
         }
         return resolvedPath
+    }
+
+    /// Forcefully ends recording groups during cancellation or recovery.
+    ///
+    /// Unlike `stopEarlyMonitoring`, this never preserves root context and never restores
+    /// an old clipboard snapshot. The current pasteboard becomes the new global baseline.
+    @discardableResult
+    func abortExecutionGroups(
+        containing recordingPaths: Set<String>,
+        reason: String
+    ) -> ClipboardRecoveryAbortSummary {
+        let pasteboard = NSPasteboard.general
+        let currentClipboard = pasteboard.string(forType: .string)
+        let currentChangeCount = pasteboard.changeCount
+        let resetAt = Date()
+
+        var groupCount = 0
+        var sessionCount = 0
+        var clipboardChangeCount = 0
+        var preRecordingItemCount = 0
+
+        sessionsQueue.sync(flags: .barrier) {
+            let targetedGroupIds = Set(recordingPaths.compactMap { recordingPathToGroupId[$0] })
+
+            for groupId in targetedGroupIds {
+                guard executionGroups[groupId] != nil else { continue }
+                groupCount += 1
+
+                let groupedPaths = Set(recordingPathToGroupId.compactMap { path, mappedGroupId in
+                    mappedGroupId == groupId ? path : nil
+                }).union(
+                    earlyMonitoringSessions.compactMap { path, session in
+                        session.groupId == groupId ? path : nil
+                    }
+                )
+
+                for path in groupedPaths {
+                    if let session = earlyMonitoringSessions[path] {
+                        sessionCount += 1
+                        clipboardChangeCount += session.clipboardChanges.count
+                        preRecordingItemCount += session.preRecordingClipboardStack.count
+                        if session.preRecordingClipboard != nil && session.preRecordingClipboardStack.isEmpty {
+                            preRecordingItemCount += 1
+                        }
+                    }
+                    earlyMonitoringSessions.removeValue(forKey: path)
+                    recordingPathToGroupId.removeValue(forKey: path)
+                }
+
+                executionGroups.removeValue(forKey: groupId)
+            }
+
+            // Also clean up any orphaned targeted sessions that lost their group mapping.
+            for path in recordingPaths where earlyMonitoringSessions[path] != nil || recordingPathToGroupId[path] != nil {
+                if let session = earlyMonitoringSessions[path] {
+                    sessionCount += 1
+                    clipboardChangeCount += session.clipboardChanges.count
+                    preRecordingItemCount += session.preRecordingClipboardStack.count
+                    if session.preRecordingClipboard != nil && session.preRecordingClipboardStack.isEmpty {
+                        preRecordingItemCount += 1
+                    }
+                }
+                earlyMonitoringSessions.removeValue(forKey: path)
+                recordingPathToGroupId.removeValue(forKey: path)
+            }
+        }
+
+        globalHistoryQueue.sync(flags: .barrier) {
+            globalClipboardHistory.removeAll()
+            clipboardContextResetAt = resetAt
+            lastSeenClipboardContent = currentClipboard
+            lastSeenChangeCount = currentChangeCount
+            isFirstGlobalCheck = false
+        }
+
+        logInfo(
+            "[ClipboardMonitor] Aborted \(groupCount) execution group(s) for recovery " +
+            "(sessions: \(sessionCount), clipboard changes: \(clipboardChangeCount), " +
+            "pre-recording items: \(preRecordingItemCount)); preserved current clipboard. Reason: \(reason)"
+        )
+
+        return ClipboardRecoveryAbortSummary(
+            groupCount: groupCount,
+            sessionCount: sessionCount,
+            clipboardChangeCount: clipboardChangeCount,
+            preRecordingItemCount: preRecordingItemCount
+        )
     }
 
     /// Discards captured clipboard context and starts a fresh capture boundary.
@@ -727,13 +914,16 @@ class ClipboardMonitor {
                     rootSession.isExecutingAction = false
                     self.earlyMonitoringSessions[recordingPath] = rootSession
                 }
+                logDebug("[ClipboardMonitor] Detached root recording \(recordingPath) while preserving its context for an active overlap")
             } else {
                 self.earlyMonitoringSessions[recordingPath]?.isActive = false
                 self.earlyMonitoringSessions.removeValue(forKey: recordingPath)
                 self.recordingPathToGroupId.removeValue(forKey: recordingPath)
             }
             self.executionGroups[groupId] = group
-            logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
+            if !shouldPreserveRootContext {
+                logDebug("[ClipboardMonitor] Stopped early monitoring for \(recordingPath)")
+            }
 
             if shouldFinalize {
                 self.finalizeExecutionGroup(groupId: groupId, onCompletion: onCompletion)
@@ -899,6 +1089,20 @@ class ClipboardMonitor {
             logNoContentIfNeeded(
                 "session_no_content",
                 "[ClipboardMonitor] No eligible clipboard content found after filtering"
+            )
+        }
+        if !candidates.isEmpty {
+            let contextAgeMilliseconds: Int = sessionsQueue.sync {
+                guard let session = earlyMonitoringSessions[recordingPath] else { return 0 }
+                let oldestTimestamp = session.clipboardChanges
+                    .filter { !session.ignoredClipboardChangeCounts.contains($0.changeCount) }
+                    .map(\.timestamp)
+                    .min() ?? session.startTime
+                return Int(max(0, Date().timeIntervalSince(oldestTimestamp)) * 1_000)
+            }
+            logDebug(
+                "[ClipboardMonitor] Built clipboard context snapshot from \(candidates.count) candidate(s); " +
+                "oldest eligible session activity age: \(contextAgeMilliseconds)ms; root: \(recordingPath)"
             )
         }
 
