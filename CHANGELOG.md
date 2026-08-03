@@ -10,6 +10,7 @@
 ### Fixed
 * Fixed stale `{{clipboardContext}}` stacks leaking into later dictations when a Superwhisper LLM request failed or never produced `llmResult`.
 * Recovery now clears the targeted session-level clipboard history and pre-recording stack—not only global clipboard history—while preserving the user's current clipboard instead of restoring an obsolete snapshot.
+* Fixed an occasional issue where content copied during a dictation—especially a repeat copy of the same item—could be missing from `{{clipboardContext}}`. Clipboard capture is now more reliable while continuing to exclude Superwhisper's own clipboard activity and duplicated transcription results.
 
 ---
 ## [v2.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.1) - 2026/07/20

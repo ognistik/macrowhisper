@@ -33,6 +33,31 @@ struct SessionClipboardObservationDecision {
     let shouldCountAsRecentActivity: Bool
 }
 
+enum ClipboardObservationMergeDecision: Equatable {
+    case append
+    case keepExisting
+    case upgradeMissingContent
+}
+
+/// Reconciles multiple samples of the same pasteboard operation.
+///
+/// A pasteboard provider can increment `changeCount` before its string payload is
+/// available. If another monitor resolves the payload moments later, that more
+/// complete sample should repair the existing observation without creating a
+/// second clipboard event. Separate user copy operations still have different
+/// change counts and therefore continue to be captured independently.
+func clipboardObservationMergeDecision(
+    hasExistingObservation: Bool,
+    existingContent: String?,
+    incomingContent: String?
+) -> ClipboardObservationMergeDecision {
+    guard hasExistingObservation else { return .append }
+    if existingContent == nil, incomingContent != nil {
+        return .upgradeMissingContent
+    }
+    return .keepExisting
+}
+
 struct ClipboardContextRepresentations {
     let single: String
     let stacked: String
@@ -353,6 +378,52 @@ class ClipboardMonitor {
         let changeCount: Int  // NSPasteboard changeCount when this change was detected
         let frontAppName: String?  // Name of the frontmost app that made this change
         let frontAppBundleId: String?  // Bundle ID of the frontmost app that made this change
+    }
+
+    @discardableResult
+    private func mergeClipboardChange(
+        _ incoming: ClipboardChange,
+        into session: inout EarlyMonitoringSession
+    ) -> ClipboardObservationMergeDecision {
+        let existingIndex = session.clipboardChanges.firstIndex {
+            $0.changeCount == incoming.changeCount
+        }
+        let existing = existingIndex.map { session.clipboardChanges[$0] }
+        let decision = clipboardObservationMergeDecision(
+            hasExistingObservation: existing != nil,
+            existingContent: existing?.content,
+            incomingContent: incoming.content
+        )
+
+        switch decision {
+        case .append:
+            session.clipboardChanges.append(incoming)
+            if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
+                let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
+                session.clipboardChanges.removeFirst(excessCount)
+                logDebug("[ClipboardMonitor] Trimmed \(excessCount) old clipboard changes to stay within bounds")
+            }
+
+        case .upgradeMissingContent:
+            guard let existingIndex, let existing else { break }
+            session.clipboardChanges[existingIndex] = ClipboardChange(
+                content: incoming.content,
+                timestamp: existing.timestamp,
+                changeCount: existing.changeCount,
+                frontAppName: existing.frontAppName ?? incoming.frontAppName,
+                frontAppBundleId: existing.frontAppBundleId ?? incoming.frontAppBundleId
+            )
+
+        case .keepExisting:
+            break
+        }
+
+        session.lastSeenChangeCount = incoming.changeCount
+        session.lastObservedClipboardActivityAt = incoming.timestamp
+        if let incomingContent = incoming.content {
+            session.lastCapturedClipboardContent = incomingContent
+        }
+        return decision
     }
     
     init(logger: Logger, preRecordingBufferSeconds: TimeInterval = 5.0, clipboardIgnore: String = "") {
@@ -1046,6 +1117,10 @@ class ClipboardMonitor {
     ) -> ClipboardContextRepresentations {
         var candidates: [String] = []
         var preRecordingCount = 0
+        var sessionChangeCount = 0
+        var ignoredChangeCount = 0
+        var missingContentCount = 0
+        var resetExcludedCount = 0
 
         sessionsQueue.sync {
             guard let session = earlyMonitoringSessions[recordingPath] else { return }
@@ -1064,12 +1139,20 @@ class ClipboardMonitor {
             }
 
             for change in session.clipboardChanges {
-                guard !session.ignoredClipboardChangeCounts.contains(change.changeCount),
-                      shouldIncludeClipboardChange(
-                          timestamp: change.timestamp,
-                          resetAt: session.clipboardContextResetAt
-                      ),
-                      let content = change.content else {
+                sessionChangeCount += 1
+                if session.ignoredClipboardChangeCounts.contains(change.changeCount) {
+                    ignoredChangeCount += 1
+                    continue
+                }
+                guard shouldIncludeClipboardChange(
+                    timestamp: change.timestamp,
+                    resetAt: session.clipboardContextResetAt
+                ) else {
+                    resetExcludedCount += 1
+                    continue
+                }
+                guard let content = change.content else {
+                    missingContentCount += 1
                     continue
                 }
                 candidates.append(content)
@@ -1088,7 +1171,10 @@ class ClipboardMonitor {
         if representations.single.isEmpty {
             logNoContentIfNeeded(
                 "session_no_content",
-                "[ClipboardMonitor] No eligible clipboard content found after filtering"
+                "[ClipboardMonitor] No eligible clipboard content found after filtering " +
+                "(sessionChanges: \(sessionChangeCount), ignored: \(ignoredChangeCount), " +
+                "missingContent: \(missingContentCount), resetExcluded: \(resetExcludedCount), " +
+                "preRecording: \(preRecordingCount))"
             )
         }
         if !candidates.isEmpty {
@@ -1520,10 +1606,12 @@ class ClipboardMonitor {
                     frontAppBundleId: bundleId.isEmpty ? nil : bundleId
                 )
                 
-                // Always track the change, but only log if we're actively executing an action
+                // Always track the change, but only log routine captures while an action is executing.
+                // Multiple samplers can observe the same changeCount; merge them idempotently so a
+                // later non-nil payload repairs an incomplete first sample without creating a duplicate.
                 sessionsQueue.async(flags: .barrier) { [weak self] in
                     guard let self = self,
-                          let session = self.earlyMonitoringSessions[recordingPath],
+                          var session = self.earlyMonitoringSessions[recordingPath],
                           session.isActive,
                           shouldIncludeClipboardChange(
                               timestamp: change.timestamp,
@@ -1531,24 +1619,16 @@ class ClipboardMonitor {
                           ) else {
                         return
                     }
-                    
-                    // Always append the change for restoration logic, with bounds checking
-                    if var session = self.earlyMonitoringSessions[recordingPath] {
-                        session.clipboardChanges.append(change)
-                        
-                        // Prevent unbounded growth by removing oldest entries if we exceed the limit
-                        if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
-                            let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
-                            session.clipboardChanges.removeFirst(excessCount)
-                            logDebug("[ClipboardMonitor] Trimmed \(excessCount) old clipboard changes to stay within bounds")
-                        }
-                        
-                        session.lastSeenChangeCount = currentChangeCount
-                        session.lastObservedClipboardActivityAt = now
-                        session.lastCapturedClipboardContent = currentClipboard
-                        self.earlyMonitoringSessions[recordingPath] = session
+
+                    let mergeDecision = self.mergeClipboardChange(change, into: &session)
+                    self.earlyMonitoringSessions[recordingPath] = session
+                    if mergeDecision == .upgradeMissingContent {
+                        logDebug(
+                            "[ClipboardMonitor] Session monitoring upgraded missing clipboard content " +
+                            "for changeCount \(currentChangeCount)"
+                        )
                     }
-                    
+
                     // Only log if we're currently executing an action
                     if session.isExecutingAction {
                         logDebug("[ClipboardMonitor] Detected clipboard change during action execution (changeCount: \(currentChangeCount))")
@@ -2363,7 +2443,9 @@ class ClipboardMonitor {
     }
 
     private func mirrorGlobalClipboardChangeIntoMostRecentActiveSession(_ change: ClipboardChange) {
-        sessionsQueue.async(flags: .barrier) { [weak self] in
+        // Commit accepted global observations before returning to global cleanup. This makes
+        // the active-session copy durable even when its own faster poll initially saw nil data.
+        sessionsQueue.sync(flags: .barrier) { [weak self] in
             guard let self else { return }
 
             guard let target = self.earlyMonitoringSessions
@@ -2388,26 +2470,19 @@ class ClipboardMonitor {
                 return
             }
 
-            if session.clipboardChanges.contains(where: { $0.changeCount == change.changeCount }) {
-                if session.lastSeenChangeCount != change.changeCount {
-                    session.lastSeenChangeCount = change.changeCount
-                    self.earlyMonitoringSessions[recordingPath] = session
-                }
-                return
-            }
-
-            session.clipboardChanges.append(change)
-            if session.clipboardChanges.count > MAX_SESSION_CLIPBOARD_CHANGES {
-                let excessCount = session.clipboardChanges.count - MAX_SESSION_CLIPBOARD_CHANGES
-                session.clipboardChanges.removeFirst(excessCount)
-                logDebug("[ClipboardMonitor] Trimmed \(excessCount) old clipboard changes to stay within bounds")
-            }
-
-            session.lastSeenChangeCount = change.changeCount
-            session.lastCapturedClipboardContent = change.content
-            session.lastObservedClipboardActivityAt = change.timestamp
+            let mergeDecision = self.mergeClipboardChange(change, into: &session)
             self.earlyMonitoringSessions[recordingPath] = session
-            logDebug("[ClipboardMonitor] Mirrored global clipboard change into active session (changeCount: \(change.changeCount))")
+            switch mergeDecision {
+            case .append:
+                logDebug("[ClipboardMonitor] Mirrored global clipboard change into active session (changeCount: \(change.changeCount))")
+            case .upgradeMissingContent:
+                logDebug(
+                    "[ClipboardMonitor] Global monitoring upgraded missing active-session clipboard content " +
+                    "(changeCount: \(change.changeCount))"
+                )
+            case .keepExisting:
+                break
+            }
         }
     }
     

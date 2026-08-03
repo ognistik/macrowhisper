@@ -17,6 +17,34 @@ private func assertDecision(
 }
 
 private func runClipboardTransientActivityRegressionTests() {
+    assertEqual(
+        clipboardObservationMergeDecision(
+            hasExistingObservation: true,
+            existingContent: nil,
+            incomingContent: "resolved payload"
+        ) == .upgradeMissingContent,
+        true,
+        "a later sample repairs missing content for the same pasteboard operation"
+    )
+    assertEqual(
+        clipboardObservationMergeDecision(
+            hasExistingObservation: true,
+            existingContent: "first complete sample",
+            incomingContent: "later different sample"
+        ) == .keepExisting,
+        true,
+        "a complete first sample is not overwritten by another sampler"
+    )
+    assertEqual(
+        clipboardObservationMergeDecision(
+            hasExistingObservation: false,
+            existingContent: nil,
+            incomingContent: "same user content"
+        ) == .append,
+        true,
+        "a separate copy operation remains eligible even when its content is identical"
+    )
+
     let filteredRepresentations = makeClipboardContextRepresentations(
         candidates: ["earlier", "superwhisper result"],
         swResult: "superwhisper result"
