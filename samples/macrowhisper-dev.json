@@ -2,11 +2,11 @@
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
   "configVersion" : 2,
   "defaults" : {
-    "actionDelay" : 0,
+    "actionDelay" : 0.02,
     "activeAction" : "autoPaste",
     "autoUpdateConfig" : true,
     "bypassModes" : "",
-    "clipboardBuffer" : 3,
+    "clipboardBuffer" : 5,
     "clipboardIgnore" : "Alter",
     "clipboardStacking" : true,
     "disableUpdateCheck" : false,
@@ -33,7 +33,7 @@
   },
   "inserts" : {
     "autoPaste" : {
-      "action" : "{{swResult::ensureSentence||\\bi\\b||I}}\n{{clipboardContext}}",
+      "action" : "{{swResult::ensureSentence||\\bi\\b||I}}\n{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
       "clipboardStacking" : null,
       "icon" : "•",
@@ -56,7 +56,7 @@
     },
     "insertContext" : {
       "action" : "{{swResult::ensureSentence}}{{selectedText||(?s)^(.*)$||\n\n<selected-text>\n$1\n</selected-text>}}{{clipboardContext||bear://x-callback-url/open-note\\?id\\=||||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
-      "actionDelay" : 0,
+      "actionDelay" : null,
       "clipboardStacking" : null,
       "icon" : null,
       "inputCondition" : null,
@@ -70,7 +70,7 @@
       "smartCasing" : null,
       "smartPunctuation" : null,
       "smartSpacing" : null,
-      "triggerApps" : "Alter|Codex",
+      "triggerApps" : "Alter|ChatGPT",
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerUrls" : "chatgpt.com",
@@ -100,7 +100,7 @@
     },
     "pasteChat" : {
       "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
-      "actionDelay" : 0,
+      "actionDelay" : null,
       "clipboardStacking" : null,
       "icon" : "⇄",
       "inputCondition" : null,
@@ -122,7 +122,7 @@
     },
     "pasteResult" : {
       "action" : "{{swResult::ensureSentence}}",
-      "actionDelay" : 0,
+      "actionDelay" : null,
       "clipboardStacking" : null,
       "icon" : "⏎",
       "inputCondition" : null,
@@ -144,7 +144,7 @@
     },
     "smartClip" : {
       "action" : "{{clipboardContext}}",
-      "actionDelay" : 0,
+      "actionDelay" : null,
       "clipboardStacking" : null,
       "icon" : "",
       "inputCondition" : null,
@@ -187,7 +187,7 @@
       "triggerVoice" : null
     },
     "titleCase" : {
-      "action" : "{{swResult::titleCase||\\.$||}}",
+      "action" : "{{swResult::titleCase||\\.$||||(?i)title||}}",
       "actionDelay" : null,
       "clipboardStacking" : null,
       "icon" : null,
@@ -206,7 +206,7 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerUrls" : null,
-      "triggerVoice" : "title|titulo|título"
+      "triggerVoice" : "title|titulo|título|==title\\.?$=="
     }
   },
   "scriptsAS" : {

@@ -1,6 +1,6 @@
 # Macrowhisper User Guide
 
-Macrowhisper works with [Superwhisper](https://superwhisper.com/?via=robert). Superwhisper turns your voice into text. Macrowhisper decides what should happen next.
+Macrowhisper works with [Superwhisper](https://superwhisper.link/robert). Superwhisper turns your voice into text. Macrowhisper decides what should happen next.
 
 That "next step" can be as simple as pasting your text, or as advanced as opening a website, running a Shortcut, launching a shell command, or chaining several actions together.
 
