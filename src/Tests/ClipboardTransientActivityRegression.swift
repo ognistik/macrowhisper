@@ -110,104 +110,94 @@ private func runClipboardTransientActivityRegressionTests() {
     assertEqual(ignoredAppDecision.shouldCaptureInSessionHistory, false, "ignored-app clipboard activity stays uncaptured")
     assertEqual(ignoredAppDecision.shouldCountAsRecentActivity, false, "ignored-app clipboard activity does not trigger recent sync detection")
 
-    let firstReplayAt = Date(timeIntervalSince1970: 200)
-    let firstReplay = evaluateSessionStartClipboardReplay(
-        currentClipboard: "seed",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .outsideInputField,
-        hasAudioRecordingStarted: false,
-        observedAt: firstReplayAt,
-        firstReplayObservedAt: nil,
-        replayClusterWindow: 1.0
-    )
-    assertEqual(firstReplay.shouldIgnore, true, "outside-input-field sessions ignore the first matching replay")
-    assertDecision(firstReplay.decision, .ignoredInitialReplay, "the first matching replay is diagnosed explicitly")
-    assertEqual(firstReplay.matchesSessionStartClipboard, true, "the first replay reports a session-start clipboard match")
-    assertEqual(firstReplay.millisecondsSinceFirstReplay == 0, true, "the first replay starts the diagnostic clock at zero")
+    let folderDetectedAt = Date(timeIntervalSince1970: 200)
+    let startupGuardEndsAt = folderDetectedAt.addingTimeInterval(5)
 
-    let secondReplay = evaluateSessionStartClipboardReplay(
-        currentClipboard: "seed",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .outsideInputField,
-        hasAudioRecordingStarted: false,
-        observedAt: firstReplayAt.addingTimeInterval(0.25),
-        firstReplayObservedAt: firstReplayAt,
-        replayClusterWindow: 1.0
+    assertEqual(
+        isSameContentClipboardRewrite(currentClipboard: "seed", previousClipboard: "seed"),
+        true,
+        "a new pasteboard write with unchanged string content is classified as a rewrite"
     )
-    assertEqual(secondReplay.shouldIgnore, true, "a second matching replay inside the cluster window is ignored")
-    assertDecision(secondReplay.decision, .ignoredReplayCluster, "repeat replays are diagnosed as cluster members")
-    assertEqual(secondReplay.millisecondsSinceFirstReplay == 250, true, "repeat replay diagnostics include elapsed milliseconds")
+    assertEqual(
+        isSameContentClipboardRewrite(currentClipboard: "fresh", previousClipboard: "seed"),
+        false,
+        "different clipboard content is not classified as a rewrite"
+    )
+    assertEqual(
+        isSameContentClipboardRewrite(currentClipboard: nil, previousClipboard: "seed"),
+        false,
+        "missing clipboard content is not classified as a same-content rewrite"
+    )
 
-    let thirdReplay = evaluateSessionStartClipboardReplay(
-        currentClipboard: "seed",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .outsideInputField,
-        hasAudioRecordingStarted: false,
-        observedAt: firstReplayAt.addingTimeInterval(0.9),
-        firstReplayObservedAt: firstReplayAt,
-        replayClusterWindow: 1.0
+    let preFolderReplay = evaluateSessionStartClipboardReplay(
+        isSameContentRewrite: true,
+        sessionStartTime: folderDetectedAt,
+        guardEndsAt: startupGuardEndsAt,
+        observedAt: folderDetectedAt.addingTimeInterval(-2.2),
+        lookback: 3
     )
-    assertEqual(thirdReplay.shouldIgnore, true, "multiple matching replay writes remain ignored inside the bounded cluster")
+    assertEqual(preFolderReplay.shouldIgnore, true, "same-content replay 2.2 seconds before folder detection is ignored")
+    assertDecision(preFolderReplay.decision, .ignoredStartupReplay, "pre-folder replay is diagnosed explicitly")
+    assertEqual(preFolderReplay.matchesPreviousClipboard, true, "startup replay reports a previous-content match")
+    assertEqual(preFolderReplay.millisecondsFromSessionStart == -2200, true, "pre-folder diagnostics preserve signed timing")
+
+    let tooEarlyReplay = evaluateSessionStartClipboardReplay(
+        isSameContentRewrite: true,
+        sessionStartTime: folderDetectedAt,
+        guardEndsAt: startupGuardEndsAt,
+        observedAt: folderDetectedAt.addingTimeInterval(-3.01),
+        lookback: 3
+    )
+    assertEqual(tooEarlyReplay.shouldIgnore, false, "same-content copy before the three-second lookback remains eligible")
+    assertDecision(tooEarlyReplay.decision, .capturedBeforeWindow, "too-early copies have a distinct diagnostic decision")
+
+    let liveStartupReplay = evaluateSessionStartClipboardReplay(
+        isSameContentRewrite: true,
+        sessionStartTime: folderDetectedAt,
+        guardEndsAt: startupGuardEndsAt,
+        observedAt: folderDetectedAt.addingTimeInterval(0.074),
+        lookback: 3
+    )
+    assertEqual(liveStartupReplay.shouldIgnore, true, "captured 74ms post-folder Superwhisper replay is ignored")
+
+    let lateStartupReplay = evaluateSessionStartClipboardReplay(
+        isSameContentRewrite: true,
+        sessionStartTime: folderDetectedAt,
+        guardEndsAt: startupGuardEndsAt,
+        observedAt: folderDetectedAt.addingTimeInterval(4.999),
+        lookback: 3
+    )
+    assertEqual(lateStartupReplay.shouldIgnore, true, "same-content replay remains ignored through the five-second forward window")
 
     let expiredReplay = evaluateSessionStartClipboardReplay(
-        currentClipboard: "seed",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .outsideInputField,
-        hasAudioRecordingStarted: false,
-        observedAt: firstReplayAt.addingTimeInterval(1.01),
-        firstReplayObservedAt: firstReplayAt,
-        replayClusterWindow: 1.0
+        isSameContentRewrite: true,
+        sessionStartTime: folderDetectedAt,
+        guardEndsAt: startupGuardEndsAt,
+        observedAt: folderDetectedAt.addingTimeInterval(5.001),
+        lookback: 3
     )
-    assertEqual(expiredReplay.shouldIgnore, false, "matching clipboard content is captured after the replay cluster expires")
-    assertDecision(expiredReplay.decision, .capturedReplayClusterExpired, "expired matching content has a distinct diagnostic decision")
+    assertEqual(expiredReplay.shouldIgnore, false, "matching clipboard content is captured after the startup window expires")
+    assertDecision(expiredReplay.decision, .capturedAfterWindow, "expired matching content has a distinct diagnostic decision")
 
     let differentContent = evaluateSessionStartClipboardReplay(
-        currentClipboard: "fresh",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .outsideInputField,
-        hasAudioRecordingStarted: false,
-        observedAt: firstReplayAt.addingTimeInterval(0.25),
-        firstReplayObservedAt: firstReplayAt,
-        replayClusterWindow: 1.0
+        isSameContentRewrite: false,
+        sessionStartTime: folderDetectedAt,
+        guardEndsAt: startupGuardEndsAt,
+        observedAt: folderDetectedAt.addingTimeInterval(0.25),
+        lookback: 3
     )
-    assertEqual(differentContent.shouldIgnore, false, "different clipboard content is captured during the replay cluster window")
-    assertDecision(differentContent.decision, .capturedDifferentContent, "different clipboard content is diagnosed without exposing it")
-    assertEqual(differentContent.matchesSessionStartClipboard, false, "different content reports no session-start match")
+    assertEqual(differentContent.shouldIgnore, false, "genuine content changes remain eligible during startup")
+    assertDecision(differentContent.decision, .capturedDifferentContent, "different content is diagnosed without exposing it")
 
-    let unknownInputField = evaluateSessionStartClipboardReplay(
-        currentClipboard: "seed",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .unknown,
-        hasAudioRecordingStarted: false,
-        observedAt: firstReplayAt,
-        firstReplayObservedAt: nil,
-        replayClusterWindow: 1.0
+    let actionStarted = evaluateSessionStartClipboardReplay(
+        isSameContentRewrite: true,
+        sessionStartTime: folderDetectedAt,
+        guardEndsAt: nil,
+        observedAt: folderDetectedAt.addingTimeInterval(0.25),
+        lookback: 3
     )
-    assertEqual(unknownInputField.shouldIgnore, true, "unknown input-field state still enables startup replay protection")
-
-    let inputFieldSession = evaluateSessionStartClipboardReplay(
-        currentClipboard: "seed",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .inInputField,
-        hasAudioRecordingStarted: false,
-        observedAt: firstReplayAt,
-        firstReplayObservedAt: nil,
-        replayClusterWindow: 1.0
-    )
-    assertEqual(inputFieldSession.shouldIgnore, false, "sessions that clearly start in an input field capture matching clipboard activity")
-    assertDecision(inputFieldSession.decision, .capturedInputFieldSession, "input-field capture has an explicit diagnostic decision")
-
-    let audioStarted = evaluateSessionStartClipboardReplay(
-        currentClipboard: "seed",
-        userOriginalClipboard: "seed",
-        sessionStartInputFieldState: .outsideInputField,
-        hasAudioRecordingStarted: true,
-        observedAt: firstReplayAt.addingTimeInterval(0.25),
-        firstReplayObservedAt: firstReplayAt,
-        replayClusterWindow: 1.0
-    )
-    assertEqual(audioStarted.shouldIgnore, false, "audio start ends replay-cluster suppression immediately")
-    assertDecision(audioStarted.decision, .capturedAudioStarted, "post-audio capture has an explicit diagnostic decision")
+    assertEqual(actionStarted.shouldIgnore, false, "action start removes startup replay suppression immediately")
+    assertDecision(actionStarted.decision, .capturedGuardEnded, "ended guard has an explicit diagnostic decision")
 
     assertEqual(
         executionGroupJoinDecision(
