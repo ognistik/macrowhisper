@@ -17,6 +17,140 @@ private func assertDecision(
 }
 
 private func runClipboardTransientActivityRegressionTests() {
+    let markerObservedAt = Date(timeIntervalSince1970: 50)
+    var markerSequence = IgnoredClipboardMarkerSequenceTracker()
+    assertEqual(
+        markerSequence.decision(
+            changeCount: 100,
+            containsIgnoredMarker: true,
+            observedAt: markerObservedAt
+        ) == .ignoreMarker,
+        true,
+        "a marked clipboard operation starts an ignored sequence"
+    )
+    assertEqual(
+        markerSequence.decision(
+            changeCount: 101,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.5)
+        ) == .ignoreFollowUp,
+        true,
+        "the immediate unmarked successor of a marked operation is ignored"
+    )
+    assertEqual(
+        markerSequence.decision(
+            changeCount: 101,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.6)
+        ) == .ignorePreviouslyClassified,
+        true,
+        "the global and session samplers share the ignored successor classification"
+    )
+    assertEqual(
+        markerSequence.decision(
+            changeCount: 102,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.7)
+        ) == .capture,
+        true,
+        "normal clipboard activity resumes after the single ignored successor"
+    )
+
+    var skippedCountSequence = IgnoredClipboardMarkerSequenceTracker()
+    _ = skippedCountSequence.decision(
+        changeCount: 200,
+        containsIgnoredMarker: true,
+        observedAt: markerObservedAt
+    )
+    assertEqual(
+        skippedCountSequence.decision(
+            changeCount: 202,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.2)
+        ) == .capture,
+        true,
+        "a count jump is not broadly suppressed as transient follow-up activity"
+    )
+
+    var expiredSequence = IgnoredClipboardMarkerSequenceTracker()
+    _ = expiredSequence.decision(
+        changeCount: 300,
+        containsIgnoredMarker: true,
+        observedAt: markerObservedAt
+    )
+    assertEqual(
+        expiredSequence.decision(
+            changeCount: 301,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(IGNORED_MARKER_FOLLOW_UP_WINDOW + 0.01)
+        ) == .capture,
+        true,
+        "a later genuine copy is not suppressed after the follow-up window expires"
+    )
+
+    var repeatedMarkerSequence = IgnoredClipboardMarkerSequenceTracker()
+    _ = repeatedMarkerSequence.decision(
+        changeCount: 400,
+        containsIgnoredMarker: true,
+        observedAt: markerObservedAt
+    )
+    _ = repeatedMarkerSequence.decision(
+        changeCount: 401,
+        containsIgnoredMarker: true,
+        observedAt: markerObservedAt.addingTimeInterval(0.1)
+    )
+    assertEqual(
+        repeatedMarkerSequence.decision(
+            changeCount: 402,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.2)
+        ) == .ignoreFollowUp,
+        true,
+        "a newer marker replaces the pending successor from an earlier marker"
+    )
+
+    var outOfOrderSequence = IgnoredClipboardMarkerSequenceTracker()
+    _ = outOfOrderSequence.decision(
+        changeCount: 500,
+        containsIgnoredMarker: true,
+        observedAt: markerObservedAt.addingTimeInterval(0.2)
+    )
+    assertEqual(
+        outOfOrderSequence.decision(
+            changeCount: 499,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.1)
+        ) == .capture,
+        true,
+        "an older queued sample does not consume a newer marker sequence"
+    )
+    assertEqual(
+        outOfOrderSequence.decision(
+            changeCount: 501,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.3)
+        ) == .ignoreFollowUp,
+        true,
+        "the marked successor remains ignored after an older queued sample"
+    )
+
+    var resetSequence = IgnoredClipboardMarkerSequenceTracker()
+    _ = resetSequence.decision(
+        changeCount: 600,
+        containsIgnoredMarker: true,
+        observedAt: markerObservedAt
+    )
+    resetSequence.reset()
+    assertEqual(
+        resetSequence.decision(
+            changeCount: 601,
+            containsIgnoredMarker: false,
+            observedAt: markerObservedAt.addingTimeInterval(0.1)
+        ) == .capture,
+        true,
+        "a fresh clipboard capture boundary clears pending marker suppression"
+    )
+
     assertEqual(
         clipboardObservationMergeDecision(
             hasExistingObservation: true,

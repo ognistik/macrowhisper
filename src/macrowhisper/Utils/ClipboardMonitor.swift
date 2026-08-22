@@ -28,6 +28,123 @@ private let CLIPBOARD_CLEANUP_GRACE: TimeInterval = 0.2
 private let STARTUP_CLIPBOARD_REPLAY_LOOKBACK: TimeInterval = 3.0
 private let STARTUP_CLIPBOARD_REPLAY_FORWARD_WINDOW: TimeInterval = 5.0
 private let MAX_EXECUTION_GROUP_JOIN_AGE: TimeInterval = 10.0
+let IGNORED_MARKER_FOLLOW_UP_WINDOW: TimeInterval = 1.5
+let IGNORED_MARKER_COUNT_RETENTION: TimeInterval = 5.0
+private let MAX_IGNORED_MARKER_CHANGE_COUNTS = 64
+
+enum IgnoredClipboardMarkerSequenceDecision: Equatable {
+    case capture
+    case ignoreMarker
+    case ignoreFollowUp
+    case ignorePreviouslyClassified
+
+    var shouldIgnore: Bool {
+        self != .capture
+    }
+}
+
+/// Correlates the short sequence of pasteboard writes produced by transient and
+/// concealed clipboard operations. Some providers first publish a marked item,
+/// then immediately redeclare the same payload (or restore the prior payload)
+/// without carrying the marker onto the second change count.
+struct IgnoredClipboardMarkerSequenceTracker {
+    private var pendingSuccessor: (changeCount: Int, markerObservedAt: Date)?
+    private var ignoredChangeCounts: [Int: Date] = [:]
+
+    mutating func reset() {
+        pendingSuccessor = nil
+        ignoredChangeCounts.removeAll()
+    }
+
+    private mutating func recordIgnoredChangeCount(_ changeCount: Int, observedAt: Date) {
+        ignoredChangeCounts[changeCount] = observedAt
+        guard ignoredChangeCounts.count > MAX_IGNORED_MARKER_CHANGE_COUNTS else { return }
+
+        let excessCount = ignoredChangeCounts.count - MAX_IGNORED_MARKER_CHANGE_COUNTS
+        let oldestChangeCounts = ignoredChangeCounts
+            .sorted { $0.value < $1.value }
+            .prefix(excessCount)
+            .map(\.key)
+        for oldChangeCount in oldestChangeCounts {
+            ignoredChangeCounts.removeValue(forKey: oldChangeCount)
+        }
+    }
+
+    mutating func decision(
+        changeCount: Int,
+        containsIgnoredMarker: Bool,
+        observedAt: Date,
+        followUpWindow: TimeInterval = IGNORED_MARKER_FOLLOW_UP_WINDOW,
+        ignoredCountRetention: TimeInterval = IGNORED_MARKER_COUNT_RETENTION
+    ) -> IgnoredClipboardMarkerSequenceDecision {
+        let boundedRetention = max(0, ignoredCountRetention)
+        ignoredChangeCounts = ignoredChangeCounts.filter {
+            observedAt.timeIntervalSince($0.value) <= boundedRetention
+        }
+
+        let boundedFollowUpWindow = max(0, followUpWindow)
+        if let pendingSuccessor,
+           observedAt.timeIntervalSince(pendingSuccessor.markerObservedAt) > boundedFollowUpWindow {
+            self.pendingSuccessor = nil
+        }
+
+        if ignoredChangeCounts[changeCount] != nil {
+            return .ignorePreviouslyClassified
+        }
+
+        if containsIgnoredMarker {
+            let successorCount = changeCount == Int.max ? Int.max : changeCount + 1
+            if pendingSuccessor?.markerObservedAt ?? .distantPast <= observedAt {
+                pendingSuccessor = (successorCount, observedAt)
+            }
+            recordIgnoredChangeCount(changeCount, observedAt: observedAt)
+            return .ignoreMarker
+        }
+
+        guard let pendingSuccessor else {
+            return .capture
+        }
+        guard observedAt >= pendingSuccessor.markerObservedAt,
+              changeCount >= pendingSuccessor.changeCount else {
+            return .capture
+        }
+        self.pendingSuccessor = nil
+        guard changeCount == pendingSuccessor.changeCount else {
+            return .capture
+        }
+
+        recordIgnoredChangeCount(changeCount, observedAt: observedAt)
+        return .ignoreFollowUp
+    }
+}
+
+private struct ClipboardPasteboardSnapshot {
+    let changeCount: Int
+    let content: String?
+    let types: [NSPasteboard.PasteboardType]
+}
+
+/// Reads a stable pasteboard snapshot so a queued observation is never classified
+/// with marker types belonging to a different change count.
+private func captureClipboardPasteboardSnapshot(
+    from pasteboard: NSPasteboard,
+    maximumAttempts: Int = 3
+) -> ClipboardPasteboardSnapshot? {
+    for _ in 0..<max(1, maximumAttempts) {
+        let changeCountBeforeRead = pasteboard.changeCount
+        let types = pasteboard.types ?? []
+        let content = pasteboard.string(forType: .string)
+        let changeCountAfterRead = pasteboard.changeCount
+        if changeCountBeforeRead == changeCountAfterRead {
+            return ClipboardPasteboardSnapshot(
+                changeCount: changeCountAfterRead,
+                content: content,
+                types: types
+            )
+        }
+    }
+    return nil
+}
 
 struct SessionClipboardObservationDecision {
     let shouldCaptureInSessionHistory: Bool
@@ -295,6 +412,8 @@ class ClipboardMonitor {
     private var globalClipboardHistory: [ClipboardChange] = []
     private let globalHistoryQueue = DispatchQueue(label: "ClipboardMonitor.globalHistory", attributes: .concurrent)
     private let cliSuppressionQueue = DispatchQueue(label: "ClipboardMonitor.cliSuppression")
+    private let ignoredMarkerSequenceQueue = DispatchQueue(label: "ClipboardMonitor.ignoredMarkerSequence")
+    private var ignoredMarkerSequenceTracker = IgnoredClipboardMarkerSequenceTracker()
     private var globalMonitoringTimer: Timer?
     private var isFirstGlobalCheck = true // Track if this is the first clipboard check
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
@@ -727,6 +846,7 @@ class ClipboardMonitor {
             lastSeenClipboardContent = currentClipboard
             lastSeenChangeCount = currentChangeCount
             isFirstGlobalCheck = false
+            resetIgnoredMarkerSequenceTracker()
         }
 
         logInfo(
@@ -761,8 +881,8 @@ class ClipboardMonitor {
             lastSeenClipboardContent = currentClipboard
             lastSeenChangeCount = currentChangeCount
             isFirstGlobalCheck = false
+            resetIgnoredMarkerSequenceTracker()
         }
-
         var resetRootPath: String?
         sessionsQueue.sync(flags: .barrier) {
             guard let recordingPath,
@@ -795,7 +915,6 @@ class ClipboardMonitor {
                 earlyMonitoringSessions[path] = session
             }
         }
-
         if let resetRootPath {
             logInfo("[ClipboardMonitor] Reset clipboard context capture for active recording session: \(resetRootPath)")
             return .activeSession(recordingPath: resetRootPath)
@@ -931,7 +1050,7 @@ class ClipboardMonitor {
                         return
                     }
                 }
-                
+
                 // FULL RESET: Clear ALL clipboard changes that might contain contaminated content from action execution
                 let clearedSessionChanges = session.clipboardChanges.count
                 session.clipboardChanges.removeAll()
@@ -967,6 +1086,7 @@ class ClipboardMonitor {
                     self.lastSeenClipboardContent = nil
                     self.lastSeenChangeCount = 0
                     self.isFirstGlobalCheck = true
+                    self.resetIgnoredMarkerSequenceTracker()
                     
                     // Log cleanup details on main queue
                     DispatchQueue.main.async {
@@ -1081,6 +1201,7 @@ class ClipboardMonitor {
                     self.lastSeenClipboardContent = nil
                     self.lastSeenChangeCount = 0
                     self.isFirstGlobalCheck = true
+                    self.resetIgnoredMarkerSequenceTracker()
                     if cleanedGlobalEntries > 0 {
                         DispatchQueue.main.async {
                             logDebug("[ClipboardMonitor] FULL RESET: Cleaned up \(cleanedGlobalEntries) global history entries after execution group finalization")
@@ -1548,8 +1669,18 @@ class ClipboardMonitor {
         }
         
         let pasteboard = NSPasteboard.general
-        let currentChangeCount = pasteboard.changeCount
-        let currentClipboard = pasteboard.string(forType: .string)
+        guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(from: pasteboard) else {
+            logNoContentIfNeeded(
+                "session_unstable_pasteboard_snapshot",
+                "[ClipboardMonitor] Session monitoring deferred an unstable pasteboard snapshot"
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+                self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
+            }
+            return
+        }
+        let currentChangeCount = pasteboardSnapshot.changeCount
+        let currentClipboard = pasteboardSnapshot.content
         
         // Use changeCount for more reliable change detection
         if currentChangeCount != sessionData.lastSeenChangeCount {
@@ -1568,6 +1699,30 @@ class ClipboardMonitor {
                     self.earlyMonitoringSessions[recordingPath] = session
                 }
                 logDebug("[ClipboardMonitor] Session monitoring skipped Macrowhisper copy-action clipboard write")
+                DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+                    self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
+                }
+                return
+            }
+
+            let ignoredMarkerType = self.ignoredMarkerType(in: pasteboardSnapshot.types)
+            let markerSequenceDecision = self.ignoredMarkerSequenceDecision(
+                changeCount: currentChangeCount,
+                containsIgnoredMarker: ignoredMarkerType != nil,
+                observedAt: now
+            )
+            if markerSequenceDecision.shouldIgnore {
+                self.noteRecentClipboardActivity(
+                    for: recordingPath,
+                    changeCount: currentChangeCount,
+                    timestamp: now
+                )
+                self.logIgnoredMarkerSequenceDecision(
+                    markerSequenceDecision,
+                    markerType: ignoredMarkerType,
+                    changeCount: currentChangeCount,
+                    source: "Session monitoring"
+                )
                 DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
                     self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
                 }
@@ -1599,10 +1754,9 @@ class ClipboardMonitor {
 
             // Check if the captured app should be ignored (using the app info we captured atomically)
             let shouldIgnoreAppFlag = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
-            let containsSensitiveMarkers = self.containsIgnoredMarkerType(pasteboard: pasteboard)
             let observationDecision = decideSessionClipboardObservation(
                 shouldIgnoreApp: shouldIgnoreAppFlag,
-                containsIgnoredMarker: containsSensitiveMarkers
+                containsIgnoredMarker: false
             )
 
             if observationDecision.shouldCaptureInSessionHistory {
@@ -1614,7 +1768,7 @@ class ClipboardMonitor {
                     changeCount: currentChangeCount,
                     frontAppName: appName.isEmpty ? nil : appName,
                     frontAppBundleId: bundleId.isEmpty ? nil : bundleId,
-                    pasteboardTypes: (pasteboard.types ?? []).map(\.rawValue).sorted(),
+                    pasteboardTypes: pasteboardSnapshot.types.map(\.rawValue).sorted(),
                     isSameContentRewrite: isSameContentRewrite
                 )
                 
@@ -1645,15 +1799,6 @@ class ClipboardMonitor {
                     if session.isExecutingAction {
                         logDebug("[ClipboardMonitor] Detected clipboard change during action execution (changeCount: \(currentChangeCount))")
                     }
-                }
-            } else if observationDecision.shouldCountAsRecentActivity {
-                self.noteRecentClipboardActivity(
-                    for: recordingPath,
-                    changeCount: currentChangeCount,
-                    timestamp: now
-                )
-                if containsSensitiveMarkers {
-                    logDebug("[ClipboardMonitor] Skipping clipboard capture due to sensitive marker types.")
                 }
             } else if shouldIgnoreAppFlag {
                 // RETROACTIVE CLEANUP: When an ignored app becomes frontmost and triggers clipboard changes,
@@ -2087,12 +2232,20 @@ class ClipboardMonitor {
     private func stopGlobalClipboardMonitoring() {
         globalMonitoringTimer?.invalidate()
         globalMonitoringTimer = nil
-        
+
+        var hasActiveSession = false
+        sessionsQueue.sync {
+            hasActiveSession = earlyMonitoringSessions.values.contains { $0.isActive }
+        }
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
-            self?.globalClipboardHistory.removeAll()
-            self?.lastSeenClipboardContent = nil
-            self?.lastSeenChangeCount = 0
-            self?.isFirstGlobalCheck = true
+            guard let self else { return }
+            self.globalClipboardHistory.removeAll()
+            self.lastSeenClipboardContent = nil
+            self.lastSeenChangeCount = 0
+            self.isFirstGlobalCheck = true
+            if !hasActiveSession {
+                self.resetIgnoredMarkerSequenceTracker()
+            }
         }
         
         logDebug("[ClipboardMonitor] Stopped global clipboard monitoring")
@@ -2177,26 +2330,87 @@ class ClipboardMonitor {
         return false
     }
 
-    /// Checks if the given pasteboard contains any known transient or concealed marker types.
-    /// - Parameter pasteboard: The NSPasteboard instance to check.
-    /// - Returns: True if any transient or concealed marker type is found, false otherwise.
-    private func containsIgnoredMarkerType(pasteboard: NSPasteboard) -> Bool {
-        guard let types = pasteboard.types else { return false }
+    /// Removes observations that may have been attributed before ignored activity became visible.
+    /// Must be called while holding the global-history barrier.
+    private func performGlobalRetroactiveCleanup(now: Date, appName: String) {
+        let retroactiveCleanupCutoff = now.addingTimeInterval(-RETROACTIVE_CLEANUP_WINDOW)
+        let recentChanges = globalClipboardHistory.filter { change in
+            change.timestamp >= retroactiveCleanupCutoff
+        }
+        guard !recentChanges.isEmpty else { return }
 
+        let beforeCount = globalClipboardHistory.count
+        globalClipboardHistory.removeAll { change in
+            change.timestamp >= retroactiveCleanupCutoff
+        }
+        let removedCount = beforeCount - globalClipboardHistory.count
+        guard removedCount > 0 else { return }
+
+        let removedAppNames = recentChanges.compactMap { $0.frontAppName }.joined(separator: ", ")
+        logDebug(
+            "[ClipboardMonitor] Retroactive cleanup: Removed \(removedCount) recent clipboard " +
+            "change(s) attributed to '\(removedAppNames)' (likely caused by '\(appName)' during window activation)"
+        )
+    }
+
+    private func ignoredMarkerType(
+        in types: [NSPasteboard.PasteboardType]
+    ) -> NSPasteboard.PasteboardType? {
         for markerType in TRANSIENT_MARKER_TYPES {
             if types.contains(markerType) {
-                logDebug("[ClipboardMonitor] Ignoring clipboard due to transient marker type: \(markerType.rawValue)")
-                return true
+                return markerType
             }
         }
 
         for markerType in CONCEALED_MARKER_TYPES {
             if types.contains(markerType) {
-                logDebug("[ClipboardMonitor] Ignoring clipboard due to concealed marker type: \(markerType.rawValue)")
-                return true
+                return markerType
             }
         }
-        return false
+        return nil
+    }
+
+    private func ignoredMarkerSequenceDecision(
+        changeCount: Int,
+        containsIgnoredMarker: Bool,
+        observedAt: Date
+    ) -> IgnoredClipboardMarkerSequenceDecision {
+        ignoredMarkerSequenceQueue.sync {
+            ignoredMarkerSequenceTracker.decision(
+                changeCount: changeCount,
+                containsIgnoredMarker: containsIgnoredMarker,
+                observedAt: observedAt
+            )
+        }
+    }
+
+    private func resetIgnoredMarkerSequenceTracker() {
+        ignoredMarkerSequenceQueue.sync {
+            ignoredMarkerSequenceTracker.reset()
+        }
+    }
+
+    private func logIgnoredMarkerSequenceDecision(
+        _ decision: IgnoredClipboardMarkerSequenceDecision,
+        markerType: NSPasteboard.PasteboardType?,
+        changeCount: Int,
+        source: String
+    ) {
+        switch decision {
+        case .capture, .ignorePreviouslyClassified:
+            return
+        case .ignoreMarker:
+            let markerName = markerType?.rawValue ?? "unknown"
+            logDebug(
+                "[ClipboardMonitor] \(source) ignoring marked clipboard operation " +
+                "(changeCount: \(changeCount), marker: \(markerName))"
+            )
+        case .ignoreFollowUp:
+            logDebug(
+                "[ClipboardMonitor] \(source) ignoring unmarked follow-up from a recent marked " +
+                "clipboard operation (changeCount: \(changeCount))"
+            )
+        }
     }
 
     private func noteRecentClipboardActivity(
@@ -2250,6 +2464,7 @@ class ClipboardMonitor {
                 self.lastSeenClipboardContent = nil
                 self.lastSeenChangeCount = 0
                 self.isFirstGlobalCheck = true
+                self.resetIgnoredMarkerSequenceTracker()
                 
                 // Log cleanup details on main queue
                 DispatchQueue.main.async {
@@ -2493,8 +2708,15 @@ class ClipboardMonitor {
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
     private func checkGlobalClipboardChange() {
         let pasteboard = NSPasteboard.general
-        let currentChangeCount = pasteboard.changeCount
-        let currentClipboard = pasteboard.string(forType: .string)
+        guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(from: pasteboard) else {
+            logNoContentIfNeeded(
+                "global_unstable_pasteboard_snapshot",
+                "[ClipboardMonitor] Global monitoring deferred an unstable pasteboard snapshot"
+            )
+            return
+        }
+        let currentChangeCount = pasteboardSnapshot.changeCount
+        let currentClipboard = pasteboardSnapshot.content
         let now = Date()
         
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
@@ -2520,16 +2742,32 @@ class ClipboardMonitor {
             
             // Use changeCount for more reliable change detection - track ANY clipboard operation
             if currentChangeCount != self.lastSeenChangeCount {
-                // Only resolve the front app once we've confirmed the clipboard actually changed.
-                // Global monitoring only needs app identity for attribution and ignore rules.
-                let frontApp = resolveFrontAppIdentity()
-                let appName = frontApp?.localizedName ?? ""
-                let bundleId = frontApp?.bundleIdentifier ?? ""
-
                 if self.shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount
                     logDebug("[ClipboardMonitor] Global monitoring skipped Macrowhisper copy-action clipboard write")
+                    return
+                }
+
+                let markerType = self.ignoredMarkerType(in: pasteboardSnapshot.types)
+                let markerSequenceDecision = self.ignoredMarkerSequenceDecision(
+                    changeCount: currentChangeCount,
+                    containsIgnoredMarker: markerType != nil,
+                    observedAt: now
+                )
+                if markerSequenceDecision.shouldIgnore {
+                    if markerType != nil {
+                        let markerFrontAppName = resolveFrontAppIdentity()?.localizedName ?? ""
+                        self.performGlobalRetroactiveCleanup(now: now, appName: markerFrontAppName)
+                    }
+                    self.lastSeenClipboardContent = currentClipboard
+                    self.lastSeenChangeCount = currentChangeCount
+                    self.logIgnoredMarkerSequenceDecision(
+                        markerSequenceDecision,
+                        markerType: markerType,
+                        changeCount: currentChangeCount,
+                        source: "Global monitoring"
+                    )
                     return
                 }
 
@@ -2548,39 +2786,16 @@ class ClipboardMonitor {
                     return
                 }
 
+                // Only resolve the front app once the operation is eligible for app attribution.
+                let frontApp = resolveFrontAppIdentity()
+                let appName = frontApp?.localizedName ?? ""
+                let bundleId = frontApp?.bundleIdentifier ?? ""
+
                 // Check if the captured app should be ignored (using the app info we captured atomically)
                 let shouldIgnoreAppFlag = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
-                let containsSensitiveMarkers = self.containsIgnoredMarkerType(pasteboard: pasteboard) // NEW LINE
                 
-                if shouldIgnoreAppFlag || containsSensitiveMarkers { // MODIFIED LINE
-                    if containsSensitiveMarkers { // NEW LOGIC
-                        logDebug("[ClipboardMonitor] Global monitoring skipping clipboard due to sensitive marker types.")
-                    }
-                    // RETROACTIVE CLEANUP: When an ignored app becomes frontmost and triggers clipboard changes,
-                    // check if there were recent clipboard changes from other apps that might have actually been
-                    // caused by this ignored app before it gained focus (e.g., during window activation).
-                    // This handles cases like Alter using clipboard before its window is fully activated.
-                    let retroactiveCleanupCutoff = now.addingTimeInterval(-RETROACTIVE_CLEANUP_WINDOW)
-                    
-                    // Look for recent changes that might have been incorrectly attributed to other apps
-                    let recentChanges = self.globalClipboardHistory.filter { change in
-                        change.timestamp >= retroactiveCleanupCutoff
-                    }
-                    
-                    if !recentChanges.isEmpty {
-                        // Remove these recent changes as they were likely caused by the ignored app
-                        // during its activation before it became frontmost
-                        let beforeCount = self.globalClipboardHistory.count
-                        self.globalClipboardHistory.removeAll { change in
-                            change.timestamp >= retroactiveCleanupCutoff
-                        }
-                        let removedCount = beforeCount - self.globalClipboardHistory.count
-                        
-                        if removedCount > 0 {
-                            let removedAppNames = recentChanges.compactMap { $0.frontAppName }.joined(separator: ", ")
-                            logDebug("[ClipboardMonitor] Retroactive cleanup: Removed \(removedCount) recent clipboard change(s) attributed to '\(removedAppNames)' (likely caused by '\(appName)' during window activation)")
-                        }
-                    }
+                if shouldIgnoreAppFlag {
+                    self.performGlobalRetroactiveCleanup(now: now, appName: appName)
                 } else {
                     // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
                     // Store the app info with the change so we know which app made it
@@ -2590,7 +2805,7 @@ class ClipboardMonitor {
                         changeCount: currentChangeCount,
                         frontAppName: appName.isEmpty ? nil : appName,
                         frontAppBundleId: bundleId.isEmpty ? nil : bundleId,
-                        pasteboardTypes: (pasteboard.types ?? []).map(\.rawValue).sorted(),
+                        pasteboardTypes: pasteboardSnapshot.types.map(\.rawValue).sorted(),
                         isSameContentRewrite: isSameContentRewrite
                     )
                     self.globalClipboardHistory.append(change)

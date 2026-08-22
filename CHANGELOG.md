@@ -12,6 +12,7 @@
 * Recovery now clears the targeted session-level clipboard history and pre-recording stack—not only global clipboard history—while preserving the user's current clipboard instead of restoring an obsolete snapshot.
 * Fixed an occasional issue where content copied during a dictation—especially a repeat copy of the same item—could be missing from `{{clipboardContext}}`. Clipboard capture is now more reliable while continuing to exclude Superwhisper's own clipboard activity and duplicated transcription results.
 * Fixed Superwhisper's same-content background clipboard writes occasionally entering `{{clipboardContext}}` at recording startup. Macrowhisper now preserves full pre-recording clipboard observations and filters only unchanged-content rewrites from three seconds before folder detection through five seconds afterward; genuine content changes remain eligible, and the guard ends immediately when the action executes or the session is cancelled.
+* Fixed transient or concealed clipboard operations entering `{{clipboardContext}}` when a provider immediately followed a marked pasteboard write with an unmarked rewrite. Global and session monitoring now share the same bounded marker-sequence classification and use coherent pasteboard snapshots while preserving normal clipboard capture behavior.
 
 ---
 ## [v2.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.1) - 2026/07/20
