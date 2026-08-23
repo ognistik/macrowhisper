@@ -17,6 +17,78 @@ private func assertDecision(
 }
 
 private func runClipboardTransientActivityRegressionTests() {
+    let diagnosticContent = "private clipboard payload"
+    let diagnosticMetadata = makeClipboardObservationDiagnosticMetadata(
+        changeCount: 703,
+        previousChangeCount: 700,
+        observedAt: Date(timeIntervalSince1970: 100),
+        previousObservedAt: Date(timeIntervalSince1970: 99.625),
+        content: diagnosticContent,
+        previousContent: diagnosticContent,
+        pasteboardTypes: ["public.utf8-plain-text", "org.example.marker"]
+    )
+    assertEqual(
+        diagnosticMetadata.changeCountDelta == 3,
+        true,
+        "clipboard diagnostics expose skipped change counts"
+    )
+    assertEqual(
+        diagnosticMetadata.elapsedMilliseconds == 375,
+        true,
+        "clipboard diagnostics expose observation timing"
+    )
+    assertEqual(
+        diagnosticMetadata.contentLength == diagnosticContent.count &&
+            diagnosticMetadata.matchesPreviousContent == true,
+        true,
+        "clipboard diagnostics describe content without needing its value"
+    )
+    assertEqual(
+        diagnosticMetadata.pasteboardTypes == ["org.example.marker", "public.utf8-plain-text"],
+        true,
+        "clipboard diagnostics sort complete pasteboard type names"
+    )
+
+    let diagnosticMessage = clipboardObservationDiagnosticLogMessage(
+        source: "global",
+        metadata: diagnosticMetadata
+    )
+    assertEqual(
+        diagnosticMessage.contains("delta=3 gap=true elapsedMs=375"),
+        true,
+        "clipboard diagnostic logs identify an unobserved change-count gap"
+    )
+    assertEqual(
+        diagnosticMessage.contains(diagnosticContent),
+        false,
+        "clipboard diagnostic logs never include raw clipboard content"
+    )
+    assertEqual(
+        diagnosticMetadata.contentToken == clipboardDiagnosticContentToken(diagnosticContent) &&
+            diagnosticMetadata.contentToken != clipboardDiagnosticContentToken("different payload"),
+        true,
+        "clipboard diagnostic tokens correlate content only within the running process"
+    )
+
+    let missingContentDiagnostic = makeClipboardObservationDiagnosticMetadata(
+        changeCount: 1,
+        previousChangeCount: nil,
+        observedAt: Date(timeIntervalSince1970: 1),
+        previousObservedAt: nil,
+        content: nil,
+        previousContent: nil,
+        pasteboardTypes: []
+    )
+    assertEqual(
+        missingContentDiagnostic.changeCountDelta == nil &&
+            missingContentDiagnostic.elapsedMilliseconds == nil &&
+            missingContentDiagnostic.contentLength == nil &&
+            missingContentDiagnostic.matchesPreviousContent == nil &&
+            missingContentDiagnostic.contentToken == "none",
+        true,
+        "clipboard diagnostics represent unavailable baseline and content safely"
+    )
+
     let markerObservedAt = Date(timeIntervalSince1970: 50)
     var markerSequence = IgnoredClipboardMarkerSequenceTracker()
     assertEqual(

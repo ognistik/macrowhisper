@@ -32,7 +32,7 @@ let IGNORED_MARKER_FOLLOW_UP_WINDOW: TimeInterval = 1.5
 let IGNORED_MARKER_COUNT_RETENTION: TimeInterval = 5.0
 private let MAX_IGNORED_MARKER_CHANGE_COUNTS = 64
 
-enum IgnoredClipboardMarkerSequenceDecision: Equatable {
+enum IgnoredClipboardMarkerSequenceDecision: String, Equatable {
     case capture
     case ignoreMarker
     case ignoreFollowUp
@@ -124,25 +124,113 @@ private struct ClipboardPasteboardSnapshot {
     let types: [NSPasteboard.PasteboardType]
 }
 
+struct ClipboardObservationDiagnosticMetadata: Equatable {
+    let changeCount: Int
+    let previousChangeCount: Int?
+    let changeCountDelta: Int?
+    let elapsedMilliseconds: Int?
+    let contentLength: Int?
+    let contentToken: String
+    let matchesPreviousContent: Bool?
+    let pasteboardTypes: [String]
+}
+
+/// Creates a process-local correlation token so logs can connect repeated
+/// clipboard payloads without recording the clipboard text itself.
+func clipboardDiagnosticContentToken(_ content: String?) -> String {
+    guard let content else { return "none" }
+    var hasher = Hasher()
+    hasher.combine(content)
+    return String(UInt(bitPattern: hasher.finalize()), radix: 16)
+}
+
+func makeClipboardObservationDiagnosticMetadata(
+    changeCount: Int,
+    previousChangeCount: Int?,
+    observedAt: Date,
+    previousObservedAt: Date?,
+    content: String?,
+    previousContent: String?,
+    pasteboardTypes: [String]
+) -> ClipboardObservationDiagnosticMetadata {
+    let changeCountDelta = previousChangeCount.flatMap { previousCount -> Int? in
+        let subtraction = changeCount.subtractingReportingOverflow(previousCount)
+        return subtraction.overflow ? nil : subtraction.partialValue
+    }
+    let elapsedMilliseconds = previousObservedAt.map {
+        Int((observedAt.timeIntervalSince($0) * 1_000).rounded())
+    }
+    let matchesPreviousContent = content.flatMap { currentContent in
+        previousContent.map { currentContent == $0 }
+    }
+
+    return ClipboardObservationDiagnosticMetadata(
+        changeCount: changeCount,
+        previousChangeCount: previousChangeCount,
+        changeCountDelta: changeCountDelta,
+        elapsedMilliseconds: elapsedMilliseconds,
+        contentLength: content?.count,
+        contentToken: clipboardDiagnosticContentToken(content),
+        matchesPreviousContent: matchesPreviousContent,
+        pasteboardTypes: pasteboardTypes.sorted()
+    )
+}
+
+func clipboardObservationDiagnosticLogMessage(
+    source: String,
+    metadata: ClipboardObservationDiagnosticMetadata
+) -> String {
+    let previousChangeCount = metadata.previousChangeCount.map(String.init) ?? "none"
+    let changeCountDelta = metadata.changeCountDelta.map(String.init) ?? "unknown"
+    let elapsedMilliseconds = metadata.elapsedMilliseconds.map(String.init) ?? "unknown"
+    let contentLength = metadata.contentLength.map(String.init) ?? "none"
+    let matchesPreviousContent = metadata.matchesPreviousContent.map(String.init) ?? "unknown"
+    let hasUnobservedChanges = metadata.changeCountDelta.map { $0 > 1 } ?? false
+
+    return "[ClipboardMonitor] Clipboard diagnostic source=\(source) " +
+        "changeCount=\(metadata.changeCount) previousChangeCount=\(previousChangeCount) " +
+        "delta=\(changeCountDelta) gap=\(hasUnobservedChanges) elapsedMs=\(elapsedMilliseconds) " +
+        "contentLength=\(contentLength) contentToken=\(metadata.contentToken) " +
+        "matchesPreviousContent=\(matchesPreviousContent) types=\(metadata.pasteboardTypes)"
+}
+
 /// Reads a stable pasteboard snapshot so a queued observation is never classified
 /// with marker types belonging to a different change count.
 private func captureClipboardPasteboardSnapshot(
     from pasteboard: NSPasteboard,
+    source: String,
     maximumAttempts: Int = 3
 ) -> ClipboardPasteboardSnapshot? {
-    for _ in 0..<max(1, maximumAttempts) {
+    let attemptCount = max(1, maximumAttempts)
+    var unstableAttempts: [String] = []
+    for attempt in 1...attemptCount {
         let changeCountBeforeRead = pasteboard.changeCount
         let types = pasteboard.types ?? []
         let content = pasteboard.string(forType: .string)
         let changeCountAfterRead = pasteboard.changeCount
         if changeCountBeforeRead == changeCountAfterRead {
+            if !unstableAttempts.isEmpty {
+                logDebug(
+                    "[ClipboardMonitor] Clipboard diagnostic source=\(source) snapshot=recovered " +
+                    "attempt=\(attempt) priorAttempts=\(unstableAttempts) " +
+                    "stableChangeCount=\(changeCountAfterRead) types=\(types.map(\.rawValue).sorted())"
+                )
+            }
             return ClipboardPasteboardSnapshot(
                 changeCount: changeCountAfterRead,
                 content: content,
                 types: types
             )
         }
+        unstableAttempts.append(
+            "attempt=\(attempt),before=\(changeCountBeforeRead),after=\(changeCountAfterRead)," +
+            "types=\(types.map(\.rawValue).sorted())"
+        )
     }
+    logDebug(
+        "[ClipboardMonitor] Clipboard diagnostic source=\(source) snapshot=unstable " +
+        "attempts=\(unstableAttempts)"
+    )
     return nil
 }
 
@@ -418,6 +506,7 @@ class ClipboardMonitor {
     private var isFirstGlobalCheck = true // Track if this is the first clipboard check
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
     private var lastSeenChangeCount: Int = 0 // Track NSPasteboard changeCount for more reliable detection
+    private var lastSeenClipboardChangeObservedAt: Date? // Diagnostic timing for the previous global change
     private var clipboardContextResetAt: Date? = nil
     private var suppressedCliClipboardContent: String?
     private var suppressedCliClipboardUntil: Date = .distantPast
@@ -433,6 +522,26 @@ class ClipboardMonitor {
         if shouldEmitRateLimitedLog(key: "ClipboardMonitor.\(key)", cooldown: 3.0) {
             logDebug(message)
         }
+    }
+
+    private func logClipboardObservationDiagnostic(
+        source: String,
+        snapshot: ClipboardPasteboardSnapshot,
+        observedAt: Date,
+        previousChangeCount: Int?,
+        previousObservedAt: Date?,
+        previousContent: String?
+    ) {
+        let metadata = makeClipboardObservationDiagnosticMetadata(
+            changeCount: snapshot.changeCount,
+            previousChangeCount: previousChangeCount,
+            observedAt: observedAt,
+            previousObservedAt: previousObservedAt,
+            content: snapshot.content,
+            previousContent: previousContent,
+            pasteboardTypes: snapshot.types.map(\.rawValue)
+        )
+        logDebug(clipboardObservationDiagnosticLogMessage(source: source, metadata: metadata))
     }
     
     private struct EarlyMonitoringSession {
@@ -455,6 +564,7 @@ class ClipboardMonitor {
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
         var ignoredClipboardChangeCounts: Set<Int> = []
         var lastObservedClipboardActivityAt: Date? = nil
+        var lastDiagnosticClipboardChangeObservedAt: Date? = nil
         var clipboardContextResetAt: Date? = nil
     }
 
@@ -845,6 +955,7 @@ class ClipboardMonitor {
             clipboardContextResetAt = resetAt
             lastSeenClipboardContent = currentClipboard
             lastSeenChangeCount = currentChangeCount
+            lastSeenClipboardChangeObservedAt = resetAt
             isFirstGlobalCheck = false
             resetIgnoredMarkerSequenceTracker()
         }
@@ -880,6 +991,7 @@ class ClipboardMonitor {
             clipboardContextResetAt = resetAt
             lastSeenClipboardContent = currentClipboard
             lastSeenChangeCount = currentChangeCount
+            lastSeenClipboardChangeObservedAt = resetAt
             isFirstGlobalCheck = false
             resetIgnoredMarkerSequenceTracker()
         }
@@ -911,6 +1023,7 @@ class ClipboardMonitor {
                 session.lastSeenChangeCount = currentChangeCount
                 session.lastCapturedClipboardContent = currentClipboard
                 session.lastObservedClipboardActivityAt = nil
+                session.lastDiagnosticClipboardChangeObservedAt = nil
                 session.clipboardContextResetAt = resetAt
                 earlyMonitoringSessions[path] = session
             }
@@ -1085,6 +1198,7 @@ class ClipboardMonitor {
                     // Reset the last seen content to prevent immediate re-capture of restored content
                     self.lastSeenClipboardContent = nil
                     self.lastSeenChangeCount = 0
+                    self.lastSeenClipboardChangeObservedAt = nil
                     self.isFirstGlobalCheck = true
                     self.resetIgnoredMarkerSequenceTracker()
                     
@@ -1200,6 +1314,7 @@ class ClipboardMonitor {
                     self.globalClipboardHistory.removeAll()
                     self.lastSeenClipboardContent = nil
                     self.lastSeenChangeCount = 0
+                    self.lastSeenClipboardChangeObservedAt = nil
                     self.isFirstGlobalCheck = true
                     self.resetIgnoredMarkerSequenceTracker()
                     if cleanedGlobalEntries > 0 {
@@ -1641,8 +1756,9 @@ class ClipboardMonitor {
             isRootSession: Bool,
             isExecutingAction: Bool,
             lastSeenChangeCount: Int,
-            lastCapturedClipboardContent: String?
-        ) = (false, false, false, 0, nil)
+            lastCapturedClipboardContent: String?,
+            lastDiagnosticClipboardChangeObservedAt: Date?
+        ) = (false, false, false, 0, nil, nil)
         
         sessionsQueue.sync { [weak self] in
             guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
@@ -1653,6 +1769,7 @@ class ClipboardMonitor {
             sessionData.isExecutingAction = session.isExecutingAction
             sessionData.lastSeenChangeCount = session.lastSeenChangeCount
             sessionData.lastCapturedClipboardContent = session.lastCapturedClipboardContent
+            sessionData.lastDiagnosticClipboardChangeObservedAt = session.lastDiagnosticClipboardChangeObservedAt
         }
         
         // Exit silently if session is not active - session will be cleaned up naturally
@@ -1669,7 +1786,10 @@ class ClipboardMonitor {
         }
         
         let pasteboard = NSPasteboard.general
-        guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(from: pasteboard) else {
+        guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(
+            from: pasteboard,
+            source: "session"
+        ) else {
             logNoContentIfNeeded(
                 "session_unstable_pasteboard_snapshot",
                 "[ClipboardMonitor] Session monitoring deferred an unstable pasteboard snapshot"
@@ -1685,6 +1805,24 @@ class ClipboardMonitor {
         // Use changeCount for more reliable change detection
         if currentChangeCount != sessionData.lastSeenChangeCount {
             let now = Date()
+
+            logClipboardObservationDiagnostic(
+                source: "session",
+                snapshot: pasteboardSnapshot,
+                observedAt: now,
+                previousChangeCount: sessionData.lastSeenChangeCount,
+                previousObservedAt: sessionData.lastDiagnosticClipboardChangeObservedAt,
+                previousContent: sessionData.lastCapturedClipboardContent
+            )
+            sessionsQueue.async(flags: .barrier) { [weak self] in
+                guard let self,
+                      var session = self.earlyMonitoringSessions[recordingPath],
+                      session.isActive else {
+                    return
+                }
+                session.lastDiagnosticClipboardChangeObservedAt = now
+                self.earlyMonitoringSessions[recordingPath] = session
+            }
 
             if shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
                 sessionsQueue.async(flags: .barrier) { [weak self] in
@@ -1711,17 +1849,17 @@ class ClipboardMonitor {
                 containsIgnoredMarker: ignoredMarkerType != nil,
                 observedAt: now
             )
+            self.logMarkerSequenceDecision(
+                markerSequenceDecision,
+                markerType: ignoredMarkerType,
+                changeCount: currentChangeCount,
+                source: "Session monitoring"
+            )
             if markerSequenceDecision.shouldIgnore {
                 self.noteRecentClipboardActivity(
                     for: recordingPath,
                     changeCount: currentChangeCount,
                     timestamp: now
-                )
-                self.logIgnoredMarkerSequenceDecision(
-                    markerSequenceDecision,
-                    markerType: ignoredMarkerType,
-                    changeCount: currentChangeCount,
-                    source: "Session monitoring"
                 )
                 DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
                     self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
@@ -2214,6 +2352,7 @@ class ClipboardMonitor {
             self?.globalClipboardHistory = []
             self?.lastSeenClipboardContent = nil
             self?.lastSeenChangeCount = 0
+            self?.lastSeenClipboardChangeObservedAt = nil
             self?.isFirstGlobalCheck = true
         }
         
@@ -2242,6 +2381,7 @@ class ClipboardMonitor {
             self.globalClipboardHistory.removeAll()
             self.lastSeenClipboardContent = nil
             self.lastSeenChangeCount = 0
+            self.lastSeenClipboardChangeObservedAt = nil
             self.isFirstGlobalCheck = true
             if !hasActiveSession {
                 self.resetIgnoredMarkerSequenceTracker()
@@ -2390,25 +2530,34 @@ class ClipboardMonitor {
         }
     }
 
-    private func logIgnoredMarkerSequenceDecision(
+    private func logMarkerSequenceDecision(
         _ decision: IgnoredClipboardMarkerSequenceDecision,
         markerType: NSPasteboard.PasteboardType?,
         changeCount: Int,
         source: String
     ) {
         switch decision {
-        case .capture, .ignorePreviouslyClassified:
-            return
+        case .capture:
+            logDebug(
+                "[ClipboardMonitor] \(source) marker-sequence classification " +
+                "(changeCount: \(changeCount), decision: \(decision.rawValue), marker: none)"
+            )
+        case .ignorePreviouslyClassified:
+            let markerName = markerType?.rawValue ?? "none"
+            logDebug(
+                "[ClipboardMonitor] \(source) ignoring previously classified clipboard operation " +
+                "(changeCount: \(changeCount), decision: \(decision.rawValue), marker: \(markerName))"
+            )
         case .ignoreMarker:
             let markerName = markerType?.rawValue ?? "unknown"
             logDebug(
                 "[ClipboardMonitor] \(source) ignoring marked clipboard operation " +
-                "(changeCount: \(changeCount), marker: \(markerName))"
+                "(changeCount: \(changeCount), decision: \(decision.rawValue), marker: \(markerName))"
             )
         case .ignoreFollowUp:
             logDebug(
                 "[ClipboardMonitor] \(source) ignoring unmarked follow-up from a recent marked " +
-                "clipboard operation (changeCount: \(changeCount))"
+                "clipboard operation (changeCount: \(changeCount), decision: \(decision.rawValue))"
             )
         }
     }
@@ -2463,6 +2612,7 @@ class ClipboardMonitor {
                 // Reset the last seen content to prevent immediate re-capture of restored content
                 self.lastSeenClipboardContent = nil
                 self.lastSeenChangeCount = 0
+                self.lastSeenClipboardChangeObservedAt = nil
                 self.isFirstGlobalCheck = true
                 self.resetIgnoredMarkerSequenceTracker()
                 
@@ -2708,7 +2858,10 @@ class ClipboardMonitor {
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
     private func checkGlobalClipboardChange() {
         let pasteboard = NSPasteboard.general
-        guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(from: pasteboard) else {
+        guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(
+            from: pasteboard,
+            source: "global"
+        ) else {
             logNoContentIfNeeded(
                 "global_unstable_pasteboard_snapshot",
                 "[ClipboardMonitor] Global monitoring deferred an unstable pasteboard snapshot"
@@ -2733,15 +2886,34 @@ class ClipboardMonitor {
             
             // On first check, just record what's there without treating it as a "change"
             if self.isFirstGlobalCheck {
+                self.logClipboardObservationDiagnostic(
+                    source: "global-baseline",
+                    snapshot: pasteboardSnapshot,
+                    observedAt: now,
+                    previousChangeCount: nil,
+                    previousObservedAt: nil,
+                    previousContent: nil
+                )
                 self.isFirstGlobalCheck = false
                 self.lastSeenClipboardContent = currentClipboard
                 self.lastSeenChangeCount = currentChangeCount
+                self.lastSeenClipboardChangeObservedAt = now
                 logDebug("[ClipboardMonitor] Global monitoring initialized - recording baseline clipboard content (changeCount: \(currentChangeCount))")
                 return
             }
             
             // Use changeCount for more reliable change detection - track ANY clipboard operation
             if currentChangeCount != self.lastSeenChangeCount {
+                self.logClipboardObservationDiagnostic(
+                    source: "global",
+                    snapshot: pasteboardSnapshot,
+                    observedAt: now,
+                    previousChangeCount: self.lastSeenChangeCount,
+                    previousObservedAt: self.lastSeenClipboardChangeObservedAt,
+                    previousContent: self.lastSeenClipboardContent
+                )
+                self.lastSeenClipboardChangeObservedAt = now
+
                 if self.shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount
@@ -2755,6 +2927,12 @@ class ClipboardMonitor {
                     containsIgnoredMarker: markerType != nil,
                     observedAt: now
                 )
+                self.logMarkerSequenceDecision(
+                    markerSequenceDecision,
+                    markerType: markerType,
+                    changeCount: currentChangeCount,
+                    source: "Global monitoring"
+                )
                 if markerSequenceDecision.shouldIgnore {
                     if markerType != nil {
                         let markerFrontAppName = resolveFrontAppIdentity()?.localizedName ?? ""
@@ -2762,12 +2940,6 @@ class ClipboardMonitor {
                     }
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount
-                    self.logIgnoredMarkerSequenceDecision(
-                        markerSequenceDecision,
-                        markerType: markerType,
-                        changeCount: currentChangeCount,
-                        source: "Global monitoring"
-                    )
                     return
                 }
 
