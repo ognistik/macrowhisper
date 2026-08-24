@@ -223,6 +223,256 @@ private func runClipboardTransientActivityRegressionTests() {
         "a fresh clipboard capture boundary clears pending marker suppression"
     )
 
+    let inferredObservedAt = Date(timeIntervalSince1970: 75)
+    var inferredRestore = InferredTransientRestoreTracker()
+    assertEqual(
+        inferredRestore.decision(
+            changeCount: 703,
+            content: "temporary transcription",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt,
+            previousChangeCount: 700,
+            previousContent: "user clipboard"
+        ) == .captureCandidate(changeCount: 703),
+        true,
+        "a skipped-count content change remains captured while a restore is only possible"
+    )
+    assertEqual(
+        inferredRestore.decision(
+            changeCount: 704,
+            content: "user clipboard",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.5),
+            previousChangeCount: 703,
+            previousContent: "temporary transcription"
+        ) == .ignoreTransaction(candidateChangeCount: 703, restoreChangeCount: 704),
+        true,
+        "an exact prompt return to the baseline classifies the whole skipped transaction as transient"
+    )
+    assertEqual(
+        inferredRestore.decision(
+            changeCount: 703,
+            content: "temporary transcription",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.6),
+            previousChangeCount: 700,
+            previousContent: "user clipboard"
+        ) == .ignorePreviouslyClassified(candidateChangeCount: 703, restoreChangeCount: 704),
+        true,
+        "a delayed sampler cannot reinsert the temporary transcription"
+    )
+    assertEqual(
+        inferredRestore.isIgnored(changeCount: 704, observedAt: inferredObservedAt.addingTimeInterval(0.7)),
+        true,
+        "the restoring write remains excluded for delayed sampler work"
+    )
+
+    var normalSingleCopy = InferredTransientRestoreTracker()
+    assertEqual(
+        normalSingleCopy.decision(
+            changeCount: 801,
+            content: "normal copy",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt,
+            previousChangeCount: 800,
+            previousContent: "before"
+        ) == .capture,
+        true,
+        "an ordinary unmarked single clipboard write remains captured"
+    )
+
+    var noRestore = InferredTransientRestoreTracker()
+    _ = noRestore.decision(
+        changeCount: 903,
+        content: "first normal copy",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt,
+        previousChangeCount: 900,
+        previousContent: "before"
+    )
+    assertEqual(
+        noRestore.decision(
+            changeCount: 904,
+            content: "second normal copy",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.2),
+            previousChangeCount: 903,
+            previousContent: "first normal copy"
+        ) == .capture,
+        true,
+        "rapid non-restoring clipboard changes remain captured"
+    )
+
+    var expiredRestore = InferredTransientRestoreTracker()
+    _ = expiredRestore.decision(
+        changeCount: 1003,
+        content: "temporary",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt,
+        previousChangeCount: 1000,
+        previousContent: "baseline"
+    )
+    assertEqual(
+        expiredRestore.decision(
+            changeCount: 1004,
+            content: "baseline",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(INFERRED_TRANSIENT_RESTORE_WINDOW + 0.01),
+            previousChangeCount: 1003,
+            previousContent: "temporary"
+        ) == .capture,
+        true,
+        "a later recopy of the baseline remains captured after the restore window"
+    )
+
+    var nonAdjacentRestore = InferredTransientRestoreTracker()
+    _ = nonAdjacentRestore.decision(
+        changeCount: 1103,
+        content: "temporary",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt,
+        previousChangeCount: 1100,
+        previousContent: "baseline"
+    )
+    assertEqual(
+        nonAdjacentRestore.decision(
+            changeCount: 1105,
+            content: "baseline",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.2),
+            previousChangeCount: 1103,
+            previousContent: "temporary"
+        ) == .capture,
+        true,
+        "a non-adjacent return to baseline is not inferred as a transient restore"
+    )
+
+    var insufficientGap = InferredTransientRestoreTracker()
+    assertEqual(
+        insufficientGap.decision(
+            changeCount: 1202,
+            content: "possible temporary",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt,
+            previousChangeCount: 1200,
+            previousContent: "baseline"
+        ) == .capture,
+        true,
+        "a two-count gap is too small to infer hidden transient writes"
+    )
+
+    var markerBoundary = InferredTransientRestoreTracker()
+    assertEqual(
+        markerBoundary.decision(
+            changeCount: 1303,
+            content: "marked temporary",
+            containsIgnoredMarker: true,
+            observedAt: inferredObservedAt,
+            previousChangeCount: 1300,
+            previousContent: "baseline"
+        ) == .capture,
+        true,
+        "explicitly marked activity does not arm the missed-marker restore inference"
+    )
+    assertEqual(
+        markerBoundary.decision(
+            changeCount: 1304,
+            content: "baseline",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.2),
+            previousChangeCount: 1303,
+            previousContent: "marked temporary"
+        ) == .capture,
+        true,
+        "an explicit marker boundary cannot suppress a later unmarked observation through inference"
+    )
+
+    var cancelledCandidate = InferredTransientRestoreTracker()
+    _ = cancelledCandidate.decision(
+        changeCount: 1353,
+        content: "possible temporary",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt,
+        previousChangeCount: 1350,
+        previousContent: "baseline"
+    )
+    cancelledCandidate.cancelPendingCandidate(
+        boundaryChangeCount: 1353,
+        observedAt: inferredObservedAt.addingTimeInterval(0.1)
+    )
+    assertEqual(
+        cancelledCandidate.decision(
+            changeCount: 1354,
+            content: "baseline",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.2),
+            previousChangeCount: 1353,
+            previousContent: "possible temporary"
+        ) == .capture,
+        true,
+        "an ignored application or internal clipboard boundary cancels pending inference"
+    )
+
+    var olderBoundary = InferredTransientRestoreTracker()
+    _ = olderBoundary.decision(
+        changeCount: 1373,
+        content: "temporary",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt.addingTimeInterval(0.2),
+        previousChangeCount: 1370,
+        previousContent: "baseline"
+    )
+    olderBoundary.cancelPendingCandidate(
+        boundaryChangeCount: 1372,
+        observedAt: inferredObservedAt.addingTimeInterval(0.1)
+    )
+    assertEqual(
+        olderBoundary.decision(
+            changeCount: 1374,
+            content: "baseline",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.3),
+            previousChangeCount: 1373,
+            previousContent: "temporary"
+        ) == .ignoreTransaction(candidateChangeCount: 1373, restoreChangeCount: 1374),
+        true,
+        "an older ignored boundary does not cancel a newer restore candidate"
+    )
+
+    var inferredOutOfOrder = InferredTransientRestoreTracker()
+    _ = inferredOutOfOrder.decision(
+        changeCount: 1403,
+        content: "temporary",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt.addingTimeInterval(0.2),
+        previousChangeCount: 1400,
+        previousContent: "baseline"
+    )
+    assertEqual(
+        inferredOutOfOrder.decision(
+            changeCount: 1402,
+            content: "older queued content",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.1),
+            previousChangeCount: 1400,
+            previousContent: "baseline"
+        ) == .capture,
+        true,
+        "an older queued sample does not consume a newer restore candidate"
+    )
+    assertEqual(
+        inferredOutOfOrder.decision(
+            changeCount: 1404,
+            content: "baseline",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.3),
+            previousChangeCount: 1403,
+            previousContent: "temporary"
+        ) == .ignoreTransaction(candidateChangeCount: 1403, restoreChangeCount: 1404),
+        true,
+        "the restore candidate survives an older queued sampler observation"
+    )
+
     assertEqual(
         clipboardObservationMergeDecision(
             hasExistingObservation: true,

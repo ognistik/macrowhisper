@@ -31,6 +31,8 @@ private let MAX_EXECUTION_GROUP_JOIN_AGE: TimeInterval = 10.0
 let IGNORED_MARKER_FOLLOW_UP_WINDOW: TimeInterval = 1.5
 let IGNORED_MARKER_COUNT_RETENTION: TimeInterval = 5.0
 private let MAX_IGNORED_MARKER_CHANGE_COUNTS = 64
+let INFERRED_TRANSIENT_RESTORE_WINDOW: TimeInterval = 1.5
+let MIN_INFERRED_TRANSIENT_INITIAL_COUNT_DELTA = 3
 
 enum IgnoredClipboardMarkerSequenceDecision: String, Equatable {
     case capture
@@ -115,6 +117,161 @@ struct IgnoredClipboardMarkerSequenceTracker {
 
         recordIgnoredChangeCount(changeCount, observedAt: observedAt)
         return .ignoreFollowUp
+    }
+}
+
+enum InferredTransientRestoreDecision: Equatable {
+    case capture
+    case captureCandidate(changeCount: Int)
+    case ignoreTransaction(candidateChangeCount: Int, restoreChangeCount: Int)
+    case ignorePreviouslyClassified(candidateChangeCount: Int, restoreChangeCount: Int)
+
+    var shouldIgnore: Bool {
+        switch self {
+        case .ignoreTransaction, .ignorePreviouslyClassified:
+            return true
+        case .capture, .captureCandidate:
+            return false
+        }
+    }
+
+    var transactionChangeCounts: Set<Int> {
+        switch self {
+        case .ignoreTransaction(let candidateChangeCount, let restoreChangeCount),
+             .ignorePreviouslyClassified(let candidateChangeCount, let restoreChangeCount):
+            return [candidateChangeCount, restoreChangeCount]
+        case .capture, .captureCandidate:
+            return []
+        }
+    }
+}
+
+/// Recognizes a narrowly bounded clipboard transaction whose marked states were
+/// missed between polls: stable X, changed Y after at least two unseen writes,
+/// then a prompt return to X. The candidate Y remains capturable unless that
+/// exact restoration arrives.
+struct InferredTransientRestoreTracker {
+    private struct PendingCandidate {
+        let changeCount: Int
+        let baselineContent: String
+        let observedAt: Date
+    }
+
+    private struct IgnoredTransaction {
+        let candidateChangeCount: Int
+        let restoreChangeCount: Int
+        let classifiedAt: Date
+    }
+
+    private var pendingCandidate: PendingCandidate?
+    private var ignoredTransactionsByChangeCount: [Int: IgnoredTransaction] = [:]
+
+    mutating func reset() {
+        pendingCandidate = nil
+        ignoredTransactionsByChangeCount.removeAll()
+    }
+
+    mutating func cancelPendingCandidate(
+        boundaryChangeCount: Int,
+        observedAt: Date
+    ) {
+        guard let pendingCandidate,
+              boundaryChangeCount >= pendingCandidate.changeCount,
+              observedAt >= pendingCandidate.observedAt else {
+            return
+        }
+        self.pendingCandidate = nil
+    }
+
+    mutating func decision(
+        changeCount: Int,
+        content: String?,
+        containsIgnoredMarker: Bool,
+        observedAt: Date,
+        previousChangeCount: Int,
+        previousContent: String?,
+        restoreWindow: TimeInterval = INFERRED_TRANSIENT_RESTORE_WINDOW,
+        minimumInitialCountDelta: Int = MIN_INFERRED_TRANSIENT_INITIAL_COUNT_DELTA,
+        ignoredCountRetention: TimeInterval = IGNORED_MARKER_COUNT_RETENTION
+    ) -> InferredTransientRestoreDecision {
+        let boundedRetention = max(0, ignoredCountRetention)
+        ignoredTransactionsByChangeCount = ignoredTransactionsByChangeCount.filter {
+            observedAt.timeIntervalSince($0.value.classifiedAt) <= boundedRetention
+        }
+
+        if let ignoredTransaction = ignoredTransactionsByChangeCount[changeCount] {
+            return .ignorePreviouslyClassified(
+                candidateChangeCount: ignoredTransaction.candidateChangeCount,
+                restoreChangeCount: ignoredTransaction.restoreChangeCount
+            )
+        }
+
+        let boundedRestoreWindow = max(0, restoreWindow)
+        if let pendingCandidate {
+            if changeCount == pendingCandidate.changeCount {
+                return .captureCandidate(changeCount: changeCount)
+            }
+
+            // The global and session samplers can reach this shared tracker out of
+            // order. An older queued observation must not consume a newer candidate.
+            if changeCount < pendingCandidate.changeCount || observedAt < pendingCandidate.observedAt {
+                return .capture
+            }
+
+            let elapsed = observedAt.timeIntervalSince(pendingCandidate.observedAt)
+            let restoreDeltaResult = changeCount.subtractingReportingOverflow(pendingCandidate.changeCount)
+            let restoreDelta = restoreDeltaResult.overflow ? nil : restoreDeltaResult.partialValue
+            let isPromptRestore = elapsed >= 0 && elapsed <= boundedRestoreWindow
+            let isExactSuccessor = restoreDelta == 1
+            let restoresBaseline = content == pendingCandidate.baselineContent
+
+            self.pendingCandidate = nil
+            if isPromptRestore && isExactSuccessor && restoresBaseline {
+                let transaction = IgnoredTransaction(
+                    candidateChangeCount: pendingCandidate.changeCount,
+                    restoreChangeCount: changeCount,
+                    classifiedAt: observedAt
+                )
+                ignoredTransactionsByChangeCount[pendingCandidate.changeCount] = transaction
+                ignoredTransactionsByChangeCount[changeCount] = transaction
+                return .ignoreTransaction(
+                    candidateChangeCount: pendingCandidate.changeCount,
+                    restoreChangeCount: changeCount
+                )
+            }
+        }
+
+        guard !containsIgnoredMarker,
+              let content,
+              let previousContent,
+              content != previousContent else {
+            return .capture
+        }
+
+        let initialDeltaResult = changeCount.subtractingReportingOverflow(previousChangeCount)
+        guard !initialDeltaResult.overflow,
+              initialDeltaResult.partialValue >= max(2, minimumInitialCountDelta) else {
+            return .capture
+        }
+
+        pendingCandidate = PendingCandidate(
+            changeCount: changeCount,
+            baselineContent: previousContent,
+            observedAt: observedAt
+        )
+        return .captureCandidate(changeCount: changeCount)
+    }
+
+    mutating func isIgnored(
+        changeCount: Int,
+        observedAt: Date = Date(),
+        ignoredCountRetention: TimeInterval = IGNORED_MARKER_COUNT_RETENTION
+    ) -> Bool {
+        let boundedRetention = max(0, ignoredCountRetention)
+        ignoredTransactionsByChangeCount = ignoredTransactionsByChangeCount.filter {
+            observedAt.timeIntervalSince($0.value.classifiedAt) <= boundedRetention
+        }
+        return ignoredTransactionsByChangeCount[changeCount] != nil
     }
 }
 
@@ -502,6 +659,7 @@ class ClipboardMonitor {
     private let cliSuppressionQueue = DispatchQueue(label: "ClipboardMonitor.cliSuppression")
     private let ignoredMarkerSequenceQueue = DispatchQueue(label: "ClipboardMonitor.ignoredMarkerSequence")
     private var ignoredMarkerSequenceTracker = IgnoredClipboardMarkerSequenceTracker()
+    private var inferredTransientRestoreTracker = InferredTransientRestoreTracker()
     private var globalMonitoringTimer: Timer?
     private var isFirstGlobalCheck = true // Track if this is the first clipboard check
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
@@ -957,7 +1115,7 @@ class ClipboardMonitor {
             lastSeenChangeCount = currentChangeCount
             lastSeenClipboardChangeObservedAt = resetAt
             isFirstGlobalCheck = false
-            resetIgnoredMarkerSequenceTracker()
+            resetIgnoredClipboardSequenceTrackers()
         }
 
         logInfo(
@@ -993,7 +1151,7 @@ class ClipboardMonitor {
             lastSeenChangeCount = currentChangeCount
             lastSeenClipboardChangeObservedAt = resetAt
             isFirstGlobalCheck = false
-            resetIgnoredMarkerSequenceTracker()
+            resetIgnoredClipboardSequenceTrackers()
         }
         var resetRootPath: String?
         sessionsQueue.sync(flags: .barrier) {
@@ -1200,7 +1358,7 @@ class ClipboardMonitor {
                     self.lastSeenChangeCount = 0
                     self.lastSeenClipboardChangeObservedAt = nil
                     self.isFirstGlobalCheck = true
-                    self.resetIgnoredMarkerSequenceTracker()
+                    self.resetIgnoredClipboardSequenceTrackers()
                     
                     // Log cleanup details on main queue
                     DispatchQueue.main.async {
@@ -1316,7 +1474,7 @@ class ClipboardMonitor {
                     self.lastSeenChangeCount = 0
                     self.lastSeenClipboardChangeObservedAt = nil
                     self.isFirstGlobalCheck = true
-                    self.resetIgnoredMarkerSequenceTracker()
+                    self.resetIgnoredClipboardSequenceTrackers()
                     if cleanedGlobalEntries > 0 {
                         DispatchQueue.main.async {
                             logDebug("[ClipboardMonitor] FULL RESET: Cleaned up \(cleanedGlobalEntries) global history entries after execution group finalization")
@@ -1825,6 +1983,10 @@ class ClipboardMonitor {
             }
 
             if shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
+                self.cancelInferredTransientRestoreCandidate(
+                    boundaryChangeCount: currentChangeCount,
+                    observedAt: now
+                )
                 sessionsQueue.async(flags: .barrier) { [weak self] in
                     guard let self = self,
                           var session = self.earlyMonitoringSessions[recordingPath],
@@ -1856,6 +2018,10 @@ class ClipboardMonitor {
                 source: "Session monitoring"
             )
             if markerSequenceDecision.shouldIgnore {
+                self.cancelInferredTransientRestoreCandidate(
+                    boundaryChangeCount: currentChangeCount,
+                    observedAt: now
+                )
                 self.noteRecentClipboardActivity(
                     for: recordingPath,
                     changeCount: currentChangeCount,
@@ -1878,6 +2044,10 @@ class ClipboardMonitor {
                 changeCount: currentChangeCount,
                 observedAt: now
             ) {
+                self.cancelInferredTransientRestoreCandidate(
+                    boundaryChangeCount: currentChangeCount,
+                    observedAt: now
+                )
                 DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
                     self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
                 }
@@ -1898,6 +2068,36 @@ class ClipboardMonitor {
             )
 
             if observationDecision.shouldCaptureInSessionHistory {
+                let inferredRestoreDecision = self.inferredTransientRestoreDecision(
+                    changeCount: currentChangeCount,
+                    content: currentClipboard,
+                    containsIgnoredMarker: false,
+                    observedAt: now,
+                    previousChangeCount: sessionData.lastSeenChangeCount,
+                    previousContent: sessionData.lastCapturedClipboardContent
+                )
+                self.logInferredTransientRestoreDecision(
+                    inferredRestoreDecision,
+                    source: "Session monitoring"
+                )
+                if inferredRestoreDecision.shouldIgnore {
+                    let transactionChangeCounts = inferredRestoreDecision.transactionChangeCounts
+                    self.globalHistoryQueue.sync(flags: .barrier) {
+                        self.removeInferredTransientTransactionFromGlobalHistory(transactionChangeCounts)
+                    }
+                    self.excludeInferredTransientTransactionFromSessions(transactionChangeCounts)
+                    self.noteRecentClipboardActivity(
+                        for: recordingPath,
+                        changeCount: currentChangeCount,
+                        timestamp: now,
+                        lastCapturedClipboardContent: currentClipboard
+                    )
+                    DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+                        self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
+                    }
+                    return
+                }
+
                 // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
                 // Store the app info with the change so we know which app made it
                 let change = ClipboardChange(
@@ -1920,7 +2120,8 @@ class ClipboardMonitor {
                           shouldIncludeClipboardChange(
                               timestamp: change.timestamp,
                               resetAt: session.clipboardContextResetAt
-                          ) else {
+                          ),
+                          !self.isInferredTransientChangeCountIgnored(change.changeCount) else {
                         return
                     }
 
@@ -1939,6 +2140,10 @@ class ClipboardMonitor {
                     }
                 }
             } else if shouldIgnoreAppFlag {
+                self.cancelInferredTransientRestoreCandidate(
+                    boundaryChangeCount: currentChangeCount,
+                    observedAt: now
+                )
                 // RETROACTIVE CLEANUP: When an ignored app becomes frontmost and triggers clipboard changes,
                 // check if there were recent clipboard changes that might have actually been caused by this
                 // ignored app before it gained focus (e.g., during window activation).
@@ -2384,7 +2589,7 @@ class ClipboardMonitor {
             self.lastSeenClipboardChangeObservedAt = nil
             self.isFirstGlobalCheck = true
             if !hasActiveSession {
-                self.resetIgnoredMarkerSequenceTracker()
+                self.resetIgnoredClipboardSequenceTrackers()
             }
         }
         
@@ -2524,9 +2729,48 @@ class ClipboardMonitor {
         }
     }
 
-    private func resetIgnoredMarkerSequenceTracker() {
+    private func inferredTransientRestoreDecision(
+        changeCount: Int,
+        content: String?,
+        containsIgnoredMarker: Bool,
+        observedAt: Date,
+        previousChangeCount: Int,
+        previousContent: String?
+    ) -> InferredTransientRestoreDecision {
+        ignoredMarkerSequenceQueue.sync {
+            inferredTransientRestoreTracker.decision(
+                changeCount: changeCount,
+                content: content,
+                containsIgnoredMarker: containsIgnoredMarker,
+                observedAt: observedAt,
+                previousChangeCount: previousChangeCount,
+                previousContent: previousContent
+            )
+        }
+    }
+
+    private func isInferredTransientChangeCountIgnored(_ changeCount: Int) -> Bool {
+        ignoredMarkerSequenceQueue.sync {
+            inferredTransientRestoreTracker.isIgnored(changeCount: changeCount)
+        }
+    }
+
+    private func cancelInferredTransientRestoreCandidate(
+        boundaryChangeCount: Int,
+        observedAt: Date
+    ) {
+        ignoredMarkerSequenceQueue.sync {
+            inferredTransientRestoreTracker.cancelPendingCandidate(
+                boundaryChangeCount: boundaryChangeCount,
+                observedAt: observedAt
+            )
+        }
+    }
+
+    private func resetIgnoredClipboardSequenceTrackers() {
         ignoredMarkerSequenceQueue.sync {
             ignoredMarkerSequenceTracker.reset()
+            inferredTransientRestoreTracker.reset()
         }
     }
 
@@ -2559,6 +2803,125 @@ class ClipboardMonitor {
                 "[ClipboardMonitor] \(source) ignoring unmarked follow-up from a recent marked " +
                 "clipboard operation (changeCount: \(changeCount), decision: \(decision.rawValue))"
             )
+        }
+    }
+
+    private func logInferredTransientRestoreDecision(
+        _ decision: InferredTransientRestoreDecision,
+        source: String
+    ) {
+        switch decision {
+        case .capture:
+            break
+        case .captureCandidate(let changeCount):
+            logDebug(
+                "[ClipboardMonitor] \(source) observed possible transient restore candidate " +
+                "(changeCount: \(changeCount)); retaining it unless the next write promptly restores the prior clipboard"
+            )
+        case .ignoreTransaction(let candidateChangeCount, let restoreChangeCount):
+            logDebug(
+                "[ClipboardMonitor] \(source) inferred a rapid transient clipboard restore transaction " +
+                "(temporary changeCount: \(candidateChangeCount), restore changeCount: \(restoreChangeCount)); " +
+                "excluding both operations from clipboard context"
+            )
+        case .ignorePreviouslyClassified(let candidateChangeCount, let restoreChangeCount):
+            logDebug(
+                "[ClipboardMonitor] \(source) ignoring previously classified transient restore transaction " +
+                "(temporary changeCount: \(candidateChangeCount), restore changeCount: \(restoreChangeCount))"
+            )
+        }
+    }
+
+    /// Removes the inferred transaction from global history. The caller must hold
+    /// the global-history barrier so the candidate cannot race a context snapshot.
+    private func removeInferredTransientTransactionFromGlobalHistory(_ changeCounts: Set<Int>) {
+        let beforeCount = globalClipboardHistory.count
+        globalClipboardHistory.removeAll { changeCounts.contains($0.changeCount) }
+        let removedCount = beforeCount - globalClipboardHistory.count
+        if removedCount > 0 {
+            logDebug(
+                "[ClipboardMonitor] Removed \(removedCount) inferred transient clipboard operation(s) from global history"
+            )
+        }
+    }
+
+    /// Removes cached pre-recording values by their change-count metadata while
+    /// preserving identical, unrelated copies elsewhere in the stack.
+    private func removeInferredTransientPreRecordingChanges(
+        changeCounts: Set<Int>,
+        changes: [ClipboardChange],
+        stack: [String]
+    ) -> (changes: [ClipboardChange], stack: [String], single: String?, removedCount: Int) {
+        let removedChanges = changes.filter { changeCounts.contains($0.changeCount) }
+        guard !removedChanges.isEmpty else {
+            return (changes, stack, stack.last, 0)
+        }
+
+        var filteredStack = stack
+
+        // Cached stack values follow change order. Remove from newest to oldest so
+        // lastIndex selects the corresponding occurrence when values are repeated.
+        for change in removedChanges.reversed() {
+            guard let content = change.content else { continue }
+            let normalized = sanitizeContextPlaceholderValue(content)
+            guard !normalized.isEmpty,
+                  let stackIndex = filteredStack.lastIndex(of: normalized) else {
+                continue
+            }
+            filteredStack.remove(at: stackIndex)
+        }
+
+        let filteredChanges = changes.filter { !changeCounts.contains($0.changeCount) }
+        return (filteredChanges, filteredStack, filteredStack.last, removedChanges.count)
+    }
+
+    /// Excludes the inferred transaction from every live context cache and marks
+    /// both counts so delayed work from either sampler cannot reinsert them.
+    private func excludeInferredTransientTransactionFromSessions(_ changeCounts: Set<Int>) {
+        sessionsQueue.sync(flags: .barrier) {
+            var removedSessionChanges = 0
+            var removedPreRecordingChanges = 0
+
+            for recordingPath in Array(earlyMonitoringSessions.keys) {
+                guard var session = earlyMonitoringSessions[recordingPath] else { continue }
+                session.ignoredClipboardChangeCounts.formUnion(changeCounts)
+
+                let beforeCount = session.clipboardChanges.count
+                session.clipboardChanges.removeAll { changeCounts.contains($0.changeCount) }
+                removedSessionChanges += beforeCount - session.clipboardChanges.count
+
+                let filteredPreRecording = removeInferredTransientPreRecordingChanges(
+                    changeCounts: changeCounts,
+                    changes: session.preRecordingChanges,
+                    stack: session.preRecordingClipboardStack
+                )
+                session.preRecordingChanges = filteredPreRecording.changes
+                session.preRecordingClipboardStack = filteredPreRecording.stack
+                session.preRecordingClipboard = filteredPreRecording.single
+                removedPreRecordingChanges += filteredPreRecording.removedCount
+                earlyMonitoringSessions[recordingPath] = session
+            }
+
+            for groupId in Array(executionGroups.keys) {
+                guard var group = executionGroups[groupId] else { continue }
+                let filteredPreRecording = removeInferredTransientPreRecordingChanges(
+                    changeCounts: changeCounts,
+                    changes: group.rootPreRecordingChanges,
+                    stack: group.rootPreRecordingClipboardStack
+                )
+                group.rootPreRecordingChanges = filteredPreRecording.changes
+                group.rootPreRecordingClipboardStack = filteredPreRecording.stack
+                group.rootPreRecordingClipboard = filteredPreRecording.single
+                removedPreRecordingChanges += filteredPreRecording.removedCount
+                executionGroups[groupId] = group
+            }
+
+            if removedSessionChanges > 0 || removedPreRecordingChanges > 0 {
+                logDebug(
+                    "[ClipboardMonitor] Removed inferred transient transaction from active context " +
+                    "(session changes: \(removedSessionChanges), pre-recording changes: \(removedPreRecordingChanges))"
+                )
+            }
         }
     }
 
@@ -2614,7 +2977,7 @@ class ClipboardMonitor {
                 self.lastSeenChangeCount = 0
                 self.lastSeenClipboardChangeObservedAt = nil
                 self.isFirstGlobalCheck = true
-                self.resetIgnoredMarkerSequenceTracker()
+                self.resetIgnoredClipboardSequenceTrackers()
                 
                 // Log cleanup details on main queue
                 DispatchQueue.main.async {
@@ -2835,7 +3198,8 @@ class ClipboardMonitor {
             guard shouldIncludeClipboardChange(
                 timestamp: change.timestamp,
                 resetAt: session.clipboardContextResetAt
-            ) else {
+            ),
+            !self.isInferredTransientChangeCountIgnored(change.changeCount) else {
                 return
             }
 
@@ -2915,6 +3279,10 @@ class ClipboardMonitor {
                 self.lastSeenClipboardChangeObservedAt = now
 
                 if self.shouldSuppressClipboardCapture(content: currentClipboard, now: now) {
+                    self.cancelInferredTransientRestoreCandidate(
+                        boundaryChangeCount: currentChangeCount,
+                        observedAt: now
+                    )
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount
                     logDebug("[ClipboardMonitor] Global monitoring skipped Macrowhisper copy-action clipboard write")
@@ -2934,6 +3302,10 @@ class ClipboardMonitor {
                     source: "Global monitoring"
                 )
                 if markerSequenceDecision.shouldIgnore {
+                    self.cancelInferredTransientRestoreCandidate(
+                        boundaryChangeCount: currentChangeCount,
+                        observedAt: now
+                    )
                     if markerType != nil {
                         let markerFrontAppName = resolveFrontAppIdentity()?.localizedName ?? ""
                         self.performGlobalRetroactiveCleanup(now: now, appName: markerFrontAppName)
@@ -2953,6 +3325,10 @@ class ClipboardMonitor {
                     changeCount: currentChangeCount,
                     observedAt: now
                 ) {
+                    self.cancelInferredTransientRestoreCandidate(
+                        boundaryChangeCount: currentChangeCount,
+                        observedAt: now
+                    )
                     self.lastSeenClipboardContent = currentClipboard
                     self.lastSeenChangeCount = currentChangeCount
                     return
@@ -2967,8 +3343,33 @@ class ClipboardMonitor {
                 let shouldIgnoreAppFlag = self.shouldIgnoreApp(appName: appName, bundleId: bundleId)
                 
                 if shouldIgnoreAppFlag {
+                    self.cancelInferredTransientRestoreCandidate(
+                        boundaryChangeCount: currentChangeCount,
+                        observedAt: now
+                    )
                     self.performGlobalRetroactiveCleanup(now: now, appName: appName)
                 } else {
+                    let inferredRestoreDecision = self.inferredTransientRestoreDecision(
+                        changeCount: currentChangeCount,
+                        content: currentClipboard,
+                        containsIgnoredMarker: false,
+                        observedAt: now,
+                        previousChangeCount: self.lastSeenChangeCount,
+                        previousContent: self.lastSeenClipboardContent
+                    )
+                    self.logInferredTransientRestoreDecision(
+                        inferredRestoreDecision,
+                        source: "Global monitoring"
+                    )
+                    if inferredRestoreDecision.shouldIgnore {
+                        let transactionChangeCounts = inferredRestoreDecision.transactionChangeCounts
+                        self.removeInferredTransientTransactionFromGlobalHistory(transactionChangeCounts)
+                        self.excludeInferredTransientTransactionFromSessions(transactionChangeCounts)
+                        self.lastSeenClipboardContent = currentClipboard
+                        self.lastSeenChangeCount = currentChangeCount
+                        return
+                    }
+
                     // Track ANY clipboard operation (even if content is identical) as changeCount indicates a copy action occurred
                     // Store the app info with the change so we know which app made it
                     let change = ClipboardChange(
