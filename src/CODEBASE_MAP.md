@@ -68,7 +68,7 @@ src/
 #### `AppConfiguration.swift`
 - Defines the full config model and sets `currentConfigVersion = 2`
 - Centralizes defaults and normalized persistence behavior for root defaults and all action types
-- Provides `clipboardAttachments` (default `false`) with nullable action overrides; the effective root setting applies to the full chain
+- Provides `clipboardAttachments` (default `false`) with nullable action overrides; the effective root setting applies to the full chain and enables native handoff independently of string-placeholder use
 - All action types support `nextAction`, `inputCondition`, trigger fields, and per-action clipboard timing settings
 - Script-like actions (`shortcut`, `shell`, `AppleScript`) also support `scriptAsync` and `scriptWaitTimeout`
 - Reserved action templates are runtime-significant:
@@ -136,14 +136,14 @@ src/
 - Filters duplicate/system clipboard writes and resets contaminated history after action execution
 - Treats `NSPasteboard.changeCount` as the operation boundary for ordered text/file-URL/PNG/TIFF representations; attachment retention is bounded to 64 MiB per image and 192 MiB total
 - Keeps the context payload separate from the original snapshot; successful eligible chains can hand attachments off for manual paste even when `restoreClipboard` is `false`
-- Converts final file/raw-image/mixed handoff into one eager ordered Finder filename array from which AppKit synthesizes file URLs; raw PNG is validated and raw TIFF is normalized to PNG in a managed cache that preserves the current clipboard across restart, retains unreferenced files for 24 hours, and caps generated data at 1 GiB
+- Converts final file/raw-image/mixed handoff into one eager ordered Finder filename array from which AppKit synthesizes file URLs; raw PNG is validated and raw TIFF is normalized to PNG only at successful final handoff, in a managed cache that preserves existing current-clipboard files across restart, rejects stale references, reclaims interrupted empty generations, retains unreferenced files for 24 hours, and caps generated data at 1 GiB
 - Provides CLI-safe clipboard cleanup/restoration hooks used by socket commands
 
 ### 6. Placeholder / Context System
 
 #### `Placeholders.swift`
 - Expands standard placeholders such as `{{swResult}}`, `{{selectedText}}`, `{{clipboardContext}}`, and `{{frontApp}}`
-- Keeps `{{clipboardContext}}` string-only; attachment-only operations expand to an empty placeholder while eligible watcher chains may hand supported attachments off separately
+- Keeps `{{clipboardContext}}` string-only; attachment-only operations expand to an empty placeholder while attachments-enabled watcher chains hand supported attachments off independently of placeholder use
 - Supports nested `meta.json` traversal, including arrays and objects
 - Supports transformed placeholders like `{{placeholder::transform||find||replace}}`
 - Handles newer context sources including:

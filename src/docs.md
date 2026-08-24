@@ -711,8 +711,8 @@ When Macrowhisper creates a configuration, it selects the Superwhisper folder on
 | `scheduledActionTimeout` | number/null | `5` | How long one-time runtime actions stay pending when no recording starts. |
 | `scriptAsync` | bool/null | `true` | Whether Shortcut, shell, and AppleScript actions run asynchronously by default. |
 | `scriptWaitTimeout` | number/null | `3` | Max wait time when `scriptAsync` is `false`. |
-| `clipboardStacking` | bool/null | `false` | Default for whether `{{clipboardContext}}` returns all eligible clipboard items or only the most recent one. Actions can override it. |
-| `clipboardAttachments` | bool/null | `false` | Preserve supported clipboard attachments for a later manual paste when an executed chain step consumes `{{clipboardContext}}`. Actions can override it. |
+| `clipboardStacking` | bool/null | `false` | Choose all eligible clipboard operations or only the most recent one for text context and attachment handoff. Actions can override it. |
+| `clipboardAttachments` | bool/null | `false` | Preserve supported files and raw images for a later manual paste, independently of `{{clipboardContext}}` placeholder use. Actions can override it. |
 | `clipboardBuffer` | number/null | `5` | How many seconds of clipboard history to capture before recording. |
 | `clipboardIgnore` | string/null | `""` | Regex for apps that should be ignored during clipboard capture. Empty or `null` means no ignore rules. |
 | `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. Empty or `null` disables bypass. |
@@ -1399,8 +1399,8 @@ Session flow:
 
 Behavior details:
 
-- if stacking is off, Macrowhisper returns the most recent eligible clipboard candidate
-- if stacking is on, it can return all eligible items in order
+- if stacking is off, Macrowhisper selects the latest eligible clipboard operation as a unit; an attachment-only winner produces an empty string value
+- if stacking is on, it returns eligible text values in order while retaining attachment operations in the same capture order for native handoff
 - Superwhisper result text is filtered before either representation is selected, so single-item mode falls back to the previous eligible item
 - empty clipboard entries are ignored
 - apps matched by `clipboardIgnore` are ignored
@@ -1626,8 +1626,8 @@ Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrow
 How they work together:
 
 - `clipboardBuffer = 0` turns off pre-recording clipboard capture
-- `clipboardStacking = false` returns the most recent eligible clipboard context value
-- `clipboardStacking = true` returns all eligible snippets in order
+- `clipboardStacking = false` lets the most recent eligible clipboard operation control both text context and attachment handoff
+- `clipboardStacking = true` returns all eligible text snippets and accumulates eligible attachment operations in order
 - an action-level `clipboardStacking` value overrides the default for the full chain; `null` or omission inherits the default
 - `clipboardAttachments = false` preserves the existing string-only `{{clipboardContext}}` projection
 - `clipboardAttachments = true` enables supported attachment handoff for the full root action chain; `null` or omission inherits the default
@@ -1644,13 +1644,17 @@ For CLI execution (`--exec-action` and `--run-auto`):
 
 #### Attachment handoff
 
-Attachment handoff is manual-paste-only and is separate from both the string `{{clipboardContext}}` value and the original-clipboard snapshot. `{{clipboardContext}}` remains string-only; an attachment-only clipboard operation therefore expands to an empty placeholder while its attachment can still be handed off.
+Attachment handoff is manual-paste-only and is separate from both the string `{{clipboardContext}}` value and the original-clipboard snapshot. `clipboardAttachments = true` enables supported file/image handoff even when the action does not contain `{{clipboardContext}}`. The placeholder remains string-only; an attachment-only clipboard operation therefore expands to an empty value when the placeholder is present.
 
-The effective root action setting applies to the full chain. Handoff is eligible only when attachments are enabled and at least one action step that actually executes consumes a real `{{clipboardContext}}` placeholder. A configured but unreachable step does not make a chain eligible. On successful completion, an eligible handoff is the final clipboard outcome even when the final step has `restoreClipboard: false`. Failed, cancelled, or structurally invalid chains never hand attachments off.
+The effective root action setting applies to the full chain. When attachments are enabled, any successfully executed action path is eligible; no context-placeholder consumer is required. On successful completion, an eligible attachment handoff is the final clipboard outcome even when the final step has `restoreClipboard: false`. Failed, cancelled, or structurally invalid chains never hand attachments off. If stacking is disabled and a text copy follows an attachment copy, the later text operation wins, no older attachment is handed off, and normal clipboard-restoration behavior applies.
 
-Clipboard stacking is operation-based: one stable pasteboard operation (`NSPasteboard.changeCount`) is one history operation, with its ordered representations kept together. Reset boundaries, `clipboardIgnore`, the pre-recording buffer, internal-write suppression, overlap handling, and chain execution-group ownership apply to attachments exactly as they do to text.
+Clipboard stacking is operation-based: one stable pasteboard operation (`NSPasteboard.changeCount`) is one history operation, with its ordered representations kept together. With stacking disabled, only the latest eligible operation is selected. With stacking enabled, text operations contribute to the string context and attachment operations contribute to one ordered file handoff. Reset boundaries, `clipboardIgnore`, the pre-recording buffer, internal-write suppression, overlap handling, and chain execution-group ownership apply to both.
 
-For reliable multi-attachment paste, final handoff publishes every attachment in one eager Finder-compatible filename array. AppKit synthesizes the public file-URL flavors from that array without depending on lazy NSURL pasteboard writers. Existing files remain borrowed URLs. Raw PNG representations are validated and atomically materialized unchanged; TIFF-only raw clipboard images are transcoded to PNG because many upload targets do not consistently accept TIFF files. Generated images are stored in a private `~/Library/Caches/Macrowhisper/ClipboardAttachments` generation, stay available while the clipboard references them (including across a service restart), and remain cached for 24 hours after clipboard ownership ends. The managed cache is capped at 1 GiB; when necessary, cleanup removes the oldest unreferenced generations first while preserving current-clipboard and active generations. Cleanup requires Macrowhisper's private ownership marker and never deletes user-owned files. Original-clipboard restoration remains representation-native and does not use this materialization path.
+For reliable multi-attachment paste, final handoff publishes every attachment in one eager Finder-compatible filename array. AppKit synthesizes the public file-URL flavors from that array without depending on lazy NSURL pasteboard writers. Existing files remain borrowed URLs. Raw images stay in bounded memory during capture and are written only when a successful action reaches final handoff: PNG representations are validated and atomically materialized unchanged, while TIFF-only data is transcoded to PNG because many upload targets do not consistently accept TIFF files. If `clipboardBuffer` is active and at least one configured action can enable attachments, bounded raw image bytes may be retained during pre-recording monitoring, but no cache file is created unless a later successful action hands that image off. If the final clipboard commit cannot be completed safely, the attempted generation is discarded.
+
+Generated images are stored in a private `~/Library/Caches/Macrowhisper/ClipboardAttachments` generation, stay available while the clipboard references an existing generated file (including across a service restart), and remain cached for 24 hours after clipboard ownership ends. A 1 GiB cleanup ceiling removes the oldest unreferenced generations first; active and valid current-clipboard generations remain protected even if that temporarily leaves the cache above the ceiling. Cleanup revalidates clipboard ownership before deletion and does not let a stale path to a missing file preserve debris indefinitely. A private ownership marker identifies managed generations; cleanup also reclaims expired empty UUID directories that can be left if generation creation is interrupted, while nonempty unmarked and non-UUID directories are left alone.
+
+Each managed generation directory is one cleanup unit. Files that another tool creates inside that directory share its retention and are removed with it. A file moved or copied outside the generation is never a cache-cleanup target. Original-clipboard restoration remains representation-native and does not use this materialization path.
 
 Faithful supported representations are ordered text, file URLs, PNG, and TIFF. Files remain URLs and are not read into memory. Images are bounded to 64 MiB each and 192 MiB in aggregate; the oldest pre-recording image data is evicted before active-session or original-snapshot data. An oversized attachment remains classified as an attachment, never falls back to incidental text, and produces a privacy-safe diagnostic without handing off that unavailable item. If a complete original snapshot cannot be retained within those bounds, Macrowhisper refuses a misleading partial/text-only restoration, leaves the current clipboard untouched, and records a diagnostic. Arbitrary private pasteboard types are out of scope.
 
@@ -2023,7 +2027,7 @@ macrowhisper --check-updates
 
 ## 21) Full Uninstall
 
-Macrowhisper has three main parts:
+Macrowhisper has four main parts:
 
 **The service**
 
@@ -2039,6 +2043,11 @@ Macrowhisper has three main parts:
 
 - your settings and preferences
 - by default in `~/.config/macrowhisper`
+
+**The generated attachment cache**
+
+- temporary PNG files created for native clipboard attachment handoff
+- stored in `~/Library/Caches/Macrowhisper/ClipboardAttachments`
 
 ### Step 1: Stop the service
 
@@ -2062,7 +2071,9 @@ macrowhisper --uninstall-service
 sudo rm -f /usr/local/bin/macrowhisper
 ```
 
-### Step 3: Optional cleanup
+### Step 3: Complete data cleanup
+
+For a complete uninstall, remove Macrowhisper's configuration, logs, and generated attachment cache:
 
 ```shell
 # Remove config
@@ -2070,6 +2081,9 @@ rm -rf ~/.config/macrowhisper
 
 # Remove logs
 rm -rf ~/Library/Logs/Macrowhisper
+
+# Remove generated clipboard attachment cache
+rm -rf ~/Library/Caches/Macrowhisper
 ```
 
 Repository and issue tracker:

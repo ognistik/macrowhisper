@@ -989,13 +989,12 @@ class RecordingsFolderWatcher {
                 let restoreClipboard = autoReturnInsert?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
                 let restoreClipboardDelay = autoReturnInsert?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
 
-                if ((autoReturnMetaJson["clipboardAttachments"] as? Bool) ?? false),
-                   let autoReturnInsert,
-                   actionTemplateUsesPlaceholder(autoReturnInsert.action, key: "clipboardContext") {
-                    // An attachment-only projection is intentionally empty and
-                    // may use auto-return's swResult insertion fallback. The
-                    // resolved insert still consumed clipboardContext, so its
-                    // native attachments remain eligible for manual paste.
+                if shouldEnableAttachmentHandoffForExecution(
+                    attachmentsEnabled: (autoReturnMetaJson["clipboardAttachments"] as? Bool) ?? false
+                ) {
+                    // Attachment handoff is an independent clipboard output.
+                    // It does not require the insert template to consume the
+                    // string-only clipboardContext placeholder.
                     clipboardMonitor.markAttachmentHandoffEligible(
                         for: recordingPath,
                         consumer: .watcher,

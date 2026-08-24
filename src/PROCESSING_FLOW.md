@@ -240,7 +240,7 @@ enhancedMetaJson["frontApp"] = frontApp?.localizedName
 enhancedMetaJson["frontAppBundleId"] = frontApp?.bundleIdentifier
 ```
 
-Before dispatching an action, the watcher freezes the effective root `clipboardStacking` and `clipboardAttachments` values into the chain context. A nullable action value inherits the default (`clipboardAttachments` defaults to `false`), and chained steps do not replace the root setting. Attachment handoff is tracked separately from the string `clipboardContext` value and is eligible only if an actually executed step consumes a real `{{clipboardContext}}` placeholder.
+Before dispatching an action, the watcher freezes the effective root `clipboardStacking` and `clipboardAttachments` values into the chain context. A nullable action value inherits the default (`clipboardAttachments` defaults to `false`), and chained steps do not replace the root setting. Attachment handoff is tracked separately from the string `clipboardContext` value; an attachments-enabled watcher execution is eligible without requiring a placeholder consumer.
 
 #### Key Variables:
 - `result` or `llmResult` - The transcribed text (llmResult takes precedence)
@@ -411,12 +411,12 @@ Clipboard restoration only occurs when **ALL** conditions are met:
 
 #### Attachment Handoff:
 - Handoff is for a later manual paste, not placeholder expansion; attachment-only operations produce an empty string placeholder.
-- It requires the frozen root `clipboardAttachments` value to be enabled and at least one action step that actually executes to consume `{{clipboardContext}}`.
+- It requires the frozen root `clipboardAttachments` value to be enabled and a watcher action path to execute; `{{clipboardContext}}` consumption is not required.
 - Finalization of a successful eligible execution group is the final clipboard outcome, even when the final step has `restoreClipboard == false`.
 - Failed, cancelled, and structurally invalid chains never hand attachments off. Handoff/restoration occurs only at execution-group finalization, never between steps.
 - Pure CLI execution and `copyAction` do not hand attachments off. CLI original-clipboard restoration can still use the supported representations.
 - Final handoff publishes one eager ordered `NSFilenamesPboardType` Finder file list; AppKit synthesizes the public file-URL flavors without relying on lazy NSURL writers. Existing files remain URLs; retained raw PNG is validated and materialized unchanged, while TIFF-only clipboard images are transcoded to PNG for upload compatibility. All generated files are created atomically in a private Macrowhisper cache generation before the pasteboard changes.
-- Generated images remain available while the clipboard references them, survive service restart, and remain cached for 24 hours after clipboard ownership ends. The cache is capped at 1 GiB; cleanup removes the oldest expired or over-capacity unreferenced Macrowhisper generations first, while user-owned files are never cleanup targets.
+- Generated images remain available while the clipboard references an existing generated file, survive service restart, and remain cached for 24 hours after clipboard ownership ends. The cache is capped at 1 GiB; cleanup removes the oldest expired or over-capacity unreferenced Macrowhisper generations first. It revalidates clipboard ownership before each deletion, ignores stale paths to missing files, reclaims expired empty UUID debris from interrupted creation, and leaves nonempty unmarked directories and borrowed user files untouched.
 
 Supported faithful representations are ordered text, file URLs, PNG, and TIFF. Oversized images remain attachments rather than falling back to incidental text; the unavailable item is not handed off and diagnostics must not contain clipboard text, image bytes, or private filenames/paths.
 
@@ -579,7 +579,7 @@ Determines where to move or how to handle the processed recording folder:
 - `actionDelay: Double` - Default delay before action execution (default: 0.0)
 - `simEsc: Bool` - Simulate ESC key before action execution (default: true)
 - `restoreClipboard: Bool` - Enable clipboard restoration (default: true)
-- `clipboardAttachments: Bool` - Preserve supported clipboard attachments for manual-paste handoff when an executed chain step consumes `{{clipboardContext}}` (default: false)
+- `clipboardAttachments: Bool` - Preserve supported clipboard attachments for manual-paste handoff independently of string-placeholder use (default: false)
 - `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
 - `simReturn: Bool` - Auto-press return after actions (default: false)
@@ -644,7 +644,7 @@ Insert-only settings:
 - **Attachment-only operation**: `{{clipboardContext}}` resolves to an empty string while the operation remains eligible for supported manual-paste handoff.
 - **Filtering and boundaries**: `clipboardIgnore`, `--reset-clipboard`, the pre-recording buffer, internal-write suppression, overlap invalidation, and chain execution-group ownership apply to attachments exactly as they do to text.
 - **Multi-attachment interoperability**: File URLs and materialized raw images are published together as one ordered file list so first-item-only paste targets receive the complete attachment set. TIFF-only raw images are handed off as PNG files because TIFF uploads are not consistently accepted by paste targets.
-- **Generated-file lifecycle**: Macrowhisper preserves clipboard-owned generated images across restart and retains unreferenced generations for 24 hours. The cache has a 1 GiB ceiling; expiry and capacity cleanup run only while no execution group can still need files for restoration or handoff.
+- **Generated-file lifecycle**: Macrowhisper preserves existing clipboard-owned generated images across restart and retains unreferenced generations for 24 hours. The cache has a 1 GiB ceiling; expiry and capacity cleanup run only while no execution group can still need files for restoration or handoff, revalidate clipboard ownership before deletion, and reclaim expired empty UUID debris from interrupted directory creation.
 - **Oversized image**: Per-image limit is 64 MiB and aggregate retention is 192 MiB. The item remains semantically an attachment, never falls back to incidental text, and is omitted from handoff with a privacy-safe diagnostic.
 - **Incomplete bounded original**: If an original image cannot be retained within those limits, restoration does not write a partial or incidental-text substitute; the current clipboard is left unchanged and the omission is diagnosed.
 - **CLI**: Pure CLI and `copyAction` do not hand attachments off; supported original restoration may still be shared with CLI execution.

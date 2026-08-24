@@ -223,6 +223,14 @@ private func runClipboardAttachmentsRegression() {
         wholeChainSucceeded: false,
         priorChainFailure: true
     )
+    assertAttachment(
+        shouldEnableAttachmentHandoffForExecution(attachmentsEnabled: true),
+        "clipboardAttachments enables handoff without requiring clipboardContext"
+    )
+    assertAttachment(
+        !shouldEnableAttachmentHandoffForExecution(attachmentsEnabled: false),
+        "disabled clipboardAttachments does not enable handoff"
+    )
     assertAttachment(successfulPolicy.isEligible, "a successful explicit consumer is handoff-eligible")
     assertAttachment(!failedPolicy.isEligible, "a prior chain failure prevents attachment handoff")
     assertAttachment(
@@ -388,6 +396,9 @@ private func runClipboardAttachmentsRegression() {
         isDirectory: true
     )
     try? FileManager.default.createDirectory(at: unownedUUIDDirectory, withIntermediateDirectories: true)
+    try? Data("user cache data".utf8).write(
+        to: unownedUUIDDirectory.appendingPathComponent("keep.txt", isDirectory: false)
+    )
     try? FileManager.default.setAttributes(
         [.modificationDate: Date(timeIntervalSince1970: 0)],
         ofItemAtPath: unownedUUIDDirectory.path
@@ -402,6 +413,25 @@ private func runClipboardAttachmentsRegression() {
         attachmentStore.cleanupUnused(pasteboard: pasteboard) == 0 &&
             FileManager.default.fileExists(atPath: mixedFileHandoff.fileURLs[0].path),
         "clipboard ownership refreshes an old generation instead of expiring it"
+    )
+
+    let abandonedEmptyUUIDDirectory = generatedRoot.appendingPathComponent(
+        UUID().uuidString,
+        isDirectory: true
+    )
+    try? FileManager.default.createDirectory(
+        at: abandonedEmptyUUIDDirectory,
+        withIntermediateDirectories: true
+    )
+    try? FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: 0)],
+        ofItemAtPath: abandonedEmptyUUIDDirectory.path
+    )
+    assertAttachment(
+        attachmentStore.cleanupUnused(pasteboard: pasteboard) == 1 &&
+            !FileManager.default.fileExists(atPath: abandonedEmptyUUIDDirectory.path) &&
+            FileManager.default.fileExists(atPath: mixedFileHandoff.fileURLs[0].path),
+        "cleanup reclaims expired empty UUID debris without removing the current clipboard generation"
     )
 
     let emptyHandoff = attachmentStore.prepare(ClipboardPayload(items: [
@@ -430,7 +460,7 @@ private func runClipboardAttachmentsRegression() {
 
     pasteboard.clearContents()
     pasteboard.setString("replacement", forType: .string)
-    assertAttachment(attachmentStore.cleanupUnused(pasteboard: pasteboard) == 0, "clipboard replacement does not immediately delete a recent generation")
+    assertAttachment(restartedAttachmentStore.cleanupUnused(pasteboard: pasteboard) == 0, "clipboard replacement does not immediately delete a recent generation after restart")
     assertAttachment(FileManager.default.fileExists(atPath: mixedFileHandoff.fileURLs[0].path), "recent generated images survive clipboard replacement")
     if let generatedDirectory = mixedFileHandoff.generatedDirectory {
         try? FileManager.default.setAttributes(
@@ -438,11 +468,90 @@ private func runClipboardAttachmentsRegression() {
             ofItemAtPath: generatedDirectory.path
         )
     }
-    assertAttachment(attachmentStore.cleanupUnused(pasteboard: pasteboard) == 1, "expired unreferenced attachment generation is removed")
+    assertAttachment(restartedAttachmentStore.cleanupUnused(pasteboard: pasteboard) == 1, "expired unreferenced attachment generation is removed after restart")
     assertAttachment(!FileManager.default.fileExists(atPath: mixedFileHandoff.fileURLs[0].path), "expired generated images are removed")
     assertAttachment(FileManager.default.fileExists(atPath: unownedCacheDirectory.path), "cleanup ignores cache directories without a Macrowhisper generation identifier")
-    assertAttachment(FileManager.default.fileExists(atPath: unownedUUIDDirectory.path), "cleanup requires a Macrowhisper ownership marker even for UUID directories")
+    assertAttachment(FileManager.default.fileExists(atPath: unownedUUIDDirectory.path), "cleanup preserves nonempty UUID directories without a Macrowhisper ownership marker")
     assertAttachment((try? Data(contentsOf: borrowedFile)) == borrowedData, "cleanup never removes or modifies borrowed user files")
+
+    let staleReferenceRoot = materializationRoot.appendingPathComponent("stale-reference", isDirectory: true)
+    let staleReferenceStore = ClipboardAttachmentFileStore(rootDirectory: staleReferenceRoot)
+    let staleReferencePasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.attachment-stale-reference.\(UUID().uuidString)")
+    )
+    let staleReferenceHandoff = staleReferenceStore.prepare(
+        ClipboardPayload(items: [.imagePNG(png)])
+    )
+    assertAttachment(
+        staleReferenceStore.commit(staleReferenceHandoff, to: staleReferencePasteboard),
+        "stale-reference fixture commits its generated image"
+    )
+    if let staleDirectory = staleReferenceHandoff.generatedDirectory,
+       let staleFile = staleReferenceHandoff.fileURLs.first {
+        try? FileManager.default.removeItem(at: staleFile)
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: staleDirectory.path
+        )
+    }
+    assertAttachment(
+        staleReferenceStore.cleanupUnused(pasteboard: staleReferencePasteboard) == 1 &&
+            staleReferenceHandoff.generatedDirectory.map {
+                !FileManager.default.fileExists(atPath: $0.path)
+            } == true,
+        "a clipboard path to a missing generated file does not preserve stale cache debris"
+    )
+
+    let revalidationRoot = materializationRoot.appendingPathComponent("revalidation", isDirectory: true)
+    let revalidationStore = ClipboardAttachmentFileStore(rootDirectory: revalidationRoot)
+    let revalidationPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.attachment-revalidation.\(UUID().uuidString)")
+    )
+    let revalidationHandoff = revalidationStore.prepare(
+        ClipboardPayload(items: [.imagePNG(png)])
+    )
+    assertAttachment(
+        revalidationStore.commit(revalidationHandoff, to: revalidationPasteboard),
+        "cleanup-revalidation fixture commits its generated image"
+    )
+    if let revalidationDirectory = revalidationHandoff.generatedDirectory {
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: revalidationDirectory.path
+        )
+    }
+    assertAttachment(
+        revalidationStore.cleanupUnused(
+            preserving: revalidationHandoff.fileURLs,
+            validateBeforeRemoval: { false }
+        ) == 0 &&
+            revalidationHandoff.generatedDirectory.flatMap {
+                try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            } == Date(timeIntervalSince1970: 0),
+        "cleanup revalidation does not refresh retention from a stale clipboard snapshot"
+    )
+    revalidationPasteboard.clearContents()
+    revalidationPasteboard.setString("replacement", forType: .string)
+    if let revalidationDirectory = revalidationHandoff.generatedDirectory {
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: revalidationDirectory.path
+        )
+    }
+    assertAttachment(
+        revalidationStore.cleanupUnused(
+            preserving: [],
+            validateBeforeRemoval: { false }
+        ) == 0 &&
+            revalidationHandoff.generatedDirectory.map {
+                FileManager.default.fileExists(atPath: $0.path)
+            } == true,
+        "cleanup revalidation cancels deletion when clipboard ownership may have changed"
+    )
+    assertAttachment(
+        revalidationStore.cleanupUnused(preserving: []) == 1,
+        "an unchanged cleanup pass later removes the expired generation"
+    )
 
     let capacityRoot = materializationRoot.appendingPathComponent("capacity", isDirectory: true)
     let capacityStore = ClipboardAttachmentFileStore(

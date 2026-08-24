@@ -175,8 +175,9 @@ class ActionExecutor {
                 isLastInChain: nextStep == nil
             )
 
-            if ((metaJson["clipboardAttachments"] as? Bool) ?? false),
-               actionTemplateUsesPlaceholder(actionTemplate(for: executionStep), key: "clipboardContext") {
+            if shouldEnableAttachmentHandoffForExecution(
+                attachmentsEnabled: (metaJson["clipboardAttachments"] as? Bool) ?? false
+            ) {
                 clipboardMonitor.markAttachmentHandoffEligible(
                     for: recordingPath,
                     consumer: .actionExecutor,
@@ -232,21 +233,6 @@ class ActionExecutor {
             clipboardMonitor.markClipboardChainStepResult(for: recordingPath, succeeded: false)
             clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
             onCompletion?(ChainExecutionResult(success: false, finalActionName: state.currentStep.name, finalActionType: state.currentStep.type, finalAction: state.currentStep.action, errorMessage: message))
-        }
-    }
-
-    private func actionTemplate(for step: ResolvedActionStep) -> String {
-        switch step.type {
-        case .insert:
-            return (step.action as? AppConfiguration.Insert)?.action ?? ""
-        case .url:
-            return (step.action as? AppConfiguration.Url)?.action ?? ""
-        case .shortcut:
-            return (step.action as? AppConfiguration.Shortcut)?.action ?? ""
-        case .shell:
-            return (step.action as? AppConfiguration.ScriptShell)?.action ?? ""
-        case .appleScript:
-            return (step.action as? AppConfiguration.ScriptAppleScript)?.action ?? ""
         }
     }
 

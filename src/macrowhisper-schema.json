@@ -140,12 +140,12 @@
         },
         "clipboardStacking": {
           "type": ["boolean", "null"],
-          "description": "Default clipboard stacking behavior for the clipboardContext placeholder. When enabled, eligible clipboard changes are returned in order with XML tags (<clipboard-context-1>, <clipboard-context-2>, etc.). When disabled, the most recent eligible change is returned. null or omitted = use built-in default (false).",
+          "description": "Default clipboard operation stacking behavior. When enabled, clipboardContext returns eligible text changes in order with XML tags and clipboard attachment handoff accumulates eligible file/image operations. When disabled, the most recent eligible clipboard operation controls both outputs. null or omitted = use built-in default (false).",
           "default": false
         },
         "clipboardAttachments": {
           "type": ["boolean", "null"],
-          "description": "Default clipboard attachment behavior for the clipboardContext placeholder. When enabled, supported clipboard attachments are preserved for handoff; when disabled, the existing text-only behavior is unchanged. null or omitted = use built-in default (false).",
+          "description": "Default native clipboard attachment handoff behavior. When enabled, supported files and raw images from the selected clipboard operation(s) are returned to the clipboard after a successful action, independently of the string-only clipboardContext placeholder. When disabled, the existing text-only behavior is unchanged. null or omitted = use built-in default (false).",
           "default": false
         },
         "clipboardBuffer": {
@@ -288,12 +288,12 @@
         },
         "clipboardStacking": {
           "type": ["boolean", "null"],
-          "description": "Override clipboard stacking for this action and its chain. null or omitted = use defaults.clipboardStacking, true = return all eligible clipboard changes, false = return only the most recent eligible change.",
+          "description": "Override clipboard operation stacking for this action and its chain. null or omitted = use defaults.clipboardStacking; true accumulates eligible clipboard text and attachment operations; false lets the most recent eligible operation control both outputs.",
           "default": null
         },
         "clipboardAttachments": {
           "type": ["boolean", "null"],
-          "description": "Override clipboard attachments for this action and its chain. null or omitted = use defaults.clipboardAttachments; true enables supported attachment handoff, false keeps the existing text-only behavior.",
+          "description": "Override native clipboard attachment handoff for this action and its chain. null or omitted = use defaults.clipboardAttachments; true enables supported file/image handoff independently of clipboardContext placeholder use; false keeps the existing text-only behavior.",
           "default": null
         },
         "nextAction": {

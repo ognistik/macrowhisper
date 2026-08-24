@@ -649,11 +649,17 @@ final class ClipboardAttachmentFileStore {
                     Self.ownershipMarkerFilename,
                     isDirectory: false
                 )
-                do {
-                    try Data().write(to: ownershipMarker, options: .atomic)
-                } catch {
+                guard fileManager.createFile(
+                    atPath: ownershipMarker.path,
+                    contents: Data(),
+                    attributes: [.posixPermissions: 0o600]
+                ) else {
                     try? fileManager.removeItem(at: directory)
-                    throw error
+                    throw NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: NSFileWriteUnknownError,
+                        userInfo: [NSFilePathErrorKey: ownershipMarker.path]
+                    )
                 }
                 generatedDirectory = directory
                 pendingDirectoryPaths.insert(directory.standardizedFileURL.path)
@@ -853,10 +859,11 @@ final class ClipboardAttachmentFileStore {
         }
     }
 
-    /// Deletes only expired or over-capacity Macrowhisper-owned generations
-    /// that are neither pending nor referenced by the current clipboard.
-    /// Borrowed user files are never inside `rootDirectory` and are therefore
-    /// never deletion targets.
+    /// Deletes expired or over-capacity Macrowhisper-owned generations that are
+    /// neither pending nor referenced by an existing current-clipboard file. It
+    /// also reclaims expired empty UUID directories left if generation creation
+    /// was interrupted before its ownership marker was written. Borrowed user
+    /// files are never inside `rootDirectory` and are never deletion targets.
     @discardableResult
     func cleanupUnused(pasteboard: NSPasteboard = .general) -> Int {
         let initialChangeCount = pasteboard.changeCount
@@ -898,7 +905,14 @@ final class ClipboardAttachmentFileStore {
             URL(fileURLWithPath: $0)
         }
         let preservedFileURLs = currentFileURLs + eagerFilenameURLs
-        let removedCount = cleanupUnused(preserving: preservedFileURLs)
+        let removedCount = cleanupUnused(
+            preserving: preservedFileURLs,
+            validateBeforeRemoval: {
+                // Narrow the remaining pasteboard race by revalidating
+                // immediately before every destructive filesystem operation.
+                pasteboard.changeCount == initialChangeCount
+            }
+        )
         if removedCount > 0 {
             logDebug(
                 "[ClipboardMonitor] Attachment cache cleanup removed expired or over-capacity generations " +
@@ -909,21 +923,58 @@ final class ClipboardAttachmentFileStore {
     }
 
     @discardableResult
-    func cleanupUnused(preserving fileURLs: [URL]) -> Int {
+    func cleanupUnused(
+        preserving fileURLs: [URL],
+        validateBeforeRemoval: () -> Bool = { true }
+    ) -> Int {
         queue.sync {
             let rootPath = rootDirectory.standardizedFileURL.path
             let expirationCutoff = now().addingTimeInterval(-retentionInterval)
-            let preservedDirectoryPaths: Set<String> = Set(fileURLs.compactMap { url in
+
+            func referencedDirectoryPath(for url: URL) -> String? {
+                guard url.isFileURL else { return nil }
                 let path = url.standardizedFileURL.path
                 guard path.hasPrefix(rootPath + "/") else { return nil }
                 let relativePath = String(path.dropFirst(rootPath.count + 1))
-                guard let firstComponent = relativePath.split(separator: "/").first else {
+                let components = relativePath.split(separator: "/")
+                guard components.count >= 2,
+                      let firstComponent = components.first,
+                      UUID(uuidString: String(firstComponent)) != nil else {
                     return nil
                 }
                 return rootDirectory
                     .appendingPathComponent(String(firstComponent), isDirectory: true)
                     .standardizedFileURL.path
+            }
+
+            let referencedDirectoryPaths = Set(fileURLs.compactMap(referencedDirectoryPath))
+            let preservedDirectoryPaths: Set<String> = Set(fileURLs.compactMap { url in
+                guard let directoryPath = referencedDirectoryPath(for: url) else { return nil }
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: url.standardizedFileURL.path, isDirectory: &isDirectory),
+                      !isDirectory.boolValue else {
+                    return nil
+                }
+                let ownershipMarkerPath = URL(fileURLWithPath: directoryPath, isDirectory: true)
+                    .appendingPathComponent(Self.ownershipMarkerFilename, isDirectory: false)
+                    .path
+                guard fileManager.fileExists(atPath: ownershipMarkerPath) else { return nil }
+                return directoryPath
             })
+            let staleReferencedGenerationCount = referencedDirectoryPaths
+                .subtracting(preservedDirectoryPaths)
+                .count
+            if staleReferencedGenerationCount > 0 {
+                logDebug(
+                    "[ClipboardMonitor] Attachment cache ignored stale clipboard generation references " +
+                    "(staleGenerations: \(staleReferencedGenerationCount))"
+                )
+            }
+
+            // Do not even extend a generation's retention window from a stale
+            // clipboard snapshot. The caller reuses this same validation before
+            // every destructive removal below.
+            guard validateBeforeRemoval() else { return 0 }
 
             // Refresh the retention anchor while a generation is still owned
             // by the clipboard. Its full retention window therefore starts
@@ -985,16 +1036,14 @@ final class ClipboardAttachmentFileStore {
             }
 
             var generations: [StoredGeneration] = []
+            var abandonedEmptyDirectories: [StoredGeneration] = []
             for child in children {
                 let childPath = child.standardizedFileURL.path
                 let ownershipMarker = child.appendingPathComponent(
                     Self.ownershipMarkerFilename,
                     isDirectory: false
                 )
-                guard UUID(uuidString: child.lastPathComponent) != nil,
-                      fileManager.fileExists(atPath: ownershipMarker.path) else {
-                    continue
-                }
+                guard UUID(uuidString: child.lastPathComponent) != nil else { continue }
                 let values = try? child.resourceValues(forKeys: [
                     .isDirectoryKey,
                     .contentModificationDateKey,
@@ -1004,12 +1053,27 @@ final class ClipboardAttachmentFileStore {
                       let retainedAt = values?.contentModificationDate ?? values?.creationDate else {
                     continue
                 }
-                generations.append(StoredGeneration(
+                let storedGeneration = StoredGeneration(
                     url: child,
                     path: childPath,
                     retainedAt: retainedAt,
                     byteCount: storedByteCount(in: child)
-                ))
+                )
+                guard fileManager.fileExists(atPath: ownershipMarker.path) else {
+                    // A process death between directory creation and marker
+                    // creation can leave an empty UUID directory. Reclaim only
+                    // empty, expired directories; nonempty unmarked directories
+                    // remain outside Macrowhisper's ownership boundary.
+                    if let contents = try? fileManager.contentsOfDirectory(
+                        at: child,
+                        includingPropertiesForKeys: nil,
+                        options: []
+                    ), contents.isEmpty {
+                        abandonedEmptyDirectories.append(storedGeneration)
+                    }
+                    continue
+                }
+                generations.append(storedGeneration)
             }
 
             var removedPaths: Set<String> = []
@@ -1019,10 +1083,21 @@ final class ClipboardAttachmentFileStore {
                 return overflowed ? Int64.max : sum
             }
 
+            for abandoned in abandonedEmptyDirectories where
+                !pendingDirectoryPaths.contains(abandoned.path) &&
+                !preservedDirectoryPaths.contains(abandoned.path) &&
+                abandoned.retainedAt <= expirationCutoff {
+                guard validateBeforeRemoval() else { return removedCount }
+                if (try? fileManager.removeItem(at: abandoned.url)) != nil {
+                    removedCount += 1
+                }
+            }
+
             for generation in generations where
                 !pendingDirectoryPaths.contains(generation.path) &&
                 !preservedDirectoryPaths.contains(generation.path) &&
                 generation.retainedAt <= expirationCutoff {
+                guard validateBeforeRemoval() else { return removedCount }
                 if (try? fileManager.removeItem(at: generation.url)) != nil {
                     removedPaths.insert(generation.path)
                     removedCount += 1
@@ -1044,6 +1119,7 @@ final class ClipboardAttachmentFileStore {
                         return lhs.retainedAt < rhs.retainedAt
                     }
                 for generation in capacityCandidates where retainedByteCount > maxCacheBytes {
+                    guard validateBeforeRemoval() else { return removedCount }
                     if (try? fileManager.removeItem(at: generation.url)) != nil {
                         removedCount += 1
                         retainedByteCount = max(0, retainedByteCount - generation.byteCount)
@@ -1193,6 +1269,12 @@ enum ClipboardAttachmentHandoffConsumer: String, Equatable {
     case actionExecutor
     case watcher
     case explicit
+}
+
+/// Attachment handoff is an explicit root-action capability, independent of
+/// whether that action also consumes the string-only clipboardContext value.
+func shouldEnableAttachmentHandoffForExecution(attachmentsEnabled: Bool) -> Bool {
+    attachmentsEnabled
 }
 
 struct ClipboardAttachmentHandoffPolicy: Equatable {
@@ -2750,8 +2832,9 @@ class ClipboardMonitor {
         getSessionClipboardContextSnapshot(for: recordingPath, swResult: swResult)
     }
 
-    /// Marks the actual downstream consumer and whole-chain outcome. A final
-    /// successful step cannot enable handoff when a prior step failed.
+    /// Marks an attachments-enabled execution path and its whole-chain outcome.
+    /// Attachment handoff is independent of string placeholder consumption, and
+    /// a final successful step cannot enable it when a prior step failed.
     func markAttachmentHandoffEligible(
         for recordingPath: String,
         consumer: ClipboardAttachmentHandoffConsumer = .explicit,
