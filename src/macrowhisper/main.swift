@@ -2002,6 +2002,12 @@ configManager.onConfigChanged = { reason in
         // Apply clipboard ignore pattern changes live to the global ClipboardMonitor
         let ignorePattern = configManager.config.defaults.clipboardIgnore ?? ""
         watcher.getClipboardMonitor().updateClipboardIgnore(pattern: ignorePattern)
+
+        // Retain binary clipboard representations only when at least one
+        // currently selectable root action can enable attachment handling.
+        watcher.getClipboardMonitor().updateClipboardAttachments(
+            enabled: configManager.config.canCaptureClipboardAttachments
+        )
     }
     
     // If updates were disabled but are now enabled, reset the version checker state and perform immediate check

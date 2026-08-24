@@ -712,6 +712,7 @@ When Macrowhisper creates a configuration, it selects the Superwhisper folder on
 | `scriptAsync` | bool/null | `true` | Whether Shortcut, shell, and AppleScript actions run asynchronously by default. |
 | `scriptWaitTimeout` | number/null | `3` | Max wait time when `scriptAsync` is `false`. |
 | `clipboardStacking` | bool/null | `false` | Default for whether `{{clipboardContext}}` returns all eligible clipboard items or only the most recent one. Actions can override it. |
+| `clipboardAttachments` | bool/null | `false` | Preserve supported clipboard attachments for a later manual paste when an executed chain step consumes `{{clipboardContext}}`. Actions can override it. |
 | `clipboardBuffer` | number/null | `5` | How many seconds of clipboard history to capture before recording. |
 | `clipboardIgnore` | string/null | `""` | Regex for apps that should be ignored during clipboard capture. Empty or `null` means no ignore rules. |
 | `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. Empty or `null` disables bypass. |
@@ -765,6 +766,7 @@ Important: action names must be unique across all five groups.
 | `restoreClipboard` | bool/null | Override clipboard restoration |
 | `restoreClipboardDelay` | number/null | Override clipboard restoration delay |
 | `clipboardStacking` | bool/null | Override clipboard stacking for this action and its chain |
+| `clipboardAttachments` | bool/null | Override attachment handoff for this action and its chain |
 | `scriptAsync` | bool/null | Override async behavior for Shortcut, shell, or AppleScript actions |
 | `scriptWaitTimeout` | number/null | Override how long Macrowhisper waits when `scriptAsync` is `false` |
 | `inputCondition` | string/null | Apply some fields only in or outside input fields |
@@ -779,6 +781,7 @@ How to interpret those fields:
 
 - `null` on most boolean and number overrides means "use the default"
 - for `clipboardStacking`, `null` inherits `defaults.clipboardStacking`, while `true` and `false` explicitly override it
+- for `clipboardAttachments`, `null` inherits `defaults.clipboardAttachments`, while `true` and `false` explicitly override it for the full chain
 - for `moveTo`, `icon`, and `nextAction`, `null` means inherit, while `""` means intentionally empty
 - `trigger*` fields only help Macrowhisper choose the action; they do not change the payload
 
@@ -1617,6 +1620,7 @@ Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrow
 - `restoreClipboard`
 - `clipboardBuffer`
 - `clipboardStacking`
+- `clipboardAttachments`
 - `clipboardIgnore`
 
 How they work together:
@@ -1625,6 +1629,8 @@ How they work together:
 - `clipboardStacking = false` returns the most recent eligible clipboard context value
 - `clipboardStacking = true` returns all eligible snippets in order
 - an action-level `clipboardStacking` value overrides the default for the full chain; `null` or omission inherits the default
+- `clipboardAttachments = false` preserves the existing string-only `{{clipboardContext}}` projection
+- `clipboardAttachments = true` enables supported attachment handoff for the full root action chain; `null` or omission inherits the default
 - `restoreClipboard = true` restores the original clipboard when the action flow ends
 
 Use `macrowhisper --reset-clipboard` when you copied the wrong content or no longer want previously captured clipboard context sent to the action. During a recording it resets that recording's shared clipboard-context session; outside a recording it resets the pre-recording buffer. Any new copy made afterward can be captured normally.
@@ -1635,6 +1641,20 @@ For CLI execution (`--exec-action` and `--run-auto`):
 - it restores once at the end, not after every insert step
 - it only restores if a step in that CLI chain actually wrote to the clipboard
 - pure URL / shell / AppleScript / Shortcut chains do not perform a fake restore write
+
+#### Attachment handoff
+
+Attachment handoff is manual-paste-only and is separate from both the string `{{clipboardContext}}` value and the original-clipboard snapshot. `{{clipboardContext}}` remains string-only; an attachment-only clipboard operation therefore expands to an empty placeholder while its attachment can still be handed off.
+
+The effective root action setting applies to the full chain. Handoff is eligible only when attachments are enabled and at least one action step that actually executes consumes a real `{{clipboardContext}}` placeholder. A configured but unreachable step does not make a chain eligible. On successful completion, an eligible handoff is the final clipboard outcome even when the final step has `restoreClipboard: false`. Failed, cancelled, or structurally invalid chains never hand attachments off.
+
+Clipboard stacking is operation-based: one stable pasteboard operation (`NSPasteboard.changeCount`) is one history operation, with its ordered representations kept together. Reset boundaries, `clipboardIgnore`, the pre-recording buffer, internal-write suppression, overlap handling, and chain execution-group ownership apply to attachments exactly as they do to text.
+
+For reliable multi-attachment paste, final handoff publishes every attachment in one eager Finder-compatible filename array. AppKit synthesizes the public file-URL flavors from that array without depending on lazy NSURL pasteboard writers. Existing files remain borrowed URLs. Raw PNG representations are validated and atomically materialized unchanged; TIFF-only raw clipboard images are transcoded to PNG because many upload targets do not consistently accept TIFF files. Generated images are stored in a private `~/Library/Caches/Macrowhisper/ClipboardAttachments` generation, stay available while the clipboard references them (including across a service restart), and remain cached for 24 hours after clipboard ownership ends. The managed cache is capped at 1 GiB; when necessary, cleanup removes the oldest unreferenced generations first while preserving current-clipboard and active generations. Cleanup requires Macrowhisper's private ownership marker and never deletes user-owned files. Original-clipboard restoration remains representation-native and does not use this materialization path.
+
+Faithful supported representations are ordered text, file URLs, PNG, and TIFF. Files remain URLs and are not read into memory. Images are bounded to 64 MiB each and 192 MiB in aggregate; the oldest pre-recording image data is evicted before active-session or original-snapshot data. An oversized attachment remains classified as an attachment, never falls back to incidental text, and produces a privacy-safe diagnostic without handing off that unavailable item. If a complete original snapshot cannot be retained within those bounds, Macrowhisper refuses a misleading partial/text-only restoration, leaves the current clipboard untouched, and records a diagnostic. Arbitrary private pasteboard types are out of scope.
+
+Pure CLI execution and `--copy-action` do not perform attachment handoff. CLI original-clipboard restoration may still preserve the supported representations.
 
 ### 15.4 `clipboardIgnore` example
 
@@ -1758,6 +1778,7 @@ Example:
     "smartSpacing": true,
     "clipboardBuffer": 5,
     "clipboardStacking": false,
+    "clipboardAttachments": false,
     "icon": "",
     "moveTo": "",
     "clipboardIgnore": "",

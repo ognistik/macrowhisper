@@ -1206,6 +1206,16 @@ private func parsePlaceholderExpression(_ content: String) -> ParsedPlaceholderE
     )
 }
 
+/// Returns whether an action template contains a real, unescaped dynamic placeholder
+/// for `key`. This deliberately shares the production placeholder parser so runtime
+/// feature gates do not trigger on comments, escaped braces, or a different key that
+/// merely contains the requested name as a substring.
+func actionTemplateUsesPlaceholder(_ actionTemplate: String, key: String) -> Bool {
+    extractPlaceholderSegments(from: actionTemplate).contains { segment in
+        parsePlaceholderExpression(segment.content)?.key == key
+    }
+}
+
 /// Expands dynamic placeholders with context-aware escaping based on action type
 /// Supports {{key}}, {{json:key}}, {{raw:key}}, {{date:format}}, and regex replacements {{key||regex||replacement}}
 /// The json: prefix applies JSON string escaping regardless of action type, useful for embedding content in JSON strings.

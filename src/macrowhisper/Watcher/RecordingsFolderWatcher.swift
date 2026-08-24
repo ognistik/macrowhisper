@@ -44,7 +44,12 @@ class RecordingsFolderWatcher {
         self.historyManager = historyManager
         self.socketCommunication = socketCommunication
         self.triggerEvaluator = TriggerEvaluator(logger: logger)
-        self.clipboardMonitor = ClipboardMonitor(logger: logger, preRecordingBufferSeconds: configManager.config.defaults.clipboardBuffer, clipboardIgnore: configManager.config.defaults.clipboardIgnore ?? "")
+        self.clipboardMonitor = ClipboardMonitor(
+            logger: logger,
+            preRecordingBufferSeconds: configManager.config.defaults.clipboardBuffer,
+            clipboardIgnore: configManager.config.defaults.clipboardIgnore ?? "",
+            clipboardAttachments: configManager.config.canCaptureClipboardAttachments
+        )
         self.actionExecutor = ActionExecutor(logger: logger, socketCommunication: socketCommunication, configManager: configManager, clipboardMonitor: clipboardMonitor)
         
         // Set clipboard monitor reference in socket communication for CLI action cleanup
@@ -881,12 +886,6 @@ class RecordingsFolderWatcher {
             // before resolving placeholders, regardless of action type.
             clipboardMonitor.markRecentClipboardActivityAsSystemSync(for: contextRecordingPath)
 
-            let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
-            let clipboardContextRepresentations = clipboardMonitor.getSessionClipboardContextRepresentations(
-                for: contextRecordingPath,
-                swResult: swResult
-            )
-
             // Bypass processing entirely for configured Superwhisper modes.
             let modeName = metaJson["modeName"] as? String
             if shouldBypassProcessing(for: modeName) {
@@ -935,7 +934,7 @@ class RecordingsFolderWatcher {
                 var autoReturnMetaJson = resolvedCandidate?.metaJson ?? enhancedMetaJson
                 autoReturnMetaJson = freezeClipboardContext(
                     in: autoReturnMetaJson,
-                    representations: clipboardContextRepresentations,
+                    recordingPath: contextRecordingPath,
                     rootAction: resolvedCandidate?.action
                 )
                 let fallbackSwResult = (autoReturnMetaJson["llmResult"] as? String) ?? (autoReturnMetaJson["result"] as? String) ?? ""
@@ -989,6 +988,20 @@ class RecordingsFolderWatcher {
                 let shouldEsc = autoReturnInsert?.simEsc ?? configManager.config.defaults.simEsc
                 let restoreClipboard = autoReturnInsert?.restoreClipboard ?? configManager.config.defaults.restoreClipboard
                 let restoreClipboardDelay = autoReturnInsert?.restoreClipboardDelay ?? configManager.config.defaults.restoreClipboardDelay ?? 0.3
+
+                if ((autoReturnMetaJson["clipboardAttachments"] as? Bool) ?? false),
+                   let autoReturnInsert,
+                   actionTemplateUsesPlaceholder(autoReturnInsert.action, key: "clipboardContext") {
+                    // An attachment-only projection is intentionally empty and
+                    // may use auto-return's swResult insertion fallback. The
+                    // resolved insert still consumed clipboardContext, so its
+                    // native attachments remain eligible for manual paste.
+                    clipboardMonitor.markAttachmentHandoffEligible(
+                        for: recordingPath,
+                        consumer: .watcher,
+                        wholeChainSucceeded: true
+                    )
+                }
 
                 clipboardMonitor.executeInsertWithEnhancedClipboardSync(
                     insertAction: { [weak self] in
@@ -1049,7 +1062,7 @@ class RecordingsFolderWatcher {
                     logDebug("Executing scheduled action: \(actionName) (type: \(actionType))")
                     let scheduledMetaJsonWithClipboard = freezeClipboardContext(
                         in: enhancedMetaJson,
-                        representations: clipboardContextRepresentations,
+                        recordingPath: contextRecordingPath,
                         rootAction: action
                     )
                     let scheduledMetaJson = ensureFrozenFrontAppUrlIfNeeded(
@@ -1118,7 +1131,7 @@ class RecordingsFolderWatcher {
                 )
                 let updatedJsonWithClipboard = freezeClipboardContext(
                     in: updatedJson,
-                    representations: clipboardContextRepresentations,
+                    recordingPath: contextRecordingPath,
                     rootAction: action
                 )
                 
@@ -1160,7 +1173,7 @@ class RecordingsFolderWatcher {
                     logDebug("Processing with active action: \(activeActionName) (type: \(actionType))")
                     let activeMetaJsonWithClipboard = freezeClipboardContext(
                         in: enhancedMetaJson,
-                        representations: clipboardContextRepresentations,
+                        recordingPath: contextRecordingPath,
                         rootAction: action
                     )
                     let activeActionMetaJson = ensureFrozenFrontAppUrlIfNeeded(
@@ -1321,16 +1334,28 @@ class RecordingsFolderWatcher {
 
     private func freezeClipboardContext(
         in metaJson: [String: Any],
-        representations: ClipboardContextRepresentations,
+        recordingPath: String,
         rootAction: Any?
     ) -> [String: Any] {
         let enableStacking = effectiveClipboardStacking(
             for: rootAction,
             defaultValue: configManager.config.defaults.clipboardStacking
         )
+        let enableAttachments = effectiveClipboardAttachments(
+            for: rootAction,
+            defaultValue: configManager.config.defaults.clipboardAttachments
+        )
+        clipboardMonitor.configureRootClipboardPolicy(
+            for: recordingPath,
+            attachmentsEnabled: enableAttachments,
+            stackingEnabled: enableStacking
+        )
+        let swResult = (metaJson["llmResult"] as? String) ?? (metaJson["result"] as? String) ?? ""
+        let snapshot = clipboardMonitor.freezeClipboardContext(for: recordingPath, swResult: swResult)
         var enhancedMetaJson = metaJson
         enhancedMetaJson["clipboardStacking"] = enableStacking
-        enhancedMetaJson["clipboardContext"] = representations.value(enableStacking: enableStacking)
+        enhancedMetaJson["clipboardAttachments"] = enableAttachments
+        enhancedMetaJson["clipboardContext"] = snapshot.representations.value(enableStacking: enableStacking)
         enhancedMetaJson[runtimeClipboardContextLockedKey] = true
         return enhancedMetaJson
     }

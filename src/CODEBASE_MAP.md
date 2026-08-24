@@ -8,7 +8,7 @@
 - **Recording watcher pipeline**: monitors Superwhisper recordings, validates `meta.json`, and handles burst/cancel/recovery scenarios
 - **Unified action system**: insert, URL, shortcut, shell, and AppleScript actions share chaining, triggering, placeholder expansion, and clipboard semantics
 - **Config version 2 semantics**: `null` means inherit defaults, `""` means explicitly empty, and reserved templates like `.none`, `.autoPaste`, and `.run` have dedicated runtime behavior
-- **Clipboard/session coordination**: captures selected text and clipboard context early, freezes context for execution, and avoids Superwhisper sync contamination
+- **Clipboard/session coordination**: captures selected text and clipboard context early, freezes context for execution, and avoids Superwhisper sync contamination; optional attachment handoff remains separate from the string placeholder and original-clipboard snapshot
 - **CLI/runtime parity**: socket-backed commands reuse the same action resolution rules as the live watcher
 - **JSON schema + config validation**: local schema management, semantic validation, and auto-migration/update support
 
@@ -68,6 +68,7 @@ src/
 #### `AppConfiguration.swift`
 - Defines the full config model and sets `currentConfigVersion = 2`
 - Centralizes defaults and normalized persistence behavior for root defaults and all action types
+- Provides `clipboardAttachments` (default `false`) with nullable action overrides; the effective root setting applies to the full chain
 - All action types support `nextAction`, `inputCondition`, trigger fields, and per-action clipboard timing settings
 - Script-like actions (`shortcut`, `shell`, `AppleScript`) also support `scriptAsync` and `scriptWaitTimeout`
 - Reserved action templates are runtime-significant:
@@ -133,12 +134,16 @@ src/
 - Captures selected text and clipboard context once per recording session, then reuses that snapshot across chains
 - Handles overlap/pending-restore execution groups so chained or adjacent recordings do not corrupt each other
 - Filters duplicate/system clipboard writes and resets contaminated history after action execution
+- Treats `NSPasteboard.changeCount` as the operation boundary for ordered text/file-URL/PNG/TIFF representations; attachment retention is bounded to 64 MiB per image and 192 MiB total
+- Keeps the context payload separate from the original snapshot; successful eligible chains can hand attachments off for manual paste even when `restoreClipboard` is `false`
+- Converts final file/raw-image/mixed handoff into one eager ordered Finder filename array from which AppKit synthesizes file URLs; raw PNG is validated and raw TIFF is normalized to PNG in a managed cache that preserves the current clipboard across restart, retains unreferenced files for 24 hours, and caps generated data at 1 GiB
 - Provides CLI-safe clipboard cleanup/restoration hooks used by socket commands
 
 ### 6. Placeholder / Context System
 
 #### `Placeholders.swift`
 - Expands standard placeholders such as `{{swResult}}`, `{{selectedText}}`, `{{clipboardContext}}`, and `{{frontApp}}`
+- Keeps `{{clipboardContext}}` string-only; attachment-only operations expand to an empty placeholder while eligible watcher chains may hand supported attachments off separately
 - Supports nested `meta.json` traversal, including arrays and objects
 - Supports transformed placeholders like `{{placeholder::transform||find||replace}}`
 - Handles newer context sources including:
@@ -165,7 +170,7 @@ src/
   - `--run-auto` with runtime-style resolution
   - `--meta` against latest result, recording folder name, folder path, or direct `meta.json`
   - folder lookup commands (`--folder-name`, `--folder-path`)
-- Preserves CLI clipboard behavior separately from watcher execution while matching chain-level restore semantics
+- Preserves CLI clipboard behavior separately from watcher execution while matching chain-level restore semantics; pure CLI and `copyAction` do not perform attachment handoff, although supported original restoration may be shared
 
 ### 8. Supporting Infrastructure
 - `SchemaManager.swift`: finds a local schema and manages `$schema` references without requiring network access
@@ -218,6 +223,7 @@ src/
     "activeAction": "autoPaste",
     "restoreClipboardDelay": 0.3,
     "clipboardBuffer": 5,
+    "clipboardAttachments": false,
     "bypassModes": "",
     "autoUpdateConfig": true
   },

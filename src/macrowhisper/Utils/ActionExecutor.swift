@@ -88,11 +88,36 @@ class ActionExecutor {
     ) {
         var chainMetaJson = metaJson
         let hasFrozenClipboardContext = (chainMetaJson[runtimeClipboardContextLockedKey] as? Bool) ?? false
-        if !hasFrozenClipboardContext {
-            chainMetaJson["clipboardStacking"] = effectiveClipboardStacking(
+        let rootClipboardStacking = hasFrozenClipboardContext
+            ? ((chainMetaJson["clipboardStacking"] as? Bool) ?? effectiveClipboardStacking(
+                for: initialAction,
+                defaultValue: configManager.config.defaults.clipboardStacking
+            ))
+            : effectiveClipboardStacking(
                 for: initialAction,
                 defaultValue: configManager.config.defaults.clipboardStacking
             )
+        let rootClipboardAttachments = hasFrozenClipboardContext
+            ? ((chainMetaJson["clipboardAttachments"] as? Bool) ?? effectiveClipboardAttachments(
+                for: initialAction,
+                defaultValue: configManager.config.defaults.clipboardAttachments
+            ))
+            : effectiveClipboardAttachments(
+                for: initialAction,
+                defaultValue: configManager.config.defaults.clipboardAttachments
+            )
+        chainMetaJson["clipboardStacking"] = rootClipboardStacking
+        chainMetaJson["clipboardAttachments"] = rootClipboardAttachments
+        clipboardMonitor.configureRootClipboardPolicy(
+            for: recordingPath,
+            attachmentsEnabled: rootClipboardAttachments,
+            stackingEnabled: rootClipboardStacking
+        )
+        if !hasFrozenClipboardContext {
+            let swResult = (chainMetaJson["llmResult"] as? String) ?? (chainMetaJson["result"] as? String) ?? ""
+            let snapshot = clipboardMonitor.freezeClipboardContext(for: recordingPath, swResult: swResult)
+            chainMetaJson["clipboardContext"] = snapshot.representations.value(enableStacking: rootClipboardStacking)
+            chainMetaJson[runtimeClipboardContextLockedKey] = true
         }
         initializeChainContextSnapshot(recordingPath: recordingPath, metaJson: chainMetaJson)
         let initialStep = ResolvedActionStep(action: initialAction, name: name, type: type)
@@ -150,6 +175,16 @@ class ActionExecutor {
                 isLastInChain: nextStep == nil
             )
 
+            if ((metaJson["clipboardAttachments"] as? Bool) ?? false),
+               actionTemplateUsesPlaceholder(actionTemplate(for: executionStep), key: "clipboardContext") {
+                clipboardMonitor.markAttachmentHandoffEligible(
+                    for: recordingPath,
+                    consumer: .actionExecutor,
+                    wholeChainSucceeded: state.failedSteps.isEmpty,
+                    priorChainFailure: !state.failedSteps.isEmpty
+                )
+            }
+
             logInfo("[ActionChain] Executing action '\(executionStep.name)' (step \(state.stepNumber), type: \(executionStep.type))")
             executeResolvedAction(
                 step: executionStep,
@@ -194,8 +229,24 @@ class ActionExecutor {
             let message = error.localizedDescription
             logError("[ActionChain] \(message)")
             clearChainContextSnapshot(recordingPath: recordingPath)
+            clipboardMonitor.markClipboardChainStepResult(for: recordingPath, succeeded: false)
             clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
             onCompletion?(ChainExecutionResult(success: false, finalActionName: state.currentStep.name, finalActionType: state.currentStep.type, finalAction: state.currentStep.action, errorMessage: message))
+        }
+    }
+
+    private func actionTemplate(for step: ResolvedActionStep) -> String {
+        switch step.type {
+        case .insert:
+            return (step.action as? AppConfiguration.Insert)?.action ?? ""
+        case .url:
+            return (step.action as? AppConfiguration.Url)?.action ?? ""
+        case .shortcut:
+            return (step.action as? AppConfiguration.Shortcut)?.action ?? ""
+        case .shell:
+            return (step.action as? AppConfiguration.ScriptShell)?.action ?? ""
+        case .appleScript:
+            return (step.action as? AppConfiguration.ScriptAppleScript)?.action ?? ""
         }
     }
 
@@ -1002,8 +1053,8 @@ class ActionExecutor {
     private func enhanceMetaJsonWithSessionData(metaJson: [String: Any], recordingPath: String, actionTemplate: String) -> [String: Any] {
         var enhanced = metaJson
         let contextRecordingPath = clipboardMonitor.getContextRootRecordingPath(for: recordingPath)
-        let requiresAppContext = actionUsesPlaceholder(actionTemplate, key: "appContext")
-        let requiresAppVocabulary = actionUsesPlaceholder(actionTemplate, key: "appVocabulary")
+        let requiresAppContext = actionTemplateUsesPlaceholder(actionTemplate, key: "appContext")
+        let requiresAppVocabulary = actionTemplateUsesPlaceholder(actionTemplate, key: "appVocabulary")
         
         let existingSelectedText = (metaJson["selectedText"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -1168,13 +1219,6 @@ class ActionExecutor {
         return nil
     }
 
-    private func actionUsesPlaceholder(_ actionTemplate: String, key: String) -> Bool {
-        guard actionTemplate.contains("{{"), actionTemplate.contains(key) else {
-            return false
-        }
-        return true
-    }
-    
     // MARK: - Action Processing Methods
 
     private func logProcessedActionPreview(_ actionType: String, value: String) {

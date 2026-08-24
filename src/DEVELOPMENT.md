@@ -51,6 +51,17 @@ swift build
   - `scriptAsync = false` should wait up to `scriptWaitTimeout` seconds.
   - `{{actionResult}}` and `{{actionResult:N}}` should resolve stdout from prior synchronous script steps in the same execution group.
 
+### Testing Clipboard Attachments
+- `defaults.clipboardAttachments` defaults to `false`; an action-level `null` or omission inherits it, and the effective root value remains fixed for the full chain.
+- With attachments disabled, the existing string projection is unchanged. `{{clipboardContext}}` remains string-only; an attachment-only operation expands to an empty placeholder.
+- With attachments enabled, use a real `{{clipboardContext}}` consumer in a step that actually executes. An unreachable consumer must not make the chain eligible for handoff.
+- Handoff is for a later manual paste only. A successful eligible chain hands off attachments even when the final step has `restoreClipboard: false`; failed, cancelled, and structurally invalid chains do not.
+- Verify operation grouping by `NSPasteboard.changeCount`, ordered text/file URLs/PNG/TIFF, reset and `clipboardIgnore` boundaries, the pre-recording buffer, internal-write suppression, overlap ownership, and finalization across chains.
+- Verify final handoff exposes every attachment through one eager ordered Finder filename array from which AppKit synthesizes file URLs: existing files stay borrowed, raw PNG is validated and retained exactly, raw TIFF is transcoded to a decodable PNG for target compatibility, mixed ordering is preserved, and no raw image type is advertised as the primary handoff. Generated images remain cached for 24 hours after clipboard ownership ends unless still referenced.
+- Verify generated files survive while referenced by the clipboard and across service restart, are not deleted during an active restoration/handoff group, and remain for 24 hours after clipboard ownership ends before expiry cleanup. The 1 GiB cache ceiling removes the oldest unreferenced generations first and must never touch borrowed user files.
+- Verify the 64 MiB per-image and 192 MiB aggregate limits. Oversized items stay classified as attachments, never fall back to incidental text, and emit diagnostics without clipboard content, image bytes, or private paths.
+- Pure CLI execution and `copyAction` must not hand attachments off. CLI original-clipboard restoration may still use the supported representations.
+
 ## Common Development Tasks
 
 ### Adding New CLI Commands
@@ -97,9 +108,11 @@ swift build
 - **selectedText**: Captured immediately when recording folder appears (if text is selected)
 - **clipboardContext**: Captured from clipboard monitoring session (works regardless of restoreClipboard setting)
   - **Stacking**: The root action's nullable `clipboardStacking` override falls back to `defaults.clipboardStacking` and applies to the full chain
+  - **Attachments**: The root action's nullable `clipboardAttachments` override falls back to `defaults.clipboardAttachments` (`false`) and applies to the full chain; attachment handoff is manual-paste-only and only becomes eligible when an actually executed step consumes `{{clipboardContext}}`
   - **Filtering**: Empty and Superwhisper-result entries are removed before choosing either the single or stacked representation
   - **Single change**: Returns content without XML tags (maintains current behavior)
   - **Multiple changes**: Returns all changes with XML tags (`<clipboard-context-1>`, `<clipboard-context-2>`, etc.)
+  - **Attachment-only changes**: Keep their attachment classification but yield an empty string placeholder; supported handoff representations are ordered text, file URLs, PNG, and TIFF
 - **appContext**: Only captured when placeholder is used in action (performance optimization)
 - **appVocabulary**: Only captured when placeholder is used in action; uses bounded accessibility traversal
 - **frontApp/appContext/appVocabulary consistency**: In watcher flow, app identity is frozen once before first action step (`frontAppName`/`frontAppBundleId`/`frontAppPid`). `appContext` and `appVocabulary` resolve lazily on first use, then are reused for the full chain.
@@ -149,5 +162,6 @@ else if key == "myNewData" {
 - ClipboardMonitor coordinates with Superwhisper timing
 - Insert chains resolve next actions at runtime (not precomputed) to support conditional `nextAction`.
 - Input-field state for conditional behavior is evaluated live per executed step.
+- Attachment context and the original clipboard snapshot are separate; final attachment handoff/restoration occurs only at execution-group finalization, never between chain steps.
 
 See `CODEBASE_MAP.md` for detailed architecture documentation. 

@@ -467,6 +467,7 @@ class SocketCommunication {
         
         // Add clipboard stacking setting for CLI context
         enhanced["clipboardStacking"] = configManager.config.defaults.clipboardStacking
+        enhanced["clipboardAttachments"] = false
 
         // CLI commands resolve context placeholders from invocation-time state.
         enhanced["selectedText"] = sanitizeContextPlaceholderValue(getSelectedText())
@@ -487,6 +488,8 @@ class SocketCommunication {
             for: rootAction,
             defaultValue: configManager.config.defaults.clipboardStacking
         )
+        // Pure CLI execution intentionally has no attachment handoff semantics.
+        enhanced["clipboardAttachments"] = false
         return enhanced
     }
 
@@ -503,13 +506,6 @@ class SocketCommunication {
         case .appleScript:
             return (action as? AppConfiguration.ScriptAppleScript)?.action ?? ""
         }
-    }
-
-    private func actionUsesPlaceholderForCopyAction(_ actionTemplate: String, key: String) -> Bool {
-        guard actionTemplate.contains("{{"), actionTemplate.contains(key) else {
-            return false
-        }
-        return true
     }
 
     private func prepareLiveContextMetaJsonForCopyAction(
@@ -540,6 +536,8 @@ class SocketCommunication {
             defaultValue: configManager.config.defaults.clipboardStacking
         )
         enhanced["clipboardStacking"] = enableStacking
+        // copyAction owns its explicit text clipboard output and never hands off attachments.
+        enhanced["clipboardAttachments"] = false
         var liveClipboardContext = ""
         if let watcher = recordingsWatcher {
             let clipboardMonitor = watcher.getClipboardMonitor()
@@ -562,7 +560,7 @@ class SocketCommunication {
         enhanced["clipboardContext"] = liveClipboardContext
         enhanced[runtimeClipboardContextLockedKey] = true
 
-        if actionUsesPlaceholderForCopyAction(actionTemplate, key: "appContext") {
+        if actionTemplateUsesPlaceholder(actionTemplate, key: "appContext") {
             enhanced["appContext"] = sanitizeContextPlaceholderValue(
                 getAppContext(
                     targetPid: frontApp.pid,
@@ -573,7 +571,7 @@ class SocketCommunication {
             enhanced["appContext"] = ""
         }
 
-        if actionUsesPlaceholderForCopyAction(actionTemplate, key: "appVocabulary") {
+        if actionTemplateUsesPlaceholder(actionTemplate, key: "appVocabulary") {
             enhanced["appVocabulary"] = sanitizeContextPlaceholderValue(
                 getAppVocabulary(
                     targetPid: frontApp.pid,
@@ -1158,16 +1156,34 @@ class SocketCommunication {
         }
     }
 
-    private func restoreClipboardForCLI(_ clipboardContent: String?) {
+    private func restoreClipboardForCLI(
+        snapshot: ClipboardOriginalSnapshot?,
+        legacyContent: String?
+    ) {
+        if let snapshot, let clipboardMonitorRef {
+            if clipboardMonitorRef.restoreOriginalClipboardSnapshot(snapshot) {
+                logDebug("[CLI] Restored representation-aware clipboard snapshot captured at chain start")
+            } else {
+                logWarning("[CLI] Failed to restore representation-aware clipboard snapshot captured at chain start")
+            }
+            return
+        }
+
         let pasteboard = NSPasteboard.general
-        if let clipboardContent {
-            clipboardMonitorRef?.suppressNextClipboardCapture(for: clipboardContent, duration: 1.5)
+        if let legacyContent {
+            clipboardMonitorRef?.suppressNextClipboardCapture(for: legacyContent, duration: 1.5)
             pasteboard.clearContents()
-            pasteboard.setString(clipboardContent, forType: .string)
-            logDebug("[CLI] Restored clipboard content captured at chain start")
+            pasteboard.setString(legacyContent, forType: .string)
+            logDebug("[CLI] Restored text clipboard content captured at chain start")
         } else {
-            pasteboard.clearContents()
-            logDebug("[CLI] Cleared clipboard (chain-start clipboard was empty)")
+            // A faithfully captured empty clipboard arrives as a non-nil empty
+            // representation-aware snapshot above. With neither snapshot nor
+            // legacy text, capture was unavailable; leave the current
+            // clipboard intact instead of conflating nil with empty.
+            logWarning(
+                "[CLI] Clipboard restoration skipped " +
+                "(reason: unstable-or-unavailable-chain-start-snapshot)"
+            )
         }
     }
 
@@ -3807,6 +3823,7 @@ class SocketCommunication {
                         break
                     }
 
+                    let initialClipboardSnapshot = clipboardMonitorRef?.captureOriginalClipboardSnapshot()
                     let initialClipboardContent = NSPasteboard.general.string(forType: .string)
                     let chainResult = try executeActionChainForCLI(
                         initialAction: selectedAction.action,
@@ -3831,7 +3848,10 @@ class SocketCommunication {
                         if restoreDelay > 0 {
                             Thread.sleep(forTimeInterval: restoreDelay)
                         }
-                        restoreClipboardForCLI(chainResult.clipboardState.initialClipboardContent)
+                        restoreClipboardForCLI(
+                            snapshot: initialClipboardSnapshot,
+                            legacyContent: chainResult.clipboardState.initialClipboardContent
+                        )
                     }
 
                     if let recordingPath = resolvedMetaSource.recordingPath {
@@ -3905,6 +3925,7 @@ class SocketCommunication {
                             overwriteExisting: false
                         )
 
+                        let initialClipboardSnapshot = clipboardMonitorRef?.captureOriginalClipboardSnapshot()
                         let initialClipboardContent = NSPasteboard.general.string(forType: .string)
                         let chainResult = try executeActionChainForCLI(
                             initialAction: action,
@@ -3928,7 +3949,10 @@ class SocketCommunication {
                             if restoreDelay > 0 {
                                 Thread.sleep(forTimeInterval: restoreDelay)
                             }
-                            restoreClipboardForCLI(chainResult.clipboardState.initialClipboardContent)
+                            restoreClipboardForCLI(
+                                snapshot: initialClipboardSnapshot,
+                                legacyContent: chainResult.clipboardState.initialClipboardContent
+                            )
                         }
                         if let recordingPath = resolvedMetaSource.recordingPath {
                             applyMoveToForCLI(

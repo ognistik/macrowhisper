@@ -693,10 +693,14 @@ private func runClipboardTransientActivityRegressionTests() {
         "stale execution groups are never reused even if their flags remain active"
     )
 
+    let attachmentStoreRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("macrowhisper-transient-test-attachments-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: attachmentStoreRoot) }
     let monitor = ClipboardMonitor(
         logger: Logger(),
         preRecordingBufferSeconds: 0,
-        clipboardIgnore: ""
+        clipboardIgnore: "",
+        attachmentFileStore: ClipboardAttachmentFileStore(rootDirectory: attachmentStoreRoot)
     )
     let overlappingRoot = "/tmp/macrowhisper-overlap-root"
     let overlappingChild = "/tmp/macrowhisper-overlap-child"

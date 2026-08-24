@@ -143,6 +143,11 @@
           "description": "Default clipboard stacking behavior for the clipboardContext placeholder. When enabled, eligible clipboard changes are returned in order with XML tags (<clipboard-context-1>, <clipboard-context-2>, etc.). When disabled, the most recent eligible change is returned. null or omitted = use built-in default (false).",
           "default": false
         },
+        "clipboardAttachments": {
+          "type": ["boolean", "null"],
+          "description": "Default clipboard attachment behavior for the clipboardContext placeholder. When enabled, supported clipboard attachments are preserved for handoff; when disabled, the existing text-only behavior is unchanged. null or omitted = use built-in default (false).",
+          "default": false
+        },
         "clipboardBuffer": {
           "type": ["number", "null"],
           "description": "Global clipboard buffer window in seconds for the clipboardContext placeholder. Controls the capture of clipboard content before a recording starts. 0 disables the buffer entirely. null or omitted = use built-in default (5).",
@@ -284,6 +289,11 @@
         "clipboardStacking": {
           "type": ["boolean", "null"],
           "description": "Override clipboard stacking for this action and its chain. null or omitted = use defaults.clipboardStacking, true = return all eligible clipboard changes, false = return only the most recent eligible change.",
+          "default": null
+        },
+        "clipboardAttachments": {
+          "type": ["boolean", "null"],
+          "description": "Override clipboard attachments for this action and its chain. null or omitted = use defaults.clipboardAttachments; true enables supported attachment handoff, false keeps the existing text-only behavior.",
           "default": null
         },
         "nextAction": {

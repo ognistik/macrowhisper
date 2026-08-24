@@ -70,6 +70,7 @@ func escapeShellCharacters(_ value: String) -> String { value }
 func escapeUrlPlaceholder(_ value: String) -> String { value }
 
 func getSelectedText() -> String { stubSelectedText }
+func resolveFrontAppIdentity() -> NSRunningApplication? { globalState.lastDetectedFrontApp }
 func getAppContext(targetPid: Int32?, fallbackAppName: String?) -> String { stubAppContext }
 func getAppVocabulary(targetPid: Int32?, fallbackAppName: String?, fallbackBundleId: String?) -> String { stubAppVocabulary }
 func getActiveURL(targetPid: Int32? = nil, fallbackBundleId: String? = nil) -> String? { stubActiveURL }

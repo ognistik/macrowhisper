@@ -87,6 +87,7 @@ private func runDefaultsWatchRegressionTests() {
         assertEqual(starterDefaults.restoreClipboardDelay ?? -1, 0.3, "starter defaults use restoreClipboardDelay 0.3")
         assertEqual(starterDefaults.scriptAsync ?? false, true, "starter defaults use scriptAsync true")
         assertEqual(starterDefaults.scriptWaitTimeout ?? -1, 3, "starter defaults use scriptWaitTimeout 3")
+        assertEqual(starterDefaults.clipboardAttachments, false, "starter defaults use clipboardAttachments false")
         assertEqual(starterDefaults.icon ?? "__nil__", "", "starter defaults use explicit empty icon")
         assertEqual(starterDefaults.moveTo ?? "__nil__", "", "starter defaults use explicit empty moveTo")
         assertEqual(starterDefaults.clipboardIgnore ?? "__nil__", "", "starter defaults use explicit empty clipboardIgnore")
@@ -171,6 +172,7 @@ private func runDefaultsWatchRegressionTests() {
         let starterJson = String(decoding: starterData, as: UTF8.self)
         assertTrue(starterJson.contains("\"returnDelay\":0.15"), "starter config persists returnDelay 0.15")
         assertTrue(starterJson.contains("\"scriptWaitTimeout\":3"), "starter config persists scriptWaitTimeout without trailing .0")
+        assertTrue(starterJson.contains("\"clipboardAttachments\":false"), "starter config persists clipboardAttachments false")
         assertTrue(starterJson.contains("\"clipboardIgnore\":\"\""), "starter config persists empty clipboardIgnore")
         assertTrue(starterJson.contains("\"nextAction\":\"\""), "starter config persists empty nextAction")
 
@@ -268,6 +270,7 @@ private func runDefaultsWatchRegressionTests() {
         assertTrue(insertJson.contains("\"icon\":null"), "new insert action stays sparse with null icon")
         assertTrue(insertJson.contains("\"moveTo\":null"), "new insert action stays sparse with null moveTo")
         assertTrue(insertJson.contains("\"clipboardStacking\":null"), "new insert action inherits clipboardStacking with null")
+        assertTrue(insertJson.contains("\"clipboardAttachments\":null"), "new insert action inherits clipboardAttachments with null")
         assertTrue(insertJson.contains("\"nextAction\":null"), "new insert action stays sparse with null nextAction")
         assertTrue(insertJson.contains("\"triggerLogic\":\"or\""), "new insert action still persists triggerLogic")
 
@@ -280,6 +283,7 @@ private func runDefaultsWatchRegressionTests() {
         for (actionType, data) in newActionEncodings {
             let json = String(decoding: data, as: UTF8.self)
             assertTrue(json.contains("\"clipboardStacking\":null"), "new \(actionType) action inherits clipboardStacking with null")
+            assertTrue(json.contains("\"clipboardAttachments\":null"), "new \(actionType) action inherits clipboardAttachments with null")
         }
 
         assertEqual(
@@ -302,6 +306,105 @@ private func runDefaultsWatchRegressionTests() {
             ),
             true,
             "true action clipboardStacking overrides false default"
+        )
+
+        assertEqual(
+            effectiveClipboardAttachments(for: newInsert, defaultValue: true),
+            true,
+            "null action clipboardAttachments inherits true default"
+        )
+        assertEqual(
+            effectiveClipboardAttachments(
+                for: AppConfiguration.Insert(action: "", clipboardAttachments: false),
+                defaultValue: true
+            ),
+            false,
+            "false action clipboardAttachments overrides true default"
+        )
+        assertEqual(
+            effectiveClipboardAttachments(
+                for: AppConfiguration.Insert(action: "", clipboardAttachments: true),
+                defaultValue: false
+            ),
+            true,
+            "true action clipboardAttachments overrides false default"
+        )
+
+        let explicitAttachmentInheritance = try decodeConfig("""
+        {
+          "configVersion": 2,
+          "defaults": {
+            "clipboardAttachments": true
+          },
+          "inserts": {
+            "omitted": { "action": "" },
+            "null": { "action": "", "clipboardAttachments": null },
+            "false": { "action": "", "clipboardAttachments": false },
+            "true": { "action": "", "clipboardAttachments": true }
+          }
+        }
+        """)
+        assertEqual(
+            effectiveClipboardAttachments(
+                for: explicitAttachmentInheritance.inserts["omitted"],
+                defaultValue: explicitAttachmentInheritance.defaults.clipboardAttachments
+            ),
+            true,
+            "configVersion 2 omitted clipboardAttachments inherits defaults"
+        )
+        assertEqual(
+            effectiveClipboardAttachments(
+                for: explicitAttachmentInheritance.inserts["null"],
+                defaultValue: explicitAttachmentInheritance.defaults.clipboardAttachments
+            ),
+            true,
+            "configVersion 2 null clipboardAttachments inherits defaults"
+        )
+        assertEqual(
+            effectiveClipboardAttachments(
+                for: explicitAttachmentInheritance.inserts["false"],
+                defaultValue: explicitAttachmentInheritance.defaults.clipboardAttachments
+            ),
+            false,
+            "configVersion 2 false clipboardAttachments overrides defaults"
+        )
+        assertEqual(
+            effectiveClipboardAttachments(
+                for: explicitAttachmentInheritance.inserts["true"],
+                defaultValue: false
+            ),
+            true,
+            "configVersion 2 true clipboardAttachments overrides defaults"
+        )
+        assertEqual(
+            explicitAttachmentInheritance.canCaptureClipboardAttachments,
+            true,
+            "true default enables process-wide binary clipboard capture"
+        )
+
+        let explicitAttachmentOptIn = try decodeConfig("""
+        {
+          "configVersion": 2,
+          "defaults": {
+            "clipboardAttachments": false
+          },
+          "scriptsShell": {
+            "attachment consumer": {
+              "action": "{{clipboardContext}}",
+              "clipboardAttachments": true
+            }
+          }
+        }
+        """)
+        assertEqual(
+            explicitAttachmentOptIn.canCaptureClipboardAttachments,
+            true,
+            "an explicit action opt-in enables process-wide binary clipboard capture"
+        )
+        assertEqual(
+            AppConfiguration.defaultConfig().canCaptureClipboardAttachments,
+            false,
+            "default configuration avoids continuous binary clipboard capture"
         )
 
         do {

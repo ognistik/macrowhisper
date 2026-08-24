@@ -102,6 +102,21 @@ private func runPlaceholderRegexPipelineRegressionTests() {
             details: "actual: \(result16)"
         )
 
+        assertTrue(
+            actionTemplateUsesPlaceholder("{{clipboardContext}}", key: "clipboardContext") &&
+                actionTemplateUsesPlaceholder("{{raw:clipboardContext::trim}}", key: "clipboardContext") &&
+                actionTemplateUsesPlaceholder("{{json:clipboardContext||x||y}}", key: "clipboardContext"),
+            "clipboardContext consumer detection shares the dynamic placeholder parser",
+            details: "plain, prefixed, transformed, and replacement forms must be recognized"
+        )
+        assertTrue(
+            !actionTemplateUsesPlaceholder(#"\{{clipboardContext}}"#, key: "clipboardContext") &&
+                !actionTemplateUsesPlaceholder("clipboardContext", key: "clipboardContext") &&
+                !actionTemplateUsesPlaceholder("{{clipboardContextExtra}}", key: "clipboardContext"),
+            "clipboardContext consumer detection rejects escaped, plain-text, and substring lookalikes",
+            details: "feature gates must only activate for a real clipboardContext placeholder"
+        )
+
         let watcher = RecordingsFolderWatcher()
         watcher.activeRecordingSessions = true
         watcher.clipboardMonitor.activeSessionClipboardContentWithStacking = "session-fallback"

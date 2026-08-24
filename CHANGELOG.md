@@ -2,7 +2,13 @@
 
 ## UNRELEASED
 
+### Added
+* Added opt-in `clipboardAttachments` support for handing off files and raw clipboard images for a later manual paste when an executed action consumes `{{clipboardContext}}`. The default is `false`, so the existing text behavior remains unchanged, and actions can override the setting for their full chain.
+* Attachment capture preserves ordered file URLs, PNG, and TIFF representations while enforcing 64 MiB per-image and 192 MiB aggregate in-memory limits. Oversized or unavailable attachments are omitted with privacy-safe diagnostics and never fall back to incidental text.
+
 ### Improved
+* Multiple attachments are handed off as one eager Finder-compatible file list. Raw TIFF clipboard data is converted to PNG, generated images are retained for 24 hours after clipboard ownership ends, and the managed cache is capped at 1 GiB while always preserving active and current-clipboard generations.
+* Attachment handoff now verifies that every generated file exists and that the complete ordered file list reached the pasteboard before reporting success. Cleanup skips unstable clipboard reads and requires Macrowhisper's private ownership marker before removing a cache generation.
 * Recording recovery is now a synchronous session boundary: a new dictation fully closes superseded watchers, timers, clipboard sessions, and execution-group state before monitoring begins for the replacement recording.
 * Execution groups are reused only for short, genuine action or clipboard-restoration overlaps. Recordings that are merely waiting for transcription or LLM output no longer share clipboard or selection context, and stale groups are rejected defensively.
 * Recovery logging now reports aborted execution groups and context counts without exposing clipboard contents, while clipboard snapshot logs include the root recording and context age for diagnosis.

@@ -47,6 +47,7 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
    ├── Freeze app snapshot for chain consistency (name, bundle ID, PID)
    ├── Add selectedText to metaJson
    ├── Add clipboardContext to metaJson (session priority, pre-recording fallback)
+   ├── Freeze root clipboardStacking/clipboardAttachments settings for the chain
    └── Add appContext/appVocabulary lazily on first placeholder use; reuse for chain
    ↓
 6. Action Priority Evaluation
@@ -120,14 +121,18 @@ Superwhisper and Macrowhisper both modify the clipboard simultaneously, causing:
 ```swift
 // Started conditionally based on meta.json state
 func startEarlyMonitoring(for recordingPath: String) {
-    let pasteboard = NSPasteboard.general
-    let userOriginal = pasteboard.string(forType: .string)
+    let originalSnapshot = captureClipboardPasteboardSnapshot(
+        from: .general,
+        source: "session-start",
+        includeAttachments: true,
+        captureOriginalSnapshot: true
+    )?.originalSnapshot
     
     // Capture selected text immediately when monitoring starts
     let selectedText = getSelectedText()
     
     let session = EarlyMonitoringSession(
-        userOriginalClipboard: userOriginal,
+        userOriginalSnapshot: originalSnapshot,
         startTime: Date(),
         selectedText: selectedText
     )
@@ -138,18 +143,19 @@ func startEarlyMonitoring(for recordingPath: String) {
 #### Enhanced Session Structure:
 ```swift
 private struct EarlyMonitoringSession {
-    let userOriginalClipboard: String?     // User's clipboard when folder appeared
+    let userOriginalSnapshot: ClipboardOriginalSnapshot? // Supported native representations at folder arrival
     let selectedText: String?              // Selected text captured at session start
     let startTime: Date                    // Session start time
-    var clipboardChanges: [ClipboardChange] = []  // All clipboard changes during session
+    var clipboardChanges: [ClipboardChange] = []  // Ordered operations during the session
     var isActive: Bool = true              // Session active state
     var isExecutingAction: Bool = false    // Controls clipboard change logging visibility
     let preRecordingClipboard: String?     // Clipboard content from global history (within buffer window before recording)
 }
 
 private struct ClipboardChange {
-    let content: String?    // Clipboard content
-    let timestamp: Date     // When change occurred
+    let changeCount: Int       // Pasteboard operation boundary
+    let payload: ClipboardPayload // Semantic text or ordered native attachments
+    let timestamp: Date        // When the operation occurred
 }
 ```
 
@@ -161,6 +167,9 @@ private struct ClipboardChange {
 - **Pre-Recording Capture**: Configurable rolling buffer for {{clipboardContext}} placeholder (defaults to 5s; 0 disables)
 - **Change Tracking**: Monitors all clipboard changes during the session
 - **Smart Restoration**: Determines correct clipboard content to restore based on session history
+- **Operation boundary**: `NSPasteboard.changeCount` identifies one clipboard operation; ordered text, file URLs, PNG, and TIFF representations from that operation stay together
+- **Attachment handoff**: Optional `clipboardAttachments` data is bounded to 64 MiB per image and 192 MiB in aggregate, with oldest pre-recording image data evicted before active-session or original-snapshot data
+- **Privacy and separation**: `{{clipboardContext}}` remains string-only, files remain URLs, and the context payload is separate from the original clipboard restoration snapshot
 - **Action Execution Boundaries**: Clear start/finish markers for relevant logging periods
 - **Timing Constants**:
   - `maxWaitTime: 0.1` seconds - Maximum time to wait for Superwhisper
@@ -230,6 +239,8 @@ enhancedMetaJson["frontAppName"] = frontApp?.localizedName
 enhancedMetaJson["frontApp"] = frontApp?.localizedName
 enhancedMetaJson["frontAppBundleId"] = frontApp?.bundleIdentifier
 ```
+
+Before dispatching an action, the watcher freezes the effective root `clipboardStacking` and `clipboardAttachments` values into the chain context. A nullable action value inherits the default (`clipboardAttachments` defaults to `false`), and chained steps do not replace the root setting. Attachment handoff is tracked separately from the string `clipboardContext` value and is eligible only if an actually executed step consumes a real `{{clipboardContext}}` placeholder.
 
 #### Key Variables:
 - `result` or `llmResult` - The transcribed text (llmResult takes precedence)
@@ -398,6 +409,17 @@ Clipboard restoration only occurs when **ALL** conditions are met:
 - Clipboard restoration is enabled for that step (`restoreClipboard == true`)
 - Clipboard monitoring cleanup/restore path is active for the execution mode
 
+#### Attachment Handoff:
+- Handoff is for a later manual paste, not placeholder expansion; attachment-only operations produce an empty string placeholder.
+- It requires the frozen root `clipboardAttachments` value to be enabled and at least one action step that actually executes to consume `{{clipboardContext}}`.
+- Finalization of a successful eligible execution group is the final clipboard outcome, even when the final step has `restoreClipboard == false`.
+- Failed, cancelled, and structurally invalid chains never hand attachments off. Handoff/restoration occurs only at execution-group finalization, never between steps.
+- Pure CLI execution and `copyAction` do not hand attachments off. CLI original-clipboard restoration can still use the supported representations.
+- Final handoff publishes one eager ordered `NSFilenamesPboardType` Finder file list; AppKit synthesizes the public file-URL flavors without relying on lazy NSURL writers. Existing files remain URLs; retained raw PNG is validated and materialized unchanged, while TIFF-only clipboard images are transcoded to PNG for upload compatibility. All generated files are created atomically in a private Macrowhisper cache generation before the pasteboard changes.
+- Generated images remain available while the clipboard references them, survive service restart, and remain cached for 24 hours after clipboard ownership ends. The cache is capped at 1 GiB; cleanup removes the oldest expired or over-capacity unreferenced Macrowhisper generations first, while user-owned files are never cleanup targets.
+
+Supported faithful representations are ordered text, file URLs, PNG, and TIFF. Oversized images remain attachments rather than falling back to incidental text; the unavailable item is not handed off and diagnostics must not contain clipboard text, image bytes, or private filenames/paths.
+
 ---
 
 ## Trigger Evaluation
@@ -557,6 +579,7 @@ Determines where to move or how to handle the processed recording folder:
 - `actionDelay: Double` - Default delay before action execution (default: 0.0)
 - `simEsc: Bool` - Simulate ESC key before action execution (default: true)
 - `restoreClipboard: Bool` - Enable clipboard restoration (default: true)
+- `clipboardAttachments: Bool` - Preserve supported clipboard attachments for manual-paste handoff when an executed chain step consumes `{{clipboardContext}}` (default: false)
 - `activeAction: String?` - Currently active action name (supports all action types)
 - `moveTo: String?` - Default folder movement behavior
 - `simReturn: Bool` - Auto-press return after actions (default: false)
@@ -570,6 +593,7 @@ Determines where to move or how to handle the processed recording folder:
 All action types support:
 - `actionDelay: Double?` - Action-specific delay override
 - `simEsc: Bool?` - Action-specific ESC simulation override
+- `clipboardAttachments: Bool?` - Action-specific attachment handoff override; nullable values inherit the root default for the full chain
 - `moveTo: String?` - Action-specific moveTo override
 - `triggerVoice: String?` - Voice trigger patterns
 - `triggerApps: String?` - Application trigger patterns
@@ -614,6 +638,16 @@ Insert-only settings:
 - **Condition**: Accessibility permission denied during insert conditioning
 - **Behavior**: Treat as `isInInputField == false` (outside-input branch)
 - **Impact**: Negated tokens (`!token`) will apply; positive tokens (`token`) will fall back
+
+#### 4. Attachment Handoff:
+- **Disabled**: `clipboardAttachments: false` keeps the existing string projection unchanged.
+- **Attachment-only operation**: `{{clipboardContext}}` resolves to an empty string while the operation remains eligible for supported manual-paste handoff.
+- **Filtering and boundaries**: `clipboardIgnore`, `--reset-clipboard`, the pre-recording buffer, internal-write suppression, overlap invalidation, and chain execution-group ownership apply to attachments exactly as they do to text.
+- **Multi-attachment interoperability**: File URLs and materialized raw images are published together as one ordered file list so first-item-only paste targets receive the complete attachment set. TIFF-only raw images are handed off as PNG files because TIFF uploads are not consistently accepted by paste targets.
+- **Generated-file lifecycle**: Macrowhisper preserves clipboard-owned generated images across restart and retains unreferenced generations for 24 hours. The cache has a 1 GiB ceiling; expiry and capacity cleanup run only while no execution group can still need files for restoration or handoff.
+- **Oversized image**: Per-image limit is 64 MiB and aggregate retention is 192 MiB. The item remains semantically an attachment, never falls back to incidental text, and is omitted from handoff with a privacy-safe diagnostic.
+- **Incomplete bounded original**: If an original image cannot be retained within those limits, restoration does not write a partial or incidental-text substitute; the current clipboard is left unchanged and the omission is diagnosed.
+- **CLI**: Pure CLI and `copyAction` do not hand attachments off; supported original restoration may still be shared with CLI execution.
 
 ### Meta.json Edge Cases:
 
