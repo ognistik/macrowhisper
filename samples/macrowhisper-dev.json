@@ -36,7 +36,7 @@
     "autoPaste" : {
       "action" : "{{swResult::ensureSentence||\\bi\\b||I}}\n{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
       "actionDelay" : null,
-      "clipboardAttachments" : true,
+      "clipboardAttachments" : false,
       "clipboardStacking" : null,
       "icon" : "•",
       "inputCondition" : "!restoreClipboard|!simEsc",
