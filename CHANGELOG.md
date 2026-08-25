@@ -12,6 +12,7 @@
 * Recovery logging now reports aborted execution groups and context counts, while clipboard snapshot logs include the root recording and context age for diagnosis.
 
 ### Fixed
+* Fixed voice commands sometimes failing to activate Macrowhisper actions when using Superwhisper's S1 Language together with S1 Voice. Macrowhisper now briefly waits for the original spoken words before checking voice triggers, without slowing down other model combinations.
 * Fixed stale `{{clipboardContext}}` stacks leaking into later dictations when a Superwhisper LLM request failed or never produced `llmResult`.
 * Recovery now clears the targeted session-level clipboard history and pre-recording stack—not only global clipboard history—while preserving the user's current clipboard instead of restoring an obsolete snapshot.
 * Fixed an occasional issue where content copied during a dictation—especially a repeat copy of the same item—could be missing from `{{clipboardContext}}`. Clipboard capture is now more reliable while continuing to exclude Superwhisper's own clipboard activity and duplicated transcription results.

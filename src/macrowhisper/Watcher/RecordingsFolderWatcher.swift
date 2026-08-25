@@ -20,6 +20,7 @@ class RecordingsFolderWatcher {
     private var pendingAudioFileWatchers: [String: DispatchSourceFileSystemObject] = [:]
     private var recordingHadWavFiles: [String: Bool] = [:] // Track if recording ever had .wav files
     private var recordingTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout timers for recordings
+    private var integratedS1ResultGraceWorkItems: [String: DispatchWorkItem] = [:]
     private var processedRecordings: Set<String> = []
     private var watcherStartedAt: Date?
     private var lastFolderEventAt: Date?
@@ -178,6 +179,12 @@ class RecordingsFolderWatcher {
             }
             recordingTimeoutTimers.removeAll()
 
+            // Cancel bounded metadata-settle retries.
+            for (_, workItem) in integratedS1ResultGraceWorkItems {
+                workItem.cancel()
+            }
+            integratedS1ResultGraceWorkItems.removeAll()
+
             // Stop all early clipboard monitoring sessions
             let currentSubdirectories = getCurrentSubdirectories()
             for dirName in currentSubdirectories {
@@ -207,6 +214,7 @@ class RecordingsFolderWatcher {
                 pendingCount: pendingMetaJsonFiles.count
                     + pendingAudioFileWatchers.count
                     + recordingTimeoutTimers.count
+                    + integratedS1ResultGraceWorkItems.count
             )
         }
 
@@ -260,6 +268,7 @@ class RecordingsFolderWatcher {
         !pendingMetaJsonFiles.isEmpty
             || !pendingAudioFileWatchers.isEmpty
             || !recordingTimeoutTimers.isEmpty
+            || !integratedS1ResultGraceWorkItems.isEmpty
     }
     
     private func loadProcessedRecordings() {
@@ -513,6 +522,9 @@ class RecordingsFolderWatcher {
 
                 // llmResult must be a non-empty string
                 if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
+                    if RecordingMetadataSettlePolicy.shouldAwaitIntegratedS1Result(in: metaJson) {
+                        return false
+                    }
                     return true
                 } else {
                     return false
@@ -775,7 +787,11 @@ class RecordingsFolderWatcher {
         logDebug("Started watching for changes to meta.json at: \(metaJsonPath)")
     }
     
-    private func processMetaJson(metaJsonPath: String, recordingPath: String) {
+    private func processMetaJson(
+        metaJsonPath: String,
+        recordingPath: String,
+        allowEmptyIntegratedS1Result: Bool = false
+    ) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: recordingPath) {
             logDebug("Skipping already processed recording: \(recordingPath)")
@@ -812,6 +828,25 @@ class RecordingsFolderWatcher {
 
                 // llmResult must be a non-empty string
                 if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
+                    if RecordingMetadataSettlePolicy.shouldAwaitIntegratedS1Result(in: metaJson) {
+                        if !allowEmptyIntegratedS1Result {
+                            scheduleIntegratedS1ResultRecheck(
+                                metaJsonPath: metaJsonPath,
+                                recordingPath: recordingPath
+                            )
+                            watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                            return
+                        }
+
+                        logDebug(
+                            "[Validation] S1-Language + S1-Voice result remained empty after " +
+                            "\(RecordingMetadataSettlePolicy.integratedS1ResultGraceSeconds)s grace; " +
+                            "continuing with llmResult."
+                        )
+                    } else {
+                        cancelIntegratedS1ResultRecheck(for: recordingPath)
+                    }
+
                     // In LLM mode, llmResult is sufficient for processing.
                     // Trigger voice matching still runs against result and will simply not match when result is empty.
                     logDebug("[Validation] Passed validation with languageModelName present. llmResult=\(summarizeForLogs(llmResultString, maxPreview: 120))")
@@ -1223,6 +1258,37 @@ class RecordingsFolderWatcher {
             watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
             // Don't stop early monitoring here as we're still watching for changes
         }
+    }
+
+    private func scheduleIntegratedS1ResultRecheck(metaJsonPath: String, recordingPath: String) {
+        guard integratedS1ResultGraceWorkItems[recordingPath] == nil else {
+            return
+        }
+
+        let delay = RecordingMetadataSettlePolicy.integratedS1ResultGraceSeconds
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.integratedS1ResultGraceWorkItems.removeValue(forKey: recordingPath)
+            self.processMetaJson(
+                metaJsonPath: metaJsonPath,
+                recordingPath: recordingPath,
+                allowEmptyIntegratedS1Result: true
+            )
+        }
+
+        integratedS1ResultGraceWorkItems[recordingPath] = workItem
+        queue.asyncAfter(deadline: .now() + delay, execute: workItem)
+        logDebug(
+            "[Validation] S1-Language + S1-Voice llmResult arrived before result; " +
+            "waiting up to \(delay)s for trigger source text."
+        )
+    }
+
+    private func cancelIntegratedS1ResultRecheck(for recordingPath: String) {
+        guard let workItem = integratedS1ResultGraceWorkItems.removeValue(forKey: recordingPath) else {
+            return
+        }
+        workItem.cancel()
     }
 
     private func shouldBypassProcessing(for modeName: String?) -> Bool {
@@ -1770,6 +1836,7 @@ class RecordingsFolderWatcher {
     private func cleanupPendingWatcher(for path: String) {
         queue.async { [weak self] in
             guard let self = self else { return }
+            self.cancelIntegratedS1ResultRecheck(for: self.extractRecordingPath(from: path))
             let hadMetaWatcher = self.pendingMetaJsonFiles[path] != nil
             let hadAudioWatcher = self.pendingAudioFileWatchers[path] != nil
             let previousTotal = self.pendingMetaJsonFiles.count + self.pendingAudioFileWatchers.count
@@ -1816,11 +1883,13 @@ class RecordingsFolderWatcher {
             let metaWatcherCount = self.pendingMetaJsonFiles.count
             let audioWatcherCount = self.pendingAudioFileWatchers.count
             let recordingTimerCount = self.recordingTimeoutTimers.count
+            let integratedS1GraceCount = self.integratedS1ResultGraceWorkItems.count
 
             var recordingPathsToRecover = Set(
                 self.pendingMetaJsonFiles.keys.map(self.extractRecordingPath(from:))
                     + self.pendingAudioFileWatchers.keys.map(self.extractRecordingPath(from:))
                     + Array(self.recordingTimeoutTimers.keys)
+                    + Array(self.integratedS1ResultGraceWorkItems.keys)
             )
             if let preserveRecording {
                 recordingPathsToRecover.remove(preserveRecording)
@@ -1834,7 +1903,7 @@ class RecordingsFolderWatcher {
             logInfo(
                 "UNIFIED RECOVERY: Closing \(recordingPathsToRecover.count) incomplete recording session(s) " +
                 "before continuing (meta watchers: \(metaWatcherCount), audio watchers: \(audioWatcherCount), " +
-                "recording timers: \(recordingTimerCount)) - \(reason)"
+                "recording timers: \(recordingTimerCount), S1 settle retries: \(integratedS1GraceCount)) - \(reason)"
             )
 
             var cleanedUpWatcherCount = 0
@@ -1862,6 +1931,7 @@ class RecordingsFolderWatcher {
             }
 
             for recordingPath in recordingPathsToRecover {
+                self.cancelIntegratedS1ResultRecheck(for: recordingPath)
                 if let timer = self.recordingTimeoutTimers.removeValue(forKey: recordingPath) {
                     timer.cancel()
                 }
