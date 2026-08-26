@@ -277,7 +277,7 @@ Actions are evaluated in strict priority order. **Higher priority actions comple
 #### 3. Trigger Actions (Medium Priority)
 - **Evaluation**: `TriggerEvaluator.evaluateTriggersForAllActions()`
 - **Types**: Insert, URL, Shortcut, Shell Script, AppleScript actions with triggers
-- **Selection**: First matched action (sorted alphabetically by name)
+- **Selection**: Highest-ranked actual match using voice > mode > URL > app priority, then required-condition and source-specific specificity; action name is the final tie-breaker
 - **Override**: Completely overrides active action if any triggers match
 
 #### 4. Active Action (Lowest Priority)
@@ -478,7 +478,7 @@ Example:
 1. **Collect All Actions**: Inserts, URLs, Shortcuts, Shell Scripts, AppleScripts
 2. **Evaluate Each Action**: Check voice, app, mode, and URL triggers
 3. **Apply Logic**: Use AND/OR logic to determine matches
-4. **Sort Results**: Alphabetically by action name
+4. **Rank Results**: Positive actual matches use voice > mode > URL > app priority; exception-only matches are catch-alls, and more-specific required conditions, voice matches, and URLs win within the same source
 5. **Return First Match**: Execute first matching action only
 
 ---
@@ -670,13 +670,18 @@ Insert-only settings:
 - **Logging**: Log that no triggers matched
 
 #### 2. Multiple Matching Triggers:
-- **Behavior**: Execute first match (alphabetically sorted)
+- **Behavior**: Execute the highest-ranked actual match using voice > mode > URL > app priority
+- **Tie-breaking**: Prefer more-specific required conditions, voice matches, and URLs, then sort by action name
 - **Deterministic**: Consistent behavior across runs
 
 #### 3. Exception-Only Triggers:
 - **Pattern**: Only `!pattern` triggers defined
 - **Behavior**: Match if no exception patterns match
 - **Use Case**: Exclude specific phrases while allowing everything else
+- **Priority**: Acts as a catch-all below positive trigger matches
+
+#### 4. Missing Mode Context:
+- **Behavior**: A configured mode trigger does not match when `modeName` is missing or empty, including exception-only mode rules
 
 ---
 

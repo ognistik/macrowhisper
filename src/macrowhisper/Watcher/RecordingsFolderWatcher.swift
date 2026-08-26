@@ -1153,7 +1153,8 @@ class RecordingsFolderWatcher {
             )
             
             if !matchedTriggerActions.isEmpty {
-                // Execute the first matched trigger action (they're already sorted by name)
+                // Execute the highest-ranked trigger action. TriggerEvaluator applies
+                // the same built-in priority used by auto-return and --run-auto.
                 let (action, name, type, strippedResult) = matchedTriggerActions.first!
                 
                 // Prepare metaJson with updated result if voice trigger matched and stripped result

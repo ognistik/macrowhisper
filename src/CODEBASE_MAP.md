@@ -121,6 +121,7 @@ src/
 #### `TriggerEvaluator.swift`
 - Evaluates triggers across all action types
 - Supports voice, front app, mode, and browser URL matching
+- Ranks actual positive matches with built-in voice > mode > URL > app priority; exception-only rules are catch-alls and action name is the final tie-breaker
 - Allows negative patterns (`!pattern`), raw regex (`==pattern==`), and AND/OR trigger logic
 - Voice-trigger stripping feeds cleaned text into downstream placeholder execution when appropriate
 - App matching is tolerant of missing name or bundle ID

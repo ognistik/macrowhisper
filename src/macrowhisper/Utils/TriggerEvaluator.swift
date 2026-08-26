@@ -4,6 +4,37 @@ import Cocoa
 /// Handles trigger evaluation for all action types (inserts, URLs, shortcuts, shell scripts, AppleScript)
 class TriggerEvaluator {
     private let logger: Logger
+
+    /// Built-in trigger precedence. An exclusion-only match is intentionally
+    /// weaker than every positive contextual match because it represents a
+    /// catch-all rather than affirmative user intent.
+    private enum TriggerMatchSource: Int {
+        case exclusionOnly = 0
+        case app = 1
+        case url = 2
+        case mode = 3
+        case voice = 4
+    }
+
+    private struct TriggerMatchRank {
+        let source: TriggerMatchSource
+        let requiredConditionCount: Int
+        let specificity: Int
+    }
+
+    private struct TriggerEvaluationResult {
+        let matched: Bool
+        let strippedResult: String?
+        let rank: TriggerMatchRank?
+    }
+
+    private struct RankedTriggerAction {
+        let action: Any
+        let name: String
+        let type: ActionType
+        let strippedResult: String?
+        let rank: TriggerMatchRank
+    }
     
     init(logger: Logger) {
         self.logger = logger
@@ -20,7 +51,7 @@ class TriggerEvaluator {
     ) -> [(action: Any, name: String, type: ActionType, strippedResult: String?)] {
         
         let modeName = metaJson["modeName"] as? String
-        var matchedTriggerActions: [(action: Any, name: String, type: ActionType, strippedResult: String?)] = []
+        var matchedTriggerActions: [RankedTriggerAction] = []
         
         // Log evaluation summary at start
         let totalActions = configManager.config.inserts.count + 
@@ -36,7 +67,7 @@ class TriggerEvaluator {
             if isVerboseLogDetailEnabled() {
                 logDebug("[TriggerEval] Checking insert action: name=\(name), triggerVoice=\(summarizeForLogs(insert.triggerVoice)), triggerApps=\(summarizeForLogs(insert.triggerApps)), triggerModes=\(summarizeForLogs(insert.triggerModes)), triggerUrls=\(summarizeForLogs(insert.triggerUrls)), triggerLogic=\(insert.triggerLogic ?? "nil")")
             }
-            let (matched, strippedResult) = triggersMatch(
+            let evaluation = triggersMatch(
                 for: insertWithName,
                 result: result,
                 modeName: modeName,
@@ -44,8 +75,16 @@ class TriggerEvaluator {
                 frontAppBundleId: frontAppBundleId,
                 frontAppUrl: frontAppUrl
             )
-            if matched {
-                matchedTriggerActions.append((action: insert, name: name, type: .insert, strippedResult: strippedResult))
+            if evaluation.matched, let rank = evaluation.rank {
+                matchedTriggerActions.append(
+                    RankedTriggerAction(
+                        action: insert,
+                        name: name,
+                        type: .insert,
+                        strippedResult: evaluation.strippedResult,
+                        rank: rank
+                    )
+                )
             }
         }
         
@@ -55,7 +94,7 @@ class TriggerEvaluator {
             if isVerboseLogDetailEnabled() {
                 logDebug("[TriggerEval] Checking URL action: name=\(name), triggerVoice=\(summarizeForLogs(url.triggerVoice)), triggerApps=\(summarizeForLogs(url.triggerApps)), triggerModes=\(summarizeForLogs(url.triggerModes)), triggerUrls=\(summarizeForLogs(url.triggerUrls)), triggerLogic=\(url.triggerLogic ?? "nil")")
             }
-            let (matched, strippedResult) = triggersMatch(
+            let evaluation = triggersMatch(
                 for: urlWithName,
                 result: result,
                 modeName: modeName,
@@ -63,8 +102,16 @@ class TriggerEvaluator {
                 frontAppBundleId: frontAppBundleId,
                 frontAppUrl: frontAppUrl
             )
-            if matched {
-                matchedTriggerActions.append((action: url, name: name, type: .url, strippedResult: strippedResult))
+            if evaluation.matched, let rank = evaluation.rank {
+                matchedTriggerActions.append(
+                    RankedTriggerAction(
+                        action: url,
+                        name: name,
+                        type: .url,
+                        strippedResult: evaluation.strippedResult,
+                        rank: rank
+                    )
+                )
             }
         }
         
@@ -74,7 +121,7 @@ class TriggerEvaluator {
             if isVerboseLogDetailEnabled() {
                 logDebug("[TriggerEval] Checking shortcut action: name=\(name), triggerVoice=\(summarizeForLogs(shortcut.triggerVoice)), triggerApps=\(summarizeForLogs(shortcut.triggerApps)), triggerModes=\(summarizeForLogs(shortcut.triggerModes)), triggerUrls=\(summarizeForLogs(shortcut.triggerUrls)), triggerLogic=\(shortcut.triggerLogic ?? "nil")")
             }
-            let (matched, strippedResult) = triggersMatch(
+            let evaluation = triggersMatch(
                 for: shortcutWithName,
                 result: result,
                 modeName: modeName,
@@ -82,8 +129,16 @@ class TriggerEvaluator {
                 frontAppBundleId: frontAppBundleId,
                 frontAppUrl: frontAppUrl
             )
-            if matched {
-                matchedTriggerActions.append((action: shortcut, name: name, type: .shortcut, strippedResult: strippedResult))
+            if evaluation.matched, let rank = evaluation.rank {
+                matchedTriggerActions.append(
+                    RankedTriggerAction(
+                        action: shortcut,
+                        name: name,
+                        type: .shortcut,
+                        strippedResult: evaluation.strippedResult,
+                        rank: rank
+                    )
+                )
             }
         }
         
@@ -93,7 +148,7 @@ class TriggerEvaluator {
             if isVerboseLogDetailEnabled() {
                 logDebug("[TriggerEval] Checking shell script action: name=\(name), triggerVoice=\(summarizeForLogs(shell.triggerVoice)), triggerApps=\(summarizeForLogs(shell.triggerApps)), triggerModes=\(summarizeForLogs(shell.triggerModes)), triggerUrls=\(summarizeForLogs(shell.triggerUrls)), triggerLogic=\(shell.triggerLogic ?? "nil")")
             }
-            let (matched, strippedResult) = triggersMatch(
+            let evaluation = triggersMatch(
                 for: shellWithName,
                 result: result,
                 modeName: modeName,
@@ -101,8 +156,16 @@ class TriggerEvaluator {
                 frontAppBundleId: frontAppBundleId,
                 frontAppUrl: frontAppUrl
             )
-            if matched {
-                matchedTriggerActions.append((action: shell, name: name, type: .shell, strippedResult: strippedResult))
+            if evaluation.matched, let rank = evaluation.rank {
+                matchedTriggerActions.append(
+                    RankedTriggerAction(
+                        action: shell,
+                        name: name,
+                        type: .shell,
+                        strippedResult: evaluation.strippedResult,
+                        rank: rank
+                    )
+                )
             }
         }
         
@@ -112,7 +175,7 @@ class TriggerEvaluator {
             if isVerboseLogDetailEnabled() {
                 logDebug("[TriggerEval] Checking AppleScript action: name=\(name), triggerVoice=\(summarizeForLogs(ascript.triggerVoice)), triggerApps=\(summarizeForLogs(ascript.triggerApps)), triggerModes=\(summarizeForLogs(ascript.triggerModes)), triggerUrls=\(summarizeForLogs(ascript.triggerUrls)), triggerLogic=\(ascript.triggerLogic ?? "nil")")
             }
-            let (matched, strippedResult) = triggersMatch(
+            let evaluation = triggersMatch(
                 for: ascriptWithName,
                 result: result,
                 modeName: modeName,
@@ -120,21 +183,53 @@ class TriggerEvaluator {
                 frontAppBundleId: frontAppBundleId,
                 frontAppUrl: frontAppUrl
             )
-            if matched {
-                matchedTriggerActions.append((action: ascript, name: name, type: .appleScript, strippedResult: strippedResult))
+            if evaluation.matched, let rank = evaluation.rank {
+                matchedTriggerActions.append(
+                    RankedTriggerAction(
+                        action: ascript,
+                        name: name,
+                        type: .appleScript,
+                        strippedResult: evaluation.strippedResult,
+                        rank: rank
+                    )
+                )
             }
         }
-        
+
+        let sortedMatches = matchedTriggerActions.sorted(by: triggerMatchPrecedes)
+
         // Log evaluation summary at end
-        let matchedNames = matchedTriggerActions.map { $0.name }.joined(separator: ", ")
-        if matchedTriggerActions.isEmpty {
+        let matchedNames = sortedMatches.map { $0.name }.joined(separator: ", ")
+        if sortedMatches.isEmpty {
             logInfo("[TriggerEval] No actions matched triggers")
         } else {
-            logInfo("[TriggerEval] \(matchedTriggerActions.count) action(s) matched triggers: \(matchedNames)")
+            logInfo("[TriggerEval] \(sortedMatches.count) action(s) matched triggers in priority order: \(matchedNames)")
         }
-        
-        // Sort actions by name and return
-        return matchedTriggerActions.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        return sortedMatches.map {
+            (action: $0.action, name: $0.name, type: $0.type, strippedResult: $0.strippedResult)
+        }
+    }
+
+    private func triggerMatchPrecedes(_ lhs: RankedTriggerAction, _ rhs: RankedTriggerAction) -> Bool {
+        if lhs.rank.source.rawValue != rhs.rank.source.rawValue {
+            return lhs.rank.source.rawValue > rhs.rank.source.rawValue
+        }
+        if lhs.rank.requiredConditionCount != rhs.rank.requiredConditionCount {
+            return lhs.rank.requiredConditionCount > rhs.rank.requiredConditionCount
+        }
+        if lhs.rank.specificity != rhs.rank.specificity {
+            return lhs.rank.specificity > rhs.rank.specificity
+        }
+
+        let localizedOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+        if localizedOrder != .orderedSame {
+            return localizedOrder == .orderedAscending
+        }
+
+        // Keep case-only names deterministic even though config validation treats
+        // them as distinct action names.
+        return lhs.name < rhs.name
     }
     
     /// Helper to evaluate triggers for a given action
@@ -145,13 +240,19 @@ class TriggerEvaluator {
         frontAppName: String?,
         frontAppBundleId: String?,
         frontAppUrl: String?
-    ) -> (matched: Bool, strippedResult: String?) {
+    ) -> TriggerEvaluationResult {
         let verbose = isVerboseLogDetailEnabled()
         var voiceMatched = false
         var modeMatched = false
         var appMatched = false
         var urlMatched = false
         var strippedResult: String? = nil
+        var voicePositivePatternMatched = false
+        var modePositivePatternMatched = false
+        var appPositivePatternMatched = false
+        var urlPositivePatternMatched = false
+        var voiceSpecificity = 0
+        var urlSpecificity = 0
         
         let triggerVoice = action.triggerVoice
         let triggerModes = action.triggerModes
@@ -222,6 +323,10 @@ class TriggerEvaluator {
                     }
                     if !isException && found {
                         matched = true
+                        voicePositivePatternMatched = true
+                        if let match = regex.firstMatch(in: result, options: [], range: range) {
+                            voiceSpecificity = max(voiceSpecificity, match.range.length)
+                        }
                         if !isRawRegex {
                             // Strip the trigger from the start, plus any leading punctuation/whitespace after
                             let match = regex.firstMatch(in: result, options: [], range: range)!
@@ -252,6 +357,7 @@ class TriggerEvaluator {
                 // No patterns at all (shouldn't happen), treat as matched
                 voiceMatched = true
             }
+            voicePositivePatternMatched = voiceMatched && voicePositivePatternMatched
             if verbose || voiceMatched {
                 logDebug("[TriggerEval] Voice trigger result for action '\(actionName)': matched=\(voiceMatched)")
             }
@@ -261,57 +367,68 @@ class TriggerEvaluator {
         }
         
         // Mode trigger
-        if let triggerModes = triggerModes, !triggerModes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let modeName = modeName {
-            let patterns = triggerModes.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            var matched = false
-            var exceptionMatched = false
-            if verbose {
-                if redactedLogsEnabled {
-                    logDebug("[TriggerEval] Mode trigger check for action '\(actionName)': modeName=\(summarizeForLogs(modeName)), patterns=[REDACTED count=\(patterns.count)]")
-                } else {
-                    logDebug("[TriggerEval] Mode trigger check for action '\(actionName)': modeName=\"\(modeName)\", patterns=\(patterns)")
-                }
-            }
-            
-            for pattern in patterns {
-                let isException = pattern.hasPrefix("!")
-                let actualPattern = isException ? String(pattern.dropFirst()) : pattern
-                let regexPattern: String
-                if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
-                    regexPattern = actualPattern
-                } else {
-                    regexPattern = "(?i)" + actualPattern
-                }
-                
-                if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
-                    let range = NSRange(location: 0, length: modeName.utf16.count)
-                    let found = regex.firstMatch(in: modeName, options: [], range: range) != nil
-                    if verbose || found {
-                        logDebug(
-                            "[TriggerEval] Mode pattern \(summarizeForLogs(pattern, maxPreview: 80)) " +
-                            "found=\(found) modeName=\(summarizeForLogs(modeName, maxPreview: 80))"
-                        )
+        if let triggerModes = triggerModes, !triggerModes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let modeName = modeName, !modeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let patterns = triggerModes.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                var matched = false
+                var exceptionMatched = false
+                if verbose {
+                    if redactedLogsEnabled {
+                        logDebug("[TriggerEval] Mode trigger check for action '\(actionName)': modeName=\(summarizeForLogs(modeName)), patterns=[REDACTED count=\(patterns.count)]")
+                    } else {
+                        logDebug("[TriggerEval] Mode trigger check for action '\(actionName)': modeName=\"\(modeName)\", patterns=\(patterns)")
                     }
-                    
-                    if isException && found { exceptionMatched = true }
-                    if !isException && found { matched = true }
                 }
-            }
-            
-            let hasPositive = patterns.contains { !$0.hasPrefix("!") }
-            let hasException = patterns.contains { $0.hasPrefix("!") }
-            
-            if hasPositive {
-                modeMatched = matched && !exceptionMatched
-            } else if hasException {
-                // Only exceptions: match if no exception matched
-                modeMatched = !exceptionMatched
+
+                for pattern in patterns {
+                    let isException = pattern.hasPrefix("!")
+                    let actualPattern = isException ? String(pattern.dropFirst()) : pattern
+                    let regexPattern: String
+                    if actualPattern.hasPrefix("(?i)") || actualPattern.hasPrefix("(?-i)") {
+                        regexPattern = actualPattern
+                    } else {
+                        regexPattern = "(?i)" + actualPattern
+                    }
+
+                    if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
+                        let range = NSRange(location: 0, length: modeName.utf16.count)
+                        let found = regex.firstMatch(in: modeName, options: [], range: range) != nil
+                        if verbose || found {
+                            logDebug(
+                                "[TriggerEval] Mode pattern \(summarizeForLogs(pattern, maxPreview: 80)) " +
+                                "found=\(found) modeName=\(summarizeForLogs(modeName, maxPreview: 80))"
+                            )
+                        }
+
+                        if isException && found { exceptionMatched = true }
+                        if !isException && found {
+                            matched = true
+                            modePositivePatternMatched = true
+                        }
+                    }
+                }
+
+                let hasPositive = patterns.contains { !$0.hasPrefix("!") }
+                let hasException = patterns.contains { $0.hasPrefix("!") }
+
+                if hasPositive {
+                    modeMatched = matched && !exceptionMatched
+                } else if hasException {
+                    // Only exceptions: match if no exception matched
+                    modeMatched = !exceptionMatched
+                } else {
+                    // No patterns at all (shouldn't happen), treat as matched
+                    modeMatched = true
+                }
+                modePositivePatternMatched = modeMatched && modePositivePatternMatched
+                if verbose || modeMatched {
+                    logDebug("[TriggerEval] Mode trigger result for action '\(actionName)': matched=\(modeMatched)")
+                }
             } else {
-                // No patterns at all (shouldn't happen), treat as matched
-                modeMatched = true
-            }
-            if verbose || modeMatched {
-                logDebug("[TriggerEval] Mode trigger result for action '\(actionName)': matched=\(modeMatched)")
+                if verbose {
+                    logDebug("[TriggerEval] Mode trigger set for action '\(actionName)' but modeName is missing or empty. Not matching.")
+                }
+                modeMatched = false
             }
         } else {
             // No mode trigger set, will be handled in final logic determination
@@ -373,7 +490,10 @@ class TriggerEvaluator {
                         }
                         
                         if isException && found { exceptionMatched = true }
-                        if !isException && found { matched = true }
+                        if !isException && found {
+                            matched = true
+                            appPositivePatternMatched = true
+                        }
                     }
                 }
                 
@@ -390,6 +510,7 @@ class TriggerEvaluator {
                     // No patterns at all (shouldn't happen), treat as matched
                     appMatched = true
                 }
+                appPositivePatternMatched = appMatched && appPositivePatternMatched
                 if verbose || appMatched {
                     logDebug("[TriggerEval] App trigger result for action '\(actionName)': matched=\(appMatched)")
                 }
@@ -448,7 +569,11 @@ class TriggerEvaluator {
                     }
 
                     if isException && found { exceptionMatched = true }
-                    if !isException && found { matched = true }
+                    if !isException && found {
+                        matched = true
+                        urlPositivePatternMatched = true
+                        urlSpecificity = max(urlSpecificity, urlTriggerSpecificity(parsedPattern))
+                    }
                 }
 
                 if validPatternCount == 0 {
@@ -469,6 +594,7 @@ class TriggerEvaluator {
                 if verbose || urlMatched {
                     logDebug("[TriggerEval] URL trigger result for action '\(actionName)': matched=\(urlMatched)")
                 }
+                urlPositivePatternMatched = urlMatched && urlPositivePatternMatched
             } else {
                 if verbose {
                     logDebug("[TriggerEval] URL trigger set for action '\(actionName)' but frontAppUrl is not parseable. Not matching.")
@@ -521,7 +647,49 @@ class TriggerEvaluator {
             )
         }
 
-        return (finalMatched, strippedResult)
+        let source: TriggerMatchSource
+        if voiceTriggerSet && voiceMatched && voicePositivePatternMatched {
+            source = .voice
+        } else if modeTriggerSet && modeMatched && modePositivePatternMatched {
+            source = .mode
+        } else if urlTriggerSet && urlMatched && urlPositivePatternMatched {
+            source = .url
+        } else if appTriggerSet && appMatched && appPositivePatternMatched {
+            source = .app
+        } else {
+            source = .exclusionOnly
+        }
+
+        let configuredConditionCount = [voiceTriggerSet, modeTriggerSet, appTriggerSet, urlTriggerSet]
+            .filter { $0 }
+            .count
+        let requiredConditionCount = logic == "and" ? configuredConditionCount : 1
+        let specificity: Int
+        switch source {
+        case .voice:
+            specificity = voiceSpecificity
+        case .url:
+            specificity = urlSpecificity
+        case .mode, .app, .exclusionOnly:
+            specificity = 0
+        }
+
+        let rank = finalMatched
+            ? TriggerMatchRank(
+                source: source,
+                requiredConditionCount: requiredConditionCount,
+                specificity: specificity
+            )
+            : nil
+        let effectiveStrippedResult = voiceTriggerSet && voiceMatched && voicePositivePatternMatched
+            ? strippedResult
+            : nil
+
+        return TriggerEvaluationResult(
+            matched: finalMatched,
+            strippedResult: effectiveStrippedResult,
+            rank: rank
+        )
     }
 }
 
@@ -614,6 +782,14 @@ extension TriggerEvaluator {
         }
 
         return true
+    }
+
+    private func urlTriggerSpecificity(_ pattern: UrlTriggerPattern) -> Int {
+        let pathQueryLength = pattern.pathQueryPrefix?.count ?? 0
+        let hasPathQueryBonus = pathQueryLength > 0 ? 1_000_000 : 0
+        let exactHostBonus = pattern.isFullURLToken ? 100_000 : 0
+        let portBonus = pattern.port == nil ? 0 : 10_000
+        return hasPathQueryBonus + exactHostBonus + portBonus + (pathQueryLength * 100) + pattern.host.count
     }
 
     private func normalizedPathQueryPrefix(path: String?, query: String?) -> String? {

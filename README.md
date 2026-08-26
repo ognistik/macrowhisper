@@ -109,6 +109,8 @@ Processing priority is strict:
 2. Trigger-matched actions (`triggerVoice`, `triggerApps`, `triggerModes`, `triggerUrls`, `triggerLogic`)
 3. `defaults.activeAction` fallback
 
+When several actions match, trigger selection uses a built-in order: voice, Superwhisper mode, browser URL, then front app. More-specific matches win within the same level, and the action name is used only as the final tie-breaker. Auto-return uses the same trigger ordering while preserving its existing one-time insert and fallback behavior.
+
 You can also bypass Macrowhisper entirely for specific Superwhisper modes with `defaults.bypassModes`.
 
 ## Minimal Config Example

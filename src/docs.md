@@ -985,7 +985,14 @@ Context placeholders are escaped differently depending on action type. See Secti
 
 Triggers help Macrowhisper decide when an action should run automatically.
 
-Triggered actions are evaluated across all action types. If several actions match, Macrowhisper sorts them by name and runs the first one.
+Triggered actions are evaluated across all action types. If several actions match, Macrowhisper uses the trigger that most clearly reflects the user's current intent:
+
+1. voice trigger
+2. Superwhisper mode trigger
+3. browser URL trigger
+4. front app trigger
+
+This priority is built in; there is nothing extra to configure. Macrowhisper uses the trigger type that actually matched an action, prefers more specific required conditions, voice phrases, and URLs within the same level, and uses the action name only as the final tie-breaker. Positive matches take priority over rules made only from exceptions.
 
 Important priority reminder:
 
@@ -1070,6 +1077,8 @@ Example:
 Use `triggerModes` when you want a rule tied to a Superwhisper mode.
 
 It matches against `modeName` and follows the same rules as `triggerApps`.
+
+If Superwhisper does not provide a mode name, or provides an empty one, a configured mode trigger does not match. This includes mode trigger lists made only from exceptions.
 
 Example:
 
@@ -1728,6 +1737,7 @@ After they are used, or canceled, they are cleared.
 
 - auto-return keeps normal runtime priority: `auto-return` -> `schedule-action` -> triggers -> active action
 - it resolves the same trigger or active candidate that would normally run
+- when several triggers match, it uses the same built-in voice -> mode -> URL -> app order before adding the one-time Return press
 - if that candidate is an insert action, Macrowhisper uses that insert action's placeholders and insert settings
 - for insert actions with `inputCondition`, auto-return behaves as if `isInInputField = true`
 - `nextAction` is ignored during auto-return
@@ -1976,7 +1986,7 @@ macrowhisper --verbose
 - make sure the trigger field is not empty
 - double-check `triggerLogic`
 - remember that normal `triggerVoice` patterns match only at the start of the transcript
-- check whether another action sorts earlier by name and matches first
+- check whether another action matched through a higher-priority trigger (voice, mode, URL, then app)
 - inspect the logs to see which trigger, if any, was used
 
 #### `inputCondition` is not working

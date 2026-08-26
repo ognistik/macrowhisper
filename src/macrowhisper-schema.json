@@ -321,7 +321,7 @@
         },
         "triggerModes": {
           "type": ["string", "null"],
-          "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Matching is case-insensitive by default; prefix a pattern with '(?-i)' to force case-sensitive matching. null or empty string means no trigger.",
+          "description": "Regex pattern for Superwhisper mode trigger matching. Use '!' prefix for exceptions and '|' for multiple triggers. Matching is case-insensitive by default; prefix a pattern with '(?-i)' to force case-sensitive matching. A configured mode trigger does not match when the recording has no modeName or an empty modeName, including exception-only rules. null or empty string means no trigger.",
           "examples": ["email", "writing|notes", "^(Email|Messages)$", "", null],
           "default": null
         },
