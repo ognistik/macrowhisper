@@ -7,6 +7,7 @@
 
 ### Improved
 * When several actions match at once, Macrowhisper now chooses voice triggers first, followed by Superwhisper modes, browser URLs, and apps. More-specific matches win within each level, while auto-return keeps its existing one-time insert and fallback behavior.
+* CLI action logs now warn when a newer Superwhisper recording is still missing its expected `llmResult` and an older valid recording is used instead, making silent LLM failures easier to diagnose without timer-based warning noise.
 * With clipboard stacking disabled, the latest eligible clipboard operation now controls both outputs: a later text copy supersedes an earlier attachment and normal clipboard restoration applies. With stacking enabled, eligible attachment operations accumulate in capture order.
 * Recording recovery is now a synchronous session boundary: a new dictation fully closes superseded watchers, timers, clipboard sessions, and execution-group state before monitoring begins for the replacement recording.
 * Execution groups are reused only for short, genuine action or clipboard-restoration overlaps. Recordings that are merely waiting for transcription or LLM output no longer share clipboard or selection context, and stale groups are rejected defensively.

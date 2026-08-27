@@ -5,6 +5,16 @@ struct ValidRecordingReference {
     let metaJson: [String: Any]
 }
 
+struct SkippedRecordingAwaitingLLMResult {
+    let path: String
+    let languageModelName: String
+}
+
+struct LatestValidRecordingResolution {
+    let reference: ValidRecordingReference?
+    let skippedNewerRecordings: [SkippedRecordingAwaitingLLMResult]
+}
+
 private func getSortedRecordingDirectories(configManager: ConfigurationManager?) -> [URL] {
     guard let configManager = configManager else { return [] }
 
@@ -52,6 +62,83 @@ func isValidRecordingMetaJson(_ json: [String: Any]) -> Bool {
     return true
 }
 
+private func missingExpectedLLMResult(in json: [String: Any]) -> String? {
+    let languageModelName = (json["languageModelName"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !languageModelName.isEmpty else {
+        return nil
+    }
+
+    let result = (json["result"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !result.isEmpty else {
+        return nil
+    }
+
+    guard let llmResult = json["llmResult"] else {
+        return languageModelName
+    }
+    if llmResult is NSNull {
+        return languageModelName
+    }
+    guard let llmResultString = llmResult as? String else {
+        return nil
+    }
+    return llmResultString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ? languageModelName
+        : nil
+}
+
+func selectLatestValidRecordingReference(
+    from candidates: [(path: String, metaJson: [String: Any])]
+) -> LatestValidRecordingResolution {
+    var skippedNewerRecordings: [SkippedRecordingAwaitingLLMResult] = []
+
+    for candidate in candidates {
+        if isValidRecordingMetaJson(candidate.metaJson) {
+            return LatestValidRecordingResolution(
+                reference: ValidRecordingReference(path: candidate.path, metaJson: candidate.metaJson),
+                skippedNewerRecordings: skippedNewerRecordings
+            )
+        }
+
+        if let languageModelName = missingExpectedLLMResult(in: candidate.metaJson) {
+            skippedNewerRecordings.append(
+                SkippedRecordingAwaitingLLMResult(
+                    path: candidate.path,
+                    languageModelName: languageModelName
+                )
+            )
+        }
+    }
+
+    return LatestValidRecordingResolution(
+        reference: nil,
+        skippedNewerRecordings: skippedNewerRecordings
+    )
+}
+
+func latestRecordingFallbackWarningMessage(
+    for resolution: LatestValidRecordingResolution,
+    requestDescription: String
+) -> String? {
+    guard let selectedRecording = resolution.reference,
+          !resolution.skippedNewerRecordings.isEmpty else {
+        return nil
+    }
+
+    let skippedSummary = resolution.skippedNewerRecordings.map { skipped in
+        let folderName = (skipped.path as NSString).lastPathComponent
+        return "\(folderName) [\(skipped.languageModelName)]"
+    }.joined(separator: ", ")
+    let selectedFolderName = (selectedRecording.path as NSString).lastPathComponent
+    let recordingLabel = resolution.skippedNewerRecordings.count == 1 ? "recording" : "recordings"
+
+    return "[MetaSource] \(requestDescription) skipped \(resolution.skippedNewerRecordings.count) newer completed " +
+        "\(recordingLabel) still waiting for llmResult: \(skippedSummary); using older recording " +
+        "\(selectedFolderName)"
+}
+
 /// Returns all valid recording directories sorted from newest to oldest.
 func getValidRecordingReferences(configManager: ConfigurationManager?) -> [ValidRecordingReference] {
     var validReferences: [ValidRecordingReference] = []
@@ -73,18 +160,29 @@ func getValidRecordingReferences(configManager: ConfigurationManager?) -> [Valid
 /// Returns only the latest valid recording reference.
 /// This is optimized for commands that only need the most recent valid result.
 func getLatestValidRecordingReference(configManager: ConfigurationManager?) -> ValidRecordingReference? {
+    getLatestValidRecordingResolution(configManager: configManager).reference
+}
+
+/// Resolves the latest valid recording and reports any newer completed raw
+/// transcriptions that are still missing an expected LLM result.
+func getLatestValidRecordingResolution(configManager: ConfigurationManager?) -> LatestValidRecordingResolution {
+    var candidates: [(path: String, metaJson: [String: Any])] = []
+
     for directory in getSortedRecordingDirectories(configManager: configManager) {
         let metaJsonPath = directory.appendingPathComponent("meta.json").path
         guard FileManager.default.fileExists(atPath: metaJsonPath),
               let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              isValidRecordingMetaJson(json) else {
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             continue
         }
 
-        return ValidRecordingReference(path: directory.path, metaJson: json)
+        candidates.append((path: directory.path, metaJson: json))
+        if isValidRecordingMetaJson(json) {
+            return selectLatestValidRecordingReference(from: candidates)
+        }
     }
-    return nil
+
+    return selectLatestValidRecordingReference(from: candidates)
 }
 
 /// Resolves a recording folder path by index.

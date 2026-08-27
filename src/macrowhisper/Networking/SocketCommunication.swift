@@ -38,11 +38,6 @@ class SocketCommunication {
     private var configManagerRef: ConfigurationManager?
     private var clipboardMonitorRef: ClipboardMonitor?
 
-    private struct LatestValidRecording {
-        let metaJson: [String: Any]
-        let recordingPath: String
-    }
-
     private enum CLIActionMetaSourceKind {
         case latestValid
         case recordingsFolderName
@@ -357,11 +352,17 @@ class SocketCommunication {
         server = nil
     }
 
-    private func findLastValidRecording(configManager: ConfigurationManager) -> LatestValidRecording? {
-        guard let firstReference = getLatestValidRecordingReference(configManager: configManager) else {
-            return nil
+    private func logLatestRecordingFallbackWarning(
+        _ resolution: LatestValidRecordingResolution,
+        requestDescription: String
+    ) {
+        guard let warningMessage = latestRecordingFallbackWarningMessage(
+            for: resolution,
+            requestDescription: requestDescription
+        ) else {
+            return
         }
-        return LatestValidRecording(metaJson: firstReference.metaJson, recordingPath: firstReference.path)
+        logWarning(warningMessage)
     }
 
     private func shouldTreatMetaValueAsPath(_ value: String) -> Bool {
@@ -392,16 +393,26 @@ class SocketCommunication {
         return json
     }
 
-    private func resolveCLIActionMetaSource(metaValue: String?, configManager: ConfigurationManager) throws -> CLIActionMetaSource {
+    private func resolveCLIActionMetaSource(
+        metaValue: String?,
+        configManager: ConfigurationManager,
+        requestDescription: String
+    ) throws -> CLIActionMetaSource {
         guard let metaValue, !metaValue.isEmpty else {
-            guard let latestRecording = findLastValidRecording(configManager: configManager) else {
+            let resolution = getLatestValidRecordingResolution(configManager: configManager)
+            guard let latestRecording = resolution.reference else {
                 throw CLIActionMetaSourceError.latestValidNotFound
             }
 
+            logLatestRecordingFallbackWarning(
+                resolution,
+                requestDescription: requestDescription
+            )
+
             return CLIActionMetaSource(
                 metaJson: latestRecording.metaJson,
-                recordingPath: latestRecording.recordingPath,
-                description: "latest valid recording '\(latestRecording.recordingPath)'",
+                recordingPath: latestRecording.path,
+                description: "latest valid recording '\(latestRecording.path)'",
                 kind: .latestValid
             )
         }
@@ -3731,7 +3742,8 @@ class SocketCommunication {
                 do {
                     let resolvedMetaSource = try resolveCLIActionMetaSource(
                         metaValue: commandMessage.arguments?["meta"],
-                        configManager: configMgr
+                        configManager: configMgr,
+                        requestDescription: "run-auto"
                     )
                     logInfo("Using meta source for run-auto: \(resolvedMetaSource.description)")
 
@@ -3900,7 +3912,8 @@ class SocketCommunication {
 
                         let resolvedMetaSource = try resolveCLIActionMetaSource(
                             metaValue: commandMessage.arguments?["meta"],
-                            configManager: configMgr
+                            configManager: configMgr,
+                            requestDescription: "exec-action '\(actionName)'"
                         )
                         logInfo("Using meta source for exec-action '\(actionName)': \(resolvedMetaSource.description)")
 
@@ -3999,7 +4012,8 @@ class SocketCommunication {
 
                         let resolvedMetaSource = try resolveCLIActionMetaSource(
                             metaValue: commandMessage.arguments?["meta"],
-                            configManager: configMgr
+                            configManager: configMgr,
+                            requestDescription: "get-action '\(actionName)'"
                         )
                         logInfo("Using meta source for get-action '\(actionName)': \(resolvedMetaSource.description)")
 
@@ -4061,7 +4075,8 @@ class SocketCommunication {
 
                         let resolvedMetaSource = try resolveCLIActionMetaSource(
                             metaValue: commandMessage.arguments?["meta"],
-                            configManager: configMgr
+                            configManager: configMgr,
+                            requestDescription: "copy-action '\(actionName)'"
                         )
                         logInfo("Using meta source for copy-action '\(actionName)': \(resolvedMetaSource.description)")
 
