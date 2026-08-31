@@ -597,6 +597,37 @@ final class ClipboardAttachmentFileStore {
     private let queue = DispatchQueue(label: "ClipboardMonitor.attachmentFileStore")
     private var pendingDirectoryPaths: Set<String> = []
 
+    /// Returns whether disk cleanup could affect anything Macrowhisper owns.
+    /// Nonempty UUID directories without an ownership marker are deliberately
+    /// outside that boundary and do not justify probing the user's pasteboard.
+    private func hasManagedCleanupCandidates() -> Bool {
+        queue.sync {
+            guard let children = try? fileManager.contentsOfDirectory(
+                at: rootDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return false
+            }
+
+            return children.contains { child in
+                guard UUID(uuidString: child.lastPathComponent) != nil,
+                      let resourceValues = try? child.resourceValues(forKeys: [.isDirectoryKey]),
+                      resourceValues.isDirectory == true else {
+                    return false
+                }
+                let ownershipMarker = child.appendingPathComponent(
+                    Self.ownershipMarkerFilename,
+                    isDirectory: false
+                )
+                if fileManager.fileExists(atPath: ownershipMarker.path) {
+                    return true
+                }
+                return (try? fileManager.contentsOfDirectory(atPath: child.path).isEmpty) == true
+            }
+        }
+    }
+
     init(
         rootDirectory: URL? = nil,
         fileManager: FileManager = .default,
@@ -866,6 +897,8 @@ final class ClipboardAttachmentFileStore {
     /// files are never inside `rootDirectory` and are never deletion targets.
     @discardableResult
     func cleanupUnused(pasteboard: NSPasteboard = .general) -> Int {
+        guard hasManagedCleanupCandidates() else { return 0 }
+
         let initialChangeCount = pasteboard.changeCount
         let options: [NSPasteboard.ReadingOptionKey: Any] = [
             .urlReadingFileURLsOnly: true
@@ -895,10 +928,15 @@ final class ClipboardAttachmentFileStore {
             return 0
         }
         guard !advertisesEagerFileList || eagerFilenamePaths != nil else {
-            logWarning(
-                "[ClipboardMonitor] Attachment cache cleanup skipped " +
-                "(reason: advertised-file-list-unavailable)"
-            )
+            if shouldEmitRateLimitedLog(
+                key: "ClipboardMonitor.attachmentCleanup.advertisedFileListUnavailable",
+                cooldown: 60 * 60
+            ) {
+                logDebug(
+                    "[ClipboardMonitor] Attachment cache cleanup deferred safely " +
+                    "(reason: advertised-file-list-unavailable, changeCount: \(initialChangeCount))"
+                )
+            }
             return 0
         }
         let eagerFilenameURLs = (eagerFilenamePaths ?? []).map {
@@ -1989,10 +2027,11 @@ func makeClipboardContextRepresentations(
         let normalized = sanitizeContextPlaceholderValue(candidate)
         guard !normalized.isEmpty else { return nil }
 
-        let matchesSuperwhisperResult = !normalizedSwResult.isEmpty &&
-            normalized.count <= maxSwResultCompareChars &&
-            normalizedSwResult.count <= maxSwResultCompareChars &&
-            normalized == normalizedSwResult
+        let matchesSuperwhisperResult = clipboardTextMatchesSuperwhisperResult(
+            normalized,
+            swResult: normalizedSwResult,
+            maxCompareChars: maxSwResultCompareChars
+        )
         return matchesSuperwhisperResult ? nil : normalized
     }
 
@@ -2007,6 +2046,46 @@ func makeClipboardContextRepresentations(
     }.joined(separator: "\n\n")
 
     return ClipboardContextRepresentations(single: single, stacked: stacked)
+}
+
+/// Compares a clipboard projection with the recording result using only the
+/// formatting changes Superwhisper commonly applies while publishing its result.
+/// This deliberately stays narrower than general natural-language normalization.
+func clipboardTextMatchesSuperwhisperResult(
+    _ clipboardText: String,
+    swResult: String,
+    maxCompareChars: Int = 16_384
+) -> Bool {
+    let normalizedClipboard = sanitizeContextPlaceholderValue(clipboardText)
+    let normalizedResult = sanitizeContextPlaceholderValue(swResult)
+    guard !normalizedClipboard.isEmpty,
+          !normalizedResult.isEmpty,
+          normalizedClipboard.count <= maxCompareChars,
+          normalizedResult.count <= maxCompareChars else {
+        return false
+    }
+    if normalizedClipboard == normalizedResult {
+        return true
+    }
+
+    let comparisonLocale = Locale(identifier: "en_US_POSIX")
+    let foldedClipboard = normalizedClipboard.folding(
+        options: [.caseInsensitive],
+        locale: comparisonLocale
+    )
+    let foldedResult = normalizedResult.folding(
+        options: [.caseInsensitive],
+        locale: comparisonLocale
+    )
+    if foldedClipboard == foldedResult {
+        return true
+    }
+
+    let terminalFormatting = CharacterSet(charactersIn: ".!?\u{2026}\u{3002}\u{FF01}\u{FF1F}")
+        .union(.whitespacesAndNewlines)
+    let trimmedClipboard = foldedClipboard.trimmingCharacters(in: terminalFormatting)
+    let trimmedResult = foldedResult.trimmingCharacters(in: terminalFormatting)
+    return !trimmedClipboard.isEmpty && trimmedClipboard == trimmedResult
 }
 
 /// Projects one ordered clipboard-operation stream into the string placeholder
@@ -2024,7 +2103,6 @@ func makeClipboardOperationContextSnapshot(
         swResult: swResult,
         maxSwResultCompareChars: maxSwResultCompareChars
     )
-    let normalizedSuperwhisperResult = sanitizeContextPlaceholderValue(swResult)
     let eligiblePayloads = orderedPayloads.filter { payload in
         if attachmentsEnabled && payload.hasAttachments { return true }
         guard let text = payload.textProjection(attachmentsEnabled: attachmentsEnabled) else {
@@ -2032,7 +2110,11 @@ func makeClipboardOperationContextSnapshot(
         }
         let normalized = sanitizeContextPlaceholderValue(text)
         guard !normalized.isEmpty else { return false }
-        return normalizedSuperwhisperResult.isEmpty || normalized != normalizedSuperwhisperResult
+        return !clipboardTextMatchesSuperwhisperResult(
+            normalized,
+            swResult: swResult,
+            maxCompareChars: maxSwResultCompareChars
+        )
     }
     let eligibleTextCandidates = eligiblePayloads.compactMap { payload -> String? in
         guard !(attachmentsEnabled && payload.hasAttachments),
@@ -3131,6 +3213,137 @@ class ClipboardMonitor {
             session.ignoredClipboardChangeCounts.insert(recentChange.changeCount)
             self.earlyMonitoringSessions[targetSessionPath] = session
             logDebug("[ClipboardMonitor] Marked recent clipboard change as system sync for context filtering (changeCount: \(recentChange.changeCount))")
+        }
+    }
+
+    /// Reconciles the pasteboard operation visible at the preparation boundary with
+    /// the active session, then excludes the exact operation that published the
+    /// Superwhisper result. This runs synchronously only after the existing sync
+    /// check has completed; it never sleeps or introduces another polling window.
+    private func reconcileSuperwhisperClipboardSync(
+        for recordingPath: String,
+        swResult: String,
+        within window: TimeInterval? = nil,
+        allowRecentSessionFallback: Bool = true
+    ) -> Bool {
+        let effectiveWindow = max(0, window ?? recentClipboardActivityWindow)
+        guard effectiveWindow > 0 else { return false }
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-effectiveWindow)
+        let pasteboardSnapshot = captureClipboardPasteboardSnapshot(
+            from: .general,
+            source: "system-sync-reconcile",
+            includeAttachments: clipboardAttachmentsEnabled,
+            attachmentLimits: attachmentLimits
+        )
+        let currentClipboard = pasteboardSnapshot?.payload.textProjection(
+            attachmentsEnabled: clipboardAttachmentsEnabled
+        ) ?? (clipboardAttachmentsEnabled ? nil : pasteboardSnapshot?.content)
+
+        var markedChangeCount: Int?
+        var markedFromCurrentPasteboard = false
+        sessionsQueue.sync(flags: .barrier) {
+            var targetSessionPath = recordingPath
+            if let groupId = recordingPathToGroupId[recordingPath],
+               let group = executionGroups[groupId] {
+                targetSessionPath = group.rootRecordingPath
+            }
+
+            guard var session = earlyMonitoringSessions[targetSessionPath], session.isActive else {
+                return
+            }
+
+            if let pasteboardSnapshot,
+               pasteboardSnapshot.changeCount != session.startingChangeCount,
+               let currentClipboard,
+               clipboardTextMatchesSuperwhisperResult(
+                   currentClipboard,
+                   swResult: swResult,
+                   maxCompareChars: maxSwResultCompareChars
+               ) {
+                markedChangeCount = pasteboardSnapshot.changeCount
+                markedFromCurrentPasteboard = true
+                session.lastSeenChangeCount = pasteboardSnapshot.changeCount
+                session.lastCapturedClipboardContent = currentClipboard
+                session.lastCapturedClipboardPayload = pasteboardSnapshot.payload
+                session.lastObservedClipboardActivityAt = now
+            } else if allowRecentSessionFallback,
+                      let recentChange = session.clipboardChanges.last(where: { $0.timestamp >= cutoff }) {
+                markedChangeCount = recentChange.changeCount
+            }
+
+            guard let markedChangeCount else { return }
+            session.ignoredClipboardChangeCounts.insert(markedChangeCount)
+            earlyMonitoringSessions[targetSessionPath] = session
+        }
+
+        if let markedChangeCount {
+            if markedFromCurrentPasteboard {
+                logDebug(
+                    "[ClipboardMonitor] Superwhisper clipboard result matched current pasteboard and was excluded from context " +
+                    "(changeCount: \(markedChangeCount), match: current-pasteboard)"
+                )
+            } else {
+                logDebug(
+                    "[ClipboardMonitor] Superwhisper clipboard reconciliation used the recent-session fallback " +
+                    "(changeCount: \(markedChangeCount), exactResultMatch: false)"
+                )
+            }
+        } else {
+            logDebug("[ClipboardMonitor] No recent Superwhisper clipboard sync required context filtering")
+        }
+        return markedFromCurrentPasteboard
+    }
+
+    /// Uses the existing first-action synchronization window, classifies the exact
+    /// Superwhisper pasteboard operation, and freezes clipboard context afterward.
+    /// The common recent-activity path has no intentional delay.
+    func prepareClipboardContextForAction(
+        for recordingPath: String,
+        swResult: String,
+        onReady: @escaping (ClipboardContextSnapshot) -> Void
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            // The result is commonly already on the pasteboard even when the
+            // asynchronous sampler has not committed its observation yet. In
+            // that case classify the exact operation and freeze immediately.
+            if self.reconcileSuperwhisperClipboardSync(
+                for: recordingPath,
+                swResult: swResult,
+                allowRecentSessionFallback: false
+            ) {
+                let snapshot = self.freezeClipboardContext(
+                    for: recordingPath,
+                    swResult: swResult
+                )
+                logDebug(
+                    "[ClipboardMonitor] Prepared clipboard context after matching the current Superwhisper result " +
+                    "(waitedMs: 0)"
+                )
+                onReady(snapshot)
+                return
+            }
+
+            self.withSuperwhisperClipboardSync(
+                recordingPath: recordingPath,
+                shouldUseSuperwhisperSync: true
+            ) { skippedWaitForRecentActivity in
+                _ = self.reconcileSuperwhisperClipboardSync(
+                    for: recordingPath,
+                    swResult: swResult
+                )
+                let snapshot = self.freezeClipboardContext(
+                    for: recordingPath,
+                    swResult: swResult
+                )
+                logDebug(
+                    "[ClipboardMonitor] Prepared clipboard context after Superwhisper synchronization fallback " +
+                    "(skippedWaitForRecentActivity: \(skippedWaitForRecentActivity))"
+                )
+                onReady(snapshot)
+            }
         }
     }
     
@@ -4284,10 +4497,9 @@ class ClipboardMonitor {
             self.withSuperwhisperClipboardSync(
                 recordingPath: recordingPath,
                 shouldUseSuperwhisperSync: shouldUseSuperwhisperSync
-            ) { superwhisperWasFaster in
+            ) { _ in
                 self.proceedWithActionAndDelay(
                     insertAction: insertAction,
-                    superwhisperWasFaster: superwhisperWasFaster,
                     actionDelay: actionDelay,
                     shouldEsc: shouldEsc,
                     isAutoPaste: isAutoPaste,
@@ -4344,13 +4556,21 @@ class ClipboardMonitor {
     ) {
         let currentChangeCount = NSPasteboard.general.changeCount
         if currentChangeCount != startChangeCount {
-            logDebug("[ClipboardMonitor] Detected clipboard activity during polling")
+            let elapsedMilliseconds = Int(max(0, Date().timeIntervalSince(startTime)) * 1_000)
+            logDebug(
+                "[ClipboardMonitor] Detected clipboard activity during Superwhisper synchronization polling " +
+                "(elapsedMs: \(elapsedMilliseconds))"
+            )
             onReady(false)
             return
         }
 
         if Date().timeIntervalSince(startTime) >= maxWaitTime {
-            logDebug("[ClipboardMonitor] Max wait time (\(maxWaitTime)s) reached - proceeding without Superwhisper sync")
+            let elapsedMilliseconds = Int(max(0, Date().timeIntervalSince(startTime)) * 1_000)
+            logDebug(
+                "[ClipboardMonitor] Superwhisper synchronization polling reached its deadline; proceeding " +
+                "(elapsedMs: \(elapsedMilliseconds), maxWaitMs: \(Int(maxWaitTime * 1_000)))"
+            )
             onReady(false)
             return
         }
@@ -4380,7 +4600,6 @@ class ClipboardMonitor {
     /// Proceeds with action execution: applies actionDelay, simulates ESC, executes action, restores clipboard
     private func proceedWithActionAndDelay(
         insertAction: @escaping () -> Bool,
-        superwhisperWasFaster: Bool,
         actionDelay: TimeInterval,
         shouldEsc: Bool,
         isAutoPaste: Bool,
@@ -4450,7 +4669,10 @@ class ClipboardMonitor {
             completion?(didSucceed)
         }
         
-        logDebug("[ClipboardMonitor] Action completed. Superwhisper was faster: \(superwhisperWasFaster)")
+        logDebug(
+            "[ClipboardMonitor] Action clipboard handling completed " +
+            "(succeeded: \(didSucceed), restoreScheduled: \(shouldRestoreClipboard), finalStep: \(shouldStopMonitoringAfterAction))"
+        )
     }
     
     private func payloadForSuppression(_ snapshot: ClipboardOriginalSnapshot?) -> ClipboardPayload? {
@@ -4587,7 +4809,7 @@ class ClipboardMonitor {
             self.withSuperwhisperClipboardSync(
                 recordingPath: recordingPath,
                 shouldUseSuperwhisperSync: shouldUseSuperwhisperSync
-            ) { superwhisperWasFaster in
+            ) { _ in
                 // Apply actionDelay after clipboard synchronization.
                 if actionDelay > 0 {
                     Thread.sleep(forTimeInterval: actionDelay)
@@ -4628,7 +4850,10 @@ class ClipboardMonitor {
                     completion?(didSucceed)
                 }
                 
-                logDebug("[ClipboardMonitor] Action completed. Superwhisper was faster: \(superwhisperWasFaster)")
+                logDebug(
+                    "[ClipboardMonitor] Action clipboard handling completed " +
+                    "(succeeded: \(didSucceed), restoreScheduled: \(shouldRestoreClipboard), finalStep: \(shouldStopMonitoringAfterAction))"
+                )
             }
         }
     }

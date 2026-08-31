@@ -618,6 +618,43 @@ private func runClipboardTransientActivityRegressionTests() {
     assertEqual(filteredRepresentations.single == "earlier", true, "single clipboard context falls back after filtering the latest Superwhisper result")
     assertEqual(filteredRepresentations.stacked == "earlier", true, "stacked clipboard context uses the same filtered candidate set")
 
+    assertEqual(
+        clipboardTextMatchesSuperwhisperResult(
+            "Another test.",
+            swResult: "another test"
+        ),
+        true,
+        "Superwhisper clipboard matching tolerates capitalization and terminal punctuation"
+    )
+    assertEqual(
+        clipboardTextMatchesSuperwhisperResult(
+            "another test with different words",
+            swResult: "another test"
+        ),
+        false,
+        "Superwhisper clipboard matching does not suppress unrelated user clipboard text"
+    )
+    assertEqual(
+        clipboardTextMatchesSuperwhisperResult("!", swResult: "."),
+        false,
+        "terminal-punctuation normalization never turns empty text into a match"
+    )
+
+    let formattedResultRepresentations = makeClipboardContextRepresentations(
+        candidates: ["earlier", "Another test."],
+        swResult: "another test"
+    )
+    assertEqual(
+        formattedResultRepresentations.single == "earlier",
+        true,
+        "clipboard context excludes a formatted copy of the Superwhisper result"
+    )
+    assertEqual(
+        formattedResultRepresentations.stacked == "earlier",
+        true,
+        "stacked context excludes the same formatted Superwhisper result"
+    )
+
     let multipleRepresentations = makeClipboardContextRepresentations(
         candidates: ["first", "", "superwhisper result", "second"],
         swResult: "superwhisper result"

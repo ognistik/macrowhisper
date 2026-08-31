@@ -385,6 +385,39 @@ private func runClipboardAttachmentsRegression() {
     assertAttachment(restartedAttachmentStore.cleanupUnused(pasteboard: pasteboard) == 0, "service restart cleanup preserves the current clipboard handoff")
     assertAttachment(FileManager.default.fileExists(atPath: mixedFileHandoff.fileURLs[2].path), "restart preservation keeps every generated image readable")
 
+    let deferredCleanupRoot = materializationRoot.appendingPathComponent(
+        "deferred-cleanup",
+        isDirectory: true
+    )
+    let deferredCleanupStore = ClipboardAttachmentFileStore(
+        rootDirectory: deferredCleanupRoot,
+        retentionInterval: 0
+    )
+    let deferredCleanupSourcePasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.attachment-deferred-source.\(UUID().uuidString)")
+    )
+    let deferredCleanupHandoff = deferredCleanupStore.prepare(
+        ClipboardPayload(items: [.imagePNG(png)])
+    )
+    assertAttachment(
+        deferredCleanupStore.commit(deferredCleanupHandoff, to: deferredCleanupSourcePasteboard),
+        "deferred-cleanup fixture commits its generated image"
+    )
+    let unavailableFileListPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.attachment-unavailable-file-list.\(UUID().uuidString)")
+    )
+    unavailableFileListPasteboard.declareTypes(
+        [CLIPBOARD_FILENAMES_PASTEBOARD_TYPE],
+        owner: nil
+    )
+    assertAttachment(
+        deferredCleanupStore.cleanupUnused(pasteboard: unavailableFileListPasteboard) == 0 &&
+            deferredCleanupHandoff.fileURLs.first.map {
+                FileManager.default.fileExists(atPath: $0.path)
+            } == true,
+        "an advertised but unavailable filename list safely defers attachment cleanup"
+    )
+
     let unownedCacheDirectory = generatedRoot.appendingPathComponent("do-not-delete", isDirectory: true)
     try? FileManager.default.createDirectory(at: unownedCacheDirectory, withIntermediateDirectories: true)
     try? FileManager.default.setAttributes(

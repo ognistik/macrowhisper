@@ -1094,13 +1094,8 @@ class RecordingsFolderWatcher {
                 
                 if let action = action {
                     logDebug("Executing scheduled action: \(actionName) (type: \(actionType))")
-                    let scheduledMetaJsonWithClipboard = freezeClipboardContext(
-                        in: enhancedMetaJson,
-                        recordingPath: contextRecordingPath,
-                        rootAction: action
-                    )
                     let scheduledMetaJson = ensureFrozenFrontAppUrlIfNeeded(
-                        metaJson: scheduledMetaJsonWithClipboard,
+                        metaJson: enhancedMetaJson,
                         action: action,
                         name: actionName,
                         type: actionType,
@@ -1164,15 +1159,9 @@ class RecordingsFolderWatcher {
                     type: type,
                     strippedResult: strippedResult
                 )
-                let updatedJsonWithClipboard = freezeClipboardContext(
-                    in: updatedJson,
-                    recordingPath: contextRecordingPath,
-                    rootAction: action
-                )
-                
                 // Execute the action on the main thread with cleanup callback
                 let triggerMetaJson = ensureFrozenFrontAppUrlIfNeeded(
-                    metaJson: updatedJsonWithClipboard,
+                    metaJson: updatedJson,
                     action: action,
                     name: name,
                     type: type,
@@ -1206,13 +1195,8 @@ class RecordingsFolderWatcher {
                 
                 if let action = action {
                     logDebug("Processing with active action: \(activeActionName) (type: \(actionType))")
-                    let activeMetaJsonWithClipboard = freezeClipboardContext(
-                        in: enhancedMetaJson,
-                        recordingPath: contextRecordingPath,
-                        rootAction: action
-                    )
                     let activeActionMetaJson = ensureFrozenFrontAppUrlIfNeeded(
-                        metaJson: activeMetaJsonWithClipboard,
+                        metaJson: enhancedMetaJson,
                         action: action,
                         name: activeActionName,
                         type: actionType,

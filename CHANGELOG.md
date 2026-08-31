@@ -12,6 +12,7 @@
 * Recording recovery is now a synchronous session boundary: a new dictation fully closes superseded watchers, timers, clipboard sessions, and execution-group state before monitoring begins for the replacement recording.
 * Execution groups are reused only for short, genuine action or clipboard-restoration overlaps. Recordings that are merely waiting for transcription or LLM output no longer share clipboard or selection context, and stale groups are rejected defensively.
 * Recovery logging now reports aborted execution groups and context counts, while clipboard snapshot logs include the root recording and context age for diagnosis.
+* Clipboard diagnostics now distinguish immediate Superwhisper result matches from active polling and timeouts. Expected attachment-cache deferrals from lazy file providers are also rate-limited at debug level instead of producing repeated warnings.
 
 ### Fixed
 * Mode triggers no longer activate when Superwhisper does not provide a mode name.
@@ -20,7 +21,7 @@
 * Recovery now clears the targeted session-level clipboard history and pre-recording stack—not only global clipboard history—while preserving the user's current clipboard instead of restoring an obsolete snapshot.
 * Fixed an occasional issue where content copied during a dictation—especially a repeat copy of the same item—could be missing from `{{clipboardContext}}`. Clipboard capture is now more reliable while continuing to exclude Superwhisper's own clipboard activity and duplicated transcription results.
 * Fixed Superwhisper background clipboard activity occasionally entering `{{clipboardContext}}` at recording startup. Macrowhisper now filters unchanged rewrites around folder detection and brief copy-and-restore sequences outside input fields—including ones that finish between clipboard polls and cases where Finder briefly copies a selected filename—while preserving genuine clipboard changes.
-* Fixed transient or concealed clipboard operations entering `{{clipboardContext}}` when a provider immediately followed a marked pasteboard write with an unmarked rewrite. Global and session monitoring now share the same bounded marker-sequence classification and use pasteboard snapshots while preserving normal clipboard capture behavior.
+* Fixed transient or unmarked clipboard rewrites—including Superwhisper result copies arriving between polls—occasionally entering `{{clipboardContext}}`. Macrowhisper now reconciles the pasteboard before freezing action-chain context, recognizes formatting-only result differences such as capitalization, surrounding whitespace, and terminal punctuation, and preserves genuine user clipboard changes without delaying actions when the result is already present.
 
 ---
 ## [v2.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.1) - 2026/07/20

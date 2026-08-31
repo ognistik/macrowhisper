@@ -35,6 +35,7 @@ class ActionExecutor {
     private struct StepExecutionOptions {
         let isFirstInChain: Bool
         let isLastInChain: Bool
+        let shouldUseSuperwhisperSync: Bool
     }
 
     private struct ChainContextSnapshot {
@@ -53,6 +54,7 @@ class ActionExecutor {
         let failedSteps: [String]
         let stepNumber: Int
         let isFirstStep: Bool
+        let didPrepareSuperwhisperClipboardSync: Bool
     }
     
     /// Executes an action based on its type (single-step compatibility wrapper).
@@ -115,10 +117,53 @@ class ActionExecutor {
         )
         if !hasFrozenClipboardContext {
             let swResult = (chainMetaJson["llmResult"] as? String) ?? (chainMetaJson["result"] as? String) ?? ""
-            let snapshot = clipboardMonitor.freezeClipboardContext(for: recordingPath, swResult: swResult)
-            chainMetaJson["clipboardContext"] = snapshot.representations.value(enableStacking: rootClipboardStacking)
-            chainMetaJson[runtimeClipboardContextLockedKey] = true
+            clipboardMonitor.prepareClipboardContextForAction(
+                for: recordingPath,
+                swResult: swResult
+            ) { [weak self] snapshot in
+                guard let self else { return }
+                var preparedMetaJson = chainMetaJson
+                preparedMetaJson["clipboardContext"] = snapshot.representations.value(
+                    enableStacking: rootClipboardStacking
+                )
+                preparedMetaJson[runtimeClipboardContextLockedKey] = true
+                self.beginActionChain(
+                    initialAction: initialAction,
+                    name: name,
+                    type: type,
+                    metaJson: preparedMetaJson,
+                    recordingPath: recordingPath,
+                    isTriggeredAction: isTriggeredAction,
+                    didPrepareSuperwhisperClipboardSync: true,
+                    onCompletion: onCompletion
+                )
+            }
+            return
         }
+
+        beginActionChain(
+            initialAction: initialAction,
+            name: name,
+            type: type,
+            metaJson: chainMetaJson,
+            recordingPath: recordingPath,
+            isTriggeredAction: isTriggeredAction,
+            didPrepareSuperwhisperClipboardSync: false,
+            onCompletion: onCompletion
+        )
+    }
+
+    private func beginActionChain(
+        initialAction: Any,
+        name: String,
+        type: ActionType,
+        metaJson: [String: Any],
+        recordingPath: String,
+        isTriggeredAction: Bool,
+        didPrepareSuperwhisperClipboardSync: Bool,
+        onCompletion: ((ChainExecutionResult) -> Void)?
+    ) {
+        let chainMetaJson = metaJson
         initializeChainContextSnapshot(recordingPath: recordingPath, metaJson: chainMetaJson)
         let initialStep = ResolvedActionStep(action: initialAction, name: name, type: type)
         let initialState = ChainRuntimeState(
@@ -126,7 +171,8 @@ class ActionExecutor {
             visited: [],
             failedSteps: [],
             stepNumber: 1,
-            isFirstStep: true
+            isFirstStep: true,
+            didPrepareSuperwhisperClipboardSync: didPrepareSuperwhisperClipboardSync
         )
         executeActionChainStep(
             state: initialState,
@@ -172,7 +218,9 @@ class ActionExecutor {
 
             let options = StepExecutionOptions(
                 isFirstInChain: state.isFirstStep,
-                isLastInChain: nextStep == nil
+                isLastInChain: nextStep == nil,
+                shouldUseSuperwhisperSync: state.isFirstStep &&
+                    !state.didPrepareSuperwhisperClipboardSync
             )
 
             if shouldEnableAttachmentHandoffForExecution(
@@ -216,7 +264,8 @@ class ActionExecutor {
                     visited: nextVisited,
                     failedSteps: nextFailedSteps,
                     stepNumber: state.stepNumber + 1,
-                    isFirstStep: false
+                    isFirstStep: false,
+                    didPrepareSuperwhisperClipboardSync: state.didPrepareSuperwhisperClipboardSync
                 )
                 self.executeActionChainStep(
                     state: nextState,
@@ -748,7 +797,7 @@ class ActionExecutor {
             recordingPath: recordingPath,
             metaJson: enhancedMetaJson,
             restoreClipboard: restoreClipboard,
-            shouldUseSuperwhisperSync: options.isFirstInChain,
+            shouldUseSuperwhisperSync: options.shouldUseSuperwhisperSync,
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
@@ -787,7 +836,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
-            shouldUseSuperwhisperSync: options.isFirstInChain,
+            shouldUseSuperwhisperSync: options.shouldUseSuperwhisperSync,
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
@@ -834,7 +883,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
-            shouldUseSuperwhisperSync: options.isFirstInChain,
+            shouldUseSuperwhisperSync: options.shouldUseSuperwhisperSync,
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
@@ -879,7 +928,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
-            shouldUseSuperwhisperSync: options.isFirstInChain,
+            shouldUseSuperwhisperSync: options.shouldUseSuperwhisperSync,
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
@@ -924,7 +973,7 @@ class ActionExecutor {
             actionDelay: actionDelay,
             recordingPath: recordingPath,
             restoreClipboard: restoreClipboard,
-            shouldUseSuperwhisperSync: options.isFirstInChain,
+            shouldUseSuperwhisperSync: options.shouldUseSuperwhisperSync,
             shouldStopMonitoringAfterAction: options.isLastInChain,
             shouldTriggerCleanupAfterAction: options.isLastInChain,
             restoreClipboardIndependentlyOfEsc: options.isLastInChain,
