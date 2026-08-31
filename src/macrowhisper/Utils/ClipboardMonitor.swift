@@ -1350,6 +1350,8 @@ let IGNORED_MARKER_COUNT_RETENTION: TimeInterval = 5.0
 private let MAX_IGNORED_MARKER_CHANGE_COUNTS = 64
 let INFERRED_TRANSIENT_RESTORE_WINDOW: TimeInterval = 1.5
 let MIN_INFERRED_TRANSIENT_INITIAL_COUNT_DELTA = 3
+let ADJACENT_STARTUP_TRANSIENT_CANDIDATE_WINDOW: TimeInterval = 1.0
+let ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW: TimeInterval = 0.5
 
 enum IgnoredClipboardMarkerSequenceDecision: String, Equatable {
     case capture
@@ -1473,6 +1475,7 @@ struct InferredTransientRestoreTracker {
         let baselineContent: String
         let baselineFingerprint: String?
         let observedAt: Date
+        let restoreWindow: TimeInterval
     }
 
     private struct IgnoredTransaction {
@@ -1512,6 +1515,8 @@ struct InferredTransientRestoreTracker {
         previousPayloadFingerprint: String? = nil,
         restoreWindow: TimeInterval = INFERRED_TRANSIENT_RESTORE_WINDOW,
         minimumInitialCountDelta: Int = MIN_INFERRED_TRANSIENT_INITIAL_COUNT_DELTA,
+        canArmCandidate: Bool = true,
+        allowAdjacentInitialCount: Bool = false,
         ignoredCountRetention: TimeInterval = IGNORED_MARKER_COUNT_RETENTION
     ) -> InferredTransientRestoreDecision {
         let boundedRetention = max(0, ignoredCountRetention)
@@ -1526,7 +1531,6 @@ struct InferredTransientRestoreTracker {
             )
         }
 
-        let boundedRestoreWindow = max(0, restoreWindow)
         if let pendingCandidate {
             if changeCount == pendingCandidate.changeCount {
                 return .captureCandidate(changeCount: changeCount)
@@ -1541,7 +1545,7 @@ struct InferredTransientRestoreTracker {
             let elapsed = observedAt.timeIntervalSince(pendingCandidate.observedAt)
             let restoreDeltaResult = changeCount.subtractingReportingOverflow(pendingCandidate.changeCount)
             let restoreDelta = restoreDeltaResult.overflow ? nil : restoreDeltaResult.partialValue
-            let isPromptRestore = elapsed >= 0 && elapsed <= boundedRestoreWindow
+            let isPromptRestore = elapsed >= 0 && elapsed <= pendingCandidate.restoreWindow
             let isExactSuccessor = restoreDelta == 1
             let restoresBaseline: Bool
             if let pendingFingerprint = pendingCandidate.baselineFingerprint,
@@ -1567,6 +1571,10 @@ struct InferredTransientRestoreTracker {
             }
         }
 
+        guard canArmCandidate else {
+            return .capture
+        }
+
         guard !containsIgnoredMarker,
               (content != nil || payloadFingerprint != nil),
               (previousContent != nil || previousPayloadFingerprint != nil) else {
@@ -1585,8 +1593,13 @@ struct InferredTransientRestoreTracker {
         }
 
         let initialDeltaResult = changeCount.subtractingReportingOverflow(previousChangeCount)
-        guard !initialDeltaResult.overflow,
-              initialDeltaResult.partialValue >= max(2, minimumInitialCountDelta) else {
+        guard !initialDeltaResult.overflow else {
+            return .capture
+        }
+        let initialDeltaIsEligible = allowAdjacentInitialCount
+            ? initialDeltaResult.partialValue == 1
+            : initialDeltaResult.partialValue >= max(2, minimumInitialCountDelta)
+        guard initialDeltaIsEligible else {
             return .capture
         }
 
@@ -1594,7 +1607,8 @@ struct InferredTransientRestoreTracker {
             changeCount: changeCount,
             baselineContent: previousContent ?? "",
             baselineFingerprint: previousPayloadFingerprint,
-            observedAt: observedAt
+            observedAt: observedAt,
+            restoreWindow: max(0, restoreWindow)
         )
         return .captureCandidate(changeCount: changeCount)
     }
@@ -2087,6 +2101,27 @@ enum SessionStartInputFieldState: String {
             return "unknown"
         }
     }
+}
+
+func shouldAllowAdjacentStartupTransientCandidate(
+    sessionStartInputFieldState: SessionStartInputFieldState,
+    sessionStartTime: Date,
+    startupReplayGuardEndsAt: Date?,
+    startingChangeCount: Int,
+    changeCount: Int,
+    observedAt: Date,
+    candidateWindow: TimeInterval = ADJACENT_STARTUP_TRANSIENT_CANDIDATE_WINDOW
+) -> Bool {
+    guard sessionStartInputFieldState == .outsideInputField,
+          let startupReplayGuardEndsAt,
+          observedAt >= sessionStartTime,
+          observedAt <= startupReplayGuardEndsAt,
+          observedAt <= sessionStartTime.addingTimeInterval(max(0, candidateWindow)) else {
+        return false
+    }
+
+    let expectedChangeCount = startingChangeCount.addingReportingOverflow(1)
+    return !expectedChangeCount.overflow && changeCount == expectedChangeCount.partialValue
 }
 
 enum SessionStartClipboardReplayDecision: String {
@@ -3101,6 +3136,7 @@ class ClipboardMonitor {
     
     /// Marks that action execution is starting (enables clipboard change logging)
     func startActionExecution(for recordingPath: String) {
+        let actionStartedAt = Date()
         sessionsQueue.sync(flags: .barrier) {
             guard let groupId = recordingPathToGroupId[recordingPath] else {
                 earlyMonitoringSessions[recordingPath]?.isExecutingAction = true
@@ -3113,6 +3149,10 @@ class ClipboardMonitor {
             }
             earlyMonitoringSessions[recordingPath]?.isExecutingAction = true
         }
+        cancelInferredTransientRestoreCandidate(
+            boundaryChangeCount: NSPasteboard.general.changeCount,
+            observedAt: actionStartedAt
+        )
         logDebug("[ClipboardMonitor] Startup clipboard replay guard ended at action execution for \(recordingPath)")
     }
     
@@ -3959,6 +3999,43 @@ class ClipboardMonitor {
                 )
             }
 
+            // A startup restore may itself look like a same-content replay. Give an
+            // already-armed transaction the first chance to classify that restoring
+            // write so the global sampler cannot hide it from the session sampler.
+            let pendingRestoreDecision = self.inferredTransientRestoreDecision(
+                changeCount: currentChangeCount,
+                content: currentClipboard,
+                payload: pasteboardSnapshot.payload,
+                containsIgnoredMarker: false,
+                observedAt: now,
+                previousChangeCount: sessionData.lastSeenChangeCount,
+                previousContent: sessionData.lastCapturedClipboardContent,
+                previousPayload: sessionData.lastCapturedClipboardPayload,
+                canArmCandidate: false
+            )
+            self.logInferredTransientRestoreDecision(
+                pendingRestoreDecision,
+                source: "Session monitoring"
+            )
+            if pendingRestoreDecision.shouldIgnore {
+                let transactionChangeCounts = pendingRestoreDecision.transactionChangeCounts
+                self.globalHistoryQueue.sync(flags: .barrier) {
+                    self.removeInferredTransientTransactionFromGlobalHistory(transactionChangeCounts)
+                }
+                self.excludeInferredTransientTransactionFromSessions(transactionChangeCounts)
+                self.noteRecentClipboardActivity(
+                    for: recordingPath,
+                    changeCount: currentChangeCount,
+                    timestamp: now,
+                    lastCapturedClipboardContent: currentClipboard,
+                    lastCapturedClipboardPayload: pasteboardSnapshot.payload
+                )
+                DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+                    self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
+                }
+                return
+            }
+
             if self.shouldIgnoreStartupClipboardReplayForSession(
                 recordingPath: recordingPath,
                 isSameContentRewrite: isSameContentRewrite,
@@ -3989,6 +4066,11 @@ class ClipboardMonitor {
             )
 
             if observationDecision.shouldCaptureInSessionHistory {
+                let allowAdjacentStartupCandidate = self.allowsAdjacentStartupTransientCandidate(
+                    for: recordingPath,
+                    changeCount: currentChangeCount,
+                    observedAt: now
+                )
                 let inferredRestoreDecision = self.inferredTransientRestoreDecision(
                     changeCount: currentChangeCount,
                     content: currentClipboard,
@@ -3997,7 +4079,11 @@ class ClipboardMonitor {
                     observedAt: now,
                     previousChangeCount: sessionData.lastSeenChangeCount,
                     previousContent: sessionData.lastCapturedClipboardContent,
-                    previousPayload: sessionData.lastCapturedClipboardPayload
+                    previousPayload: sessionData.lastCapturedClipboardPayload,
+                    restoreWindow: allowAdjacentStartupCandidate
+                        ? ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW
+                        : INFERRED_TRANSIENT_RESTORE_WINDOW,
+                    allowAdjacentInitialCount: allowAdjacentStartupCandidate
                 )
                 self.logInferredTransientRestoreDecision(
                     inferredRestoreDecision,
@@ -4748,7 +4834,10 @@ class ClipboardMonitor {
         observedAt: Date,
         previousChangeCount: Int,
         previousContent: String?,
-        previousPayload: ClipboardPayload? = nil
+        previousPayload: ClipboardPayload? = nil,
+        restoreWindow: TimeInterval = INFERRED_TRANSIENT_RESTORE_WINDOW,
+        canArmCandidate: Bool = true,
+        allowAdjacentInitialCount: Bool = false
     ) -> InferredTransientRestoreDecision {
         ignoredMarkerSequenceQueue.sync {
             inferredTransientRestoreTracker.decision(
@@ -4759,9 +4848,40 @@ class ClipboardMonitor {
                 previousChangeCount: previousChangeCount,
                 previousContent: previousContent,
                 payloadFingerprint: payload?.fingerprint,
-                previousPayloadFingerprint: previousPayload?.fingerprint
+                previousPayloadFingerprint: previousPayload?.fingerprint,
+                restoreWindow: restoreWindow,
+                canArmCandidate: canArmCandidate,
+                allowAdjacentInitialCount: allowAdjacentInitialCount
             )
         }
+    }
+
+    private func allowsAdjacentStartupTransientCandidate(
+        for recordingPath: String?,
+        changeCount: Int,
+        observedAt: Date
+    ) -> Bool {
+        var shouldAllow = false
+        sessionsQueue.sync {
+            shouldAllow = earlyMonitoringSessions.contains { path, session in
+                guard session.isActive,
+                      recordingPath == nil || path == recordingPath,
+                      let group = executionGroups[session.groupId],
+                      group.rootRecordingPath == path else {
+                    return false
+                }
+
+                return shouldAllowAdjacentStartupTransientCandidate(
+                    sessionStartInputFieldState: session.sessionStartInputFieldState,
+                    sessionStartTime: session.startTime,
+                    startupReplayGuardEndsAt: session.startupReplayGuardEndsAt,
+                    startingChangeCount: session.startingChangeCount,
+                    changeCount: changeCount,
+                    observedAt: observedAt
+                )
+            }
+        }
+        return shouldAllow
     }
 
     private func isInferredTransientChangeCountIgnored(_ changeCount: Int) -> Bool {
@@ -5501,6 +5621,31 @@ class ClipboardMonitor {
                     )
                 }
 
+                let pendingRestoreDecision = self.inferredTransientRestoreDecision(
+                    changeCount: currentChangeCount,
+                    content: currentClipboard,
+                    payload: pasteboardSnapshot.payload,
+                    containsIgnoredMarker: false,
+                    observedAt: now,
+                    previousChangeCount: self.lastSeenChangeCount,
+                    previousContent: self.lastSeenClipboardContent,
+                    previousPayload: self.lastSeenClipboardPayload,
+                    canArmCandidate: false
+                )
+                self.logInferredTransientRestoreDecision(
+                    pendingRestoreDecision,
+                    source: "Global monitoring"
+                )
+                if pendingRestoreDecision.shouldIgnore {
+                    let transactionChangeCounts = pendingRestoreDecision.transactionChangeCounts
+                    self.removeInferredTransientTransactionFromGlobalHistory(transactionChangeCounts)
+                    self.excludeInferredTransientTransactionFromSessions(transactionChangeCounts)
+                    self.lastSeenClipboardContent = currentClipboard
+                    self.lastSeenClipboardPayload = pasteboardSnapshot.payload
+                    self.lastSeenChangeCount = currentChangeCount
+                    return
+                }
+
                 if self.shouldIgnoreStartupClipboardReplayForGlobalCapture(
                     isSameContentRewrite: isSameContentRewrite,
                     changeCount: currentChangeCount,
@@ -5531,6 +5676,11 @@ class ClipboardMonitor {
                     )
                     self.performGlobalRetroactiveCleanup(now: now, appName: appName)
                 } else {
+                    let allowAdjacentStartupCandidate = self.allowsAdjacentStartupTransientCandidate(
+                        for: nil,
+                        changeCount: currentChangeCount,
+                        observedAt: now
+                    )
                     let inferredRestoreDecision = self.inferredTransientRestoreDecision(
                         changeCount: currentChangeCount,
                         content: currentClipboard,
@@ -5539,7 +5689,11 @@ class ClipboardMonitor {
                         observedAt: now,
                         previousChangeCount: self.lastSeenChangeCount,
                         previousContent: self.lastSeenClipboardContent,
-                        previousPayload: self.lastSeenClipboardPayload
+                        previousPayload: self.lastSeenClipboardPayload,
+                        restoreWindow: allowAdjacentStartupCandidate
+                            ? ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW
+                            : INFERRED_TRANSIENT_RESTORE_WINDOW,
+                        allowAdjacentInitialCount: allowAdjacentStartupCandidate
                     )
                     self.logInferredTransientRestoreDecision(
                         inferredRestoreDecision,

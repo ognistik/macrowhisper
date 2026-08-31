@@ -267,6 +267,116 @@ private func runClipboardTransientActivityRegressionTests() {
         "the restoring write remains excluded for delayed sampler work"
     )
 
+    var adjacentStartupRestore = InferredTransientRestoreTracker()
+    assertEqual(
+        adjacentStartupRestore.decision(
+            changeCount: 1501,
+            content: "selected Finder item",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt,
+            previousChangeCount: 1500,
+            previousContent: "user clipboard",
+            restoreWindow: ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW,
+            allowAdjacentInitialCount: true
+        ) == .captureCandidate(changeCount: 1501),
+        true,
+        "an eligible adjacent startup copy is retained while waiting for an exact restore"
+    )
+    assertEqual(
+        adjacentStartupRestore.decision(
+            changeCount: 1502,
+            content: "user clipboard",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.05),
+            previousChangeCount: 1501,
+            previousContent: "selected Finder item",
+            canArmCandidate: false
+        ) == .ignoreTransaction(candidateChangeCount: 1501, restoreChangeCount: 1502),
+        true,
+        "an immediate adjacent return to the startup clipboard excludes the whole transaction"
+    )
+
+    var nonAdjacentStartupCandidate = InferredTransientRestoreTracker()
+    assertEqual(
+        nonAdjacentStartupCandidate.decision(
+            changeCount: 1552,
+            content: "possible startup copy",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt,
+            previousChangeCount: 1550,
+            previousContent: "user clipboard",
+            restoreWindow: ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW,
+            allowAdjacentInitialCount: true
+        ) == .capture,
+        true,
+        "the startup exception requires an exact one-count transition"
+    )
+
+    var adjacentStartupWithoutRestore = InferredTransientRestoreTracker()
+    _ = adjacentStartupWithoutRestore.decision(
+        changeCount: 1601,
+        content: "genuine user copy",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt,
+        previousChangeCount: 1600,
+        previousContent: "user clipboard",
+        restoreWindow: ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW,
+        allowAdjacentInitialCount: true
+    )
+    assertEqual(
+        adjacentStartupWithoutRestore.decision(
+            changeCount: 1602,
+            content: "another genuine copy",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.05),
+            previousChangeCount: 1601,
+            previousContent: "genuine user copy",
+            canArmCandidate: false
+        ) == .capture,
+        true,
+        "an adjacent startup copy remains eligible when the next write does not restore the baseline"
+    )
+
+    var expiredAdjacentStartupRestore = InferredTransientRestoreTracker()
+    _ = expiredAdjacentStartupRestore.decision(
+        changeCount: 1701,
+        content: "temporary startup copy",
+        containsIgnoredMarker: false,
+        observedAt: inferredObservedAt,
+        previousChangeCount: 1700,
+        previousContent: "user clipboard",
+        restoreWindow: 0.1,
+        allowAdjacentInitialCount: true
+    )
+    assertEqual(
+        expiredAdjacentStartupRestore.decision(
+            changeCount: 1702,
+            content: "user clipboard",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt.addingTimeInterval(0.11),
+            previousChangeCount: 1701,
+            previousContent: "temporary startup copy",
+            canArmCandidate: false
+        ) == .capture,
+        true,
+        "an adjacent return after the candidate's narrow restore window remains eligible"
+    )
+
+    var resolveOnly = InferredTransientRestoreTracker()
+    assertEqual(
+        resolveOnly.decision(
+            changeCount: 1803,
+            content: "unclassified change",
+            containsIgnoredMarker: false,
+            observedAt: inferredObservedAt,
+            previousChangeCount: 1800,
+            previousContent: "baseline",
+            canArmCandidate: false
+        ) == .capture,
+        true,
+        "restore-first classification never arms a new transient candidate"
+    )
+
     var normalSingleCopy = InferredTransientRestoreTracker()
     assertEqual(
         normalSingleCopy.decision(
@@ -568,6 +678,81 @@ private func runClipboardTransientActivityRegressionTests() {
 
     let folderDetectedAt = Date(timeIntervalSince1970: 200)
     let startupGuardEndsAt = folderDetectedAt.addingTimeInterval(5)
+
+    assertEqual(
+        shouldAllowAdjacentStartupTransientCandidate(
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: folderDetectedAt,
+            startupReplayGuardEndsAt: startupGuardEndsAt,
+            startingChangeCount: 66,
+            changeCount: 67,
+            observedAt: folderDetectedAt.addingTimeInterval(0.087)
+        ),
+        true,
+        "the first prompt outside-input clipboard change can begin an adjacent restore transaction"
+    )
+    assertEqual(
+        shouldAllowAdjacentStartupTransientCandidate(
+            sessionStartInputFieldState: .inInputField,
+            sessionStartTime: folderDetectedAt,
+            startupReplayGuardEndsAt: startupGuardEndsAt,
+            startingChangeCount: 66,
+            changeCount: 67,
+            observedAt: folderDetectedAt.addingTimeInterval(0.087)
+        ),
+        false,
+        "input-field sessions keep ordinary adjacent clipboard capture behavior"
+    )
+    assertEqual(
+        shouldAllowAdjacentStartupTransientCandidate(
+            sessionStartInputFieldState: .unknown,
+            sessionStartTime: folderDetectedAt,
+            startupReplayGuardEndsAt: startupGuardEndsAt,
+            startingChangeCount: 66,
+            changeCount: 67,
+            observedAt: folderDetectedAt.addingTimeInterval(0.087)
+        ),
+        false,
+        "unknown input-field state does not enable the different-content startup exception"
+    )
+    assertEqual(
+        shouldAllowAdjacentStartupTransientCandidate(
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: folderDetectedAt,
+            startupReplayGuardEndsAt: startupGuardEndsAt,
+            startingChangeCount: 66,
+            changeCount: 68,
+            observedAt: folderDetectedAt.addingTimeInterval(0.087)
+        ),
+        false,
+        "only the first change count after session start receives the adjacent transaction exception"
+    )
+    assertEqual(
+        shouldAllowAdjacentStartupTransientCandidate(
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: folderDetectedAt,
+            startupReplayGuardEndsAt: startupGuardEndsAt,
+            startingChangeCount: 66,
+            changeCount: 67,
+            observedAt: folderDetectedAt.addingTimeInterval(
+                ADJACENT_STARTUP_TRANSIENT_CANDIDATE_WINDOW + 0.001
+            )
+        ),
+        false,
+        "later outside-input copies are not reclassified as startup restore candidates"
+    )
+    assertEqual(
+        shouldAllowAdjacentStartupTransientCandidate(
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: folderDetectedAt,
+            startupReplayGuardEndsAt: nil,
+            startingChangeCount: 66,
+            changeCount: 67,
+            observedAt: folderDetectedAt.addingTimeInterval(0.087)
+        ),
+        false,
+        "action execution closes the adjacent startup transaction window"
+    )
 
     assertEqual(
         isSameContentClipboardRewrite(currentClipboard: "seed", previousClipboard: "seed"),
