@@ -101,10 +101,10 @@ Because Superwhisper always interacts with the clipboard, the safest way to pass
 
 Supported values:
 
-- a folder path: move the processed recording folder there
-- `.delete`: delete the processed folder
-- `""`: keep the folder in place when this is the effective value; current watcher and CLI paths treat an action-level empty value as absent and fall back to `defaults.moveTo` (see [the current moveTo limitation](configuration.md#current-moveto-limitation))
-- `null` at the action level: inherit from `defaults`
+- a folder path: move the processed recording folder there, overriding the default
+- `.delete`: delete the processed folder, overriding the default
+- `""` at the action level: keep the folder in place, even when `defaults.moveTo` is nonempty
+- `null` or omission at the action level: inherit from `defaults.moveTo`
 
 ### `history`
 

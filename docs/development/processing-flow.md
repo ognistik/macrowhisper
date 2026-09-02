@@ -476,20 +476,14 @@ After action execution, several post-processing steps occur:
 #### 1. MoveTo Handling:
 Determines where to move or how to handle the processed recording folder:
 
-**Priority Order**:
-1. **Action-Specific**: The final action's nonempty `moveTo`
-2. **Global Default**: `config.defaults.moveTo` when the final action's value is absent or empty
+**Resolution**:
+1. **Final Action**: `null` or omitted `moveTo` inherits `config.defaults.moveTo`; explicit `""` keeps the folder in place even when that default is nonempty; a nonempty path or `.delete` overrides the default
 
 **Special Values**:
 - `".delete"`: Delete the recording folder
 - **Path**: Move folder to specified directory
-- **Empty effective value after fallback**: Keep the folder in its original location
-
-The current watcher and CLI post-processing paths treat an empty action
-override as inheritance, contrary to the version 2 empty-value contract.
-Although old runtime branches still recognize `.none`, version 2 validation
-rejects it as a `moveTo` value. See the [current moveTo limitation](../configuration.md#current-moveto-limitation)
-for configuration guidance.
+- **Empty value**: Keep the folder in its original location
+- `.none`: An action payload template, not a `moveTo` value
 
 #### 2. History Cleanup:
 - **Trigger**: Post-processing calls `historyManager.scheduleHistoryCleanup()` with a default 30-second delay

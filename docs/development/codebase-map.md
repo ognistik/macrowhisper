@@ -241,7 +241,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
 - `null` means inherit from defaults or built-in behavior
 - `""` means intentionally empty
 - `.none` is reserved for action-template semantics, not for fields like `icon` or `moveTo`
-- Current post-processing treats an empty action `moveTo` as inheritance despite the version 2 empty-value contract; see the [current moveTo limitation](../configuration.md#current-moveto-limitation)
+- For action `moveTo`, `null` or omission inherits `defaults.moveTo`, explicit `""` keeps the recording folder in place even when that default is nonempty, and a nonempty path or `.delete` overrides the default
 - Legacy keys are still migrated:
   - `noEsc` -> `simEsc`
   - `pressReturn` -> `simReturn`

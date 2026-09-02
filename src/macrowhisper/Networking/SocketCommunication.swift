@@ -1200,30 +1200,13 @@ class SocketCommunication {
 
     private func applyMoveToForCLI(
         recordingPath: String,
-        finalActionType: ActionType,
         finalAction: Any,
         configManager: ConfigurationManager
     ) {
-        var actionMoveTo: String?
-        switch finalActionType {
-        case .insert:
-            actionMoveTo = (finalAction as? AppConfiguration.Insert)?.moveTo
-        case .url:
-            actionMoveTo = (finalAction as? AppConfiguration.Url)?.moveTo
-        case .shortcut:
-            actionMoveTo = (finalAction as? AppConfiguration.Shortcut)?.moveTo
-        case .shell:
-            actionMoveTo = (finalAction as? AppConfiguration.ScriptShell)?.moveTo
-        case .appleScript:
-            actionMoveTo = (finalAction as? AppConfiguration.ScriptAppleScript)?.moveTo
-        }
-
-        var moveTo: String?
-        if let actionMoveTo = actionMoveTo, !actionMoveTo.isEmpty {
-            moveTo = actionMoveTo
-        } else {
-            moveTo = configManager.config.defaults.moveTo
-        }
+        let moveTo = effectiveMoveTo(
+            for: finalAction,
+            defaultValue: configManager.config.defaults.moveTo
+        )
 
         guard let path = moveTo, !path.isEmpty else {
             return
@@ -3869,7 +3852,6 @@ class SocketCommunication {
                     if let recordingPath = resolvedMetaSource.recordingPath {
                         applyMoveToForCLI(
                             recordingPath: recordingPath,
-                            finalActionType: chainResult.finalStep.type,
                             finalAction: chainResult.finalStep.action,
                             configManager: configMgr
                         )
@@ -3970,7 +3952,6 @@ class SocketCommunication {
                         if let recordingPath = resolvedMetaSource.recordingPath {
                             applyMoveToForCLI(
                                 recordingPath: recordingPath,
-                                finalActionType: chainResult.finalStep.type,
                                 finalAction: chainResult.finalStep.action,
                                 configManager: configMgr
                             )

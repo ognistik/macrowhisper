@@ -41,6 +41,14 @@ private func assertNil<T>(_ value: T?, _ label: String) {
     print("PASS: \(label)")
 }
 
+private func assertOptionalEqual(_ actual: String?, _ expected: String?, _ label: String) {
+    if actual != expected {
+        fputs("FAIL: \(label)\nexpected: \(String(describing: expected))\nactual:   \(String(describing: actual))\n", stderr)
+        exit(1)
+    }
+    print("PASS: \(label)")
+}
+
 private func decodeConfig(_ json: String) throws -> AppConfiguration {
     try JSONDecoder().decode(AppConfiguration.self, from: Data(json.utf8))
 }
@@ -329,6 +337,84 @@ private func runDefaultsWatchRegressionTests() {
             true,
             "true action clipboardAttachments overrides false default"
         )
+
+        let moveToDefault = ".delete"
+        let moveToActionFactories: [(String, (String?) -> Any)] = [
+            ("insert", { AppConfiguration.Insert(action: "", moveTo: $0) }),
+            ("URL", { AppConfiguration.Url(action: "", moveTo: $0) }),
+            ("Shortcut", { AppConfiguration.Shortcut(action: "", moveTo: $0) }),
+            ("Shell", { AppConfiguration.ScriptShell(action: "", moveTo: $0) }),
+            ("AppleScript", { AppConfiguration.ScriptAppleScript(action: "", moveTo: $0) })
+        ]
+
+        for (actionType, makeAction) in moveToActionFactories {
+            assertOptionalEqual(
+                effectiveMoveTo(for: makeAction(nil), defaultValue: moveToDefault),
+                moveToDefault,
+                "\(actionType) nil moveTo inherits the nonempty default"
+            )
+            assertOptionalEqual(
+                effectiveMoveTo(for: makeAction(""), defaultValue: moveToDefault),
+                "",
+                "\(actionType) empty moveTo suppresses the nonempty default"
+            )
+            assertOptionalEqual(
+                effectiveMoveTo(for: makeAction("/tmp/\(actionType)"), defaultValue: moveToDefault),
+                "/tmp/\(actionType)",
+                "\(actionType) nonempty moveTo overrides the default"
+            )
+            assertOptionalEqual(
+                effectiveMoveTo(for: makeAction(".delete"), defaultValue: "/tmp/default"),
+                ".delete",
+                "\(actionType) .delete moveTo overrides the default"
+            )
+        }
+
+        let decodedMoveToInheritance = try decodeConfig("""
+        {
+          "configVersion": 2,
+          "defaults": { "moveTo": ".delete" },
+          "inserts": {
+            "omitted": { "action": "" },
+            "null": { "action": "", "moveTo": null }
+          },
+          "urls": {
+            "omitted": { "action": "" },
+            "null": { "action": "", "moveTo": null }
+          },
+          "shortcuts": {
+            "omitted": { "action": "" },
+            "null": { "action": "", "moveTo": null }
+          },
+          "scriptsShell": {
+            "omitted": { "action": "" },
+            "null": { "action": "", "moveTo": null }
+          },
+          "scriptsAS": {
+            "omitted": { "action": "" },
+            "null": { "action": "", "moveTo": null }
+          }
+        }
+        """)
+        let decodedMoveToActions: [(String, Any?)] = [
+            ("insert omitted", decodedMoveToInheritance.inserts["omitted"]),
+            ("insert null", decodedMoveToInheritance.inserts["null"]),
+            ("URL omitted", decodedMoveToInheritance.urls["omitted"]),
+            ("URL null", decodedMoveToInheritance.urls["null"]),
+            ("Shortcut omitted", decodedMoveToInheritance.shortcuts["omitted"]),
+            ("Shortcut null", decodedMoveToInheritance.shortcuts["null"]),
+            ("Shell omitted", decodedMoveToInheritance.scriptsShell["omitted"]),
+            ("Shell null", decodedMoveToInheritance.scriptsShell["null"]),
+            ("AppleScript omitted", decodedMoveToInheritance.scriptsAS["omitted"]),
+            ("AppleScript null", decodedMoveToInheritance.scriptsAS["null"])
+        ]
+        for (label, action) in decodedMoveToActions {
+            assertOptionalEqual(
+                effectiveMoveTo(for: action, defaultValue: decodedMoveToInheritance.defaults.moveTo),
+                moveToDefault,
+                "configVersion 2 \(label) moveTo inherits the default"
+            )
+        }
 
         let explicitAttachmentInheritance = try decodeConfig("""
         {

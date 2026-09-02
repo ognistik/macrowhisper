@@ -54,7 +54,7 @@ How to interpret those fields:
 - for `clipboardStacking`, `null` inherits `defaults.clipboardStacking`, while `true` and `false` explicitly override it
 - for `clipboardAttachments`, `null` inherits `defaults.clipboardAttachments`, while `true` and `false` explicitly override it for the full chain
 - for `icon` and `nextAction`, `null` means inherit, while `""` means intentionally empty
-- for `moveTo`, `null` inherits and `""` is intended to mean no move; current post-processing falls back to `defaults.moveTo` when that default is nonempty. See [the current `moveTo` limitation](configuration.md#current-moveto-limitation).
+- for `moveTo`, `null` or omission inherits `defaults.moveTo`, `""` keeps the recording folder in place even when that default is nonempty, and a nonempty path or `.delete` overrides the default
 - `trigger*` fields help Macrowhisper choose the action; a normal positive `triggerVoice` match also removes the spoken prefix from the result before the payload is expanded
 
 ### Common field examples
@@ -304,7 +304,7 @@ Chains resolve by action name across all action types, so duplicate names are no
 - if `scriptAsync: false`, Macrowhisper waits for completion up to `scriptWaitTimeout` (at least `0.1` seconds at runtime)
 - synchronous script output can be reused later through `{{actionResult}}`
 - clipboard restoration is decided by the last step
-- `moveTo` is based on the final executed action context
+- `moveTo` is resolved from the final executed action: `null` or omission inherits `defaults.moveTo`, `""` keeps the recording folder in place, and a nonempty path or `.delete` overrides the default
 - `simEsc` comes from the first action-level setting if present, otherwise from `defaults.simEsc`
 - `inputCondition` is evaluated live for each executed step
 - `frontApp`, `appContext`, and `appVocabulary` stay frozen for the whole chain

@@ -16,6 +16,14 @@ func effectiveClipboardAttachments(for action: Any?, defaultValue: Bool) -> Bool
     (action as? any ClipboardAttachmentsConfigurable)?.clipboardAttachments ?? defaultValue
 }
 
+protocol MoveToConfigurable {
+    var moveTo: String? { get }
+}
+
+func effectiveMoveTo(for action: Any?, defaultValue: String?) -> String? {
+    (action as? any MoveToConfigurable)?.moveTo ?? defaultValue
+}
+
 // MARK: - Configuration Manager
 
 struct AppConfiguration: Codable {
@@ -431,7 +439,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct Insert: Codable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
+    struct Insert: Codable, MoveToConfigurable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -558,7 +566,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct Url: Codable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
+    struct Url: Codable, MoveToConfigurable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -668,7 +676,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct Shortcut: Codable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
+    struct Shortcut: Codable, MoveToConfigurable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -778,7 +786,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct ScriptShell: Codable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
+    struct ScriptShell: Codable, MoveToConfigurable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?
@@ -888,7 +896,7 @@ struct AppConfiguration: Codable {
         }
     }
     
-    struct ScriptAppleScript: Codable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
+    struct ScriptAppleScript: Codable, MoveToConfigurable, ClipboardStackingConfigurable, ClipboardAttachmentsConfigurable {
         var action: String
         var icon: String?
         var moveTo: String?

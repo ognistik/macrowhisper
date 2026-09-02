@@ -258,10 +258,9 @@ macrowhisper --run-auto --meta 2026-03-01_10-00-00
 
 For `--exec-action` and `--run-auto`:
 
-- if `--meta` points to a recording folder, `moveTo` works normally
+- when execution uses a recording folder (the default source or a recording-folder `--meta`), the final action's `moveTo` controls post-processing: `null` or omission inherits `defaults.moveTo`, explicit `""` keeps the folder in place even when that default is nonempty, and a nonempty path or `.delete` overrides it
 - if `--meta` points to a direct JSON file, `moveTo` is skipped because there is no recording folder to move or delete
-- the final action's non-empty `moveTo` takes precedence over `defaults.moveTo`; `.delete` removes the folder and an empty effective value leaves it in place
-- `.none` is an action payload shortcut, not a `moveTo` value; see the [current moveTo limitation](configuration.md#current-moveto-limitation)
+- `.none` is an action payload shortcut, not a `moveTo` value
 
 ### Behavior matrix
 

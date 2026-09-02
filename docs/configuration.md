@@ -71,17 +71,13 @@ Important exceptions:
 
 Quick reference:
 
-| Field type | If action value is `null` | If action value is set |
+| Field type | If action value is `null` or omitted | If action value is set |
 | --- | --- | --- |
 | Boolean and number overrides such as `simEsc`, `restoreClipboard`, `actionDelay`, `simReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing` | Use the matching value from `defaults` | The action value wins |
-| `moveTo` | Use `defaults.moveTo` | A nonempty action value wins; an empty value is subject to the current limitation below |
+| `moveTo` | Use `defaults.moveTo` | A nonempty path or `.delete` overrides the default; `""` keeps the recording folder in place, even when `defaults.moveTo` is nonempty |
 | `icon` | Use `defaults.icon` | The action value wins |
 | `nextAction` | Use `defaults.nextAction` on the first step only | The action value wins |
 | `action` | No fallback from `defaults` | The action payload is used directly |
-
-### Current moveTo limitation
-
-An action-level `moveTo: ""` is intended to mean "do not move this recording folder." The current watcher and CLI post-processing paths treat an empty action value as absent and fall back to `defaults.moveTo`, so that override cannot suppress a nonempty default. `.none` has a keep-in-place branch in the runtime, but current version 2 semantic validation rejects `.none` for `moveTo`. To keep a folder in place, set `defaults.moveTo` to `""` and add a nonempty destination only to actions that should move it.
 
 ### Special `action` values
 

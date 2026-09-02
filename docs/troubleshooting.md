@@ -129,10 +129,11 @@ execution group while preserving the current clipboard. A missing WAV after
 the 17-second grace period, removal of a previously valid WAV, or deletion of
 `meta.json` after recheck can cause this recovery path.
 
-After a completed action, `moveTo` uses the final action's non-empty value and
-then the defaults fallback. `.delete` removes the recording and an empty
-effective value keeps it in place. `.none` is an action payload value, not a
-`moveTo` sentinel; see the [current moveTo limitation](configuration.md#current-moveto-limitation).
+After a completed action, the final action's `moveTo` controls recording-folder
+handling: `null` or omission inherits `defaults.moveTo`, explicit `""` keeps the
+folder in place even when that default is nonempty, and a nonempty path or
+`.delete` moves or deletes it. `.none` is an action payload value, not a
+`moveTo` sentinel; see [moveTo](clipboard-and-recordings.md#moveto).
 History cleanup is asynchronous and disabled when `history` is `null`; `0`
 keeps only the newest folder, while a positive value retains that many days.
 Its 24-hour rate limit is per running daemon process.

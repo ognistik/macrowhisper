@@ -261,9 +261,9 @@ Shortcut, shell, and AppleScript actions are asynchronous by default so Macrowhi
 
 After the action flow ends, Macrowhisper may:
 
-- move the recording using the final action's non-empty `moveTo`, then the
-  defaults `moveTo` fallback, or apply `.delete`; an empty effective value
-  leaves the folder in place
+- resolve the final action's `moveTo`: `null` or omission inherits the
+  `defaults.moveTo` value, explicit `""` keeps the folder in place even when
+  that default is nonempty, and a nonempty path or `.delete` moves or deletes it
 - clean up temporary monitoring state
 - restore the clipboard if needed
 - run retention cleanup if `history` is enabled
@@ -272,8 +272,8 @@ History cleanup is disabled when `history` is `null`; `0` keeps only the newest
 recording, and a positive value keeps that many days. It runs asynchronously
 after the action (normally after about 30 seconds) and no more than once per
 24 hours within a running daemon process. `.none` is an action payload value,
-not a `moveTo` sentinel; see the [current moveTo limitation](configuration.md#current-moveto-limitation)
-and [Runtime](runtime.md#recovery-and-cleanup) for the recovery and cleanup
-edge cases.
+not a `moveTo` sentinel; see [moveTo](clipboard-and-recordings.md#moveto) and
+[Runtime](runtime.md#recovery-and-cleanup) for the recovery and cleanup edge
+cases.
 
 ---

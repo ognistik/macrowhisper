@@ -953,7 +953,6 @@ class RecordingsFolderWatcher {
                 self?.cleanupPendingWatcher(for: recordingPath)
                 self?.handlePostProcessing(
                     recordingPath: recordingPath,
-                    executedActionType: result?.finalActionType,
                     executedAction: result?.finalAction
                 )
             }
@@ -1292,42 +1291,23 @@ class RecordingsFolderWatcher {
         return configuredModes.contains { $0.caseInsensitiveCompare(normalizedMode) == .orderedSame }
     }
 
-    private func handlePostProcessing(recordingPath: String, executedActionType: ActionType? = nil, executedAction: Any? = nil) {
-        // Determine the moveTo value with proper precedence (active action takes precedence over default)
-        var moveTo: String?
-        var actionForMoveTo: (type: ActionType, action: Any)?
-        if let explicitType = executedActionType, let explicitAction = executedAction {
-            actionForMoveTo = (type: explicitType, action: explicitAction)
+    private func handlePostProcessing(recordingPath: String, executedAction: Any? = nil) {
+        // The final executed action takes precedence, followed by the configured active action and defaults.
+        var actionForMoveTo: Any?
+        if let executedAction {
+            actionForMoveTo = executedAction
         } else if let activeActionName = configManager.config.defaults.activeAction,
                   !activeActionName.isEmpty {
-            let (activeType, activeAction) = findActionByName(activeActionName, configManager: configManager)
+            let (_, activeAction) = findActionByName(activeActionName, configManager: configManager)
             if let activeAction = activeAction {
-                actionForMoveTo = (type: activeType, action: activeAction)
+                actionForMoveTo = activeAction
             }
         }
 
-        if let actionForMoveTo = actionForMoveTo {
-            var actionMoveTo: String?
-            switch actionForMoveTo.type {
-            case .insert:
-                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.Insert)?.moveTo
-            case .url:
-                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.Url)?.moveTo
-            case .shortcut:
-                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.Shortcut)?.moveTo
-            case .shell:
-                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.ScriptShell)?.moveTo
-            case .appleScript:
-                actionMoveTo = (actionForMoveTo.action as? AppConfiguration.ScriptAppleScript)?.moveTo
-            }
-            if let actionMoveTo = actionMoveTo, !actionMoveTo.isEmpty {
-                moveTo = actionMoveTo
-            } else {
-                moveTo = configManager.config.defaults.moveTo
-            }
-        } else {
-            moveTo = configManager.config.defaults.moveTo
-        }
+        let moveTo = effectiveMoveTo(
+            for: actionForMoveTo,
+            defaultValue: configManager.config.defaults.moveTo
+        )
         
         // Handle the moveTo action
         if let path = moveTo, !path.isEmpty {

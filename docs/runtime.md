@@ -80,15 +80,16 @@ file removed after a valid non-zero WAV was seen, or a recording whose
 cancels pending metadata/audio watchers, settle work, timers, one-time state,
 and clipboard execution groups while preserving the current clipboard.
 
-After a valid recording is marked processed, the final action may move it to
-the action's non-empty `moveTo` destination or the defaults destination,
-delete it with `.delete`, or leave it in place when the effective `moveTo` is
-empty. `.none` is an action payload shortcut, not a `moveTo` value; in current
-v2 cleanup code an action-level empty `moveTo` falls through to the defaults
-value. See [`moveTo`](clipboard-and-recordings.md#moveto) for the supported
-recording-folder values and the [current moveTo limitation](configuration.md#current-moveto-limitation).
-A direct JSON source passed through the CLI has no
-recording folder to move. History cleanup runs
+After a valid recording is marked processed, the final action controls its
+recording-folder handling: `moveTo` set to `null` or omitted inherits
+`defaults.moveTo`; an explicit `""` keeps the folder in place even when that
+default is nonempty; and a nonempty path moves it while `.delete` removes it.
+`.none` is an action payload shortcut, not a `moveTo` value. See
+[`moveTo`](clipboard-and-recordings.md#moveto) for the supported recording-folder
+values. A direct JSON source passed through the CLI has no recording folder to
+move, so `moveTo` is skipped there.
+
+History cleanup runs
 asynchronously after the action when `history` is configured: `null` disables
 it, `0` retains only the newest recording, and a positive value retains the
 configured number of days. Cleanup is scheduled after about 30 seconds and is

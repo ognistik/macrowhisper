@@ -23,6 +23,7 @@
 * Fixed an occasional issue where content copied during a dictation—especially a repeat copy of the same item—could be missing from `{{clipboardContext}}`. Clipboard capture is now more reliable while continuing to exclude Superwhisper's own clipboard activity and duplicated transcription results.
 * Fixed Superwhisper background clipboard activity occasionally entering `{{clipboardContext}}` at recording startup. Macrowhisper now filters unchanged rewrites around folder detection and brief copy-and-restore sequences outside input fields—including ones that finish between clipboard polls and cases where Finder briefly copies a selected filename—while preserving genuine clipboard changes.
 * Fixed transient or unmarked clipboard rewrites—including Superwhisper result copies arriving between polls—occasionally entering `{{clipboardContext}}`. Macrowhisper now reconciles the pasteboard before freezing action-chain context, recognizes formatting-only result differences such as capitalization, surrounding whitespace, and terminal punctuation, and preserves genuine user clipboard changes without delaying actions when the result is already present.
+* Fixed action-level `moveTo: ""` handling so it keeps the recording folder in place even when `defaults.moveTo` is nonempty; `null`/omitted still inherit, while paths and `.delete` override.
 
 ---
 ## [v2.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.1) - 2026/07/20

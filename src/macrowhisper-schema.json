@@ -260,7 +260,7 @@
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Where to move the recording folder after processing. null or omitted = inherit defaults.moveTo. Current runtime limitation: an empty action value also inherits defaults.moveTo, so it cannot suppress a nonempty default. To opt actions into movement, keep defaults.moveTo empty and set destinations on the final actions that should move recordings. '.delete' deletes the folder; '.none' is rejected in configVersion 2.",
+          "description": "Where to move the recording folder after processing. Only the final executed action's value controls a chain. null or omitted = inherit defaults.moveTo; an explicit empty string keeps the folder in place even when defaults.moveTo is nonempty; a nonempty path moves it and '.delete' deletes it. '.none' is reserved for action templates and is not a moveTo value.",
           "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", "", null],
           "default": null
         },
