@@ -4,6 +4,10 @@ Macrowhisper turns Superwhisper recordings into configured actions: paste text, 
 
 For installation and a first working setup, start with the [repository README](../README.md). This index maps the complete reference by topic. If you are using AI for help, provide this index and ask it to read the linked pages relevant to your task.
 
+The documentation follows the repository version you are viewing. An installed
+release may not include changes listed under `UNRELEASED` in the [changelog](../CHANGELOG.md).
+For release-specific behavior, consult the documentation at that release's Git tag.
+
 ## Start here
 
 1. [Getting started](getting-started.md): what Macrowhisper does, setup, and what happens after you dictate.

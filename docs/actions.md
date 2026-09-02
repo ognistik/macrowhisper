@@ -18,12 +18,14 @@ Important: action names must be unique across all five groups.
 
 | Value | Where it works | Simple meaning |
 | --- | --- | --- |
-| `""` | All action types | Use an empty payload |
+| `""` | All action types | Skip the payload operation |
 | `.none` | All action types | Use the built-in do-nothing template |
 | `.autoPaste` | Insert actions only | Use Superwhisper-like auto-paste behavior |
 | `.run` | Shortcut actions only | Run the Shortcut with no input |
 
-### Fields shared by all action types
+`.none` clears this action's payload, input condition, ESC simulation, and clipboard restoration. Its delay, Return, chain, and recording-folder settings can still apply.
+
+### Fields used by actions
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -37,7 +39,7 @@ Important: action names must be unique across all five groups.
 | `clipboardStacking` | bool/null | Override clipboard stacking for this action and its chain |
 | `clipboardAttachments` | bool/null | Override attachment handoff for this action and its chain |
 | `scriptAsync` | bool/null | Override async behavior for Shortcut, shell, or AppleScript actions |
-| `scriptWaitTimeout` | number/null | Override how long Macrowhisper waits when `scriptAsync` is `false` |
+| `scriptWaitTimeout` | number/null | Override how long Macrowhisper waits when `scriptAsync` is `false`; values below `0.1` seconds are clamped at runtime |
 | `inputCondition` | string/null | Apply some fields only in or outside input fields |
 | `nextAction` | string/null | Chain to another action |
 | `triggerVoice` | string/null | Match by spoken phrase |
@@ -51,8 +53,9 @@ How to interpret those fields:
 - `null` on most boolean and number overrides means "use the default"
 - for `clipboardStacking`, `null` inherits `defaults.clipboardStacking`, while `true` and `false` explicitly override it
 - for `clipboardAttachments`, `null` inherits `defaults.clipboardAttachments`, while `true` and `false` explicitly override it for the full chain
-- for `moveTo`, `icon`, and `nextAction`, `null` means inherit, while `""` means intentionally empty
-- `trigger*` fields only help Macrowhisper choose the action; they do not change the payload
+- for `icon` and `nextAction`, `null` means inherit, while `""` means intentionally empty
+- for `moveTo`, `null` inherits and `""` is intended to mean no move; current post-processing falls back to `defaults.moveTo` when that default is nonempty. See [the current `moveTo` limitation](configuration.md#current-moveto-limitation).
+- `trigger*` fields help Macrowhisper choose the action; a normal positive `triggerVoice` match also removes the spoken prefix from the result before the payload is expanded
 
 ### Common field examples
 
@@ -61,8 +64,10 @@ How to interpret those fields:
 ```
 
 ```json
-"icon": ".none"
+"icon": ""
 ```
+
+An empty `icon` explicitly disables the icon for this action. `.none` is an action value, not a current version 2 icon value.
 
 ```json
 "moveTo": ".delete"
@@ -103,7 +108,11 @@ Extra insert-only fields:
 
 If Accessibility is unavailable or the insertion context is low-confidence, smart casing, smart punctuation, and smart spacing are skipped for that insertion.
 
+When the context is available, smart casing lowercases a mid-sentence first letter and uppercases strong sentence or line starts while preserving headings, lists, `I`, and all-uppercase words. Smart punctuation removes conflicting boundary punctuation, including terminal `.`, `!`, or `?` when text is being continued, and does not add punctuation. Smart spacing adjusts word and wrapper boundaries without adding a space where whitespace already exists. Macrowhisper trims surrounding whitespace from the text before these checks.
+
 If an insert also chains with `nextAction`, any required `simReturn` happens before Macrowhisper starts the next step.
+
+The first action selected for a chain controls clipboard stacking and attachment handoff for the whole chain. A later action's override takes effect when that action is invoked as the root action of a separate run.
 
 Examples:
 
@@ -152,6 +161,8 @@ Extra URL-only fields:
 | `action` | string | `"https://...{{swResult}}"`, `".none"` | The URL or template to open. |
 | `openWith` | string/null | `"Safari"`, `"com.google.Chrome"` | Passed to `open -a`. |
 | `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in the background. |
+
+An empty or `null` `openWith` uses the system default application. `false` or `null` `openBackground` keeps the normal foreground behavior.
 
 Examples:
 
@@ -218,6 +229,7 @@ Examples:
 ```json
 "copyResult": {
   "action": "echo '{{swResult}}' | pbcopy",
+  "restoreClipboard": false,
   "triggerVoice": "copy result"
 }
 ```
@@ -289,7 +301,7 @@ Chains resolve by action name across all action types, so duplicate names are no
 - for insert steps, any `simReturn` or one-time auto-return Return press happens before the next chained step begins
 - if one step fails, the rest of the chain still continues
 - Shortcut, shell, and AppleScript steps launch asynchronously by default
-- if `scriptAsync: false`, Macrowhisper waits for completion up to `scriptWaitTimeout`
+- if `scriptAsync: false`, Macrowhisper waits for completion up to `scriptWaitTimeout` (at least `0.1` seconds at runtime)
 - synchronous script output can be reused later through `{{actionResult}}`
 - clipboard restoration is decided by the last step
 - `moveTo` is based on the final executed action context

@@ -14,8 +14,10 @@ Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrow
 
 - a short wait for Superwhisper clipboard sync before the first action in a chain: `0.1s`
 - a recent-activity window to avoid unnecessary waiting: `0.5s`
-- a `1.0s` session-start replay-cluster guard that ignores repeated writes of the original clipboard before audio begins while still capturing different content
+- a startup replay guard that extends `5.0s` after the recording folder appears; when buffered history is available, the same-content check also examines up to `3.0s` before that point. Same-content replays in the guard are ignored while different content remains eligible. The guard stays active after audio starts and closes when action execution starts. A separate `1.0s` adjacent-transient rule applies only when the session began outside an input field
 - the user-controlled pre-recording capture window from `clipboardBuffer`
+
+Capture is bounded to 50 clipboard operations per session and 100 entries in the app-wide rolling history; older observations are dropped.
 
 ### The settings that matter most
 
@@ -33,7 +35,7 @@ How they work together:
 - an action-level `clipboardStacking` value overrides the default for the full chain; `null` or omission inherits the default
 - `clipboardAttachments = false` preserves the existing string-only `{{clipboardContext}}` projection
 - `clipboardAttachments = true` enables supported attachment handoff for the full root action chain; `null` or omission inherits the default
-- `restoreClipboard = true` restores the original clipboard when the action flow ends
+- `restoreClipboard = true` permits original-clipboard restoration at finalization; ordinary action chains restore on their final step even when no ESC is simulated, while auto-return uses the effective ESC path
 
 Use `macrowhisper --reset-clipboard` when you copied the wrong content or no longer want previously captured clipboard context sent to the action. During a recording it resets that recording's shared clipboard-context session; outside a recording it resets the pre-recording buffer. Any new copy made afterward can be captured normally.
 
@@ -87,7 +89,7 @@ The short version:
 - Macrowhisper is optimized to stay responsive
 - shell, AppleScript, and Shortcut actions launch asynchronously by default
 - if you need Macrowhisper to wait, set `scriptAsync: false`
-- clipboard restoration happens according to `restoreClipboardDelay` on the final chain step
+- when restoration is effective, it happens according to `restoreClipboardDelay` on the final chain step
 
 Because Superwhisper always interacts with the clipboard, the safest way to pass earlier clipboard content into scripts is usually to use `{{clipboardContext}}` instead of reading the live clipboard during script execution.
 
@@ -101,7 +103,7 @@ Supported values:
 
 - a folder path: move the processed recording folder there
 - `.delete`: delete the processed folder
-- `""`: do nothing
+- `""`: keep the folder in place when this is the effective value; current watcher and CLI paths treat an action-level empty value as absent and fall back to `defaults.moveTo` (see [the current moveTo limitation](configuration.md#current-moveto-limitation))
 - `null` at the action level: inherit from `defaults`
 
 ### `history`
@@ -112,6 +114,6 @@ Supported values:
 - `0`: keep only the newest recording folder
 - positive integer: keep the last N days
 
-Cleanup runs on a 24-hour check.
+Cleanup is scheduled asynchronously after about 30 seconds, and requests are coalesced so it runs at most once per 24 hours in the running process; see [runtime recovery and cleanup](runtime.md#recovery-and-cleanup).
 
 ---

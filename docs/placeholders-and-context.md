@@ -31,6 +31,8 @@ For each action payload, Macrowhisper processes values in this order:
 
 For most users, `{{swResult}}` is the main one to remember.
 
+Folder indexes are zero-based. Index `0` points to the most recent active recording folder when one exists; subsequent indexes use valid completed folders in newest-first order. A completed folder is eligible when its `meta.json` has a non-empty `result`, or, when `languageModelName` is non-empty, a non-empty `llmResult`. Missing, invalid, or out-of-range indexes resolve to an empty value. CLI commands that resolve the latest valid result can skip newer completed folders still waiting for `llmResult` and use an older valid folder instead.
+
 ### Date placeholders
 
 - `{{date:short}}`
@@ -60,14 +62,14 @@ Supported formats:
 
 Behavior:
 
-- Macrowhisper looks for `<tagName>...</tagName>` in `llmResult` first, then in `result`
+- when `llmResult` is non-empty, Macrowhisper looks for `<tagName>...</tagName>` there; otherwise it looks in a non-empty `result`
 - if the tag exists, Macrowhisper inserts the content
 - if the tag is empty or missing, the placeholder becomes empty
 - extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized when applicable
 
-### Any `meta.json` key
+### Metadata keys and paths
 
-Any key in `meta.json` can be used as a placeholder.
+A metadata key or dot path can be used as a placeholder when each key component contains letters, numbers, or underscores.
 
 Examples:
 
@@ -84,7 +86,7 @@ Nested values are supported too:
 About `{{segments}}`:
 
 - when speaker data exists, consecutive words from the same speaker are merged into readable blocks
-- time-like values such as `duration` and `processingTime` are shown in a human-readable format like `350ms`, `1.2s`, or `2m 05s`
+- time-like values such as `duration`, `languageModelProcessingTime`, and `processingTime` are shown in a human-readable format like `350ms`, `1.2s`, or `2m 5s`
 
 If a placeholder key does not exist, it becomes an empty string.
 
@@ -152,7 +154,7 @@ This section explains when Macrowhisper takes snapshots for context placeholders
 
 ### `{{selectedText}}`
 
-Captured when the recording session starts.
+Captured when the recording session starts when Accessibility can read a selection; otherwise it is empty.
 
 ### `{{clipboardContext}}`
 
@@ -166,7 +168,7 @@ Behavior details:
 
 - if stacking is off, Macrowhisper selects the latest eligible clipboard operation as a unit; an attachment-only winner produces an empty string value
 - if stacking is on, it returns eligible text values in order while retaining attachment operations in the same capture order for native handoff
-- Superwhisper result text is filtered before either representation is selected, so single-item mode falls back to the previous eligible item
+- Superwhisper result text is filtered before either representation is selected; single-item mode then uses the latest remaining text operation unless attachment capture is enabled and the latest eligible operation is attachment-classified, in which case its string projection is empty
 - empty clipboard entries are ignored
 - apps matched by `clipboardIgnore` are ignored
 
@@ -202,6 +204,7 @@ When several clipboard items are returned, the output looks like this:
 - collected only if needed
 - reused across the whole chain
 - extracts a comma-separated list of likely terms, names, or identifiers from the app's accessibility text
+- recognized browsers can contribute readable web-area content as well as window and focused-element text
 
 ### `{{frontApp}}` and `{{frontAppUrl}}`
 
@@ -209,6 +212,8 @@ When several clipboard items are returned, the output looks like this:
 - stay stable across the whole chain even if focus changes while the chain is running
 - `{{frontAppUrl}}` works only in supported browsers
 - unsupported apps return an empty value quickly
+
+For a supported browser, URL candidates come from Accessibility data and are normalized before use. A value without a scheme is treated as `https://...`; values without a usable host are discarded. Arc's command-bar fallback requires a path, query, or fragment, so a host-only command-bar value is ignored.
 
 ### CLI execution
 

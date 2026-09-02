@@ -12,6 +12,11 @@ After they are used, or canceled, they are cleared.
 
 `--run-auto` does not consume or clear those values. It ignores them and only applies bypass mode checks, trigger muting, trigger matching, and active-action fallback for the chosen recording source.
 
+The two modes are mutually exclusive: enabling auto-return cancels a
+scheduled action, and scheduling an action disables auto-return. If a recording
+session is already active, either mode applies to that session immediately;
+otherwise it waits for the next single recording arrival.
+
 #### Auto-return details
 
 - auto-return keeps normal runtime priority: `auto-return` -> `schedule-action` -> triggers -> active action
@@ -31,7 +36,23 @@ After they are used, or canceled, they are cleared.
 
 - `0` means no timeout
 - the default is `5` seconds
-- if a recording is already active, the scheduled action applies to that recording without timeout
+- if a recording is already active, either one-time mode applies to that recording without starting a timeout
+
+### Recording readiness and arrival boundaries
+
+The watcher only processes recordings that arrive after startup as a single
+new directory. Existing directories are marked processed when the watcher
+starts. If several new directories arrive in one filesystem event, all are
+marked processed and none is executed; an older directory arriving later is
+also skipped as a cloud-sync copy. A newer single arrival can supersede an
+incomplete recording and trigger recovery before processing the new session.
+
+Macrowhisper waits for a non-empty string in the field appropriate to the
+recording metadata: `llmResult` when `languageModelName` is non-empty, and
+`result` otherwise. For the integrated S1 pair (`languageModelKey` `sl-1` and
+`modelKey` `sv-1`), a non-empty `llmResult` with an empty `result` receives a
+one-second settle grace period before the LLM result is accepted. Malformed or
+incomplete metadata remains watched for a later update.
 
 ### `bypassModes`
 
@@ -46,5 +67,41 @@ Example:
 ```json
 "bypassModes": "dictation|raw"
 ```
+
+The bypass match is case-insensitive. The recording is marked processed and
+its pending watchers are cleaned up, but no action or trigger is selected.
+
+### Recovery and cleanup
+
+The watcher treats an incomplete or disappearing recording as a recoverable
+session. A recording with no WAV file is given a 17-second grace period; a WAV
+file removed after a valid non-zero WAV was seen, or a recording whose
+`meta.json` is deleted after recheck, is recovered and skipped. Recovery
+cancels pending metadata/audio watchers, settle work, timers, one-time state,
+and clipboard execution groups while preserving the current clipboard.
+
+After a valid recording is marked processed, the final action may move it to
+the action's non-empty `moveTo` destination or the defaults destination,
+delete it with `.delete`, or leave it in place when the effective `moveTo` is
+empty. `.none` is an action payload shortcut, not a `moveTo` value; in current
+v2 cleanup code an action-level empty `moveTo` falls through to the defaults
+value. See [`moveTo`](clipboard-and-recordings.md#moveto) for the supported
+recording-folder values and the [current moveTo limitation](configuration.md#current-moveto-limitation).
+A direct JSON source passed through the CLI has no
+recording folder to move. History cleanup runs
+asynchronously after the action when `history` is configured: `null` disables
+it, `0` retains only the newest recording, and a positive value retains the
+configured number of days. Cleanup is scheduled after about 30 seconds and is
+rate-limited to once per 24 hours within a running daemon process.
+
+### Missing folders and configuration changes
+
+If the configured Superwhisper `recordings` folder is missing, Macrowhisper
+watches the nearest existing parent and arms the recording watcher when the
+folder reappears. It does not create the folder. Changes to the config file
+are watched and valid updates reload while the daemon runs; invalid JSON or
+validation applies the default configuration in memory until the file is fixed.
+On startup, `defaults.autoUpdateConfig` controls whether compatible
+schema and formatting updates are written automatically.
 
 ---

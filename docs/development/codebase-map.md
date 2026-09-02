@@ -8,7 +8,7 @@ document's location.
 
 ## Overview
 
-**Macrowhisper** is an automation layer for **Superwhisper**. It watches recording folders, validates completed transcription results, enriches them with app and clipboard context, then resolves and executes actions through a shared runtime used by both the watcher and CLI.
+**Macrowhisper** is an automation layer for **Superwhisper**. It watches recording folders, validates completed transcription results, enriches them with app and clipboard context, then resolves and executes actions. Watcher execution lives in `ActionExecutor`; CLI execution lives in `SocketCommunication`, with shared configuration, trigger, placeholder, and clipboard utilities. Changes to action semantics must account for both execution paths.
 
 ### Core Functionality
 - **Recording watcher pipeline**: monitors Superwhisper recordings, validates `meta.json`, and handles burst/cancel/recovery scenarios
@@ -36,17 +36,21 @@ src/
 │   │   ├── SuperwhisperFolderWatcher.swift # Waits for missing recordings folder to appear
 │   │   └── ConfigChangeWatcher.swift     # Filesystem watcher for config reloads
 │   ├── Utils/
-│   │   ├── ActionExecutor.swift          # Shared runtime for action execution and chaining
+│   │   ├── ActionExecutor.swift          # Watcher action execution and chaining
 │   │   ├── TriggerEvaluator.swift        # Trigger matching across voice/app/mode/URL conditions
 │   │   ├── ClipboardMonitor.swift        # Global + per-session clipboard coordination
 │   │   ├── Placeholders.swift            # Placeholder parsing, transforms, meta traversal
 │   │   ├── RecordingReferenceResolver.swift # Resolve current/previous recording folders for placeholders and CLI
+│   │   ├── RecordingMetadataSettlePolicy.swift # One-second grace for integrated S1 transcript readiness
 │   │   ├── AppVocabulary.swift           # Accessibility-driven app vocabulary extraction
 │   │   ├── BrowserURLNormalization.swift # Browser URL normalization for trigger/url context
 │   │   ├── SmartInsertBoundary.swift     # Smart casing/punctuation/spacing boundary logic
+│   │   ├── SmartInsertHeuristics.swift   # Pure helpers used by smart insertion
 │   │   ├── SimReturnBehavior.swift       # Return-key timing/behavior helpers
 │   │   ├── SchemaManager.swift           # Local schema discovery and `$schema` management
 │   │   ├── ServiceManager.swift          # launchd integration
+│   │   ├── ServiceLifecycleDiagnostics.swift # Launch intents, sessions, and shutdown diagnostics
+│   │   ├── ShellUtils.swift              # Shell escaping helpers
 │   │   ├── NotificationManager.swift     # User notifications
 │   │   ├── Logger.swift                  # Structured logging and redaction
 │   │   ├── Accessibility.swift           # Focus/input-field detection and keyboard helpers
@@ -55,6 +59,8 @@ src/
 │       ├── SocketCommunication.swift     # Unix socket server and CLI command handling
 │       └── VersionChecker.swift          # Update checks
 ├── macrowhisper-schema.json              # JSON schema for config editing/validation
+├── macrowhisper.xcodeproj/               # Supported signed application build
+├── Package.swift                        # SwiftPM metadata; source target currently undiscovered
 └── Tests/                                # Focused regression tests for parser/runtime edge cases
 ```
 
@@ -95,8 +101,9 @@ src/
 - Main runtime path for new recordings
 - Starts early clipboard monitoring as soon as a recording folder appears
 - Waits for a valid result using LLM-aware validation:
-  - if `languageModelName` is present, `llmResult` is required
-  - otherwise `result` is required
+  - if `languageModelName` is a nonempty string, nonempty `llmResult` is required
+  - otherwise nonempty `result` is required
+  - integrated S1-Language/S1-Voice gets a one-second grace period for a missing source `result`, then may proceed with `llmResult`
 - Enriches `meta.json` with front-app, selected-text, clipboard, and URL context
 - Applies bypass and execution priority rules:
   1. auto-return
@@ -117,12 +124,12 @@ src/
 ### 4. Action Runtime
 
 #### [src/macrowhisper/Utils/ActionExecutor.swift](../../src/macrowhisper/Utils/ActionExecutor.swift)
-- Shared execution engine for watcher-driven actions
+- Execution engine for watcher-driven actions; CLI execution is implemented separately in `SocketCommunication`
 - Resolves action chains at runtime and detects duplicate/missing/cyclic chains
 - Applies legacy template overrides and `inputCondition` across all action types
 - Freezes chain context for delayed/chained execution so placeholders stay stable
 - Supports synchronous script-like steps and carries their outputs forward as `actionResult` / `actionResults`
-- Applies `moveTo`/deletion behavior after execution when a real recording folder exists
+- Reports the final executed action to the watcher, which applies `moveTo`/deletion during post-processing
 
 #### [src/macrowhisper/Utils/TriggerEvaluator.swift](../../src/macrowhisper/Utils/TriggerEvaluator.swift)
 - Evaluates triggers across all action types
@@ -161,10 +168,11 @@ src/
   - `{{segments}}` for readable speaker-formatted transcript output
 
 #### Supporting Context Utilities
+- [src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift](../../src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift): identifies the integrated S1-Language/S1-Voice case that gets a one-second grace period for source-transcript readiness
 - [src/macrowhisper/Utils/RecordingReferenceResolver.swift](../../src/macrowhisper/Utils/RecordingReferenceResolver.swift): resolves current/latest/prior recording folders for placeholders and CLI commands
 - [src/macrowhisper/Utils/AppVocabulary.swift](../../src/macrowhisper/Utils/AppVocabulary.swift): derives app-specific vocabulary from accessibility data
 - [src/macrowhisper/Utils/BrowserURLNormalization.swift](../../src/macrowhisper/Utils/BrowserURLNormalization.swift): normalizes browser URLs for trigger matching and placeholder use
-- [src/macrowhisper/Utils/SmartInsertBoundary.swift](../../src/macrowhisper/Utils/SmartInsertBoundary.swift) and [src/macrowhisper/Utils/SimReturnBehavior.swift](../../src/macrowhisper/Utils/SimReturnBehavior.swift): keep insert formatting and return timing consistent
+- [src/macrowhisper/Utils/SmartInsertBoundary.swift](../../src/macrowhisper/Utils/SmartInsertBoundary.swift), [src/macrowhisper/Utils/SmartInsertHeuristics.swift](../../src/macrowhisper/Utils/SmartInsertHeuristics.swift), and [src/macrowhisper/Utils/SimReturnBehavior.swift](../../src/macrowhisper/Utils/SimReturnBehavior.swift): keep insert formatting and return timing consistent
 
 ### 7. CLI / Inter-Process Communication
 
@@ -183,6 +191,7 @@ src/
 - [src/macrowhisper/Utils/SchemaManager.swift](../../src/macrowhisper/Utils/SchemaManager.swift): finds a local schema and manages `$schema` references without requiring network access
 - [src/macrowhisper/History/HistoryManager.swift](../../src/macrowhisper/History/HistoryManager.swift): deletes old recording folders based on `defaults.history`
 - [src/macrowhisper/Utils/ServiceManager.swift](../../src/macrowhisper/Utils/ServiceManager.swift): install/start/stop/restart/uninstall for launchd service mode
+- [src/macrowhisper/Utils/ServiceLifecycleDiagnostics.swift](../../src/macrowhisper/Utils/ServiceLifecycleDiagnostics.swift): records launch intents, daemon sessions, clean signal shutdowns, and unclean previous sessions; launchd status parsing lives in `ServiceManager`
 - [src/macrowhisper/Utils/Logger.swift](../../src/macrowhisper/Utils/Logger.swift): central logging with redaction-aware helpers
 - [src/macrowhisper/Utils/NotificationManager.swift](../../src/macrowhisper/Utils/NotificationManager.swift): user-facing alerts for startup/config/runtime issues
 - [src/macrowhisper/Networking/VersionChecker.swift](../../src/macrowhisper/Networking/VersionChecker.swift): optional update checks
@@ -211,6 +220,7 @@ src/
 - `null` means inherit from defaults or built-in behavior
 - `""` means intentionally empty
 - `.none` is reserved for action-template semantics, not for fields like `icon` or `moveTo`
+- Current post-processing treats an empty action `moveTo` as inheritance despite the version 2 empty-value contract; see the [current moveTo limitation](../configuration.md#current-moveto-limitation)
 - Legacy keys are still migrated:
   - `noEsc` -> `simEsc`
   - `pressReturn` -> `simReturn`
@@ -219,56 +229,17 @@ src/
 
 ---
 
-## Minimal Schema Shape
+## Configuration and examples
 
-```json
-{
-  "$schema": "file://path/to/macrowhisper-schema.json",
-  "configVersion": 2,
-  "defaults": {
-    "watch": "~/superwhisper",
-    "activeAction": "autoPaste",
-    "restoreClipboardDelay": 0.3,
-    "clipboardBuffer": 5,
-    "clipboardAttachments": false,
-    "bypassModes": "",
-    "autoUpdateConfig": true
-  },
-  "inserts": {
-    "name": {
-      "action": ".autoPaste",
-      "inputCondition": "restoreClipboard|!simEsc",
-      "triggerVoice": "pattern",
-      "triggerUrls": "example.com",
-      "nextAction": "followUp"
-    }
-  },
-  "urls": {
-    "name": {
-      "action": "https://example.com",
-      "inputCondition": "restoreClipboard"
-    }
-  },
-  "shortcuts": {
-    "name": {
-      "action": ".run",
-      "scriptAsync": false,
-      "scriptWaitTimeout": 3
-    }
-  },
-  "scriptsShell": {
-    "name": {
-      "action": "echo {{swResult}}",
-      "scriptAsync": false
-    }
-  },
-  "scriptsAS": {
-    "name": {
-      "action": "tell application \"Finder\" to activate"
-    }
-  }
-}
-```
+The [configuration guide](../configuration.md) explains the top-level structure,
+inheritance, and defaults. Use [actions](../actions.md) for fields supported by
+each action type and [examples](../examples.md) for complete configurations.
+
+The [JSON schema](../../src/macrowhisper-schema.json) supports editor completion
+and structural checks. `ConfigurationManager` adds semantic checks such as
+unique action names across all five groups, valid `activeAction`/`nextAction`
+references, and chain validation. A document can parse as JSON while failing
+those checks; use `macrowhisper --validate-config` on the intended configuration.
 
 ---
 

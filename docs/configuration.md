@@ -67,17 +67,21 @@ In `configVersion: 2`:
 Important exceptions:
 
 - `defaults.activeAction`: `null` or `""` means there is no fallback action
-- `action`: empty string means "run this action with an empty payload"
+- `action`: an empty string skips the action's payload operation; the action can still apply its other lifecycle settings
 
 Quick reference:
 
 | Field type | If action value is `null` | If action value is set |
 | --- | --- | --- |
 | Boolean and number overrides such as `simEsc`, `restoreClipboard`, `actionDelay`, `simReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing` | Use the matching value from `defaults` | The action value wins |
-| `moveTo` | Use `defaults.moveTo` | The action value wins |
+| `moveTo` | Use `defaults.moveTo` | A nonempty action value wins; an empty value is subject to the current limitation below |
 | `icon` | Use `defaults.icon` | The action value wins |
 | `nextAction` | Use `defaults.nextAction` on the first step only | The action value wins |
 | `action` | No fallback from `defaults` | The action payload is used directly |
+
+### Current moveTo limitation
+
+An action-level `moveTo: ""` is intended to mean "do not move this recording folder." The current watcher and CLI post-processing paths treat an empty action value as absent and fall back to `defaults.moveTo`, so that override cannot suppress a nonempty default. `.none` has a keep-in-place branch in the runtime, but current version 2 semantic validation rejects `.none` for `moveTo`. To keep a folder in place, set `defaults.moveTo` to `""` and add a nonempty destination only to actions that should move it.
 
 ### Special `action` values
 
@@ -94,7 +98,7 @@ This applies:
 - `simEsc = false`
 - `restoreClipboard = false`
 
-Use it when you want a safe do-nothing template with no payload.
+Use it when you want this action's payload skipped and its ESC simulation and clipboard restoration disabled. Other lifecycle settings, including `actionDelay`, `simReturn`, `nextAction`, and `moveTo`, can still apply.
 
 #### Insert actions
 
@@ -135,7 +139,7 @@ This runs the Shortcut without sending any input payload.
 "action": ""
 ```
 
-Meaning: the action runs with an empty payload.
+Meaning: skip the action's payload operation. Other lifecycle settings, such as `actionDelay` or an insert's `simReturn`, can still apply.
 
 ```json
 "action": ".none"
@@ -177,6 +181,8 @@ Versioning notes:
 - `configVersion: 2` is the current format
 - if `configVersion` is missing, Macrowhisper treats it as legacy behavior
 - with `autoUpdateConfig: true`, startup can rewrite the config to keep it current
+- legacy files may use `noUpdates`, `noNoti`, `noEsc`, and `pressReturn`; Macrowhisper reads these aliases and maps them to the current setting names
+- legacy configurations are normalized to version 2 in memory; in a current version 2 file, use `""` for an explicit empty `icon` or `moveTo` value because `.none` is reserved for action templates
 
 ---
 
@@ -193,30 +199,30 @@ When Macrowhisper creates a configuration, it selects the Superwhisper folder on
 | `watch` | string/null | detected once when generated | Path to the Superwhisper folder that contains `recordings`. New configs usually use `~/superwhisper`; legacy and custom Superwhisper locations are detected and preserved. Omit or use `null` only for backward compatibility with the legacy built-in fallback. |
 | `disableUpdateCheck` | bool/null | `false` | Turns periodic update checks off. |
 | `muteNotifications` | bool/null | `false` | Turns notifications off. |
-| `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty or `null` means none. |
+| `activeAction` | string/null | `"autoPaste"` in generated starter configs | Fallback action when no trigger matches. If a `defaults` object explicitly omits this key, or sets it to empty/`null`, there is no fallback action. |
 | `icon` | string/null | `""` | Default icon for actions. Empty or `null` means no default icon. |
-| `moveTo` | string/null | `""` | What to do with processed recording folders: move them, delete them, or do nothing. Empty or `null` means no default move behavior. |
+| `moveTo` | string/null | `""` | Destination path for processed recording folders, or `.delete` to remove them. Empty or `null` means no default move behavior. |
 | `simEsc` | bool/null | `true` | Simulate ESC before actions. |
 | `simKeypress` | bool/null | `false` | Type characters instead of pasting for insert actions. |
 | `smartCasing` | bool/null | `true` | Adjust capitalization at insert boundaries. |
 | `smartPunctuation` | bool/null | `true` | Clean punctuation conflicts at insert boundaries. |
 | `smartSpacing` | bool/null | `true` | Clean spacing at insert boundaries. |
 | `actionDelay` | number/null | `0` | Delay before the action starts. |
-| `history` | int/null | `null` | How long to keep old recording folders. |
+| `history` | int/null | `null` | Retention in days. `null` keeps history indefinitely; `0` keeps only the newest folder. |
 | `simReturn` | bool/null | `false` | Press Return after an insert action, including empty or `.none` inserts. |
 | `returnDelay` | number/null | `0.15` | Delay before pressing Return. |
 | `restoreClipboard` | bool/null | `true` | Restore the original clipboard after the action flow ends. |
 | `restoreClipboardDelay` | number/null | `0.3` | Delay before restoring the clipboard. |
-| `scheduledActionTimeout` | number/null | `5` | How long one-time runtime actions stay pending when no recording starts. |
+| `scheduledActionTimeout` | number/null | `5` | How long one-time auto-return and scheduled actions stay pending when no recording starts. `0` disables the timeout. |
 | `scriptAsync` | bool/null | `true` | Whether Shortcut, shell, and AppleScript actions run asynchronously by default. |
-| `scriptWaitTimeout` | number/null | `3` | Max wait time when `scriptAsync` is `false`. |
+| `scriptWaitTimeout` | number/null | `3` | Max wait time when `scriptAsync` is `false`; the runtime uses at least `0.1` seconds. |
 | `clipboardStacking` | bool/null | `false` | Choose all eligible clipboard operations or only the most recent one for text context and attachment handoff. Actions can override it. |
 | `clipboardAttachments` | bool/null | `false` | Preserve supported files and raw images for a later manual paste, independently of `{{clipboardContext}}` placeholder use. Actions can override it. |
-| `clipboardBuffer` | number/null | `5` | How many seconds of clipboard history to capture before recording. |
-| `clipboardIgnore` | string/null | `""` | Regex for apps that should be ignored during clipboard capture. Empty or `null` means no ignore rules. |
-| `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. Empty or `null` disables bypass. |
+| `clipboardBuffer` | number/null | `5` | How many seconds of clipboard history to capture before recording. `0` disables the buffer. |
+| `clipboardIgnore` | string/null | `""` | Case-insensitive regex checked against the front app name or bundle ID during clipboard capture. Empty or `null` means no ignore rules. |
+| `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that exactly match, case-insensitively, to bypass Macrowhisper. Empty or `null` disables bypass. |
 | `muteTriggers` | bool/null | `false` | Mute trigger matching globally. |
-| `autoUpdateConfig` | bool/null | `true` | Automatically refresh config format and schema fields. |
+| `autoUpdateConfig` | bool/null | `true` | Allow startup to rewrite the config with current format and schema fields. `false` prevents those startup writes; `--update-config` still performs a manual update. |
 | `redactedLogs` | bool/null | `true` | Hide sensitive content in logs. |
 | `nextAction` | string/null | `""` | Default next action to use as the first chain step. Empty or `null` means no default chain step. |
 

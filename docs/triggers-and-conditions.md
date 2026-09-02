@@ -17,8 +17,9 @@ This priority is built in; there is nothing extra to configure. Macrowhisper use
 
 Important priority reminder:
 
-- one-time runtime commands win first
-- then triggers
+- a matching `defaults.bypassModes` entry skips processing entirely, including one-time commands, scheduled actions, triggers, and the active action
+- otherwise one-shot `--auto-return` wins first, followed by `--schedule-action`
+- then trigger matching
 - then `defaults.activeAction`
 
 If `defaults.muteTriggers` is on, or a temporary trigger mute is active, Macrowhisper skips trigger matching and moves on to the active action.
@@ -33,6 +34,8 @@ Normal voice patterns are:
 - case-insensitive
 - treated as literal text
 - separated with `|`
+
+The separator is ignored inside a `==...==` raw-regex wrapper, so `|` can remain part of that expression.
 
 Examples:
 
@@ -59,6 +62,7 @@ Important:
 
 - raw regex voice triggers do not do automatic prefix stripping
 - if you need to remove the spoken trigger in that case, use a placeholder regex replacement
+- raw regex is case-insensitive by default; start the expression with `(?i)` or `(?-i)` when you want to state the case behavior explicitly
 
 #### Exception patterns
 
@@ -71,6 +75,8 @@ Example:
 ```
 
 If a trigger list contains only exceptions, the action matches whenever none of those exceptions match.
+
+When positive and exception patterns are mixed, at least one positive pattern must match and no exception may match.
 
 ### `triggerApps`
 
@@ -85,7 +91,8 @@ Rules:
 
 - direct regex, no `==...==` wrapper needed
 - case-insensitive by default
-- `!` exceptions are supported
+- `|` separates patterns and `!` prefixes exceptions
+- `(?i)` and `(?-i)` can set case behavior
 
 Example:
 
@@ -122,6 +129,14 @@ Token types:
 - domain token: no scheme, such as `google.com`
 - full URL token: starts with `http://` or `https://`
 
+URL matching details:
+
+- a no-scheme domain token matches the host and its subdomains
+- a full URL token matches the exact host; an optional port must match when specified
+- a path or query suffix is a case-insensitive prefix, so `https://www.google.com/issues` matches `/issues/123` but not `/maps`
+- `http://` and `https://` are treated the same for matching
+- `*` is unsupported; invalid tokens are skipped when another valid token can still match, and an all-invalid list does not match
+
 Examples:
 
 - `google.com` matches `google.com`, `www.google.com`, and `docs.google.com`
@@ -130,7 +145,7 @@ Examples:
 - `https://google.com` matches `http://google.com/maps`
 - `https://google.com` does not match `docs.google.com`
 
-URL capture works only for supported browsers. If your browser is not behaving correctly with `triggerUrls`, open a GitHub issue with details.
+If no active browser URL is available, a URL trigger does not match. URL capture works only for supported browsers. If your browser is not behaving correctly with `triggerUrls`, open a GitHub issue with details.
 
 ### `triggerLogic`
 
@@ -138,6 +153,7 @@ Use `triggerLogic` to combine trigger types:
 
 - `or` means any configured trigger type can match
 - `and` means all configured trigger types must match
+- omitted or `null` uses `or`; other values are treated as `or` at runtime
 
 If all trigger fields are empty, the action will not auto-trigger. It can still run as the active action or via `--schedule-action`.
 
@@ -205,6 +221,8 @@ If the condition does not apply, Macrowhisper falls back to the matching default
 - the token name is not allowed for that action type
 
 If validation fails, Macrowhisper reports the config problem and falls back to in-memory defaults until you fix it.
+
+For compatibility, the legacy `noEsc` spelling in an `inputCondition` is normalized to the current `simEsc` token when an older configuration is loaded.
 
 ### What Macrowhisper changes internally
 

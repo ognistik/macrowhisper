@@ -14,8 +14,34 @@ macrowhisper --version
 macrowhisper --reveal-config
 macrowhisper --validate-config
 macrowhisper --service-status
-macrowhisper --list-actions
+macrowhisper --get-config
 ```
+
+Short aliases are available for the common commands: `-h` is `--help`, `-v` is
+`--version`, and `-s` is `--status`.
+
+### Daemon startup and diagnostics
+
+Starting `macrowhisper` with no command runs the foreground daemon. These
+options control that run:
+
+```bash
+macrowhisper --config "/path/to/macrowhisper.json"
+macrowhisper --verbose
+macrowhisper --debug-ax-tree
+```
+
+`--config` normalizes and saves the path for future starts. If a daemon is
+already running, it switches that instance to the path; otherwise the next
+daemon start uses it. When combined with `--reveal-config` or
+`--validate-config`, it selects the path for that command without changing the
+saved path.
+
+`--verbose` enables debug console output and detailed logging for that daemon
+run. It also disables log redaction for that run; it does not change the
+`defaults.redactedLogs` setting in the config file. `--debug-ax-tree` is a
+read-only quick diagnostic that dumps the front application's Accessibility
+tree to the log and does not require a daemon.
 
 ### Config commands
 
@@ -33,9 +59,15 @@ macrowhisper --schema-info
 
 Useful notes:
 
-- `--set-config` saves the config path for future runs
+- `--set-config` saves the config path for future runs and switches a running
+  daemon immediately when one is available
+- `--reset-config` restores and creates the default path, switching a running
+  daemon immediately when one is available
 - if you pass a directory, Macrowhisper uses `<dir>/macrowhisper.json`
-- `--validate-config` checks both JSON validity and config rules
+- `--reveal-config` creates the effective config file if it is missing, then
+  opens it in Finder
+- `--validate-config` checks both JSON validity and config rules; an explicit
+  `--config` path is validated for that command without being saved
 - `--update-config` refreshes formatting and schema-related fields
 
 ### Service commands
@@ -49,7 +81,16 @@ macrowhisper --uninstall-service
 macrowhisper --service-status
 ```
 
+`--install-service` writes or updates the launchd plist. `--start-service`
+installs or updates it as needed and bootstraps the job; the top-level command
+also stops a manually running daemon first. `--stop-service` stops both the
+launchd job and any daemon reachable through the local socket. `--restart-service`
+stops, waits briefly, and starts again. `--uninstall-service` stops the job and
+removes the plist only; it does not remove the binary, config, or logs.
+
 ### Action management commands
+
+These commands are sent to the running daemon.
 
 ```bash
 macrowhisper --list-actions
@@ -75,6 +116,7 @@ These are for use while the background service is running.
 ```bash
 # Check runtime state
 macrowhisper --status
+macrowhisper --reset-clipboard
 macrowhisper --get-action [<name>] [--meta <value>]
 macrowhisper --get-icon
 macrowhisper --folder-name [<index>]
@@ -95,6 +137,8 @@ macrowhisper --run-auto [--meta <value>]
 
 # Other runtime tasks
 macrowhisper --check-updates
+macrowhisper --version-state
+macrowhisper --version-clear
 ```
 
 Before using runtime commands, make sure the service is running:
@@ -113,7 +157,7 @@ macrowhisper --start-service
 | `--get-action` | Shows the current active action name. |
 | `--get-action <name>` | Shows the processed output for that action. |
 | `--get-icon` | Shows the icon for the active action. |
-| `--folder-name [<index>]` / `--folder-path [<index>]` | Looks up recent recording folders by recency. |
+| `--folder-name [<index>]` / `--folder-path [<index>]` | Looks up the active recording first, then valid completed recording folders newest by creation date (`0` is the first result). Invalid or incomplete folders are skipped. |
 
 #### Set defaults
 
@@ -126,12 +170,12 @@ macrowhisper --start-service
 
 | Command | What it does |
 | --- | --- |
-| `--schedule-action <name>` | Uses that action for the next recording. |
+| `--schedule-action <name>` | Uses that action for the next recording, or immediately for the currently active recording session. |
 | `--schedule-action` | Clears the scheduled action. |
-| `--auto-return true\|false` | Turns one-time auto-return on or off for the next recording. |
+| `--auto-return true\|false` | Turns one-time auto-return on or off for the next recording, or for the currently active recording session. |
 | `--auto-return` | Clears one-time auto-return. |
 | `--mute-triggers true\|false` | Saves trigger muting on or off in config. |
-| `--mute-triggers <duration>` | Temporarily mutes triggers for a runtime duration such as `30s`, `5m`, or `1h`. |
+| `--mute-triggers <duration>` | Temporarily mutes triggers for a positive duration such as `30`, `30s`, `5m`, or `1h` (`30` means seconds). |
 | `--mute-triggers` | Unmutes and clears any temporary mute timer. |
 | `--reset-clipboard` | Discards clipboard context captured so far and starts a fresh capture boundary. |
 
@@ -142,17 +186,21 @@ You can check mute state through `--status`.
 | Command | What it does |
 | --- | --- |
 | `--exec-action <name>` | Runs one specific action right now. |
-| `--run-auto` | Runs automatic selection logic against the current or chosen recording. |
+| `--run-auto` | Runs automatic selection logic against the latest valid or chosen recording. |
 | `--copy-action <name>` | Renders an action and copies the result using live context placeholders at invocation time, without polluting clipboard capture. |
 
 #### Other runtime commands
 
-- `--check-updates` forces an update check
+- `--check-updates` forces an update check, even when automatic checks are disabled or throttled. The check runs synchronously and the dialog's **Open Release** button opens the GitHub release page; it does not install an update.
+- `--version-state` prints the update-check timestamps and reminder state for debugging.
+- `--version-clear` clears the update-check UserDefaults so the next check starts without prior timing or reminder state.
 
 ### Important runtime details
 
 - `--run-auto` does not take an action name
 - `--run-auto` does not consume or clear one-time runtime state such as `--auto-return` or `--schedule-action`
+- enabling `--auto-return` cancels a scheduled action; scheduling an action cancels auto-return
+- `--exec-action` clears pending auto-return and scheduled-action state when no recording session is active. If a recording is active, it preserves that one-time state for the session.
 - if persistent trigger muting is already `true`, then `--mute-triggers <duration>` is ignored
 
 ### `--meta`: use a different `meta.json`
@@ -167,9 +215,12 @@ Use `--meta` when you want to point Macrowhisper to:
 
 How Macrowhisper reads the value:
 
-- `~` is supported
-- if the value looks like a path, Macrowhisper treats it as a path
-- otherwise, it treats the value as a recording folder name
+- a value containing `/`, beginning with `~`, or beginning with `.` is treated as a path; relative path values are resolved from the current working directory
+- `~` is expanded
+- a directory path loads `<directory>/meta.json`; a file path loads that JSON file directly
+- otherwise, the value is treated as a recording folder name under the configured Superwhisper `recordings` directory
+- without `--meta`, Macrowhisper chooses the newest completed folder with a valid result; folders missing the required non-empty `llmResult` or `result` are skipped
+- when `languageModelName` is non-empty, the required field is a non-empty string `llmResult`; otherwise it is a non-empty string `result`
 
 Examples:
 
@@ -209,6 +260,8 @@ For `--exec-action` and `--run-auto`:
 
 - if `--meta` points to a recording folder, `moveTo` works normally
 - if `--meta` points to a direct JSON file, `moveTo` is skipped because there is no recording folder to move or delete
+- the final action's non-empty `moveTo` takes precedence over `defaults.moveTo`; `.delete` removes the folder and an empty effective value leaves it in place
+- `.none` is an action payload shortcut, not a `moveTo` value; see the [current moveTo limitation](configuration.md#current-moveto-limitation)
 
 ### Behavior matrix
 
@@ -226,7 +279,7 @@ For `--exec-action` and `--run-auto`:
 | Simulates ESC with `simEsc` | No practical effect in CLI execution | No practical effect in CLI execution | N/A | N/A |
 | Restores clipboard | Chain-level: once at the end if the chain wrote to the clipboard and the final step enables restore | Chain-level: once at the end if the chain wrote to the clipboard and the final step enables restore | No | No |
 | Writes to clipboard | Only if the action itself does so | Only if the action itself does so | No | Yes |
-| Consumes one-time runtime state | No | No | No | No |
+| Consumes one-time runtime state | Clears pending auto-return and scheduled action when no recording is active; preserves them for an active session | No | No | No |
 
 ---
 

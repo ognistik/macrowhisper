@@ -131,7 +131,8 @@ brew install ognistik/formulae/macrowhisper
 curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 ```
 
-Note: the script install can be more convenient if you want to avoid re-granting accessibility permissions after every update.
+The script installs the prebuilt release version specified in the script and
+verifies its SHA-256 hash before copying the binary.
 
 ### Set up Superwhisper
 
@@ -184,6 +185,11 @@ This section gives you the best overall picture of how Macrowhisper behaves.
 
 When a new recording folder appears, Macrowhisper begins tracking that session.
 
+At startup, existing recording folders are marked as processed. Macrowhisper
+then waits for a single new folder; simultaneous arrivals are marked processed
+without execution, and an older folder arriving later is treated as a cloud
+sync copy and skipped.
+
 At this stage it can capture:
 
 - selected text at the start of the session
@@ -196,8 +202,16 @@ Macrowhisper waits until `meta.json` contains the result it needs.
 
 The short version:
 
-- if Superwhisper produced an AI-processed result, Macrowhisper waits for that
-- otherwise, it uses the regular result field
+- if `languageModelName` is non-empty, Macrowhisper waits for a non-empty
+  `llmResult` string
+- otherwise, it waits for a non-empty `result` string
+- for the integrated S1 pair (`languageModelKey` `sl-1` and `modelKey` `sv-1`),
+  a non-empty `llmResult` with an empty `result` gets a one-second settle grace
+  period before processing
+
+Malformed or incomplete metadata stays under watch for a later update. A
+recording with no WAV file is given a 17-second grace period; removed audio or
+metadata can cause the session to be recovered and skipped.
 
 This prevents actions from firing too early.
 
@@ -218,6 +232,9 @@ If you use `{{appContext}}` or `{{appVocabulary}}`, those are only collected whe
 If `defaults.bypassModes` matches the current Superwhisper mode, Macrowhisper skips all action processing for that recording.
 
 This is useful when you want certain modes to behave as if Macrowhisper were not involved.
+
+The recording is still marked processed and its pending monitoring state is
+cleaned up. The comparison is case-insensitive.
 
 ### Step E: It chooses which action should run
 
@@ -244,9 +261,19 @@ Shortcut, shell, and AppleScript actions are asynchronous by default so Macrowhi
 
 After the action flow ends, Macrowhisper may:
 
-- move or delete the recording folder according to `moveTo`
+- move the recording using the final action's non-empty `moveTo`, then the
+  defaults `moveTo` fallback, or apply `.delete`; an empty effective value
+  leaves the folder in place
 - clean up temporary monitoring state
 - restore the clipboard if needed
 - run retention cleanup if `history` is enabled
+
+History cleanup is disabled when `history` is `null`; `0` keeps only the newest
+recording, and a positive value keeps that many days. It runs asynchronously
+after the action (normally after about 30 seconds) and no more than once per
+24 hours within a running daemon process. `.none` is an action payload value,
+not a `moveTo` sentinel; see the [current moveTo limitation](configuration.md#current-moveto-limitation)
+and [Runtime](runtime.md#recovery-and-cleanup) for the recovery and cleanup
+edge cases.
 
 ---

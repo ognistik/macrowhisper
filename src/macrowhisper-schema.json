@@ -101,7 +101,7 @@
         },
         "simReturn": {
           "type": ["boolean", "null"],
-          "description": "Automatically press Return/Enter after action execution. This action can be scheduled with --auto-return <true/false> CLI flag. null or omitted = use built-in default (false).",
+          "description": "Automatically press Return/Enter after insert execution. The one-shot --auto-return command can force Return for its next recording. null or omitted = use built-in default (false).",
           "default": false
         },
         "returnDelay": {
@@ -183,7 +183,7 @@
         },
         "nextAction": {
           "type": ["string", "null"],
-          "description": "Default action name to execute after a matched action completes. Empty string or null means no chaining. Auto-updated configs rewrite null to empty string at the defaults level.",
+          "description": "Default next action used only for the first step of a chain when that action's nextAction is null or omitted. Later steps use only their own nextAction. Empty string or null means no default chain step. Auto-updated configs rewrite null to empty string at the defaults level.",
           "examples": ["followUpAction", "", null],
           "default": ""
         }
@@ -260,7 +260,7 @@
         },
         "moveTo": {
           "type": ["string", "null"],
-          "description": "Where to move the recording folder after processing. null or omitted = inherit defaults.moveTo. Empty string = explicit no move. '.delete' deletes the folder.",
+          "description": "Where to move the recording folder after processing. null or omitted = inherit defaults.moveTo. Current runtime limitation: an empty action value also inherits defaults.moveTo, so it cannot suppress a nonempty default. To opt actions into movement, keep defaults.moveTo empty and set destinations on the final actions that should move recordings. '.delete' deletes the folder; '.none' is rejected in configVersion 2.",
           "examples": ["~/Documents/processed-recordings", "/Users/username/Archive", ".delete", "", null],
           "default": null
         },
@@ -298,7 +298,7 @@
         },
         "nextAction": {
           "type": ["string", "null"],
-          "description": "Action name to execute after this action completes. null or omitted = inherit defaults.nextAction. Empty string = explicit no next action.",
+          "description": "Action name to execute after this action completes. For the first chain step only, null or omitted inherits defaults.nextAction. Later steps use only their own nextAction. Empty string = explicit no next action.",
           "default": null
         },
         "triggerVoice": {
@@ -327,7 +327,7 @@
         },
         "triggerUrls": {
           "type": ["string", "null"],
-          "description": "Active URL trigger patterns. Use '|' for multiple tokens and '!' prefix for exceptions. Tokens without scheme (for example 'google.com' or 'www.google.com/docs') match by host suffix and include subdomains. Tokens with 'http://' or 'https://' use exact-host matching (scheme ignored). If a token includes path/query, candidate URL must start with that path/query prefix. null, empty string, or omitted means no URL trigger.",
+          "description": "Active URL trigger patterns. Use '|' for multiple tokens and '!' prefix for exceptions; '*' wildcards are unsupported. Tokens without scheme (for example 'google.com' or 'www.google.com/docs') match by host suffix and include subdomains. Tokens with 'http://' or 'https://' use exact-host matching; the scheme is ignored and an explicitly supplied port must match. Path/query suffixes are case-insensitive prefixes. Invalid tokens are skipped when another valid token can match; an all-invalid list does not match. null, empty string, or omitted means no URL trigger.",
           "examples": [
             "google.com",
             "www.google.com/docs",
@@ -340,7 +340,7 @@
         },
         "triggerLogic": {
           "type": ["string", "null"],
-          "description": "Logic for combining multiple triggers. Accepts 'and' or 'or' (case-insensitive). null defaults to 'or'.",
+          "description": "Logic for combining multiple triggers. Current configs should use 'and' or 'or' (case-insensitive); null defaults to 'or'. Runtime treats an unvalidated unknown value as 'or', but the schema rejects it so typos are visible in editors.",
           "pattern": "^([Aa][Nn][Dd]|[Oo][Rr])$",
           "default": "or"
         }
@@ -355,7 +355,7 @@
             "action": {
               "type": "string",
               "title": "Insert Action Content",
-              "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). Use '.autoPaste' for smart paste behavior. Use empty string for empty payload. Use '.none' for no-op template behavior (different from empty string).",
+              "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). Use '.autoPaste' for smart paste behavior. Empty string skips insertion while other lifecycle settings can still apply. '.none' also clears inputCondition and disables ESC simulation and clipboard restoration; it does not disable other settings such as simReturn or nextAction.",
               "examples": [
                 "{{swResult}}",
                 "{{result}}",

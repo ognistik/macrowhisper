@@ -4,7 +4,7 @@ Macrowhisper is an automation helper for [Superwhisper](https://superwhisper.lin
 
 It can paste or type the result, open a URL, run a macOS Shortcut, run a shell command or AppleScript, and chain several actions together. Actions can be selected by voice phrase, frontmost app, Superwhisper mode, browser URL, or a normal fallback action.
 
-[![Swift Version](https://img.shields.io/badge/Swift-6.1.2-orange.svg)](https://swift.org)
+[![Swift](https://img.shields.io/badge/Swift-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
 
 ## Requirements
@@ -28,7 +28,7 @@ brew install ognistik/formulae/macrowhisper
 curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 ```
 
-The script installs the latest prebuilt release and its JSON schema. It installs to `/usr/local/bin` by default; pass an absolute directory as the script argument when you need another location.
+The script installs the prebuilt release specified in the script and its JSON schema after checking the archive's SHA-256 hash. The release process updates that version and hash. It installs to `/usr/local/bin` by default; pass an absolute directory as the script argument when you need another location.
 
 ## First use
 

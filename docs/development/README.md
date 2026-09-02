@@ -9,21 +9,19 @@ runtime. The [codebase map](codebase-map.md) describes ownership and the
 
 ## Quick Start
 
-### Swift package compile check
+Run the commands in this guide from the repository root. Use the Xcode project
+for application builds, including compilation checks and manual testing.
 
-`src/Package.swift` declares one executable target and no test target. Use
-Swift Package Manager for a source and dependency compile check; its output is
-not the normal binary for Accessibility testing.
+### Swift package status
 
-From the repository root:
-
-```bash
-swift build --package-path src --scratch-path "$PWD/.build/swiftpm"
-```
-
-The executable is at `.build/swiftpm/debug/macrowhisper`. The `swift build`
-output is suitable for compile checks; use the signed Xcode output below when
-testing keyboard insertion or other Accessibility-dependent behavior.
+`src/Package.swift` declares an executable target and a Swifter dependency, but
+does not set the target's source path to the actual `src/macrowhisper/`
+directory. `swift package --package-path src describe --type json` currently
+reports a source-location warning and no discovered targets or products.
+Consequently, `swift build` is not a working application compile check for this
+checkout. Fixing that manifest is separate from documenting the supported
+Xcode workflow. The package also has no test target; use the standalone
+regression runners below.
 
 ### Signed Xcode build for manual testing
 
@@ -34,18 +32,30 @@ signing and the same team. Inspect the settings before a build so the identity
 and team used by Xcode remain consistent:
 
 ```bash
-xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -showBuildSettings | grep -E 'CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM'
+xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -derivedDataPath .build/local-xcode -showBuildSettings | grep -E 'CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM'
+```
+
+Before overwriting an existing test binary, inspect its identity and designated
+requirement so you can compare them with the replacement:
+
+```bash
+LOCAL_BINARY=".build/local-xcode/Build/Products/Release/macrowhisper"
+if [ -x "$LOCAL_BINARY" ]; then
+  codesign -d -r- "$LOCAL_BINARY" 2>&1
+  codesign --display --verbose=4 "$LOCAL_BINARY" 2>&1 | grep -E 'Identifier=|TeamIdentifier=|Authority='
+fi
 ```
 
 Build the signed Release binary into the stable local derived-data directory:
 
 ```bash
-LOCAL_BINARY=".build/local-xcode/Build/Products/Release/macrowhisper"
-if test -x "$LOCAL_BINARY"; then
-  codesign -d -r- "$LOCAL_BINARY" 2>&1
-fi
 xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -derivedDataPath .build/local-xcode build
+cp src/macrowhisper-schema.json .build/local-xcode/Build/Products/Release/
 ```
+
+Keep the matching schema beside the local binary so configuration creation and
+updates can discover it. `SchemaManager` uses local files and has no remote
+schema fallback.
 
 Verify the identity and signature before launching it:
 
@@ -57,10 +67,8 @@ codesign --display --verbose=4 "$LOCAL_BINARY" 2>&1 | grep -E 'Identifier=|TeamI
 codesign --verify --strict --verbose=2 "$LOCAL_BINARY"
 ```
 
-If the stable output path already contains a binary, run `codesign -d -r-`
-against it before rebuilding and compare that designated requirement with the
-new binary after the build. This makes an identity or team change visible
-before you grant the replacement binary Accessibility access.
+Compare the designated requirement and identity with the previous binary's
+output. Keep the path and signing identity stable across manual-test builds.
 
 The signature output must show the configured `Developer ID Application`
 authority and team `T25AGZF6DS`. If Xcode cannot sign with that identity,
@@ -112,7 +120,9 @@ the default path explicitly:
 ```
 
 `--get-config` reports the saved or effective path; `--set-config` changes it;
-`--reset-config` removes the saved path and returns to the default.
+`--reset-config` removes the saved path and returns to the default. If your
+normal configuration uses a custom path, record it before testing and restore
+that path with `--set-config` afterward instead of using `--reset-config`.
 
 ## Focused regression runners
 
@@ -152,7 +162,7 @@ The compile inputs and runner names are:
 | `trigger-priority` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerPriorityRegression.swift` |
 | `trigger-url-matching` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerUrlMatchingRegression.swift` |
 | `placeholder-regex-pipeline` | `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderRegexPipelineRegression.swift` |
-| `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` |
+| `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` (known gap: the checked-in stub does not currently define `resolveFrontAppIdentity`, so this row does not compile without an additional test stub) |
 | `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
 | `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
 | `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |
@@ -183,6 +193,7 @@ swiftc -parse-as-library \
   - `restoreClipboard`, `!restoreClipboard`
   - `restoreClipboardDelay`, `!restoreClipboardDelay`
   - `simEsc`, `!simEsc`
+  - `simReturn`, `!simReturn`
   - `nextAction`, `!nextAction`
   - `moveTo`, `!moveTo`
   - `action`, `!action`
@@ -217,21 +228,26 @@ swiftc -parse-as-library \
 2. Add the command handler in the switch statement
 3. Add the CLI argument parsing in `main.swift`
 4. Update the help text in `printHelp()`
+5. Update the [CLI reference](../cli-reference.md), affected topic pages, and relevant regression coverage
 
 ### Adding New Action Types
 1. Define the action struct in `AppConfiguration.swift`
 2. Add the processing logic in `ActionExecutor.swift` 
 3. Add trigger evaluation in `TriggerEvaluator.swift`
 4. Add CLI management commands in `SocketCommunication.swift`
+5. Update the JSON schema, validation, [action reference](../actions.md), and relevant regression coverage
 
 ### Adding New Placeholders
 1. Add the placeholder logic in `processDynamicPlaceholders()` in `Placeholders.swift`
 2. If using accessibility APIs, add the function to `Accessibility.swift`
 3. For session-based placeholders, enhance `ClipboardMonitor` and `ActionExecutor`
-4. Update the [codebase map](codebase-map.md)
+4. Update the [placeholder reference](../placeholders-and-context.md) and the [codebase map](codebase-map.md)
 5. Test with various action types and escaping scenarios
 
-#### Available Placeholders (As of Latest Version)
+#### Context placeholders used during development
+
+The [placeholder reference](../placeholders-and-context.md) is the complete
+catalog. These examples highlight context sources relevant to runtime work.
 
 **Session-Based Placeholders** (captured during recording):
 - `{{selectedText}}` - Text selected when recording starts (early capture)
@@ -298,14 +314,40 @@ else if key == "myNewData" {
 ```
 
 ### Debugging Tips
-- Use `--verbose` for debug logging
+- Use `--verbose` for debug logging; it also disables redaction for that daemon run without changing the saved configuration
 - Check logs in `~/Library/Logs/Macrowhisper/`
 - Use `--version-state` to debug update checker
 - Test socket health with `--status`
 
+### Developer diagnostics
+
+`--debug-ax-tree` runs without a daemon and writes the front application's
+Accessibility tree to the log with redaction disabled. Use it to inspect what
+context the accessibility helpers can read.
+
+The hidden `--test-update-dialog` command previews an update dialog without
+requiring the daemon. `--test-version` and `--test-description` customize its
+contents:
+
+```bash
+.build/local-xcode/Build/Products/Release/macrowhisper \
+  --test-update-dialog \
+  --test-version 2.1.2 \
+  --test-description "Preview release notes."
+```
+
+Use the [release helper's preview step](releasing.md) when previewing the
+actual changelog for a release. The runtime commands `--version-state` and
+`--version-clear` require the daemon; the latter resets persisted update-check
+and reminder state.
+
 ## Architecture Notes
 
-- All file operations use the main queue for thread safety
+- Queue ownership varies by component. Watcher event handling and UI work use
+  the main queue in several paths, ClipboardMonitor protects session state with
+  its concurrent queue and barrier operations, and asynchronous scripts,
+  networking, and other work use background queues. Preserve each component's
+  existing dispatch and synchronization boundaries.
 - Configuration changes trigger live reloads
 - Socket communication handles both CLI and daemon interactions  
 - ClipboardMonitor coordinates with Superwhisper timing

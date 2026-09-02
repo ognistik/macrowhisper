@@ -59,6 +59,7 @@
   "scriptsShell": {
     "copyResult": {
       "action": "echo '{{swResult}}' | pbcopy",
+      "restoreClipboard": false,
       "triggerVoice": "copy result"
     }
   },
@@ -131,7 +132,7 @@ In this example:
   },
   "inserts": {
     "insertTicketPayload": {
-      "action": "## Ticket Draft\\n\\n{{actionResult}}\\n\\nSource App: {{frontApp}}"
+      "action": "## Ticket Draft\n\n{{actionResult}}\n\nSource App: {{frontApp}}"
     }
   },
   "urls": {},
