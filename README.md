@@ -151,20 +151,9 @@ macrowhisper --mute-triggers 10m     # mute triggers temporarily
 
 ## Documentation
 
-[The documentation index](docs/README.md) is the best entry point for the complete reference and for AI-assisted questions. It links every maintained topic:
+For complete feature explanations, configuration examples, and troubleshooting, start with [the documentation index](docs/README.md).
 
-- [Getting started](docs/getting-started.md)
-- [CLI reference](docs/cli-reference.md)
-- [Configuration](docs/configuration.md)
-- [Actions](docs/actions.md)
-- [Triggers and conditions](docs/triggers-and-conditions.md)
-- [Placeholders and context](docs/placeholders-and-context.md)
-- [Clipboard and recordings](docs/clipboard-and-recordings.md)
-- [Runtime](docs/runtime.md)
-- [Examples](docs/examples.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Development guide](docs/development/README.md)
-- [Releasing](docs/development/releasing.md)
+You can also share the index with an AI assistant and describe what you want Macrowhisper to do. Ask it to read the relevant linked pages to help you set up a workflow, understand a feature, or troubleshoot your configuration.
 
 For the hosted guide and additional examples, see the [project website](https://by.afadingthought.com/macrowhisper). The [Alfred workflow](alfred/README.md), [Macrowhisper repository](https://github.com/ognistik/macrowhisper), and [issue tracker](https://github.com/ognistik/macrowhisper/issues) are also available.
 
