@@ -34,4 +34,9 @@ func logDebug(_ message: String) {}
 func logInfo(_ message: String) {}
 func logWarning(_ message: String) {}
 func logError(_ message: String) {}
-func notify(title: String, message: String) {}
+
+var testNotifications: [(title: String, message: String)] = []
+
+func notify(title: String, message: String) {
+    testNotifications.append((title: title, message: message))
+}

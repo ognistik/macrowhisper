@@ -153,7 +153,9 @@ Use `triggerLogic` to combine trigger types:
 
 - `or` means any configured trigger type can match
 - `and` means all configured trigger types must match
-- omitted or `null` uses `or`; other values are treated as `or` at runtime
+- omitted or `null` uses `or`
+- any other value is a configuration error; `--validate-config` reports the
+  affected action, and runtime loading follows the normal invalid-config path
 
 If all trigger fields are empty, the action will not auto-trigger. It can still run as the active action or via `--schedule-action`.
 

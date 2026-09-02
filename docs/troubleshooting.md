@@ -101,7 +101,7 @@ macrowhisper --verbose
 ### Config edits are not taking effect
 
 - save valid JSON
-- check for semantic validation issues such as missing action references, invalid `inputCondition` tokens, or duplicate action names
+- check for semantic validation issues such as missing action references, invalid `inputCondition` tokens, invalid `triggerLogic` values, or duplicate action names
 - if the config is invalid, Macrowhisper applies the default configuration in
   memory until the file is fixed; it does not replace the invalid file
 - valid file changes are watched and reloaded while the daemon runs; an atomic

@@ -408,6 +408,8 @@ Example:
 - **"and"**: ALL configured triggers must match
 - **"or"**: ANY configured trigger can match
 - **Default**: "or" if not specified
+- **Validation**: Other values are rejected during configuration validation;
+  the evaluator also refuses to match them defensively
 
 #### Evaluation Process:
 1. **Collect All Actions**: Inserts, URLs, Shortcuts, Shell Scripts, AppleScripts

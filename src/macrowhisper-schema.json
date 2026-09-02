@@ -340,7 +340,7 @@
         },
         "triggerLogic": {
           "type": ["string", "null"],
-          "description": "Logic for combining multiple triggers. Current configs should use 'and' or 'or' (case-insensitive); null defaults to 'or'. Runtime treats an unvalidated unknown value as 'or', but the schema rejects it so typos are visible in editors.",
+          "description": "Logic for combining multiple triggers. Use 'and' or 'or' (case-insensitive); null defaults to 'or'. Other values fail Macrowhisper configuration validation and are rejected by the schema.",
           "pattern": "^([Aa][Nn][Dd]|[Oo][Rr])$",
           "default": "or"
         }

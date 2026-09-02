@@ -525,6 +525,10 @@ class ConfigurationManager {
         for (name, script) in config.scriptsAS { appendNextAction(name, script.nextAction, .appleScript) }
 
         for (name, insert) in config.inserts {
+            issues.append(contentsOf: validateTriggerLogic(
+                insert.triggerLogic,
+                actionPathPrefix: "inserts.\(name)"
+            ))
             issues.append(contentsOf: validateInputCondition(
                 insert.inputCondition,
                 actionType: .insert,
@@ -532,6 +536,10 @@ class ConfigurationManager {
             ))
         }
         for (name, url) in config.urls {
+            issues.append(contentsOf: validateTriggerLogic(
+                url.triggerLogic,
+                actionPathPrefix: "urls.\(name)"
+            ))
             issues.append(contentsOf: validateInputCondition(
                 url.inputCondition,
                 actionType: .url,
@@ -539,6 +547,10 @@ class ConfigurationManager {
             ))
         }
         for (name, shortcut) in config.shortcuts {
+            issues.append(contentsOf: validateTriggerLogic(
+                shortcut.triggerLogic,
+                actionPathPrefix: "shortcuts.\(name)"
+            ))
             issues.append(contentsOf: validateInputCondition(
                 shortcut.inputCondition,
                 actionType: .shortcut,
@@ -546,6 +558,10 @@ class ConfigurationManager {
             ))
         }
         for (name, shell) in config.scriptsShell {
+            issues.append(contentsOf: validateTriggerLogic(
+                shell.triggerLogic,
+                actionPathPrefix: "scriptsShell.\(name)"
+            ))
             issues.append(contentsOf: validateInputCondition(
                 shell.inputCondition,
                 actionType: .shell,
@@ -553,6 +569,10 @@ class ConfigurationManager {
             ))
         }
         for (name, script) in config.scriptsAS {
+            issues.append(contentsOf: validateTriggerLogic(
+                script.triggerLogic,
+                actionPathPrefix: "scriptsAS.\(name)"
+            ))
             issues.append(contentsOf: validateInputCondition(
                 script.inputCondition,
                 actionType: .appleScript,
@@ -725,6 +745,25 @@ class ConfigurationManager {
         }
 
         return Array(Set(issues))
+    }
+
+    private static func validateTriggerLogic(
+        _ rawValue: String?,
+        actionPathPrefix: String
+    ) -> [ConfigValidationIssue] {
+        guard let rawValue else { return [] }
+        let normalized = rawValue.lowercased()
+        guard normalized == "and" || normalized == "or" else {
+            return [
+                ConfigValidationIssue(
+                    path: "\(actionPathPrefix).triggerLogic",
+                    message: "invalid triggerLogic '\(rawValue)': expected 'and' or 'or'",
+                    kind: .semantic,
+                    rawValue: rawValue
+                )
+            ]
+        }
+        return []
     }
 
     private static func validateInputCondition(

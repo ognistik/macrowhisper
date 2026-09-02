@@ -15,6 +15,8 @@
 * Clipboard diagnostics now distinguish immediate Superwhisper result matches from active polling and timeouts. Expected attachment-cache deferrals from lazy file providers are also rate-limited at debug level instead of producing repeated warnings.
 
 ### Fixed
+* Invalid `triggerLogic` values no longer silently behave as `or`. They now fail configuration validation with the affected action path, use the existing configuration-error notification flow, and are refused defensively by trigger evaluation.
+* Fixed the documented app-vocabulary extraction regression runner failing to compile because its focused test harness was missing the front-app identity stub.
 * Fixed the SwiftPM manifest so `swift build --package-path src` discovers and compiles the Macrowhisper executable with the same macOS minimum and Swift language mode as the Xcode target.
 * Mode triggers no longer activate when Superwhisper does not provide a mode name.
 * Fixed voice commands sometimes failing to activate Macrowhisper actions when using Superwhisper's S1 Language together with S1 Voice. Macrowhisper now briefly waits for the original spoken words before checking voice triggers, without slowing down other model combinations.

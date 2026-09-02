@@ -260,6 +260,15 @@ class TriggerEvaluator {
         let triggerUrls = action.triggerUrls
         let triggerLogic = action.triggerLogic
         let actionName = action.name
+        let logic = (triggerLogic ?? "or").lowercased()
+
+        guard logic == "and" || logic == "or" else {
+            logError(
+                "[TriggerEval] Action '\(actionName)' has invalid triggerLogic '\(triggerLogic ?? "nil")'. " +
+                "Skipping trigger evaluation for this action."
+            )
+            return TriggerEvaluationResult(matched: false, strippedResult: nil, rank: nil)
+        }
         
         // Voice trigger
         if let triggerVoice = triggerVoice, !triggerVoice
@@ -605,9 +614,6 @@ class TriggerEvaluator {
             // No URL trigger set, will be handled in final logic determination
             urlMatched = true
         }
-        
-        // Determine logic
-        let logic = (triggerLogic ?? "or").lowercased()
         
         // Check which triggers are actually set (not empty)
         let voiceTriggerSet = triggerVoice != nil && !triggerVoice!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

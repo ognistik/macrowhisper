@@ -46,7 +46,7 @@ Important: action names must be unique across all five groups.
 | `triggerApps` | string/null | Match by front app name or bundle ID |
 | `triggerModes` | string/null | Match by Superwhisper mode |
 | `triggerUrls` | string/null | Match by active browser URL |
-| `triggerLogic` | string/null | Use `or` or `and` when combining trigger types |
+| `triggerLogic` | string/null | Use `or` or `and` when combining trigger types; other values invalidate the configuration |
 
 How to interpret those fields:
 

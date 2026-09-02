@@ -181,8 +181,9 @@ The compile inputs and runner names are:
 | `browser-url-normalization` | `src/macrowhisper/Utils/BrowserURLNormalization.swift` + `src/Tests/BrowserURLNormalizationRegression.swift` |
 | `trigger-priority` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerPriorityRegression.swift` |
 | `trigger-url-matching` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerUrlMatchingRegression.swift` |
+| `trigger-logic-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/TriggerLogicValidationRegression.swift` |
 | `placeholder-regex-pipeline` | `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderRegexPipelineRegression.swift` |
-| `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` (known gap: the checked-in stub does not currently define `resolveFrontAppIdentity`, so this row does not compile without an additional test stub) |
+| `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` |
 | `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
 | `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
 | `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |

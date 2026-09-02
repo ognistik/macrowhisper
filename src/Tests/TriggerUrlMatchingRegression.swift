@@ -136,6 +136,22 @@ private func runTriggerUrlMatchingRegressionTests() {
             frontAppUrl: "https://docs.google.com"
         )
         assertTrue(!matches15.contains("invalidOnly"), "invalid-only URL trigger does not match")
+
+        let matches16 = matchedInsertNames(
+            inserts: [
+                "invalidLogic": makeInsert(
+                    triggerVoice: "search",
+                    triggerUrls: "google.com",
+                    triggerLogic: "adn"
+                )
+            ],
+            result: "compose email",
+            frontAppUrl: "https://docs.google.com"
+        )
+        assertTrue(
+            !matches16.contains("invalidLogic"),
+            "invalid triggerLogic fails closed instead of behaving as OR"
+        )
     }
 }
 
