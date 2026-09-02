@@ -54,5 +54,4 @@ Agents working on the repository should also read [AGENTS.md](../AGENTS.md). Ver
 
 - [Macrowhisper on GitHub](https://github.com/ognistik/macrowhisper)
 - [Report an issue](https://github.com/ognistik/macrowhisper/issues)
-- [Project website](https://by.afadingthought.com/macrowhisper)
 - [Alfred workflow](../alfred/README.md)

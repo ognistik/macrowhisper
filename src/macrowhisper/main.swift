@@ -1823,7 +1823,7 @@ func printHelp() {
     Once service has been installed, it will run on the background on startup.
     
     In-depth documentation and examples at:
-    https://by.afadingthought.com/macrowhisper
+    https://github.com/ognistik/macrowhisper/blob/main/docs/README.md
     """)
 }
 
