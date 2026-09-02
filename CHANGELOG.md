@@ -8,16 +8,15 @@
 ### Improved
 * When several actions match at once, Macrowhisper now chooses voice triggers first, followed by Superwhisper modes, browser URLs, and apps. More-specific matches win within each level, while auto-return keeps its existing one-time insert and fallback behavior.
 * CLI action logs now warn when a newer Superwhisper recording is still missing its expected `llmResult` and an older valid recording is used instead, making silent LLM failures easier to diagnose without timer-based warning noise.
-* With clipboard stacking disabled, the latest eligible clipboard operation now controls both outputs: a later text copy supersedes an earlier attachment and normal clipboard restoration applies. With stacking enabled, eligible attachment operations accumulate in capture order.
+* With clipboard stacking disabled, the latest eligible clipboard operation now controls both outputs: a later text copy supersedes an earlier clipboard attachment and normal clipboard restoration applies. With stacking enabled, eligible attachment operations accumulate in capture order.
 * Recording recovery is now a synchronous session boundary: a new dictation fully closes superseded watchers, timers, clipboard sessions, and execution-group state before monitoring begins for the replacement recording.
 * Execution groups are reused only for short, genuine action or clipboard-restoration overlaps. Recordings that are merely waiting for transcription or LLM output no longer share clipboard or selection context, and stale groups are rejected defensively.
 * Recovery logging now reports aborted execution groups and context counts, while clipboard snapshot logs include the root recording and context age for diagnosis.
-* Clipboard diagnostics now distinguish immediate Superwhisper result matches from active polling and timeouts. Expected attachment-cache deferrals from lazy file providers are also rate-limited at debug level instead of producing repeated warnings.
+* Clipboard diagnostics now distinguish immediate Superwhisper result matches from active polling and timeouts.
 
 ### Fixed
 * Invalid `triggerLogic` values no longer silently behave as `or`. They now fail configuration validation with the affected action path, use the existing configuration-error notification flow, and are refused defensively by trigger evaluation.
 * Fixed the documented app-vocabulary extraction regression runner failing to compile because its focused test harness was missing the front-app identity stub.
-* Fixed the SwiftPM manifest so `swift build --package-path src` discovers and compiles the Macrowhisper executable with the same macOS minimum and Swift language mode as the Xcode target.
 * Mode triggers no longer activate when Superwhisper does not provide a mode name.
 * Fixed voice commands sometimes failing to activate Macrowhisper actions when using Superwhisper's S1 Language together with S1 Voice. Macrowhisper now briefly waits for the original spoken words before checking voice triggers, without slowing down other model combinations.
 * Fixed stale `{{clipboardContext}}` stacks leaking into later dictations when a Superwhisper LLM request failed or never produced `llmResult`.
