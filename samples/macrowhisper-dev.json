@@ -24,7 +24,7 @@
     "scheduledActionTimeout" : 10,
     "scriptAsync" : true,
     "scriptWaitTimeout" : 3,
-    "simEsc" : true,
+    "simEsc" : false,
     "simKeypress" : false,
     "simReturn" : false,
     "smartCasing" : true,
@@ -34,17 +34,17 @@
   },
   "inserts" : {
     "autoPaste" : {
-      "action" : "{{swResult::ensureSentence||\\bi\\b||I}}\n{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
-      "actionDelay" : null,
+      "action" : "{{swResult::ensureSentence||\\bi\\b||I}}{{clipboardContext||(?s)^(.*)$||\n\n<clipboard-context>\n$1\n</clipboard-context>}}",
+      "actionDelay" : 0,
       "clipboardAttachments" : false,
       "clipboardStacking" : null,
       "icon" : "•",
-      "inputCondition" : "!restoreClipboard|!simEsc",
+      "inputCondition" : "!nextAction|!actionDelay",
       "moveTo" : null,
-      "nextAction" : null,
+      "nextAction" : "swResult",
       "restoreClipboard" : false,
       "restoreClipboardDelay" : null,
-      "simEsc" : false,
+      "simEsc" : null,
       "simKeypress" : null,
       "simReturn" : null,
       "smartCasing" : null,
@@ -102,29 +102,6 @@
       "triggerUrls" : null,
       "triggerVoice" : "==no period[.,\\s]*$=="
     },
-    "pasteChat" : {
-      "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
-      "actionDelay" : null,
-      "clipboardAttachments" : null,
-      "clipboardStacking" : null,
-      "icon" : "⇄",
-      "inputCondition" : null,
-      "moveTo" : null,
-      "nextAction" : null,
-      "restoreClipboard" : null,
-      "restoreClipboardDelay" : null,
-      "simEsc" : null,
-      "simKeypress" : null,
-      "simReturn" : null,
-      "smartCasing" : false,
-      "smartPunctuation" : false,
-      "smartSpacing" : false,
-      "triggerApps" : null,
-      "triggerLogic" : "or",
-      "triggerModes" : null,
-      "triggerUrls" : null,
-      "triggerVoice" : null
-    },
     "pasteResult" : {
       "action" : "{{swResult::ensureSentence}}",
       "actionDelay" : null,
@@ -148,31 +125,8 @@
       "triggerUrls" : null,
       "triggerVoice" : null
     },
-    "smartClip" : {
-      "action" : "{{clipboardContext}}",
-      "actionDelay" : null,
-      "clipboardAttachments" : null,
-      "clipboardStacking" : null,
-      "icon" : "",
-      "inputCondition" : null,
-      "moveTo" : null,
-      "nextAction" : null,
-      "restoreClipboard" : null,
-      "restoreClipboardDelay" : null,
-      "simEsc" : null,
-      "simKeypress" : null,
-      "simReturn" : null,
-      "smartCasing" : null,
-      "smartPunctuation" : null,
-      "smartSpacing" : null,
-      "triggerApps" : null,
-      "triggerLogic" : "or",
-      "triggerModes" : null,
-      "triggerUrls" : null,
-      "triggerVoice" : null
-    },
     "terminals" : {
-      "action" : "{{swResult::lowercaseFirst||`||}}",
+      "action" : "{{swResult::lowercaseFirst||`||||\\.\"||\"}}",
       "actionDelay" : null,
       "clipboardAttachments" : null,
       "clipboardStacking" : null,
@@ -194,8 +148,31 @@
       "triggerUrls" : null,
       "triggerVoice" : null
     },
+    "test" : {
+      "action" : "{{swResult}}",
+      "actionDelay" : null,
+      "clipboardAttachments" : true,
+      "clipboardStacking" : null,
+      "icon" : null,
+      "inputCondition" : null,
+      "moveTo" : null,
+      "nextAction" : null,
+      "restoreClipboard" : null,
+      "restoreClipboardDelay" : null,
+      "simEsc" : null,
+      "simKeypress" : null,
+      "simReturn" : null,
+      "smartCasing" : null,
+      "smartPunctuation" : null,
+      "smartSpacing" : null,
+      "triggerApps" : null,
+      "triggerLogic" : "or",
+      "triggerModes" : null,
+      "triggerUrls" : null,
+      "triggerVoice" : null
+    },
     "titleCase" : {
-      "action" : "{{swResult::titleCase||\\.$||||(?i)title||}}",
+      "action" : "{{swResult::titleCase||\\.||||(?i)title||||(?i)título||}}",
       "actionDelay" : null,
       "clipboardAttachments" : null,
       "clipboardStacking" : null,
@@ -215,12 +192,12 @@
       "triggerLogic" : "or",
       "triggerModes" : null,
       "triggerUrls" : null,
-      "triggerVoice" : "title|titulo|título|==title\\.?$=="
+      "triggerVoice" : "title|titulo|título|==title\\.?$==|==Título\\.?$=="
     }
   },
   "scriptsAS" : {
-    "swWebDebug" : {
-      "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"DURATION: {{duration}}\nV PRCS: {{processingTime}}{{languageModelProcessingTime||^(.*)$||\nLLM PRCS: $1}}\n\nMODE: {{modeName}}\n{{modelName}}{{languageModelName||^(.*)$|| | $1}}\n\nVOICE RESULT:\n{{result}}{{llmResult||\\n\\n\\n||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\nLLM RESULT:\n$1||\\s+$||}}{{prompt||\\n\\s*\\n\\s*\\n(\\s*\\n)*||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n$1}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
+    "swDebug" : {
+      "action" : "tell application \"Keyboard Maestro Engine\"\ndo script \"SwWin\" with parameter \"[[bold]]DURATION:[[/bold]] {{duration}}\n[[bold]]VOICE:[[/bold]] {{processingTime}}{{languageModelProcessingTime||^(.*)$||\n[[bold]]LLM:[[/bold]] $1}}\n\n[[bold]]MODE:[[/bold]] {{modeName}}\n{{modelName}}{{languageModelName||^(.*)$|| | $1}}\n\n[[bold]]VOICE RESULT:[[/bold]]\n{{result}}{{llmResult||\\n\\n\\n||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n[[bold]]LLM RESULT:[[/bold]]\n$1||\\s+$||}}{{prompt||^\\nINSTRUCTIONS:\\n||\n[[bold]]INSTRUCTIONS[[/bold]]\n||\\n\\n\\nSYSTEM CONTEXT:\\n||\n\n\n[[bold]]SYSTEM CONTEXT:[[/bold]]\n||\\n\\n\\nUSER MESSAGE:\\n||\n\n\n[[bold]]USER MESSAGE:[[/bold]]\n||\\n\\s*\\n\\s*\\n(\\s*\\n)*||\n\n||^\\s+|\\s+$||||(?s)^(.*)$||\n\n$1}}\"\nend tell",
       "actionDelay" : 0,
       "clipboardAttachments" : null,
       "clipboardStacking" : null,
@@ -228,7 +205,7 @@
       "inputCondition" : null,
       "moveTo" : null,
       "nextAction" : null,
-      "restoreClipboard" : null,
+      "restoreClipboard" : false,
       "restoreClipboardDelay" : null,
       "scriptAsync" : null,
       "scriptWaitTimeout" : null,
@@ -239,12 +216,12 @@
       "triggerUrls" : null,
       "triggerVoice" : null
     },
-    "swWebView" : {
-      "action" : "tell application \"BetterTouchTool\"\nset_string_variable \"swWinContent\" to \"{{swResult}}\"\nend tell\ntell application \"Keyboard Maestro Engine\" to do script \"SW BTT ON\"",
+    "swResult" : {
+      "action" : "tell application \"Keyboard Maestro Engine\"\ndo script \"SwWin\" with parameter \"{{swResult}}\"\nend tell",
       "actionDelay" : 0,
       "clipboardAttachments" : null,
       "clipboardStacking" : null,
-      "icon" : "❑",
+      "icon" : "▣",
       "inputCondition" : null,
       "moveTo" : null,
       "nextAction" : null,
@@ -261,26 +238,7 @@
     }
   },
   "scriptsShell" : {
-    "Save on Desktop" : {
-      "action" : "echo \"{{swResult}}\" > ~/Desktop/dictation.txt",
-      "actionDelay" : null,
-      "clipboardAttachments" : null,
-      "clipboardStacking" : null,
-      "icon" : null,
-      "inputCondition" : null,
-      "moveTo" : null,
-      "nextAction" : "",
-      "restoreClipboard" : null,
-      "restoreClipboardDelay" : null,
-      "scriptAsync" : null,
-      "scriptWaitTimeout" : null,
-      "simEsc" : null,
-      "triggerApps" : null,
-      "triggerLogic" : "or",
-      "triggerModes" : null,
-      "triggerUrls" : null,
-      "triggerVoice" : null
-    }
+
   },
   "shortcuts" : {
     "Capture" : {
