@@ -253,7 +253,7 @@ swiftc -parse-as-library \
 
 ### Adding New Action Types
 1. Define the action struct in `AppConfiguration.swift`
-2. Add the processing logic in `ActionExecutor.swift` 
+2. Add the processing logic in `ActionExecutor.swift`
 3. Add trigger evaluation in `TriggerEvaluator.swift`
 4. Add CLI management commands in `SocketCommunication.swift`
 5. Update the JSON schema, validation, [action reference](../actions.md), and relevant regression coverage
@@ -370,7 +370,7 @@ and reminder state.
   networking, and other work use background queues. Preserve each component's
   existing dispatch and synchronization boundaries.
 - Configuration changes trigger live reloads
-- Socket communication handles both CLI and daemon interactions  
+- Socket communication handles both CLI and daemon interactions
 - ClipboardMonitor coordinates with Superwhisper timing
 - Insert chains resolve next actions at runtime (not precomputed) to support conditional `nextAction`.
 - Input-field state for conditional behavior is evaluated live per executed step.
