@@ -26,7 +26,7 @@ Macrowhisper is a macOS command-line automation helper for Superwhisper. It watc
 - When asked for a binary for manual testing, use the signed Xcode workflow in the development guide and its stable local output location. Keep the established signing identity, identifier, and designated requirement consistent with the previously authorized test binary.
 - Verify the resulting signature and report the binary's full path. Do not silently substitute an unsigned or ad hoc signed binary when signing fails. Generic signing alone does not guarantee retained macOS Accessibility permissions.
 - Keep local build products under `.build/`. A manual-test build does not imply installation over the user's binary, service changes, notarization, or a release.
-- Use the Xcode project for application compilation; the current Swift package manifest does not discover the application source directory. It also has no test target. Choose relevant standalone regression runners with their specific production sources and, where applicable, test stubs, as described in the development guide.
+- Use SwiftPM for application compile checks and the signed Xcode workflow for Accessibility/TCC, service, watcher, and manual runtime testing. The package has no test target. Choose relevant standalone regression runners with their specific production sources and, where applicable, test stubs, as described in the development guide.
 - For documentation-only changes, check examples, links, content coverage, and the diff. Do not build or change the running service merely to validate documentation layout.
 
 ## Respect repository and release boundaries
