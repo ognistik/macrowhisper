@@ -9,19 +9,39 @@ runtime. The [codebase map](codebase-map.md) describes ownership and the
 
 ## Quick Start
 
-Run the commands in this guide from the repository root. Use the Xcode project
-for application builds, including compilation checks and manual testing.
+Run the commands in this guide from the repository root. Use SwiftPM for the
+application compile check below. Use the Xcode project for signed
+application builds, manual testing, and releases.
 
-### Swift package status
+### SwiftPM compile check
 
-`src/Package.swift` declares an executable target and a Swifter dependency, but
-does not set the target's source path to the actual `src/macrowhisper/`
-directory. `swift package --package-path src describe --type json` currently
-reports a source-location warning and no discovered targets or products.
-Consequently, `swift build` is not a working application compile check for this
-checkout. Fixing that manifest is separate from documenting the supported
-Xcode workflow. The package also has no test target; use the standalone
-regression runners below.
+`src/Package.swift` exposes the application sources as an executable target and
+resolves the Swifter dependency. Run the package description check and build
+from the repository root:
+
+```bash
+swift package --package-path src describe --type json
+swift build --package-path src
+```
+
+SwiftPM writes its product under the package-local `src/.build/` directory,
+using platform and configuration subdirectories. Query the exact output path
+instead of assuming the host architecture:
+
+```bash
+swift build --package-path src --show-bin-path
+```
+
+For example, the default debug executable on Apple Silicon is
+`src/.build/arm64-apple-macosx/debug/macrowhisper`.
+
+This product is a bare developer executable. It does not carry the Xcode
+project's configured signing identity, entitlements, application metadata, or
+release packaging, so use it for compiler and dependency checks only; use the
+signed Xcode build below for Accessibility/TCC, service, watcher, and other
+manual runtime tests. The package has no test target. The focused regression
+runners in `src/Tests/` remain separate standalone binaries and are compiled
+with `swiftc` as listed below.
 
 ### Signed Xcode build for manual testing
 

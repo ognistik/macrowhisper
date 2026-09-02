@@ -60,9 +60,30 @@ src/
 │       └── VersionChecker.swift          # Update checks
 ├── macrowhisper-schema.json              # JSON schema for config editing/validation
 ├── macrowhisper.xcodeproj/               # Supported signed application build
-├── Package.swift                        # SwiftPM metadata; source target currently undiscovered
+├── Package.swift                        # SwiftPM compile-check manifest; output is a developer binary under src/.build/
 └── Tests/                                # Focused regression tests for parser/runtime edge cases
 ```
+
+## Build topology
+
+The [Xcode project](../../src/macrowhisper.xcodeproj/) is authoritative for
+signed application builds, manual testing, and releases. The
+[SwiftPM manifest](../../src/Package.swift) exposes the same application
+source tree for a compile and dependency check:
+
+```bash
+swift build --package-path src
+swift build --package-path src --show-bin-path
+```
+
+SwiftPM places the executable under `src/.build/<platform>/<configuration>/`
+(for example, `src/.build/arm64-apple-macosx/debug/macrowhisper`). Its bare
+executable does not include the Xcode project's configured signing identity,
+entitlements, application metadata, or release packaging, so it is not a
+replacement for the signed Xcode output. SwiftPM has no test target; the
+standalone runners in `src/Tests/` remain independent `swiftc` binaries. See
+the [SwiftPM compile check](README.md#swiftpm-compile-check) and [focused
+regression runners](README.md#focused-regression-runners) for the commands.
 
 ---
 

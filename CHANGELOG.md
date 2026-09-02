@@ -15,6 +15,7 @@
 * Clipboard diagnostics now distinguish immediate Superwhisper result matches from active polling and timeouts. Expected attachment-cache deferrals from lazy file providers are also rate-limited at debug level instead of producing repeated warnings.
 
 ### Fixed
+* Fixed the SwiftPM manifest so `swift build --package-path src` discovers and compiles the Macrowhisper executable with the same macOS minimum and Swift language mode as the Xcode target.
 * Mode triggers no longer activate when Superwhisper does not provide a mode name.
 * Fixed voice commands sometimes failing to activate Macrowhisper actions when using Superwhisper's S1 Language together with S1 Voice. Macrowhisper now briefly waits for the original spoken words before checking voice triggers, without slowing down other model combinations.
 * Fixed stale `{{clipboardContext}}` stacks leaking into later dictations when a Superwhisper LLM request failed or never produced `llmResult`.
