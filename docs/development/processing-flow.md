@@ -1,14 +1,20 @@
 # Macrowhisper Processing Flow Documentation
 
+[Documentation index](../README.md)
+
 ## Overview
 
 This document provides a comprehensive technical analysis of Macrowhisper's complete processing flow, from the moment a recording folder is detected to the final action execution and clipboard synchronization. This is essential developer documentation to understand the complex timing, conditions, and variables involved in the automation system.
+
+Source paths link to the repository's `src/` tree. For implementation
+ownership and local build/test procedures, see the [codebase map](codebase-map.md)
+and [development guide](README.md).
 
 ## Table of Contents
 
 1. [High-Level Processing Flow](#high-level-processing-flow)
 2. [Recording Folder Detection](#recording-folder-detection)
-3. [Early Clipboard Monitoring System](#early-clipboard-monitoring-system)
+3. [Enhanced Clipboard Monitoring System](#enhanced-clipboard-monitoring-system)
 4. [Meta.json Processing](#metajson-processing)
 5. [Action Priority System](#action-priority-system)
 6. [ActionDelay System](#actiondelay-system)
@@ -52,6 +58,7 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
    ↓
 6. Action Priority Evaluation
    ├── Auto-Return (Highest Priority)
+   ├── Scheduled action
    ├── Trigger Actions (Medium Priority)
    └── Active Action (Lowest Priority)
    ↓
@@ -71,7 +78,7 @@ This document provides a comprehensive technical analysis of Macrowhisper's comp
 
 ## Recording Folder Detection
 
-### Primary File: `macrowhisper/Watcher/RecordingsFolderWatcher.swift`
+### Primary File: [src/macrowhisper/Watcher/RecordingsFolderWatcher.swift](../../src/macrowhisper/Watcher/RecordingsFolderWatcher.swift)
 
 The process begins when Superwhisper creates a new recording folder in the watched directory.
 
@@ -98,7 +105,7 @@ The process begins when Superwhisper creates a new recording folder in the watch
 
 ## Enhanced Clipboard Monitoring System
 
-### Primary File: `macrowhisper/Utils/ClipboardMonitor.swift`
+### Primary File: [src/macrowhisper/Utils/ClipboardMonitor.swift](../../src/macrowhisper/Utils/ClipboardMonitor.swift)
 
 This is the **most critical component** for handling clipboard synchronization between Superwhisper and Macrowhisper, now enhanced with pre-recording capture.
 
@@ -201,7 +208,7 @@ This approach eliminates the complex cancellation token system and race conditio
 
 ## Meta.json Processing
 
-### Primary File: `macrowhisper/Watcher/RecordingsFolderWatcher.swift`
+### Primary File: [src/macrowhisper/Watcher/RecordingsFolderWatcher.swift](../../src/macrowhisper/Watcher/RecordingsFolderWatcher.swift)
 
 Meta.json contains the transcription results from Superwhisper and may not exist immediately when the recording folder appears.
 
@@ -327,15 +334,15 @@ insertAction()
 - **Independent Timing**: ActionDelay value does not affect clipboard synchronization logic
 
 ### Files Involved:
-- **Configuration**: `macrowhisper/Config/AppConfiguration.swift` (all action types have `actionDelay: Double?`)
-- **Application**: `macrowhisper/Utils/ClipboardMonitor.swift` (handles timing coordination)
-- **Fallback**: `macrowhisper/Networking/SocketCommunication.swift` (CLI commands)
+- **Configuration**: [src/macrowhisper/Config/AppConfiguration.swift](../../src/macrowhisper/Config/AppConfiguration.swift) (all action types have `actionDelay: Double?`)
+- **Application**: [src/macrowhisper/Utils/ClipboardMonitor.swift](../../src/macrowhisper/Utils/ClipboardMonitor.swift) (handles timing coordination)
+- **Fallback**: [src/macrowhisper/Networking/SocketCommunication.swift](../../src/macrowhisper/Networking/SocketCommunication.swift) (CLI commands)
 
 ---
 
 ## Clipboard Synchronization
 
-### Primary File: `macrowhisper/Utils/ClipboardMonitor.swift`
+### Primary File: [src/macrowhisper/Utils/ClipboardMonitor.swift](../../src/macrowhisper/Utils/ClipboardMonitor.swift)
 
 The clipboard synchronization system handles the complex timing between Superwhisper and Macrowhisper clipboard modifications.
 
@@ -424,7 +431,7 @@ Supported faithful representations are ordered text, file URLs, PNG, and TIFF. O
 
 ## Trigger Evaluation
 
-### Primary File: `macrowhisper/Utils/TriggerEvaluator.swift`
+### Primary File: [src/macrowhisper/Utils/TriggerEvaluator.swift](../../src/macrowhisper/Utils/TriggerEvaluator.swift)
 
 The trigger system evaluates all configured actions to find matches based on voice, application, mode, and active URL criteria.
 
@@ -485,7 +492,7 @@ Example:
 
 ## Action Execution
 
-### Primary File: `macrowhisper/Utils/ActionExecutor.swift`
+### Primary File: [src/macrowhisper/Utils/ActionExecutor.swift](../../src/macrowhisper/Utils/ActionExecutor.swift)
 
 Action execution is coordinated through the ActionExecutor which handles all action types uniformly.
 
@@ -542,7 +549,7 @@ func executeAction(
 
 ## Post-Processing
 
-### Primary File: `macrowhisper/Watcher/RecordingsFolderWatcher.swift`
+### Primary File: [src/macrowhisper/Watcher/RecordingsFolderWatcher.swift](../../src/macrowhisper/Watcher/RecordingsFolderWatcher.swift)
 
 After action execution, several post-processing steps occur:
 
@@ -572,7 +579,7 @@ Determines where to move or how to handle the processed recording folder:
 
 ## Key Variables and Settings
 
-### Configuration Variables (`macrowhisper/Config/AppConfiguration.swift`):
+### Configuration Variables ([src/macrowhisper/Config/AppConfiguration.swift](../../src/macrowhisper/Config/AppConfiguration.swift)):
 
 #### Global Defaults:
 - `schema: String?` - JSON schema reference for IDE validation (maps to `$schema`)
@@ -689,48 +696,48 @@ Insert-only settings:
 
 ### Core Processing Files:
 
-#### 1. `macrowhisper/main.swift` (1101 lines)
+#### 1. [src/macrowhisper/main.swift](../../src/macrowhisper/main.swift)
 - **Purpose**: Application entry point, global state management
 - **Key Variables**: `autoReturnEnabled`, `lastDetectedFrontApp`, global instances
 - **Responsibilities**: Initialization, CLI handling, main event loop
 
-#### 2. `macrowhisper/Watcher/RecordingsFolderWatcher.swift` (532 lines)
+#### 2. [src/macrowhisper/Watcher/RecordingsFolderWatcher.swift](../../src/macrowhisper/Watcher/RecordingsFolderWatcher.swift)
 - **Purpose**: File system monitoring, meta.json processing, action orchestration
 - **Key Methods**: `processNewRecording()`, `processMetaJson()`, `handlePostProcessing()`
 - **State Management**: Processed recordings tracking, pending watchers
 
-#### 3. `macrowhisper/Utils/ClipboardMonitor.swift` (1024 lines)
+#### 3. [src/macrowhisper/Utils/ClipboardMonitor.swift](../../src/macrowhisper/Utils/ClipboardMonitor.swift)
 - **Purpose**: Clipboard synchronization, timing coordination, smart logging, pre-recording capture
 - **Key Methods**: `startEarlyMonitoring()`, `executeInsertWithEnhancedClipboardSync()`, `startActionExecution()`, `finishActionExecution()`
 - **Critical Features**: Dual monitoring architecture, single shared instance, smart restoration logic, action execution boundaries
 - **Architecture**: Single instance shared between RecordingsFolderWatcher and ActionExecutor to prevent duplicate monitoring
 
-#### 4. `macrowhisper/Utils/ActionExecutor.swift` (347 lines)
+#### 4. [src/macrowhisper/Utils/ActionExecutor.swift](../../src/macrowhisper/Utils/ActionExecutor.swift)
 - **Purpose**: Unified action execution, moveTo handling
 - **Key Methods**: `executeAction()`, action-specific execution methods
 - **Integration**: ClipboardMonitor coordination, placeholder processing
 
-#### 5. `macrowhisper/Utils/TriggerEvaluator.swift` (386 lines)
+#### 5. [src/macrowhisper/Utils/TriggerEvaluator.swift](../../src/macrowhisper/Utils/TriggerEvaluator.swift)
 - **Purpose**: Trigger evaluation, action matching
 - **Key Methods**: `evaluateTriggersForAllActions()`, `triggersMatch()`
 - **Logic**: Multi-criteria evaluation, exception handling
 
 ### Configuration Files:
 
-#### 6. `macrowhisper/Config/AppConfiguration.swift` (474 lines)
+#### 6. [src/macrowhisper/Config/AppConfiguration.swift](../../src/macrowhisper/Config/AppConfiguration.swift)
 - **Purpose**: Configuration data structures, defaults, JSON schema integration
 - **Action Types**: Insert, Url, Shortcut, ScriptShell, ScriptAppleScript
 - **Settings**: actionDelay, simEsc, restoreClipboard, trigger configurations, insert `inputCondition`
 - **Schema Field**: `schema` property for IDE validation support
 
-#### 7. `macrowhisper/Config/ConfigurationManager.swift` (348 lines)
+#### 7. [src/macrowhisper/Config/ConfigurationManager.swift](../../src/macrowhisper/Config/ConfigurationManager.swift)
 - **Purpose**: Configuration loading, saving, live reloading, schema management
 - **Thread Safety**: Dedicated configuration queue
 - **Persistence**: UserDefaults integration for path management
 - **Schema Integration**: Automatic schema reference management
 - **Validation**: Strict `inputCondition` token validation with configuration error notifications
 
-#### 8. `macrowhisper/Utils/SchemaManager.swift` (NEW)
+#### 8. [src/macrowhisper/Utils/SchemaManager.swift](../../src/macrowhisper/Utils/SchemaManager.swift)
 - **Purpose**: JSON schema discovery and configuration file schema reference management
 - **Schema Discovery**: Finds schema file alongside binary using multiple strategies
 - **Auto-Management**: Adds/updates `$schema` reference in configuration files
@@ -738,29 +745,29 @@ Insert-only settings:
 
 ### Utility Files:
 
-#### 9. `macrowhisper/Networking/SocketCommunication.swift` (794 lines)
+#### 9. [src/macrowhisper/Networking/SocketCommunication.swift](../../src/macrowhisper/Networking/SocketCommunication.swift)
 - **Purpose**: CLI command handling, action execution for CLI
 - **Key Methods**: `applyInsert()`, `applyInsertWithoutEsc()`, `processInsertAction()`
 - **Integration**: Configuration updates, placeholder processing
 - **CLI parity**: Insert CLI execution applies `inputCondition` and `.autoPaste`/`.none` hard overrides
 
-#### 10. `macrowhisper/Utils/Placeholders.swift` (427 lines)
+#### 10. [src/macrowhisper/Utils/Placeholders.swift](../../src/macrowhisper/Utils/Placeholders.swift)
 - **Purpose**: Dynamic content replacement
 - **Placeholder Types**: XML, meta.json fields, date formatting
 - **Action-Aware**: Different escaping for different action types
 
-#### 11. `macrowhisper/Utils/Accessibility.swift` (254 lines)
+#### 11. [src/macrowhisper/Utils/Accessibility.swift](../../src/macrowhisper/Utils/Accessibility.swift)
 - **Purpose**: macOS accessibility integration
 - **Key Features**: Input field detection, keyboard simulation
 - **ESC Logic**: Smart ESC handling based on application state
 
 ### Supporting Files:
 
-#### 12. `macrowhisper/History/HistoryManager.swift` (115 lines)
+#### 12. [src/macrowhisper/History/HistoryManager.swift](../../src/macrowhisper/History/HistoryManager.swift)
 - **Purpose**: Recording cleanup based on retention policies
 - **Cleanup Logic**: Age-based deletion with safety checks
 
-#### 13. `macrowhisper/Utils/Logger.swift` (110 lines)
+#### 13. [src/macrowhisper/Utils/Logger.swift](../../src/macrowhisper/Utils/Logger.swift)
 - **Purpose**: Comprehensive logging with file rotation
 - **Global Functions**: `logDebug()`, `logInfo()`, `logWarning()`, `logError()`
 

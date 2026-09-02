@@ -1,0 +1,233 @@
+# Configuration
+
+[← Documentation index](README.md) · [Actions](actions.md) · [Triggers and conditions](triggers-and-conditions.md) · [Examples](examples.md)
+
+## Configuration Basics
+
+This section is the best place to start if you want to customize behavior.
+
+### The top-level structure
+
+```json
+{
+  "$schema": "file:///path/to/macrowhisper-schema.json",
+  "configVersion": 2,
+  "defaults": {},
+  "inserts": {},
+  "urls": {},
+  "shortcuts": {},
+  "scriptsShell": {},
+  "scriptsAS": {}
+}
+```
+
+About `$schema`:
+
+- Macrowhisper manages it automatically
+- it helps editors validate the JSON and suggest keys
+- most users never need to edit the schema path by hand
+
+### The recommended workflow
+
+For most people, the safest setup is:
+
+- keep `"autoUpdateConfig": true`
+- let Macrowhisper normalize the config on startup
+- create or remove actions with CLI commands instead of always adding everything in the JSON by hand
+
+Examples:
+
+- `--add-insert`
+- `--add-url`
+- `--add-shortcut`
+- `--add-shell`
+- `--add-as`
+- `--remove-action`
+
+Why this is easier:
+
+- it avoids JSON mistakes
+- it keeps the config aligned with the current format
+- it reduces confusion around `null`, empty strings, and template values
+
+Manual JSON editing is still fine when you want to adjust settings and action content. The schema exists to help.
+
+### A simple way to think about defaults and overrides
+
+Use this mental model:
+
+- `defaults` = your normal behavior
+- action-level values = exceptions for one specific action
+
+In `configVersion: 2`:
+
+- action-level `null` usually means "inherit from `defaults`"
+- `""` usually means "intentionally empty"
+
+Important exceptions:
+
+- `defaults.activeAction`: `null` or `""` means there is no fallback action
+- `action`: empty string means "run this action with an empty payload"
+
+Quick reference:
+
+| Field type | If action value is `null` | If action value is set |
+| --- | --- | --- |
+| Boolean and number overrides such as `simEsc`, `restoreClipboard`, `actionDelay`, `simReturn`, `simKeypress`, `smartCasing`, `smartPunctuation`, `smartSpacing` | Use the matching value from `defaults` | The action value wins |
+| `moveTo` | Use `defaults.moveTo` | The action value wins |
+| `icon` | Use `defaults.icon` | The action value wins |
+| `nextAction` | Use `defaults.nextAction` on the first step only | The action value wins |
+| `action` | No fallback from `defaults` | The action payload is used directly |
+
+### Special `action` values
+
+Macrowhisper includes a few built-in action shortcuts.
+
+#### All action types
+
+- `action: ".none"`
+
+This applies:
+
+- `action = ""`
+- `inputCondition = ""`
+- `simEsc = false`
+- `restoreClipboard = false`
+
+Use it when you want a safe do-nothing template with no payload.
+
+#### Insert actions
+
+- `action: ".autoPaste"`
+
+This applies:
+
+- `inputCondition = "!restoreClipboard|!simEsc"`
+- `simEsc = false`
+- `restoreClipboard = false`
+
+It is designed to feel like Superwhisper's normal auto-paste behavior.
+
+Simple summary:
+
+- inside text fields, Macrowhisper behaves like a normal insert flow
+- outside text fields, it avoids ESC simulation and clipboard restoration
+
+#### Shortcut actions
+
+- `action: ".run"`
+
+This runs the Shortcut without sending any input payload.
+
+### Empty and `null` values that turn things off
+
+| Field | Empty or `null` means |
+| --- | --- |
+| `defaults.activeAction` | No fallback action |
+| `defaults.nextAction` | No default next step |
+| `defaults.bypassModes` | Bypass behavior is off |
+| `defaults.clipboardIgnore` | No clipboard ignore rules |
+| `triggerVoice` / `triggerApps` / `triggerModes` / `triggerUrls` | That trigger type is not configured |
+
+### Quick examples
+
+```json
+"action": ""
+```
+
+Meaning: the action runs with an empty payload.
+
+```json
+"action": ".none"
+```
+
+Meaning: use the built-in do-nothing template.
+
+```json
+"restoreClipboard": null
+```
+
+Meaning: inherit `defaults.restoreClipboard`.
+
+```json
+"icon": null
+```
+
+Meaning: inherit `defaults.icon`.
+
+```json
+"icon": ""
+```
+
+Meaning: explicitly show no icon for this action.
+
+### For advanced users
+
+If you prefer editing everything by hand:
+
+- `defaults` is required
+- `defaults.watch` may be omitted or set to `null`; both use the built-in default watch folder
+- any action you define must include `action`
+- `autoUpdateConfig` defaults to `true`, so set it to `false` only if you want to manage format updates yourself
+
+If you want to go back to a built-in root default later, set that defaults value to null (or remove it), set autoUpdateConfig: true, and restart the service. On startup, Macrowhisper will resolve it and write the effective value back into the file.
+
+Versioning notes:
+
+- `configVersion: 2` is the current format
+- if `configVersion` is missing, Macrowhisper treats it as legacy behavior
+- with `autoUpdateConfig: true`, startup can rewrite the config to keep it current
+
+---
+
+## Global Defaults Reference
+
+These settings live under `defaults`.
+
+At the defaults level, `null` is accepted for backward compatibility, but auto-updated configs are normalized toward explicit persisted values.
+
+When Macrowhisper creates a configuration, it selects the Superwhisper folder once and writes the resolved path to `defaults.watch`. It first honors Superwhisper's configured folder, then checks the current `~/superwhisper` and legacy `~/Documents/superwhisper` locations. Paths inside the user's home directory are written with `~` so configs stay portable and do not expose the local username; custom locations outside the home directory remain absolute. If Superwhisper has not created either folder yet, Macrowhisper uses `~/superwhisper`, matching new Superwhisper installations. Healthy explicit `watch` values are never migrated automatically. If a configured recordings folder later moves or disappears, Macrowhisper checks Superwhisper's current preference and the known legacy-to-current location, requires a real replacement `recordings` folder, and persists an unambiguous repair. If recovery is not immediately possible, Macrowhisper waits for the original folder to return and occasionally checks whether Superwhisper's setting now points to a valid location. This lightweight recovery monitoring stops as soon as the recordings folder is available again.
+
+| Key | Type | Default | What it controls |
+| --- | --- | --- | --- |
+| `watch` | string/null | detected once when generated | Path to the Superwhisper folder that contains `recordings`. New configs usually use `~/superwhisper`; legacy and custom Superwhisper locations are detected and preserved. Omit or use `null` only for backward compatibility with the legacy built-in fallback. |
+| `disableUpdateCheck` | bool/null | `false` | Turns periodic update checks off. |
+| `muteNotifications` | bool/null | `false` | Turns notifications off. |
+| `activeAction` | string/null | `"autoPaste"` | Fallback action when no trigger matches. Empty or `null` means none. |
+| `icon` | string/null | `""` | Default icon for actions. Empty or `null` means no default icon. |
+| `moveTo` | string/null | `""` | What to do with processed recording folders: move them, delete them, or do nothing. Empty or `null` means no default move behavior. |
+| `simEsc` | bool/null | `true` | Simulate ESC before actions. |
+| `simKeypress` | bool/null | `false` | Type characters instead of pasting for insert actions. |
+| `smartCasing` | bool/null | `true` | Adjust capitalization at insert boundaries. |
+| `smartPunctuation` | bool/null | `true` | Clean punctuation conflicts at insert boundaries. |
+| `smartSpacing` | bool/null | `true` | Clean spacing at insert boundaries. |
+| `actionDelay` | number/null | `0` | Delay before the action starts. |
+| `history` | int/null | `null` | How long to keep old recording folders. |
+| `simReturn` | bool/null | `false` | Press Return after an insert action, including empty or `.none` inserts. |
+| `returnDelay` | number/null | `0.15` | Delay before pressing Return. |
+| `restoreClipboard` | bool/null | `true` | Restore the original clipboard after the action flow ends. |
+| `restoreClipboardDelay` | number/null | `0.3` | Delay before restoring the clipboard. |
+| `scheduledActionTimeout` | number/null | `5` | How long one-time runtime actions stay pending when no recording starts. |
+| `scriptAsync` | bool/null | `true` | Whether Shortcut, shell, and AppleScript actions run asynchronously by default. |
+| `scriptWaitTimeout` | number/null | `3` | Max wait time when `scriptAsync` is `false`. |
+| `clipboardStacking` | bool/null | `false` | Choose all eligible clipboard operations or only the most recent one for text context and attachment handoff. Actions can override it. |
+| `clipboardAttachments` | bool/null | `false` | Preserve supported files and raw images for a later manual paste, independently of `{{clipboardContext}}` placeholder use. Actions can override it. |
+| `clipboardBuffer` | number/null | `5` | How many seconds of clipboard history to capture before recording. |
+| `clipboardIgnore` | string/null | `""` | Regex for apps that should be ignored during clipboard capture. Empty or `null` means no ignore rules. |
+| `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that should bypass Macrowhisper. Empty or `null` disables bypass. |
+| `muteTriggers` | bool/null | `false` | Mute trigger matching globally. |
+| `autoUpdateConfig` | bool/null | `true` | Automatically refresh config format and schema fields. |
+| `redactedLogs` | bool/null | `true` | Hide sensitive content in logs. |
+| `nextAction` | string/null | `""` | Default next action to use as the first chain step. Empty or `null` means no default chain step. |
+
+Practical note about `actionDelay`:
+
+By default it is `0`, which is usually fine. But URL and script actions can sometimes happen before Superwhisper's recording window has fully settled. If that creates UI timing issues, try a small delay such as `0.05` to `0.2`.
+
+### Validation rules involving defaults
+
+- `defaults.activeAction` must exist if it is not empty
+- `defaults.nextAction` must exist if it is not empty
+- `defaults.activeAction` cannot equal `defaults.nextAction`
+
+---

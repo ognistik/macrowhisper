@@ -1,5 +1,11 @@
 # Macrowhisper CLI - Codebase Map
 
+[Documentation index](../README.md)
+
+This map is an implementation index for contributors. Paths are rooted at the
+repository; source-file links point into `src/` and remain valid from this
+document's location.
+
 ## Overview
 
 **Macrowhisper** is an automation layer for **Superwhisper**. It watches recording folders, validates completed transcription results, enriches them with app and clipboard context, then resolves and executes actions through a shared runtime used by both the watcher and CLI.
@@ -56,7 +62,7 @@ src/
 
 ## Core Components
 
-### 1. Main Application (`main.swift`)
+### 1. Main Application ([src/macrowhisper/main.swift](../../src/macrowhisper/main.swift))
 - Parses CLI commands, starts the socket server, and owns watcher lifecycle
 - Applies startup config auto-update when `defaults.autoUpdateConfig` is enabled
 - Exposes config utilities like `--update-config`, `--validate-config`, `--set-config`, and `--reset-config`
@@ -65,7 +71,7 @@ src/
 
 ### 2. Configuration System
 
-#### `AppConfiguration.swift`
+#### [src/macrowhisper/Config/AppConfiguration.swift](../../src/macrowhisper/Config/AppConfiguration.swift)
 - Defines the full config model and sets `currentConfigVersion = 2`
 - Centralizes defaults and normalized persistence behavior for root defaults and all action types
 - Provides `clipboardAttachments` (default `false`) with nullable action overrides; the effective root setting applies to the full chain and enables native handoff independently of string-placeholder use
@@ -76,7 +82,7 @@ src/
   - `.none` for explicit no-op behavior
   - `.run` for shortcut execution without input payload
 
-#### `ConfigurationManager.swift`
+#### [src/macrowhisper/Config/ConfigurationManager.swift](../../src/macrowhisper/Config/ConfigurationManager.swift)
 - Loads config from explicit path, saved path, or default path
 - Performs semantic validation, not just JSON decoding
 - Auto-migrates legacy naming/semantics to config version 2 when allowed
@@ -85,7 +91,7 @@ src/
 
 ### 3. Recording / Watcher Pipeline
 
-#### `RecordingsFolderWatcher.swift`
+#### [src/macrowhisper/Watcher/RecordingsFolderWatcher.swift](../../src/macrowhisper/Watcher/RecordingsFolderWatcher.swift)
 - Main runtime path for new recordings
 - Starts early clipboard monitoring as soon as a recording folder appears
 - Waits for a valid result using LLM-aware validation:
@@ -99,18 +105,18 @@ src/
   4. active action fallback
 - Includes burst protection, stalled-recording timeout handling, folder deletion cleanup, and recovery for interrupted sessions
 
-#### `SuperwhisperFolderWatcher.swift`
+#### [src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift](../../src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift)
 - Keeps the service running even when the Superwhisper recordings folder does not exist yet
 - Hands off cleanly to `RecordingsFolderWatcher` once the folder appears
 
 `RecordingsFolderWatcher` also monitors the configured Superwhisper parent for rename/delete/revoke events. A broken path triggers a quick recovery sequence that checks Superwhisper's preference and the known legacy-to-current move and persists only a verified replacement. If no replacement is ready, a lightweight recovery state watches for the original path to return and checks Superwhisper's preference once per minute until service resumes.
 
-#### `ConfigChangeWatcher.swift`
+#### [src/macrowhisper/Watcher/ConfigChangeWatcher.swift](../../src/macrowhisper/Watcher/ConfigChangeWatcher.swift)
 - Watches the config file path and triggers live reloads without restarting the daemon
 
 ### 4. Action Runtime
 
-#### `ActionExecutor.swift`
+#### [src/macrowhisper/Utils/ActionExecutor.swift](../../src/macrowhisper/Utils/ActionExecutor.swift)
 - Shared execution engine for watcher-driven actions
 - Resolves action chains at runtime and detects duplicate/missing/cyclic chains
 - Applies legacy template overrides and `inputCondition` across all action types
@@ -118,7 +124,7 @@ src/
 - Supports synchronous script-like steps and carries their outputs forward as `actionResult` / `actionResults`
 - Applies `moveTo`/deletion behavior after execution when a real recording folder exists
 
-#### `TriggerEvaluator.swift`
+#### [src/macrowhisper/Utils/TriggerEvaluator.swift](../../src/macrowhisper/Utils/TriggerEvaluator.swift)
 - Evaluates triggers across all action types
 - Supports voice, front app, mode, and browser URL matching
 - Ranks actual positive matches with built-in voice > mode > URL > app priority; exception-only rules are catch-alls and action name is the final tie-breaker
@@ -128,7 +134,7 @@ src/
 
 ### 5. Clipboard and Context Capture
 
-#### `ClipboardMonitor.swift`
+#### [src/macrowhisper/Utils/ClipboardMonitor.swift](../../src/macrowhisper/Utils/ClipboardMonitor.swift)
 - Maintains two clipboard layers:
   - lightweight global history for pre-recording context
   - per-recording session monitoring for active action execution
@@ -142,7 +148,7 @@ src/
 
 ### 6. Placeholder / Context System
 
-#### `Placeholders.swift`
+#### [src/macrowhisper/Utils/Placeholders.swift](../../src/macrowhisper/Utils/Placeholders.swift)
 - Expands standard placeholders such as `{{swResult}}`, `{{selectedText}}`, `{{clipboardContext}}`, and `{{frontApp}}`
 - Keeps `{{clipboardContext}}` string-only; attachment-only operations expand to an empty placeholder while attachments-enabled watcher chains hand supported attachments off independently of placeholder use
 - Supports nested `meta.json` traversal, including arrays and objects
@@ -155,14 +161,14 @@ src/
   - `{{segments}}` for readable speaker-formatted transcript output
 
 #### Supporting Context Utilities
-- `RecordingReferenceResolver.swift`: resolves current/latest/prior recording folders for placeholders and CLI commands
-- `AppVocabulary.swift`: derives app-specific vocabulary from accessibility data
-- `BrowserURLNormalization.swift`: normalizes browser URLs for trigger matching and placeholder use
-- `SmartInsertBoundary.swift` and `SimReturnBehavior.swift`: keep insert formatting and return timing consistent
+- [src/macrowhisper/Utils/RecordingReferenceResolver.swift](../../src/macrowhisper/Utils/RecordingReferenceResolver.swift): resolves current/latest/prior recording folders for placeholders and CLI commands
+- [src/macrowhisper/Utils/AppVocabulary.swift](../../src/macrowhisper/Utils/AppVocabulary.swift): derives app-specific vocabulary from accessibility data
+- [src/macrowhisper/Utils/BrowserURLNormalization.swift](../../src/macrowhisper/Utils/BrowserURLNormalization.swift): normalizes browser URLs for trigger matching and placeholder use
+- [src/macrowhisper/Utils/SmartInsertBoundary.swift](../../src/macrowhisper/Utils/SmartInsertBoundary.swift) and [src/macrowhisper/Utils/SimReturnBehavior.swift](../../src/macrowhisper/Utils/SimReturnBehavior.swift): keep insert formatting and return timing consistent
 
 ### 7. CLI / Inter-Process Communication
 
-#### `SocketCommunication.swift`
+#### [src/macrowhisper/Networking/SocketCommunication.swift](../../src/macrowhisper/Networking/SocketCommunication.swift)
 - Runs the Unix socket server used by CLI commands
 - Reuses watcher-like action semantics for CLI execution
 - Supports:
@@ -174,12 +180,12 @@ src/
 - Preserves CLI clipboard behavior separately from watcher execution while matching chain-level restore semantics; pure CLI and `copyAction` do not perform attachment handoff, although supported original restoration may be shared
 
 ### 8. Supporting Infrastructure
-- `SchemaManager.swift`: finds a local schema and manages `$schema` references without requiring network access
-- `HistoryManager.swift`: deletes old recording folders based on `defaults.history`
-- `ServiceManager.swift`: install/start/stop/restart/uninstall for launchd service mode
-- `Logger.swift`: central logging with redaction-aware helpers
-- `NotificationManager.swift`: user-facing alerts for startup/config/runtime issues
-- `VersionChecker.swift`: optional update checks
+- [src/macrowhisper/Utils/SchemaManager.swift](../../src/macrowhisper/Utils/SchemaManager.swift): finds a local schema and manages `$schema` references without requiring network access
+- [src/macrowhisper/History/HistoryManager.swift](../../src/macrowhisper/History/HistoryManager.swift): deletes old recording folders based on `defaults.history`
+- [src/macrowhisper/Utils/ServiceManager.swift](../../src/macrowhisper/Utils/ServiceManager.swift): install/start/stop/restart/uninstall for launchd service mode
+- [src/macrowhisper/Utils/Logger.swift](../../src/macrowhisper/Utils/Logger.swift): central logging with redaction-aware helpers
+- [src/macrowhisper/Utils/NotificationManager.swift](../../src/macrowhisper/Utils/NotificationManager.swift): user-facing alerts for startup/config/runtime issues
+- [src/macrowhisper/Networking/VersionChecker.swift](../../src/macrowhisper/Networking/VersionChecker.swift): optional update checks
 
 ---
 
@@ -268,8 +274,8 @@ src/
 
 ## Key Files for Development
 
-- **Pipeline**: `RecordingsFolderWatcher.swift`, `ActionExecutor.swift`, `ClipboardMonitor.swift`
-- **Config / migration**: `AppConfiguration.swift`, `ConfigurationManager.swift`, `macrowhisper-schema.json`
-- **Triggering / placeholders**: `TriggerEvaluator.swift`, `Placeholders.swift`
-- **CLI parity**: `SocketCommunication.swift`, `main.swift`, `RecordingReferenceResolver.swift`
-- **Support behavior**: `SmartInsertBoundary.swift`, `SimReturnBehavior.swift`, `AppVocabulary.swift`
+- **Pipeline**: [RecordingsFolderWatcher.swift](../../src/macrowhisper/Watcher/RecordingsFolderWatcher.swift), [ActionExecutor.swift](../../src/macrowhisper/Utils/ActionExecutor.swift), [ClipboardMonitor.swift](../../src/macrowhisper/Utils/ClipboardMonitor.swift)
+- **Config / migration**: [AppConfiguration.swift](../../src/macrowhisper/Config/AppConfiguration.swift), [ConfigurationManager.swift](../../src/macrowhisper/Config/ConfigurationManager.swift), [macrowhisper-schema.json](../../src/macrowhisper-schema.json)
+- **Triggering / placeholders**: [TriggerEvaluator.swift](../../src/macrowhisper/Utils/TriggerEvaluator.swift), [Placeholders.swift](../../src/macrowhisper/Utils/Placeholders.swift)
+- **CLI parity**: [SocketCommunication.swift](../../src/macrowhisper/Networking/SocketCommunication.swift), [main.swift](../../src/macrowhisper/main.swift), [RecordingReferenceResolver.swift](../../src/macrowhisper/Utils/RecordingReferenceResolver.swift)
+- **Support behavior**: [SmartInsertBoundary.swift](../../src/macrowhisper/Utils/SmartInsertBoundary.swift), [SimReturnBehavior.swift](../../src/macrowhisper/Utils/SimReturnBehavior.swift), [AppVocabulary.swift](../../src/macrowhisper/Utils/AppVocabulary.swift)

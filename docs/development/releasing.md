@@ -1,38 +1,14 @@
 # Releasing Macrowhisper
 
+[Documentation index](../README.md)
+
 The release helper keeps builds inside the repository, signs and notarizes the
 standalone executable, packages the executable with its JSON schema, and prepares
 the installer, Homebrew formula, and GitHub release.
 
-## Local test builds
-
-Use a local Xcode build when you only need a binary to test. This does not sign,
-notarize, package, update release metadata, or create a GitHub release.
-
-From the repository root, build a debug binary:
-
-```sh
-xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Debug -derivedDataPath .build/local-xcode build
-```
-
-Run the generated binary from:
-
-```sh
-.build/local-xcode/Build/Products/Debug/macrowhisper
-```
-
-For a release-optimized local binary, use the same build command with the
-`Release` configuration:
-
-```sh
-xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -derivedDataPath .build/local-xcode build
-```
-
-Run the generated release binary from:
-
-```sh
-.build/local-xcode/Build/Products/Release/macrowhisper
-```
+Run the commands in this guide from the repository root. For the signed local
+binary used for manual testing, including its stable output path and signature
+checks, see the [development build and test guide](README.md).
 
 ## One-time setup
 
@@ -67,6 +43,11 @@ Run a non-mutating preflight if desired:
 ```sh
 scripts/release.sh draft 2.1.1 --dry-run
 ```
+
+The dry run still performs external preflight checks, including GitHub CLI
+authentication/release lookup and an Apple notary profile history request. It
+does not build, sign, notarize, package, create a GitHub draft, or update the
+formula.
 
 Build, sign, notarize, package, and create the GitHub draft:
 

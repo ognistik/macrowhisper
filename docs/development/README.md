@@ -1,32 +1,180 @@
 # Macrowhisper Development Guide
 
+[Documentation index](../README.md)
+
+This guide covers local compilation, signed manual-test binaries, focused
+regression runners, and the common source changes that affect Macrowhisper's
+runtime. The [codebase map](codebase-map.md) describes ownership and the
+[processing flow](processing-flow.md) follows a recording through execution.
+
 ## Quick Start
 
-### Building
+### Swift package compile check
+
+`src/Package.swift` declares one executable target and no test target. Use
+Swift Package Manager for a source and dependency compile check; its output is
+not the normal binary for Accessibility testing.
+
+From the repository root:
+
 ```bash
-cd src
-swift build
+swift build --package-path src --scratch-path "$PWD/.build/swiftpm"
 ```
+
+The executable is at `.build/swiftpm/debug/macrowhisper`. The `swift build`
+output is suitable for compile checks; use the signed Xcode output below when
+testing keyboard insertion or other Accessibility-dependent behavior.
+
+### Signed Xcode build for manual testing
+
+The Xcode project signs local builds. Its Debug configuration uses the
+`Apple Development` identity with automatic signing and team `T25AGZF6DS`;
+its macOS Release configuration uses `Developer ID Application` with manual
+signing and the same team. Inspect the settings before a build so the identity
+and team used by Xcode remain consistent:
+
+```bash
+xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -showBuildSettings | grep -E 'CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM'
+```
+
+Build the signed Release binary into the stable local derived-data directory:
+
+```bash
+LOCAL_BINARY=".build/local-xcode/Build/Products/Release/macrowhisper"
+if test -x "$LOCAL_BINARY"; then
+  codesign -d -r- "$LOCAL_BINARY" 2>&1
+fi
+xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -derivedDataPath .build/local-xcode build
+```
+
+Verify the identity and signature before launching it:
+
+```bash
+LOCAL_BINARY=".build/local-xcode/Build/Products/Release/macrowhisper"
+test -x "$LOCAL_BINARY"
+codesign -d -r- "$LOCAL_BINARY" 2>&1
+codesign --display --verbose=4 "$LOCAL_BINARY" 2>&1 | grep -E 'Identifier=|TeamIdentifier=|Authority='
+codesign --verify --strict --verbose=2 "$LOCAL_BINARY"
+```
+
+If the stable output path already contains a binary, run `codesign -d -r-`
+against it before rebuilding and compare that designated requirement with the
+new binary after the build. This makes an identity or team change visible
+before you grant the replacement binary Accessibility access.
+
+The signature output must show the configured `Developer ID Application`
+authority and team `T25AGZF6DS`. If Xcode cannot sign with that identity,
+report the signing failure and stop; do not replace the binary with an ad hoc
+or unsigned build. A valid signature does not grant Accessibility permission
+or guarantee that macOS TCC permission survives a rebuild. Grant permission to
+this exact binary in System Settings when macOS requests it, and reauthorize
+after a path or signing-identity change if needed.
+
+For debugger-oriented work, use the signed Debug configuration and the same
+derived-data directory. Debug uses `Apple Development` and its output path is
+`.build/local-xcode/Build/Products/Debug/macrowhisper`; inspect and verify it
+with the same commands, substituting `Debug` and `Apple Development`.
 
 ### Running in Development
 ```bash
 # Start with verbose logging
-./macrowhisper --verbose
+.build/local-xcode/Build/Products/Release/macrowhisper --verbose
 
 # Use custom config for testing
-./macrowhisper --config ~/test-config.json --verbose
+.build/local-xcode/Build/Products/Release/macrowhisper --config ~/test-config.json --verbose
 ```
 
 ### Testing CLI Commands
 ```bash
 # Test service management
-./macrowhisper --service-status
+.build/local-xcode/Build/Products/Release/macrowhisper --service-status
 
 # Test configuration
-./macrowhisper --get-config
+.build/local-xcode/Build/Products/Release/macrowhisper --get-config
 
 # Test inserts (requires running daemon)
-./macrowhisper --list-inserts
+.build/local-xcode/Build/Products/Release/macrowhisper --list-inserts
+```
+
+The commands above use the verified signed Xcode binary. They communicate
+with the normal service where a command requires a daemon; do not infer a
+successful compile from a service command's result.
+
+The `--config` flag persists the normalized path for later runs and applies it
+to a running daemon when possible, so it is not an isolated per-command
+override. Inspect the current selection, choose a different path, or restore
+the default path explicitly:
+
+```bash
+.build/local-xcode/Build/Products/Release/macrowhisper --get-config
+.build/local-xcode/Build/Products/Release/macrowhisper --set-config "$HOME/test-config.json"
+.build/local-xcode/Build/Products/Release/macrowhisper --reset-config
+```
+
+`--get-config` reports the saved or effective path; `--set-config` changes it;
+`--reset-config` removes the saved path and returns to the default.
+
+## Focused regression runners
+
+The files in `src/Tests/` are standalone executables, not XCTest cases. Each
+runner has an `@main` entry point and must be compiled as its own binary. Run
+these commands from the repository root on macOS; Cocoa and Application
+Services runners require the macOS SDK. The commands do not build the package
+or start the service.
+
+Create a disposable output directory first:
+
+```bash
+mkdir -p .build/regressions
+```
+
+Use this form for every runner:
+
+```bash
+swiftc -parse-as-library <compile-inputs> -o .build/regressions/<runner>
+.build/regressions/<runner>
+```
+
+The compile inputs and runner names are:
+
+| Runner | Compile inputs |
+| --- | --- |
+| `cli-clipboard-chain-state` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/Tests/CLIClipboardChainStateRegression.swift` |
+| `defaults-watch` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/Tests/DefaultsWatchRegression.swift` |
+| `action-chain-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/ActionChainValidationRegression.swift` |
+| `input-condition-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/InputConditionValidationRegression.swift` |
+| `recording-reference-selection` | `src/macrowhisper/Utils/RecordingReferenceResolver.swift` + `src/Tests/RecordingReferenceSelectionRegression.swift` (the runner supplies its manager/watcher stubs) |
+| `recording-metadata-settle-policy` | `src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift` + `src/Tests/RecordingMetadataSettlePolicyRegression.swift` |
+| `sim-return-behavior` | `src/macrowhisper/Utils/SimReturnBehavior.swift` + `src/Tests/SimReturnBehaviorRegression.swift` |
+| `smart-insert-boundary` | `src/macrowhisper/Utils/SmartInsertBoundary.swift` + `src/Tests/SmartInsertBoundaryRegression.swift` |
+| `smart-insert-heuristics` | `src/macrowhisper/Utils/SmartInsertBoundary.swift` + `src/macrowhisper/Utils/SmartInsertHeuristics.swift` + `src/Tests/SmartInsertHeuristicsRegression.swift` |
+| `browser-url-normalization` | `src/macrowhisper/Utils/BrowserURLNormalization.swift` + `src/Tests/BrowserURLNormalizationRegression.swift` |
+| `trigger-priority` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerPriorityRegression.swift` |
+| `trigger-url-matching` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerUrlMatchingRegression.swift` |
+| `placeholder-regex-pipeline` | `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderRegexPipelineRegression.swift` |
+| `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` |
+| `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
+| `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
+| `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |
+
+For example, the configuration and clipboard runners can be compiled as
+follows (repeat the same pattern for the other rows):
+
+```bash
+swiftc -parse-as-library \
+  src/macrowhisper/Config/AppConfiguration.swift \
+  src/macrowhisper/Config/ConfigurationManager.swift \
+  src/Tests/ConfigurationValidationTestStubs.swift \
+  src/Tests/InputConditionValidationRegression.swift \
+  -o .build/regressions/input-condition-validation
+.build/regressions/input-condition-validation
+
+swiftc -parse-as-library \
+  src/macrowhisper/Utils/ClipboardMonitor.swift \
+  src/Tests/ClipboardMonitorTestStubs.swift \
+  src/Tests/ClipboardTransientActivityRegression.swift \
+  -o .build/regressions/clipboard-transient-activity
+.build/regressions/clipboard-transient-activity
 ```
 
 ### Testing Insert `inputCondition`
@@ -80,7 +228,7 @@ swift build
 1. Add the placeholder logic in `processDynamicPlaceholders()` in `Placeholders.swift`
 2. If using accessibility APIs, add the function to `Accessibility.swift`
 3. For session-based placeholders, enhance `ClipboardMonitor` and `ActionExecutor`
-4. Update documentation in `CODEBASE_MAP.md`
+4. Update the [codebase map](codebase-map.md)
 5. Test with various action types and escaping scenarios
 
 #### Available Placeholders (As of Latest Version)
@@ -165,4 +313,4 @@ else if key == "myNewData" {
 - Input-field state for conditional behavior is evaluated live per executed step.
 - Attachment context and the original clipboard snapshot are separate; final attachment handoff/restoration occurs only at execution-group finalization, never between chain steps.
 
-See `CODEBASE_MAP.md` for detailed architecture documentation. 
+See the [codebase map](codebase-map.md) for detailed architecture documentation.
