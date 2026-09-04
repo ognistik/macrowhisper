@@ -2,29 +2,25 @@
 
 ## UNRELEASED
 
+---
+## [v2.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.2.0) - 2026/09/04
+
 ### Added
-* Added opt-in `clipboardAttachments` support for handing off files and raw clipboard images for a later manual paste, independently of whether the action uses the string-only `{{clipboardContext}}` placeholder. The default is `false`, and actions can override the setting for their full chain.
+* **Clipboard attachments:** enable `clipboardAttachments` to keep copied files and images ready for a manual paste after a successful dictation action. It is off by default and can be enabled globally or per action for the full chain. `{{clipboardContext}}` stays text-only; you do not need to use that placeholder to collect attachments.
 
 ### Improved
-* When several actions match at once, Macrowhisper now chooses voice triggers first, followed by Superwhisper modes, browser URLs, and apps. More-specific matches win within each level, while auto-return keeps its existing one-time insert and fallback behavior.
-* CLI action logs now warn when a newer Superwhisper recording is still missing its expected `llmResult` and an older valid recording is used instead, making silent LLM failures easier to diagnose without timer-based warning noise.
-* With clipboard stacking disabled, the latest eligible clipboard operation now controls both outputs: a later text copy supersedes an earlier clipboard attachment and normal clipboard restoration applies. With stacking enabled, eligible attachment operations accumulate in capture order.
-* Recording recovery is now a synchronous session boundary: a new dictation fully closes superseded watchers, timers, clipboard sessions, and execution-group state before monitoring begins for the replacement recording.
-* Execution groups are reused only for short, genuine action or clipboard-restoration overlaps. Recordings that are merely waiting for transcription or LLM output no longer share clipboard or selection context, and stale groups are rejected defensively.
-* Recovery logging now reports aborted execution groups and context counts, while clipboard snapshot logs include the root recording and context age for diagnosis.
-* Clipboard diagnostics now distinguish immediate Superwhisper result matches from active polling and timeouts.
+* **More predictable triggers:** when several actions match, voice commands take priority, followed by Superwhisper modes, browser URLs, and apps. More-specific matches win within each level.
+* **Attachment stacking:** with `clipboardStacking` enabled, copied attachments are collected in order. With stacking disabled, the latest eligible copy wins, so a later eligible text copy clears the earlier attachment from the handoff.
+* **Clearer troubleshooting:** CLI logs now warn when a newer recording has a transcript but is still missing its expected AI result and an older recording is used instead. Clipboard and recording-recovery logs are also easier to follow.
+* **Easier-to-navigate documentation:** the setup guide and full reference are now organized into focused topics, with clearer examples and troubleshooting advice.
 
 ### Fixed
-* Invalid `triggerLogic` values no longer silently behave as `or`. They now fail configuration validation with the affected action path, use the existing configuration-error notification flow, and are refused defensively by trigger evaluation.
-* Fixed the documented app-vocabulary extraction regression runner failing to compile because its focused test harness was missing the front-app identity stub.
-* Mode triggers no longer activate when Superwhisper does not provide a mode name.
-* Fixed voice commands sometimes failing to activate Macrowhisper actions when using Superwhisper's S1 Language together with S1 Voice. Macrowhisper now briefly waits for the original spoken words before checking voice triggers, without slowing down other model combinations.
-* Fixed stale `{{clipboardContext}}` stacks leaking into later dictations when a Superwhisper LLM request failed or never produced `llmResult`.
-* Recovery now clears the targeted session-level clipboard history and pre-recording stack—not only global clipboard history—while preserving the user's current clipboard instead of restoring an obsolete snapshot.
-* Fixed an occasional issue where content copied during a dictation—especially a repeat copy of the same item—could be missing from `{{clipboardContext}}`. Clipboard capture is now more reliable while continuing to exclude Superwhisper's own clipboard activity and duplicated transcription results.
-* Fixed Superwhisper background clipboard activity occasionally entering `{{clipboardContext}}` at recording startup. Macrowhisper now filters unchanged rewrites around folder detection and brief copy-and-restore sequences outside input fields—including ones that finish between clipboard polls and cases where Finder briefly copies a selected filename—while preserving genuine clipboard changes.
-* Fixed transient or unmarked clipboard rewrites—including Superwhisper result copies arriving between polls—occasionally entering `{{clipboardContext}}`. Macrowhisper now reconciles the pasteboard before freezing action-chain context, recognizes formatting-only result differences such as capitalization, surrounding whitespace, and terminal punctuation, and preserves genuine user clipboard changes without delaying actions when the result is already present.
-* Fixed action-level `moveTo: ""` handling so it keeps the recording folder in place even when `defaults.moveTo` is nonempty; `null`/omitted still inherit, while paths and `.delete` override.
+* Voice commands now activate reliably when using Superwhisper's S1 Language together with S1 Voice.
+* Failed or unfinished AI requests no longer let old clipboard context leak into later dictations. Starting a new recording clears stale session data while preserving your current clipboard.
+* Content copied during dictation, including repeated copies of the same item, is captured more reliably in `{{clipboardContext}}`.
+* Superwhisper's background clipboard activity and duplicate dictation results are filtered out more reliably, including brief copy-and-restore activity and formatting-only differences.
+* Mode triggers no longer match when Superwhisper provides no mode name. Invalid `triggerLogic` values now report a configuration error instead of silently behaving as `or`.
+* Setting an action's `moveTo` to `""` now keeps its recording folder in place even when a default destination is set. Omitted or `null` values still inherit the default.
 
 ---
 ## [v2.1.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.1.1) - 2026/07/20

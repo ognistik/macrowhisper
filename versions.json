@@ -1,4 +1,4 @@
 {
-  "description": "* Per-action `clipboardStacking` overrides.\n* Improved Superwhisper folder detection and automatic reconnection.\n* Smart insertion refinements for ellipses and Markdown syntax.\n* Minor clipboard filtering and stability improvements.",
-  "version": "2.1.1"
+  "description": "* Optional clipboard attachments: keep copied files and images ready to paste.\n* More predictable voice, mode, URL, and app trigger priority.\n* More reliable clipboard context and recovery after unfinished AI requests.\n* Fixes for S1 voice commands and configuration overrides.",
+  "version": "2.2.0"
 }
