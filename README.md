@@ -167,6 +167,6 @@ For complete feature explanations, configuration examples, and troubleshooting, 
 
 You can also share the index with an AI assistant and describe what you want Macrowhisper to do. Ask it to read the relevant linked pages to help you set up a workflow, understand a feature, or troubleshoot your configuration.
 
-The [Alfred workflow](alfred/README.md), [Macrowhisper repository](https://github.com/ognistik/macrowhisper), and [issue tracker](https://github.com/ognistik/macrowhisper/issues) are also available.
+The [Alfred workflow](alfred/README.md) and [issue tracker](https://github.com/ognistik/macrowhisper/issues) are also available.
 
 If Macrowhisper is useful in your workflow, you can [buy me a coffee](https://buymeacoffee.com/afadingthought/). Macrowhisper is an independent project and is not affiliated with Superwhisper.
