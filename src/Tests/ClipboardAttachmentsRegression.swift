@@ -275,6 +275,185 @@ private func runClipboardAttachmentsRegression() {
         "original capture retains both advertised PNG and TIFF representations"
     )
 
+    // Finder publishes an icon as one ICNS-only pasteboard item. AppKit adds
+    // public/legacy TIFF flavors at the pasteboard level and can synthesize
+    // the TIFF data there, but the item itself does not advertise TIFF.
+    let finderIconPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.finder-icon-fallback.\(UUID().uuidString)")
+    )
+    let finderIconType = NSPasteboard.PasteboardType("com.apple.icns")
+    let finderIconURL = URL(
+        fileURLWithPath: "/System/Library/CoreServices/Finder.app/Contents/Resources/Finder.icns"
+    )
+    guard let finderIconData = try? Data(contentsOf: finderIconURL) else {
+        fatalError("Could not load the Finder icon fixture")
+    }
+    let finderIconItem = NSPasteboardItem()
+    assertAttachment(
+        finderIconItem.setData(finderIconData, forType: finderIconType),
+        "Finder icon fixture writes its ICNS representation"
+    )
+    assertAttachment(
+        finderIconPasteboard.writeObjects([finderIconItem]),
+        "Finder icon fixture writes one pasteboard item"
+    )
+    assertAttachment(
+        finderIconPasteboard.pasteboardItems?.count == 1 &&
+            finderIconPasteboard.pasteboardItems?.first?.types == [finderIconType],
+        "Finder icon fixture keeps ICNS on the item without item-level TIFF"
+    )
+    assertAttachment(
+        finderIconPasteboard.types?.contains(.tiff) == true &&
+            finderIconPasteboard.data(forType: .tiff)?.isEmpty == false,
+        "Finder icon fixture exposes synthesized TIFF at pasteboard level"
+    )
+    let finderIconSnapshot = captureClipboardPasteboardSnapshot(
+        from: finderIconPasteboard,
+        source: "regression-finder-icon-fallback",
+        captureOriginalSnapshot: true
+    )
+    let finderIconTIFFData: Data? = {
+        guard let item = finderIconSnapshot?.payload.items.first,
+              case .imageTIFF(let data) = item else {
+            return nil
+        }
+        return data
+    }()
+    assertAttachment(
+        finderIconSnapshot?.payload.items.count == 1 && finderIconTIFFData != nil,
+        "Finder icon capture promotes its pasteboard-level TIFF to one image attachment"
+    )
+    assertAttachment(
+        finderIconTIFFData.flatMap(NSBitmapImageRep.init(data:)).map {
+            $0.pixelsWide > 0 && $0.pixelsHigh > 0
+        } == true,
+        "Finder icon fallback TIFF is decodable"
+    )
+    assertAttachment(
+        finderIconSnapshot?.originalSnapshot?.isComplete == true &&
+            finderIconSnapshot?.originalSnapshot?.items.first?.representations ==
+                finderIconTIFFData.map { [.tiff($0)] },
+        "Finder icon original snapshot retains the promoted TIFF representation"
+    )
+
+    let finderIconMaterializationRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("macrowhisper-finder-icon-materialization-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: finderIconMaterializationRoot) }
+    let finderIconStore = ClipboardAttachmentFileStore(rootDirectory: finderIconMaterializationRoot)
+    let finderIconHandoff = finderIconStore.prepare(finderIconSnapshot?.payload ?? ClipboardPayload(items: []))
+    assertAttachment(
+        finderIconHandoff.materializedImageCount == 1 &&
+            finderIconHandoff.transcodedTIFFImageCount == 1 &&
+            finderIconHandoff.fileURLs.first?.pathExtension == "png",
+        "Finder icon TIFF uses the existing PNG materialization path"
+    )
+    assertAttachment(
+        finderIconHandoff.fileURLs.first.flatMap { try? Data(contentsOf: $0) }
+            .flatMap(NSBitmapImageRep.init(data:)) != nil,
+        "Finder icon materialization produces a decodable PNG without a clipboard write"
+    )
+
+    let finderIconDisabledSnapshot = captureClipboardPasteboardSnapshot(
+        from: finderIconPasteboard,
+        source: "regression-finder-icon-disabled",
+        includeAttachments: false
+    )
+    assertAttachment(
+        finderIconDisabledSnapshot?.payload.items.isEmpty == true &&
+            finderIconDisabledSnapshot?.payload.retainedImageByteCount == 0,
+        "disabled attachment capture does not read or retain the pasteboard-level TIFF"
+    )
+
+    let multiItemFallbackPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.multi-item-fallback.\(UUID().uuidString)")
+    )
+    let multiItemIcon = NSPasteboardItem()
+    multiItemIcon.setData(finderIconData, forType: finderIconType)
+    let multiItemFileURL = URL(fileURLWithPath: "/private/tmp/multi-item-fallback.txt")
+    let multiItemFile = NSPasteboardItem()
+    multiItemFile.setString(multiItemFileURL.absoluteString, forType: .fileURL)
+    assertAttachment(
+        multiItemFallbackPasteboard.writeObjects([multiItemIcon, multiItemFile]),
+        "multi-item fallback fixture writes its ICNS and file URL items"
+    )
+    let multiItemFallbackSnapshot = captureClipboardPasteboardSnapshot(
+        from: multiItemFallbackPasteboard,
+        source: "regression-multi-item-fallback",
+        captureOriginalSnapshot: true
+    )
+    assertAttachment(
+        multiItemFallbackSnapshot?.payload.items == [.fileURL(multiItemFileURL)] &&
+            multiItemFallbackSnapshot?.payload.items.contains {
+                if case .imagePNG = $0 { return true }
+                if case .imageTIFF = $0 { return true }
+                if case .unavailableImage = $0 { return true }
+                return false
+            } == false,
+        "multi-item pasteboards do not misattribute an aggregate TIFF to an ICNS item"
+    )
+    assertAttachment(
+        multiItemFallbackSnapshot?.originalSnapshot?.isComplete == false &&
+            multiItemFallbackSnapshot?.originalSnapshot?.items.contains {
+                $0.representations.contains {
+                    if case .tiff = $0 { return true }
+                    return false
+                }
+            } == false,
+        "multi-item original capture leaves the unsupported ICNS item incomplete without a guessed TIFF"
+    )
+
+    let emptyImageObservation = ClipboardPayload(items: [])
+    let missingImageObservation = ClipboardPayload(items: [
+        .unavailableImage(format: .tiff, byteCount: 0, reason: .missingData)
+    ])
+    let retainedImageObservation = ClipboardPayload(items: [.imageTIFF(tiff)])
+    assertAttachment(
+        shouldUpgradeClipboardImageObservation(
+            existing: emptyImageObservation,
+            incoming: retainedImageObservation
+        ) &&
+            clipboardObservationMergeDecision(
+                hasExistingObservation: true,
+                existingPayload: emptyImageObservation,
+                incomingPayload: retainedImageObservation
+            ) == .upgradeMissingContent,
+        "an empty same-count image observation upgrades when retained image data arrives"
+    )
+    assertAttachment(
+        shouldUpgradeClipboardImageObservation(
+            existing: missingImageObservation,
+            incoming: retainedImageObservation
+        ) &&
+            clipboardObservationMergeDecision(
+                hasExistingObservation: true,
+                existingPayload: missingImageObservation,
+                incomingPayload: retainedImageObservation
+            ) == .upgradeMissingContent,
+        "a missing-data image observation upgrades when retained image data arrives"
+    )
+    for reason in [
+        ClipboardAttachmentDropReason.aggregateLimit,
+        .featureDisabled
+    ] {
+        let unavailableImageObservation = ClipboardPayload(items: [
+            .unavailableImage(format: .tiff, byteCount: tiff.count, reason: reason)
+        ])
+        assertAttachment(
+            !shouldUpgradeClipboardImageObservation(
+                existing: unavailableImageObservation,
+                incoming: retainedImageObservation
+            ),
+            "\(reason.rawValue) image observations do not re-upgrade"
+        )
+    }
+    assertAttachment(
+        !shouldUpgradeClipboardImageObservation(
+            existing: retainedImageObservation,
+            incoming: ClipboardPayload(items: [.imagePNG(png)])
+        ),
+        "complete image observations do not get replaced by another representation"
+    )
+
     let unsupportedPasteboard = NSPasteboard(
         name: NSPasteboard.Name("macrowhisper.unsupported-representation.\(UUID().uuidString)")
     )

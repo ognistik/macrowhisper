@@ -1797,20 +1797,27 @@ func captureClipboardPasteboardSnapshot(
         let types = pasteboard.types ?? []
         let content = pasteboard.string(forType: .string)
         let pasteboardItems = pasteboard.pasteboardItems ?? []
-        let itemRepresentations = pasteboardItems.map {
+        var itemRepresentations = pasteboardItems.map {
             readClipboardPasteboardItemRepresentations(
                 $0,
                 includeAttachments: includeAttachments,
                 captureAllImageRepresentations: captureOriginalSnapshot
             )
         }
+        itemRepresentations = supplementClipboardImageRepresentations(
+            itemRepresentations,
+            from: pasteboard,
+            legacyText: content,
+            includeAttachments: includeAttachments,
+            captureAllImageRepresentations: captureOriginalSnapshot
+        )
         let unsupportedOnlyItemCount = itemRepresentations.filter { item in
             item.text == nil &&
                 !item.hasFileURLRepresentation &&
                 !item.hasPNGRepresentation &&
                 !item.hasTIFFRepresentation
         }.count
-        let unsupportedPasteboardOnlyCount = pasteboardItems.isEmpty &&
+        let unsupportedPasteboardOnlyCount = itemRepresentations.isEmpty &&
             !types.isEmpty && content == nil ? 1 : 0
         let payload = makeClipboardPayload(
             items: itemRepresentations,
@@ -1911,6 +1918,40 @@ private func readClipboardPasteboardItemRepresentations(
     )
 }
 
+/// AppKit may vend a supported image conversion on the pasteboard even when
+/// its item advertises only a source format (for example Finder's ICNS icons).
+/// The board-level representation is attributable only for a single-item copy.
+private func supplementClipboardImageRepresentations(
+    _ items: [ClipboardPasteboardItemRepresentations],
+    from pasteboard: NSPasteboard,
+    legacyText: String?,
+    includeAttachments: Bool,
+    captureAllImageRepresentations: Bool
+) -> [ClipboardPasteboardItemRepresentations] {
+    guard includeAttachments, items.count <= 1 else { return items }
+    let item = items.first ?? ClipboardPasteboardItemRepresentations(text: legacyText)
+    let types = Set(pasteboard.types ?? [])
+    // A file's image preview must never replace its borrowed file URL. Keep
+    // already readable per-item images authoritative as well.
+    guard !item.hasFileURLRepresentation, !types.contains(.fileURL),
+          item.pngData == nil, item.tiffData == nil else { return items }
+    let hasPNG = types.contains(.png)
+    let hasTIFF = types.contains(.tiff)
+    guard hasPNG || hasTIFF else { return items }
+    let pngData = hasPNG ? pasteboard.data(forType: .png) : nil
+    let tiffData = hasTIFF && (captureAllImageRepresentations || pngData == nil)
+        ? pasteboard.data(forType: .tiff) : nil
+    return [ClipboardPasteboardItemRepresentations(
+        text: item.text,
+        fileURL: item.fileURL,
+        pngData: pngData,
+        tiffData: tiffData,
+        hasFileURLRepresentation: item.hasFileURLRepresentation,
+        hasPNGRepresentation: item.hasPNGRepresentation || hasPNG,
+        hasTIFFRepresentation: item.hasTIFFRepresentation || hasTIFF
+    )]
+}
+
 struct SessionClipboardObservationDecision {
     let shouldCaptureInSessionHistory: Bool
     let shouldCountAsRecentActivity: Bool
@@ -1920,6 +1961,29 @@ enum ClipboardObservationMergeDecision: Equatable {
     case append
     case keepExisting
     case upgradeMissingContent
+}
+
+/// A provider can publish its image after the operation's first empty read,
+/// without advancing changeCount. Repair that observation once bytes arrive;
+/// deliberate budget eviction and complete payloads must not be rerecorded.
+func shouldUpgradeClipboardImageObservation(
+    existing: ClipboardPayload,
+    incoming: ClipboardPayload
+) -> Bool {
+    guard incoming.retainedImageByteCount > 0 else { return false }
+    guard !existing.items.contains(where: { item in
+        if case .unavailableImage(_, _, let reason) = item { return reason != .missingData }
+        return false
+    }) else { return false }
+    let wasUnready = existing.kind == .empty || existing.items.contains { item in
+        if case .unavailableImage(_, _, .missingData) = item { return true }
+        return false
+    }
+    return wasUnready && clipboardObservationMergeDecision(
+        hasExistingObservation: true,
+        existingPayload: existing,
+        incomingPayload: incoming
+    ) == .upgradeMissingContent
 }
 
 func clipboardObservationMergeDecision(
@@ -2525,6 +2589,26 @@ class ClipboardMonitor {
         }
         session.lastCapturedClipboardPayload = incoming.payload
         return decision
+    }
+
+    private func upgradedClipboardImageChange(
+        _ existing: ClipboardChange,
+        snapshot: ClipboardPasteboardSnapshot
+    ) -> ClipboardChange? {
+        guard existing.changeCount == snapshot.changeCount,
+              shouldUpgradeClipboardImageObservation(existing: existing.payload, incoming: snapshot.payload) else {
+            return nil
+        }
+        return ClipboardChange(
+            content: snapshot.payload.textProjection(attachmentsEnabled: true),
+            payload: snapshot.payload,
+            timestamp: existing.timestamp,
+            changeCount: existing.changeCount,
+            frontAppName: existing.frontAppName,
+            frontAppBundleId: existing.frontAppBundleId,
+            pasteboardTypes: snapshot.types.isEmpty ? existing.pasteboardTypes : snapshot.types.map(\.rawValue).sorted(),
+            isSameContentRewrite: existing.isSameContentRewrite
+        )
     }
     
     init(
@@ -4423,6 +4507,32 @@ class ClipboardMonitor {
             }
         }
         
+        // A slow provider can complete the same copy after our first poll.
+        // Repair only a previously accepted observation, preserving its time
+        // and app attribution; never turn a baseline/ignored copy into context.
+        if currentChangeCount == sessionData.lastSeenChangeCount,
+           clipboardAttachmentsEnabled,
+           pasteboardSnapshot.payload.retainedImageByteCount > 0,
+           ignoredMarkerType(in: pasteboardSnapshot.types) == nil,
+           !shouldSuppressClipboardCapture(content: currentClipboard, payload: pasteboardSnapshot.payload, now: Date()) {
+            sessionsQueue.async(flags: .barrier) { [weak self] in
+                guard let self,
+                      var session = self.earlyMonitoringSessions[recordingPath],
+                      session.isActive,
+                      session.lastSeenChangeCount == currentChangeCount,
+                      let existing = session.clipboardChanges.first(where: { $0.changeCount == currentChangeCount }),
+                      shouldIncludeClipboardChange(timestamp: existing.timestamp, resetAt: session.clipboardContextResetAt),
+                      !self.isInferredTransientChangeCountIgnored(currentChangeCount),
+                      let upgraded = self.upgradedClipboardImageChange(existing, snapshot: pasteboardSnapshot) else { return }
+                self.mergeClipboardChange(upgraded, into: &session)
+                self.earlyMonitoringSessions[recordingPath] = session
+                logDebug("[ClipboardMonitor] Session monitoring resolved late image data (changeCount: \(currentChangeCount))")
+                DispatchQueue.global(qos: .utility).async { [weak self] in
+                    self?.enforceMonitorWideImageRetentionBudget()
+                }
+            }
+        }
+
         // Continue monitoring as long as session exists
         // Session cleanup happens naturally when recording is processed
         var shouldContinue = false
@@ -5561,7 +5671,10 @@ class ClipboardMonitor {
         )
     }
 
-    private func mirrorGlobalClipboardChangeIntoMostRecentActiveSession(_ change: ClipboardChange) {
+    private func mirrorGlobalClipboardChangeIntoMostRecentActiveSession(
+        _ change: ClipboardChange,
+        requiresCurrentChangeCount: Bool = false
+    ) {
         // Commit accepted global observations before returning to global cleanup. This makes
         // the active-session copy durable even when its own faster poll initially saw nil data.
         sessionsQueue.sync(flags: .barrier) { [weak self] in
@@ -5581,6 +5694,10 @@ class ClipboardMonitor {
 
             let recordingPath = target.key
             var session = target.value
+
+            if requiresCurrentChangeCount, session.lastSeenChangeCount != change.changeCount {
+                return
+            }
 
             guard shouldIncludeClipboardChange(
                 timestamp: change.timestamp,
@@ -5966,6 +6083,22 @@ class ClipboardMonitor {
                 self.lastSeenChangeCount = currentChangeCount
             }
             
+            // Upgrade a captured but initially empty image operation without
+            // refreshing its buffer age or app attribution.
+            if currentChangeCount == self.lastSeenChangeCount,
+               self.clipboardAttachmentsEnabled,
+               self.ignoredMarkerType(in: pasteboardSnapshot.types) == nil,
+               !self.shouldSuppressClipboardCapture(content: currentClipboard, payload: pasteboardSnapshot.payload, now: now),
+               !self.isInferredTransientChangeCountIgnored(currentChangeCount),
+               let index = self.globalClipboardHistory.firstIndex(where: { $0.changeCount == currentChangeCount }),
+               let upgraded = self.upgradedClipboardImageChange(self.globalClipboardHistory[index], snapshot: pasteboardSnapshot) {
+                self.globalClipboardHistory[index] = upgraded
+                self.lastSeenClipboardContent = currentClipboard
+                self.lastSeenClipboardPayload = pasteboardSnapshot.payload
+                self.mirrorGlobalClipboardChangeIntoMostRecentActiveSession(upgraded, requiresCurrentChangeCount: true)
+                logDebug("[ClipboardMonitor] Global monitoring resolved late image data (changeCount: \(currentChangeCount))")
+            }
+
             // Clean up old entries beyond the buffer time (keep only last 5 seconds)
             let cutoffTime = now.addingTimeInterval(-self.preRecordingBuffer)
             let beforeCount = self.globalClipboardHistory.count
