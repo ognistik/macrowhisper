@@ -4,11 +4,13 @@
 
 ## Clipboard Behavior
 
-Most users can skip this section. It matters mainly for debugging and advanced setups.
+First, apply the [recommended Superwhisper settings](getting-started.md#set-up-superwhisper): **Clipboard content → Replace with dictation**, **Clipboard history: On**, **Paste result text: Off**, and **Simulate keypresses: Off**. Clipboard history On is recommended for finding and reusing dictations in clipboard-history apps; Off is also supported. Let Macrowhisper handle insertion and restoration. The details below are mainly for debugging and advanced setups.
 
 ### Why Macrowhisper handles the clipboard carefully
 
 Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrowhisper's clipboard system exists to reduce race conditions and prevent stale clipboard values from leaking into later actions.
+
+Superwhisper marks dictations as transient when its **Clipboard history** setting is Off, telling clipboard-history apps to skip them. Macrowhisper still counts transient clipboard activity for synchronization while excluding it from captured clipboard context. With history On, result reconciliation keeps recognized Superwhisper result writes out of context too. The history toggle is not a Macrowhisper detection requirement and does not control restoration of the original clipboard. It only controls Superwhisper's writes: Macrowhisper's paste-based inserts write ordinary text that clipboard-history apps may capture even with Superwhisper's history Off.
 
 ### The main timing values
 
@@ -80,7 +82,7 @@ Macrowhisper also respects clipboard items marked as concealed.
 
 ### Best practices
 
-1. Keep Superwhisper clipboard restoration off.
+1. Keep Superwhisper's **Clipboard content** set to **Replace with dictation**. We recommend **Clipboard history: On** for visibility in clipboard-history apps; choose Off if you prefer those apps to skip Superwhisper's writes. Control restoration with Macrowhisper's `restoreClipboard` setting.
 2. Start with `clipboardBuffer: 5` if you use `{{clipboardContext}}`.
 3. Turn on `clipboardStacking` globally or only for the actions that actually need several clipboard items.
 4. Use `clipboardIgnore` for password managers and other noisy apps.
@@ -95,7 +97,7 @@ The short version:
 - if you need Macrowhisper to wait, set `scriptAsync: false`
 - when restoration is effective, it happens according to `restoreClipboardDelay` on the final chain step
 
-Because Superwhisper always interacts with the clipboard, the safest way to pass earlier clipboard content into scripts is usually to use `{{clipboardContext}}` instead of reading the live clipboard during script execution.
+With the recommended setup, Superwhisper writes its result to the clipboard. To pass earlier clipboard content into scripts, use `{{clipboardContext}}` instead of reading the live clipboard during script execution.
 
 ---
 

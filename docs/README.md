@@ -33,6 +33,7 @@ For release-specific behavior, consult the documentation at that release's Git t
 ## Find an answer by task
 
 - **Set up a voice command:** read [triggers and conditions](triggers-and-conditions.md), then choose an [action type](actions.md).
+- **Configure Superwhisper for first use or after an update:** follow the [recommended setup](getting-started.md#set-up-superwhisper), then check [matching Macrowhisper settings](getting-started.md#if-you-change-these-settings) if you change window, insertion, or restoration behavior.
 - **Change a default or override one action:** read [configuration](configuration.md), then the relevant fields in [actions](actions.md).
 - **Use selected text, app information, or clipboard context:** read [placeholders and context](placeholders-and-context.md); use [clipboard and recordings](clipboard-and-recordings.md) for restoration and attachment behavior.
 - **Run several steps or reuse script output:** read [actions](actions.md), then [examples](examples.md).

@@ -7,6 +7,8 @@ It can paste or type the result, open a URL, run a macOS Shortcut, run a shell c
 [![Swift](https://img.shields.io/badge/Swift-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-macOS-blue.svg)](https://www.apple.com/macos/)
 
+> **Before your first dictation:** configure Superwhisper using the [first-use checklist](#first-use) below. Its paste and clipboard settings need to work with Macrowhisper; leaving them at their defaults can cause conflicting clipboard changes or duplicate insertion.
+
 ## Requirements
 
 - macOS 12.4 or later. This is the deployment target configured for the current macOS executable.
@@ -32,12 +34,22 @@ The script installs the prebuilt release specified in the script and its JSON sc
 
 ## First use
 
-In Superwhisper, set these options so Macrowhisper owns the paste and clipboard flow:
+Start with these settings in **Superwhisper → Configuration → Text input**, as shown below. Superwhisper supplies the dictation; Macrowhisper's insert actions handle pasting or typing it and restoring your clipboard.
 
-- `Recording Window`: ON
-- `Paste Result Text`: OFF
-- `Restore Clipboard After Paste`: OFF
-- `Simulate Key Presses`: OFF
+| Superwhisper setting | Recommended value |
+| --- | --- |
+| Clipboard content | **Replace with dictation** |
+| Clipboard history | **On** (recommended; see below) |
+| Paste result text | **Off** |
+| Simulate keypresses | **Off** |
+
+![Superwhisper Text input settings: Clipboard content is Replace with dictation; Clipboard history is on; Paste result text and Simulate keypresses are off.](docs/assets/superwhisper-text-input.jpg)
+
+**Clipboard history: On** lets clipboard-history apps retain Superwhisper's dictations, making them easier to find and reuse. **Off** marks Superwhisper's writes as transient so those apps skip them. Macrowhisper handles transient clipboard activity too, so On is a convenience recommendation, not a requirement for detection. You can choose Off; it controls Superwhisper's writes, while Macrowhisper's own inserts can still produce clipboard-history entries.
+
+Also set Superwhisper's **Recording Window** to **Classic** or **Mini**, its **Cancel recording** shortcut to **Escape (Esc)**, and **Always close** to **Off**. Macrowhisper's default `simEsc: true` lets actions dismiss the recording window with Escape before running. The generated `autoPaste` action skips Escape outside text fields.
+
+If you choose **None** for the recording window or enable **Always close**, set Macrowhisper's `defaults.simEsc` to `false`. See [setup alternatives](docs/getting-started.md#if-you-change-these-settings) for matching options, clipboard restoration, and typing instead of pasting.
 
 Then create the configuration, check its path, validate it, and start the background service:
 

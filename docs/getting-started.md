@@ -136,14 +136,34 @@ verifies its SHA-256 hash before copying the binary.
 
 ### Set up Superwhisper
 
-These settings matter:
+**Do this before your first dictation.** Superwhisper's default paste and clipboard settings can conflict with Macrowhisper. For the recommended setup, let Superwhisper produce the dictation and let Macrowhisper's insert actions handle insertion and clipboard restoration.
 
-- Recording Window: ON
-- Paste Result Text: OFF
-- Restore Clipboard After Paste: OFF
-- Simulate Key Presses: OFF
+In **Superwhisper → Configuration → Text input**, use these settings ([screenshot](assets/superwhisper-text-input.jpg)):
 
-Macrowhisper should be the one handling paste, clipboard, and key behavior.
+| Superwhisper setting | Recommended value | Why it matters |
+| --- | --- | --- |
+| Clipboard content | **Replace with dictation** | Lets Macrowhisper recognize Superwhisper's result on the clipboard and coordinate its own clipboard changes. |
+| Clipboard history | **On** (recommended) | Lets clipboard-history apps retain dictations so you can find and reuse them. Off remains an option; see below. |
+| Paste result text | **Off** | Macrowhisper chooses whether and what to insert. Enabling both can insert text twice or paste dictation intended for another action. |
+| Simulate keypresses | **Off** | Macrowhisper controls pasting or typing through its insert actions. |
+
+Also configure Superwhisper's recording window and shortcut:
+
+| Superwhisper setting | Recommended value | Why it matters |
+| --- | --- | --- |
+| Recording Window | **Classic** or **Mini** | Gives Macrowhisper a recording window to dismiss before the action runs. |
+| Cancel recording shortcut | **Escape (Esc)** | Macrowhisper sends Escape to close the recording window. |
+| Always close | **Off** | Lets Macrowhisper control when the window closes through `simEsc`. |
+
+Keep Macrowhisper's built-in defaults for this setup: `simEsc: true`, `simKeypress: false`, and `restoreClipboard: true`. Action overrides and special payloads can change their effective behavior; the generated `autoPaste` action is explained under [First test](#first-test).
+
+Older Superwhisper versions used **Restore Clipboard After Paste**; keep that **Off** if your version still shows it. With the current wording, use **Clipboard content → Replace with dictation**, and let Macrowhisper restore the previous clipboard.
+
+Superwhisper's **Clipboard history** help explains that On lets apps such as Maccy, Paste, or Alfred keep each dictation; Off marks dictations as transient so those apps skip them. A transient marker does not make the current clipboard unpasteable, but its contents may be absent from your clipboard manager's history.
+
+Macrowhisper already accounts for transient clipboard activity during synchronization. **On is recommended for visibility and reuse, not required for detection.** Choose Off if you prefer clipboard-history apps to skip Superwhisper's writes. This setting is separate from Macrowhisper's `restoreClipboard` and clipboard-context capture settings.
+
+The toggle only controls Superwhisper's writes. Macrowhisper's paste-based inserts write ordinary clipboard text, including the generated `autoPaste` action outside text fields, so clipboard-history apps may still capture that output with Superwhisper's history Off. Off therefore does not guarantee that dictation processed by Macrowhisper stays out of history.
 
 ### Open or create your config
 
@@ -173,7 +193,24 @@ Dictate once in a normal text field.
 
 By default, Macrowhisper creates an `autoPaste` action and sets it as `defaults.activeAction`, so the starting behavior should feel very close to normal Superwhisper paste behavior.
 
+This is still a Macrowhisper insert action: keep Superwhisper's **Paste result text** off. Its special `.autoPaste` payload adapts to whether you are in a text field; outside text fields it avoids Escape and clipboard restoration. For an ordinary insert governed by your defaults, use `"action": "{{swResult}}"`. See [special action values](configuration.md#special-action-values) for the full behavior.
+
 If that works, the basic setup is done.
+
+### If you change these settings
+
+| What you want | Superwhisper setting | Matching Macrowhisper setting |
+| --- | --- | --- |
+| No recording window | Recording Window: **None** | Set `defaults.simEsc: false` so Escape is not sent to the app you are using. |
+| Superwhisper closes the window automatically | Always close: **On** | Set `defaults.simEsc: false` to avoid an extra Escape after the window closes. |
+| Have clipboard-history apps skip Superwhisper's writes | Clipboard history: **Off** | No matching Macrowhisper change is needed. Transient clipboard activity is handled; Macrowhisper's own clipboard output may still appear in history. |
+| A different cancel shortcut | Change Cancel recording | Macrowhisper's simulated key is fixed to Escape. Set `defaults.simEsc: false` and arrange for the window to close another way. |
+| Type into an app that blocks paste | Keep Paste result text and Simulate keypresses **Off** | Set `simKeypress: true` on that Macrowhisper insert action, or `defaults.simKeypress: true` for all inserts. |
+| Keep the action's clipboard output instead of restoring the previous clipboard | Keep Clipboard content: **Replace with dictation** | Set `restoreClipboard: false` on the action, or `defaults.restoreClipboard: false` globally. This disables restoration; it does not force a typing or non-insert action to copy its output. |
+
+Edit these fields in your existing configuration, then run `macrowhisper --validate-config`. Check action-level overrides too: an explicit `simEsc: true` overrides `defaults.simEsc: false`; `null` or omission inherits the default. Disabling Escape does not disable ordinary action-chain clipboard restoration. One-shot auto-return has different restoration rules; see [Clipboard behavior](clipboard-and-recordings.md#clipboard-behavior).
+
+Changing window behavior does not require changing the **Text input** settings. Keep **Clipboard content → Replace with dictation**, **Paste result text: Off**, and **Simulate keypresses: Off** for Macrowhisper-managed insertion; choose **Clipboard history** according to whether you want dictations retained by clipboard-history apps. To change how text is inserted or restored, use Macrowhisper's settings.
 
 ---
 

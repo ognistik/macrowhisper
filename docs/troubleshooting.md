@@ -2,7 +2,7 @@
 
 [← Documentation index](README.md) · [CLI reference](cli-reference.md) · [Configuration](configuration.md)
 
-When something feels off, start here.
+When something feels off, start here. After installing or updating Superwhisper, check the [recommended setup](getting-started.md#set-up-superwhisper), including its clipboard settings, recording window, and Escape shortcut.
 
 ## First checks
 
@@ -66,8 +66,9 @@ macrowhisper --verbose
   folder, or pending work
 - confirm the active action is not empty
 - confirm no bypass mode is active
-- confirm Superwhisper's `Paste Result Text`, restore, and simulated-key
-  settings are off as described in [Getting started](getting-started.md)
+- confirm Superwhisper's **Clipboard content** is **Replace with dictation**,
+  with **Paste result text** and **Simulate keypresses**
+  off as described in [Getting started](getting-started.md#set-up-superwhisper)
 - wait for a valid result: `llmResult` is required when `languageModelName` is
   non-empty; otherwise `result` must be a non-empty string
 - a recording folder without a WAV file has a 17-second grace period, and
@@ -75,7 +76,15 @@ macrowhisper --verbose
 
 ### Double paste
 
-- make sure Superwhisper's `Paste Result Text` is OFF
+- make sure Superwhisper's **Paste result text** and **Simulate keypresses** are **Off**; Macrowhisper's insert action handles insertion
+
+### The recording window stays open, or Escape dismisses something in my app
+
+- for the recommended setup, use Superwhisper's **Classic** or **Mini** recording window, set **Cancel recording** to **Escape**, and turn **Always close** off
+- if the window is **None**, or Superwhisper closes it automatically, set `defaults.simEsc: false` and check for action-level `simEsc: true` overrides
+- if the window stays open, check the effective `simEsc` setting and macOS Accessibility permission; the generated `.autoPaste` payload deliberately avoids Escape outside text fields
+- if closing is unreliable with the recommended setup, try `defaults.actionDelay` of `0.05` to `0.2` seconds
+- see [setup alternatives](getting-started.md#if-you-change-these-settings) for the matching settings
 
 ### A trigger does not fire
 
@@ -96,7 +105,14 @@ macrowhisper --verbose
 - adjust `clipboardBuffer`
 - add `clipboardIgnore` patterns
 - disable conflicting clipboard manager behavior
-- keep Superwhisper clipboard restore off
+- keep Superwhisper's **Clipboard content** set to **Replace with dictation**; use Macrowhisper's `restoreClipboard` for restoration
+
+### Dictation is on the clipboard but missing from clipboard history
+
+- Superwhisper's **Clipboard history: Off** marks dictations as transient so clipboard-history apps skip them; this does not prevent pasting the current clipboard
+- use **Clipboard history: On** if you want your clipboard-history app to retain those dictations; Off is still supported by Macrowhisper
+- Macrowhisper's paste-based inserts, including `.autoPaste` outside text fields, write ordinary clipboard text that history apps may still capture even when Superwhisper's history is Off
+- clipboard-history apps have their own capture and filtering settings; On allows retention rather than guaranteeing an entry in every app
 
 ### Config edits are not taking effect
 
