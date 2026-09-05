@@ -1,0 +1,221 @@
+# Local configuration editor plan
+
+[Documentation index](../README.md) · [Development guide](README.md)
+
+Status: proposed implementation plan, prepared September 5, 2026 against `main` at `c88ad1f` (2.2.0). No editor functionality is implemented by this document. The experimental branch is `feat/web-config-editor`, checked out separately in `../macrowhisper-editor` so the original checkout can remain on `main`.
+
+## Product goal and decisions
+
+Give people a comfortable way to configure Macrowhisper without learning JSON. The existing configuration file remains canonical, and manual editing remains supported. The editor presents actions, defaults, inheritance, and conditions as understandable controls over the same behavior.
+
+The brief establishes these decisions:
+
+- Serve a local editor from the existing daemon. Use a predictable loopback port with an available-port fallback and Unix-socket discovery. No editor-port setting in the configuration for the first milestone.
+- Add `--editor` and `-e` to open it, and `--editor-url` to print an authenticated opening URL without opening the browser.
+- Save discrete choices immediately. Save text inputs and textareas when the user leaves the editing control, including numeric text inputs. No timer-based text autosave and no global Save button.
+- Show Defaults first, then actions organized as Inserts, URLs, Shortcuts, Shell, and AppleScript.
+- Show inheritance explicitly and provide action pickers, condition controls, and placeholder insertion. Keep advanced syntax available when richer controls cannot represent it faithfully.
+- Build with React, TypeScript, and Vite; ship static assets with Macrowhisper. Node is a development/build dependency only.
+- Treat polished light and dark modes as a requirement of the first useful editor. Limit the number of supported screens before lowering their design quality.
+- Support manual installation and Homebrew resource layouts before the feature is release-ready.
+
+The first implementation should establish a polished Defaults screen and a complete Insert editing flow. Building all five action editors at once would make the foundational interactions harder to review.
+
+## Findings from the current repository
+
+| Existing foundation | Consequence for the implementation |
+| --- | --- |
+| [AppConfiguration](../../src/macrowhisper/Config/AppConfiguration.swift) has typed models, custom encoding, and version 2 normalization. | Reuse these semantics. A generic JSON form or dictionary-only mutation layer is insufficient. |
+| [ConfigurationManager](../../src/macrowhisper/Config/ConfigurationManager.swift) validates references, conditions, and chains and verifies a temporary file before atomic replacement. | Extract a transaction API around that work. The current `saveConfig()` can return without saving and catches errors despite its `throws` signature; HTTP must not interpret a normal return as successful persistence. |
+| The manager has a serial queue, but not every existing write/callback path forms one atomic transaction. | Audit editor, CLI, watcher, startup normalization, and config-path switching together. Do not add HTTP writes around a separate read/modify/save sequence. |
+| The loader can fall back to in-memory defaults for invalid files and has recovery side effects for empty files/read failures. | Model disk validity separately from runtime configuration. Editor reads and candidate validation must not invoke a loader that can reset files. |
+| [ConfigChangeWatcher](../../src/macrowhisper/Watcher/ConfigChangeWatcher.swift) follows file replacement; manager suppression currently skips the next event. | Preserve replacement and symlink handling, but make internal-write suppression identity-aware so it cannot hide an unrelated external edit. |
+| [SocketCommunication](../../src/macrowhisper/Networking/SocketCommunication.swift) creates the per-user socket with mode `0777`. | A socket path containing a UID does not authenticate its caller. Restrict access and verify peer identity before issuing editor credentials. |
+| [Swifter is already a dependency](../../src/Package.swift); its resolved implementation defaults to a broad listen address and reads declared request bodies before routing. | Set the loopback address explicitly. Prove dynamic-port discovery and stream cancellation, and enforce request limits before body allocation rather than only inside routes. |
+| [SchemaManager](../../src/macrowhisper/Utils/SchemaManager.swift) searches beside the binary, Homebrew share paths, and development locations, with current-directory precedence. | Reuse installation layout concepts, but do not automatically serve executable JavaScript from arbitrary working directories. |
+
+The existing [configuration reference](../configuration.md), [action reference](../actions.md), [conditions](../triggers-and-conditions.md), and [placeholder catalog](../placeholders-and-context.md) remain the canonical behavioral documentation. This plan describes the editor, not another maintained copy of those references.
+
+## Design direction
+
+Reading this as a settings workspace for everyday Superwhisper users, with a restrained monochrome language and familiar macOS interaction patterns. This is a new interface inspired by the user's description of Superwhisper, not a claim to reproduce its current UI or official design tokens.
+
+The requested taste skill is primarily a marketing-page skill and explicitly excludes dense product interfaces. Use accessible form and navigation patterns here. Do not transfer its hero layouts, decorative photography, animation quotas, or section-composition rules into a configuration tool.
+
+### Visual system
+
+- Neutral whites and pale grays in light mode; charcoal surfaces and soft white text in dark mode. Use semantic CSS variables for surfaces, borders, text, selection, focus, and validation states. No decorative color gradients or glass panels.
+- Use the local system sans-serif stack, with a system monospace stack only for payloads, paths, and syntax. Start around 14px body text, 13px supporting text, and 22px screen headings; verify readability rather than shrinking everything to fit.
+- Use a consistent 4px spacing scale, roughly 36px control heights, 8px control corners, and restrained popover elevation. Group related settings with spacing and section separators instead of a card around every field.
+- Keep primary actions monochrome. Use semantic error/warning color sparingly with text and icons so meaning never depends on color alone.
+- Default to the system theme and offer System / Light / Dark. Store this presentation preference in the browser, outside `macrowhisper.json`.
+- Keep motion limited to short focus, selection, disclosure, and status transitions. Respect reduced motion. Working design values: variance 2/10, motion 2/10, density 5/10, adapted to a daily-use settings tool.
+- Use native controls where suitable and a single family of accessible primitives for menus, dialogs, and popovers. Radix Primitives is the proposed foundation because it supplies unstyled behavior that can be designed for this interface. Complex controls still require application-level keyboard and screen-reader testing. [Radix documentation](https://www.radix-ui.com/primitives/docs/overview/introduction).
+
+### Layout and hierarchy
+
+On desktop, use a quiet left sidebar for Defaults and action groups, a searchable action list when a group is selected, and one editing pane. Defaults uses the available content area without an empty action-list column. Keep a compact page title and save state in a stable location. Show the selected configuration path in a secondary details area, especially when a custom path is active.
+
+Defaults should group fields by purpose: general behavior, insertion, clipboard, recordings, chains/scripts, and advanced settings. Insert editing should lead with name and content, then triggers, insertion behavior, clipboard, chaining, recording handling, and advanced options. Frequently used settings stay visible; advanced groups use labeled disclosures. Search should reveal a matching field inside a collapsed group.
+
+On narrow windows, collapse the sidebar into navigation and make the action list and action editor separate views with a clear Back action. No horizontal form scrolling. Verify at 1440, 1024, and 768px widths plus a narrow layout, with 200% zoom and long action names.
+
+The initial frontend milestone must include actual interactive components with synthetic configuration fixtures in both themes. The fixtures must cover a populated Defaults screen, an inherited Insert, a custom override, a built-in template, an invalid field, a conflict, an empty action list, and a disconnected editor. The visual review is an iteration milestone, not a requirement for another permission prompt.
+
+## Editing behavior
+
+### Save and draft states
+
+Each field tracks the server value, local draft, and the revision from which editing began. A dirty text field displays `Unsaved`; a submitted change displays `Saving…`; only a successful server response permits `Saved`. Validation and storage failures retain the draft and explain the problem inline. Provide field-level Revert and an explicit Retry after transport failure.
+
+Treat a textarea plus its placeholder toolbar as one editing boundary. Opening the placeholder menu or clicking an insertion pill must not cause a premature blur-save or lose the insertion position. Leaving that composite control validates and commits the resulting text. Respect IME composition and preserve text selections and undo behavior. Enter inserts a newline in textareas; ordinary single-line fields may commit on Enter.
+
+Serialize outgoing mutations per browser tab. Consecutive rapid choices must not let an older response overwrite the newest local selection. A control must remain visibly pending until acknowledged. After an uncertain network result, fetch the current revision before retrying; do not blindly replay an action creation or rename.
+
+Internal navigation attempts to commit a valid text draft before leaving. Invalid/conflicted drafts remain available and navigation offers an explicit discard choice. Register the browser's unsaved-change warning only while drafts or unacknowledged writes exist; browser close warnings are best-effort, so do not depend on an unload request to save data. Do not persist payload drafts into browser local storage by default.
+
+### Controls must preserve meaning
+
+| Concept | Planned control and behavior |
+| --- | --- |
+| Inheritable boolean | `Default (On)` / `On` / `Off`. The default choice writes inheritance, not the displayed effective value. An accessible description names the Defaults field. |
+| Inheritable number | `Default (0.3 s)` or an explicit numeric value with its unit. Empty typing is a draft, not zero or an implicit reset. |
+| Root default | Show the resolved built-in/default value and field-specific reset behavior. Do not give root defaults an action-style parent inheritance control. Preserve nullable meanings such as history retention. |
+| Action payload | Text plus explicit built-in choices where supported. `action` is required and has no Defaults payload to inherit. Empty text and `.none` remain separate choices. |
+| Built-in templates | Show `.autoPaste` and `.none` as named modes with their actual effective settings. Disable or explain controls overridden by the runtime template. Preserve stored sibling values when viewing/changing modes; do not silently rewrite them. |
+| `nextAction` | Search all five action groups. Include `Default (…)` and explicit `None`; exclude the current action and explain known invalid links. Show that default next-step inheritance applies to the root step only. Server chain validation remains authoritative. |
+| `defaults.activeAction` | Search existing actions, with a clear `None` option. Label it as the fallback action, not the next step. |
+| `moveTo` | Default, Keep recording, Move to folder, Delete recording. Preserve `null`, empty text, a path, and `.delete` respectively. Folder text is not a browser filesystem-browsing API. |
+| `icon` | Default, No icon, or Custom. Do not translate an empty icon to `.none`. |
+| `triggerLogic` | Default / Any (OR) / All (AND), with copy about combining configured trigger types. |
+| Input conditions | For each supported setting, expose Always / Inside a text field / Outside a text field. Explain that an unmet condition generally restores default behavior, while payload behavior has its own rule. These controls serialize tokens without showing pipe syntax as the normal UI. |
+| Trigger expressions | Make ordinary alternatives understandable without losing regex, exclusions, or valid manual expressions. If a value cannot round-trip through a builder, keep it editable in an explicitly advanced text control. |
+| Placeholders | An `Insert placeholder` menu with commonly used choices: Result, Selected text, Clipboard context, Front app, App context, App vocabulary, Date, and Action result. Insert syntax at the caret; do not expand it against private live context in the editor. |
+
+An effective-value explanation is a configuration explanation, not a simulation of execution. Conditions depend on runtime focus, built-in templates can override fields, and clipboard stacking/attachments are controlled by the root action for the full chain. Reuse or extract the production resolution rules where necessary, with regression coverage shared across watcher and CLI expectations.
+
+Existing input-condition strings can contain repeated or conflicting tokens; validation accepts these and the runtime uses the last occurrence. A structured control should prevent generating duplicates, but preserve an existing expression in advanced mode until the user deliberately edits it. Do not silently simplify it when loading. Resolve new-configuration watch paths through the backend's `AppConfiguration.defaultConfig()` behavior, not a hardcoded schema example or the lower-level defaults factory, which still contains the legacy folder path.
+
+### Insert action lifecycle
+
+Include creating, duplicating, renaming, and deleting Inserts before calling the first Insert editor complete. Creation uses a local draft until name and required payload are valid, then creates the whole action in one transaction. An explicit Create action is compatible with avoiding a global Save button.
+
+Names are globally unique across all action types. Rename must update relevant `activeAction` and `nextAction` references atomically across the configuration. For deletion, identify inbound references and block until they are changed, rather than silently deleting or clearing dependent configuration. The UI confirms the concrete deletion. Empty lists offer a clear Create Insert action.
+
+## Backend architecture
+
+```mermaid
+flowchart LR
+    CLI[CLI editor command] --> Socket[Same-user Unix socket]
+    Socket --> HTTP[Editor server]
+    Browser[Browser editor] --> HTTP
+    HTTP --> Manager[ConfigurationManager transaction]
+    Manager --> File[Canonical JSON file]
+    File --> Watcher[Existing file watcher]
+    Watcher --> Manager
+    Manager --> Runtime[Existing runtime callbacks]
+    Manager --> Updates[Revision notifications]
+    Updates --> Browser
+```
+
+Introduce a dedicated `EditorServer` and resource resolver. Keep HTTP routing outside `main.swift`; the entry point owns lifecycle and dependency wiring. Editor startup belongs to daemon startup after configuration/socket setup, including the existing missing-recordings-folder recovery flow. Install runtime callbacks before accepting editor mutations: the current main startup starts the socket before assigning `onConfigChanged`, so simple adjacent startup wiring is insufficient. The editor must remain available when no recordings are being watched or the config is invalid.
+
+Bind explicitly to `127.0.0.1`; do not use Swifter's defaults without proving the address. The example port `49172` is a provisional candidate, not an allocated or guaranteed port. Try the chosen documented default, then let the OS allocate a loopback port and record the bound result. Multiple macOS user sessions must be able to coexist. Editor failure must not take down transcription automation; report it clearly through the editor CLI commands.
+
+`--editor` / `-e` requests a fresh opening URL, opens it with the normal macOS browser mechanism, and prints the clean address. `--editor-url` prints only the fresh authenticated opening URL to stdout, with errors on stderr and a nonzero failure status. If opening the browser fails, explain that `--editor-url` can supply a fresh link. Do not start a second daemon or change service installation automatically when these commands fail.
+
+### Authentication and HTTP boundaries
+
+Issue short-lived, single-use bootstrap tokens only to the same-user CLI. Validate the daemon socket's ownership/type on the client and peer UID on the server; review safe handling of pre-existing socket paths and restrict permissions while preserving same-user CLI behavior.
+
+Keep the clean address separate from the credential-bearing opening URL. Prefer a fragment token, exchanged by the local bootstrap page in a same-origin POST and immediately removed with `history.replaceState`. Tokens and config payloads must not appear in request logs, referrers, analytics, or third-party asset requests. The page loads bundled resources only.
+
+Complete a small authentication/browser spike before locking session storage. A cookie is not automatically the best choice: cookies do not isolate ports, and `Secure` behavior on HTTP loopback must be tested rather than inferred from HTTPS examples. [RFC 6265, weak confidentiality](https://www.rfc-editor.org/rfc/rfc6265#section-8.5), [cookie attributes and localhost behavior](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie).
+
+The preferred prototype is an origin-scoped bearer session in tab memory/session storage, supplied explicitly on API requests, with server-side expiry and invalidation on daemon restart. This allows clean-URL reloads in that tab, but a new tab/bookmark may require `-e` again. Browser-wide clean-bookmark access from the earlier proposal remains a convenience to evaluate; do not claim it works with a tab-only session. Before shipping, document the selected lifetime, reauthentication behavior, and tradeoff.
+
+Validate exact Host including bound port, reject foreign/null Origins on mutations, require JSON plus an explicit authentication header, deny cross-origin API access, and reject unexpected methods/content types. Protect configuration reads as well as writes. Use no-store for private responses, a restrictive CSP with frame embedding disabled, no-referrer, and nosniff. Serve only a bounded asset root, reject traversal/symlink escapes, and enforce request-size, connection, and timeout limits. SameSite alone is not a complete CSRF defense. [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
+
+This protects against unrelated websites and other users obtaining editor access; it is not a sandbox against software already executing as the same macOS user. No action-execution, shell evaluation, arbitrary file-read, or remote-access API is part of the first editor.
+
+### Configuration transaction contract
+
+Define one manager-owned operation with an expected revision and a bounded set of typed edits. Address fields using structured path segments, not dotted strings that misinterpret punctuation in action names. Distinguish an absent edit, an explicit null value, and removal of a field; decoding a partial patch directly into ordinary optional Codable properties loses this distinction. Allow related edits in one atomic transaction for action creation and rename. Route existing CLI mutations through this same transaction boundary, not merely HTTP edits.
+
+The operation must:
+
+1. Enter the manager's serialization boundary, check configuration identity/path and revision, and read the current disk state without loader recovery side effects.
+2. Reject stale, malformed, unsupported-version, or unsupported-field state without replacing it. Initially block editor writes to legacy configurations that require migration; direct users to the existing migration workflow. Do not migrate merely by opening the editor.
+3. Copy the typed candidate, apply only allowed edits, and validate the complete result using the existing semantic rules plus appropriate field type/range constraints. Do not impose new global restrictions on hand-edited configurations unintentionally.
+4. Encode using the established persistence conventions, verify the candidate through a side-effect-free validator, and use a unique temporary sibling of the resolved target. Preserve intended symlink, file-permission, and schema handling.
+5. Recheck the external disk fingerprint as close to replacement as possible, atomically replace the file, and report any failure to the caller. Clean up only the transaction's own temporary file.
+6. Publish the committed in-memory configuration, revision, and runtime reconfiguration event only after persistence succeeds, returning the canonical committed snapshot to the caller. Failure must leave both accepted runtime state and the original valid file unchanged.
+
+Distinguish disk identity/fingerprint, disk validity, and accepted runtime revision. Include a configuration generation that changes on path selection and daemon restart so old browser drafts cannot be applied to a different config. Do not depend solely on file modification time or on the watcher having fired already.
+
+A fingerprint check detects normal concurrent edits, but atomic file replacement is not a filesystem compare-and-swap against an arbitrary noncooperating editor. Test the remaining read/replace window, preserve a recoverable pre-write snapshot, and document this boundary accurately. Do not promise universal race-free external editing on the strength of a revision number.
+
+Typed re-encoding may normalize null/omitted fields and formatting. Preserve their documented semantics. Detect unknown keys before edits so unsupported data cannot be silently dropped; the first implementation may enter read-only mode with a specific explanation rather than attempt lossless editing of a future model.
+
+### API and live synchronization
+
+The initial API should expose an authenticated configuration snapshot, schema/UI metadata, validated mutations, and change notifications. Return stable errors with field path segments and a readable message. Distinguish validation failure, stale revision, authentication expiry, invalid disk state, resource mismatch, and persistence failure.
+
+Keep schema-provided types, descriptions, constraints, and examples separate from a thin UI metadata map that supplies labels, groups, control choices, and special semantics. Generate frontend types where practical; do not hand-maintain a second copy of every configuration field. Add coverage that every editable Defaults and Insert field has metadata or a deliberate read-only explanation. Use stable identifiers and backend path mapping for errors, rather than parsing English validation messages.
+
+Prefer SSE for revision notifications if the resolved server supports cancellable bounded streams. With bearer authentication, use a fetch-based stream or choose bounded polling; native EventSource cannot simply be assumed to send an Authorization header. First prove stream cleanup, sleeping/waking browsers, and reconnect behavior. Notifications announce revision/validity, then the browser fetches a fresh snapshot; missed events are harmless after resynchronization.
+
+Clean fields update on external changes. Dirty fields retain their base value and draft; conflicting writes receive a conflict response rather than silently replacing newer data. Initially offer compare/reload/reapply with explicit user choice instead of an automatic merge. Config-path changes cancel pending writes and require resynchronization. Invalid external JSON displays a blocking file error and identifies runtime fallback separately. The editor must never turn fallback defaults into an automatic replacement for the user's broken file.
+
+## Resources, installation, and documentation
+
+Put frontend source in `editor/` at the repository root, with pinned dependencies and a lockfile. Keep generated frontend output and test artifacts under `.build/`. Vite's production output is static; neither its development server nor `vite preview` is the shipped server. [Vite production build guidance](https://vite.dev/guide/build.html).
+
+Introduce a shared resource resolver while retaining existing schema behavior where compatible. Resolve editor assets from the installed executable/resource root, including resolved Homebrew symlinks, or an explicit development resource path. Do not give arbitrary working-directory JavaScript precedence. Include an asset/API compatibility identifier and fail with a clear diagnostic for missing or incompatible editor resources.
+
+Target Homebrew layout:
+
+```text
+bin/macrowhisper
+share/macrowhisper/macrowhisper-schema.json
+share/macrowhisper/editor/index.html
+share/macrowhisper/editor/assets/...
+```
+
+Coordinate resource copying for signed Xcode builds, the SwiftPM developer workflow, manual archives/install/update/uninstall, and the Homebrew formula. Neither the current SwiftPM target nor the Xcode tool target automatically packages the proposed frontend. The release helper explicitly asserts an archive containing exactly the binary and schema, and the installer copies only those files: update both assembly and verification, plus relevant release changed-file checks. The Homebrew formula is maintained in the separate formula repository; prepare and test a coordinated formula change without publishing it as part of local development.
+
+Test both Apple Silicon and Intel prefix layouts, executable symlinks, paths containing spaces, and an offline launch from an unrelated working directory. Ensure an upgrade cannot leave an old editor paired with a new API and uninstall removes only owned editor assets.
+
+Read the [release guide](releasing.md) before changing release tooling. Testing package construction does not require publishing a release, changing the live Homebrew tap, installing over the user's binary, or modifying launchd. Existing release versions and credentials remain outside this feature's work.
+
+As implementation lands, update root setup/basic usage, CLI help and [CLI reference](../cli-reference.md), relevant configuration/action topics, [codebase map](codebase-map.md), development/resource build instructions, release packaging instructions, and the documentation index. Add a dedicated editor user page when real editor behavior exists; do not document proposed commands as already available.
+
+## Implementation sequence and completion gates
+
+| Milestone | Work and evidence needed to finish |
+| --- | --- |
+| Design the working controls | Build the fixture-backed React shell, Defaults and Insert screens, both themes, inheritance controls, placeholder insertion, blur saving, and error/conflict states. Inspect real rendered views and keyboard behavior; iterate on visual quality before expanding scope. |
+| Establish safe transactions | Extract explicit save results, pure validation, revision/disk state, serialized edits, and post-commit callbacks. Run focused tests for valid/invalid/stale edits, failed writes, symlinks, unknown fields, and interleaved CLI/watcher/editor updates. |
+| Prove local access | Integrate Swifter lifecycle, resource discovery, same-user socket discovery, auth, and CLI opening commands. Verify actual bind addresses, port fallback, bounded requests, browser auth/session behavior, and clear failure states. |
+| Connect the useful slice | Wire every supported Defaults/Insert control to validated persistence; include Insert lifecycle, live synchronization, drafts, and recovery. Demonstrate actual JSON changes without changing watcher/CLI action semantics. |
+| Package and verify | Build frontend assets and SwiftPM successfully; build and verify a signed manual-test binary using the development guide; validate offline resource layouts, local package contents, and installation fixture behavior. Record the binary path and signature. |
+| Expand action coverage | Reuse the proven architecture for URLs, Shortcuts, Shell, and AppleScript. Add their required/type-specific fields and richer text editing; only then tackle optional advanced builders or execution previews. |
+
+Frontend design work and backend transaction work can proceed independently with a shared contract and synthetic fixtures. Delegate bounded tasks with explicit file ownership; integrate and review before parallelizing further. Keep changes small enough to review as coherent commits. Periodically bring main-branch changes into the experimental branch; do not merge or publish the editor until its release gates pass.
+
+### Required regression and manual scenarios
+
+- Invalid types, missing payloads, invalid conditions/trigger logic, duplicate names, missing references, and cycles never replace a valid config. Failed writes never produce `Saved` or a runtime commit.
+- Inheritance survives Default / explicit / Default changes. Test empty strings, explicit false, zero, root resets, built-in sentinel templates, root-only chain defaults, and clipboard root ownership.
+- Immediate toggle changes, blur commits, IME entry, placeholder insertion, long payloads, action navigation, deletion references, and failed requests retain predictable draft behavior.
+- Two tabs and external JSON edits cannot silently apply stale browser mutations. Test external edits arriving before the watcher, during internal-write suppression, successful and failed config path switches, symlink target changes, invalid/empty files, startup callback ordering, and reconnect after daemon restart.
+- Unauthenticated reads and writes, foreign/null Origins, incorrect Hosts, cross-origin preflights/forms, token replay/expiry, other-user socket access, path traversal, oversized requests, and missing assets fail safely. Verify sockets are listening only on the intended loopback address.
+- Existing configuration runners for defaults, chains, input conditions, and trigger logic remain green. Add focused production-backed regression runners for the new transaction and server contracts; the Swift package has no test target.
+- Complete real-browser flows in Safari and a Chromium browser, both themes, keyboard-only navigation, screen-reader labels, 200% zoom, and narrow windows. Verify error contrast and disabled/inherited controls remain readable.
+- Run daemon/watch-folder/CLI integration using the signed workflow in an explicitly isolated test setup. The existing `--config` option persists selection and communicates with the running daemon; a worktree alone does not isolate runtime state. Design the test harness before invoking service-affecting commands.
+
+## Remaining decisions to resolve during implementation
+
+There are no blocking design questions for starting the prototype. The user's monochrome brief, Defaults-first hierarchy, and interaction preferences are clear. The first rendered screens will make typography, density, and grouping much easier to assess than another abstract questionnaire.
+
+Record the chosen default port, auth/session lifetime and new-tab behavior, streaming versus polling result, exact compatible asset layout, and any unsupported advanced trigger/condition expressions after the initial technical spikes. Treat those as engineering decisions to verify, not reasons to postpone the first visual prototype. The next concrete deliverable is that interactive prototype plus the tested transaction foundation, followed by the connected Defaults/Insert slice.
