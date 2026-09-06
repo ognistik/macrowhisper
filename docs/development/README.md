@@ -43,6 +43,14 @@ manual runtime tests. The package has no test target. The focused regression
 runners in `src/Tests/` remain separate standalone binaries and are compiled
 with `swiftc` as listed below.
 
+### Local configuration editor prototype
+
+The experimental React interface runs separately from the daemon and saves
+synthetic fixtures in browser memory. See the [prototype guide](web-editor-prototype.md)
+for development commands, review scenarios, and the persistence boundary.
+Use `swift build --package-path src --scratch-path .build/swiftpm` to keep
+editor-branch compile products under the root `.build/` directory.
+
 ### Signed Xcode build for manual testing
 
 The Xcode project signs local builds. Its Debug configuration uses the
@@ -171,8 +179,10 @@ The compile inputs and runner names are:
 | --- | --- |
 | `cli-clipboard-chain-state` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/Tests/CLIClipboardChainStateRegression.swift` |
 | `defaults-watch` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/Tests/DefaultsWatchRegression.swift` |
-| `action-chain-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/ActionChainValidationRegression.swift` |
-| `input-condition-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/InputConditionValidationRegression.swift` |
+| `config-watcher-lifecycle` | `src/macrowhisper/Watcher/ConfigChangeWatcher.swift` + `src/Tests/ConfigChangeWatcherLifecycleRegression.swift` |
+| `configuration-transactions` | Add `-D CONFIGURATION_TRANSACTION_TESTING`; compile `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/macrowhisper/Config/ConfigurationTransaction.swift` + `src/Tests/ConfigurationTransactionTestStubs.swift` + `src/Tests/ConfigurationTransactionRegression.swift` |
+| `action-chain-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/macrowhisper/Config/ConfigurationTransaction.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/ActionChainValidationRegression.swift` |
+| `input-condition-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/macrowhisper/Config/ConfigurationTransaction.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/InputConditionValidationRegression.swift` |
 | `recording-reference-selection` | `src/macrowhisper/Utils/RecordingReferenceResolver.swift` + `src/Tests/RecordingReferenceSelectionRegression.swift` (the runner supplies its manager/watcher stubs) |
 | `recording-metadata-settle-policy` | `src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift` + `src/Tests/RecordingMetadataSettlePolicyRegression.swift` |
 | `sim-return-behavior` | `src/macrowhisper/Utils/SimReturnBehavior.swift` + `src/Tests/SimReturnBehaviorRegression.swift` |
@@ -181,7 +191,7 @@ The compile inputs and runner names are:
 | `browser-url-normalization` | `src/macrowhisper/Utils/BrowserURLNormalization.swift` + `src/Tests/BrowserURLNormalizationRegression.swift` |
 | `trigger-priority` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerPriorityRegression.swift` |
 | `trigger-url-matching` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerUrlMatchingRegression.swift` |
-| `trigger-logic-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/TriggerLogicValidationRegression.swift` |
+| `trigger-logic-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/macrowhisper/Config/ConfigurationTransaction.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/TriggerLogicValidationRegression.swift` |
 | `placeholder-regex-pipeline` | `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderRegexPipelineRegression.swift` |
 | `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` |
 | `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
@@ -195,6 +205,7 @@ follows (repeat the same pattern for the other rows):
 swiftc -parse-as-library \
   src/macrowhisper/Config/AppConfiguration.swift \
   src/macrowhisper/Config/ConfigurationManager.swift \
+  src/macrowhisper/Config/ConfigurationTransaction.swift \
   src/Tests/ConfigurationValidationTestStubs.swift \
   src/Tests/InputConditionValidationRegression.swift \
   -o .build/regressions/input-condition-validation

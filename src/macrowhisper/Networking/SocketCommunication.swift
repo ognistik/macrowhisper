@@ -1234,7 +1234,10 @@ class SocketCommunication {
     
     // Helper to check if an action name already exists (for duplicate prevention)
     private func actionNameExists(_ actionName: String, configManager: ConfigurationManager) -> Bool {
-        let config = configManager.config
+        actionNameExists(actionName, in: configManager.config)
+    }
+
+    private func actionNameExists(_ actionName: String, in config: AppConfiguration) -> Bool {
         return config.inserts[actionName] != nil ||
                config.urls[actionName] != nil ||
                config.shortcuts[actionName] != nil ||
@@ -1242,6 +1245,14 @@ class SocketCommunication {
                config.scriptsAS[actionName] != nil
     }
     
+    /// Called inside the manager transaction so two clients cannot replace
+    /// an action that was created after the initial convenience check.
+    private func requireAvailableActionName(_ name: String, in config: AppConfiguration) throws {
+        if actionNameExists(name, in: config) {
+            throw ConfigurationManager.ConfigurationError.invalidJSON("Action name '\(name)' already exists")
+        }
+    }
+
     // Function to get the current active action
     private func getActiveAction(configManager: ConfigurationManager) -> (type: ActionType, action: Any?, name: String) {
         let activeActionName = configManager.config.defaults.activeAction ?? ""
@@ -3148,11 +3159,7 @@ class SocketCommunication {
             
             switch commandMessage.command {
             case .reloadConfig:
-                if let loadedConfig = configMgr.loadConfig() {
-                    configMgr.config = loadedConfig
-                    configMgr.configurationSuccessfullyLoaded()
-                    configMgr.onConfigChanged?(nil)
-                    configMgr.resetFileWatcher()
+                if configMgr.reloadConfiguration() {
                     response = "Configuration reloaded successfully"
                     logInfo(response)
                 } else {
@@ -3181,51 +3188,23 @@ class SocketCommunication {
                 _ = sendResponse(response, to: clientSocket)
                 
             case .updateConfig:
-                // Handle configuration updates
-                if let arguments = commandMessage.arguments {
-                    var updated = false
-                    
-                    // Update active action with validation
-                    if let activeAction = arguments["activeAction"] {
-                        // Validate action exists if it's not empty
-                        if !activeAction.isEmpty && !validateActionExists(activeAction, configManager: configMgr) {
-                            response = "Error: Action '\(activeAction)' does not exist."
-                            _ = sendResponse(response, to: clientSocket)
-                            logError("Attempted to set non-existent action: \(activeAction)")
-                            notify(title: "Macrowhisper", message: "Non-existent action: \(activeAction)")
-                            return
+                if let activeAction = commandMessage.arguments?["activeAction"] {
+                    do {
+                        try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                            if !activeAction.isEmpty && !self.actionNameExists(activeAction, in: candidate) {
+                                throw ConfigurationManager.ConfigurationError.invalidJSON("Action '\(activeAction)' does not exist")
+                            }
+                            candidate.defaults.activeAction = activeAction
                         }
-                        let defaultsNextAction = configMgr.config.defaults.nextAction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        if !activeAction.isEmpty && !defaultsNextAction.isEmpty && activeAction == defaultsNextAction {
-                            response = "Error: activeAction cannot be the same as defaults.nextAction ('\(activeAction)')."
-                            _ = sendResponse(response, to: clientSocket)
-                            logError("Rejected activeAction update due to defaults.nextAction loop: \(activeAction)")
-                            notify(
-                                title: "Macrowhisper - Invalid Action",
-                                message: "activeAction cannot match defaults.nextAction (\(activeAction))."
-                            )
-                            return
-                        }
-                        configMgr.config.defaults.activeAction = activeAction
-                        updated = true
-                    }
-                    
-                    if updated {
-                        do {
-                            try configMgr.saveConfig()
-                            configMgr.onConfigChanged?(nil)
-                            response = "Configuration has been updated"
-                        } catch {
-                            response = "Failed to save configuration: \(error.localizedDescription)"
-                        }
-                    } else {
-                        response = "No configuration changes were made"
+                        response = "Configuration has been updated"
+                    } catch {
+                        response = "Failed to save configuration: \(error.localizedDescription)"
                     }
                 } else {
-                    response = "Configuration has been updated"
+                    response = "No configuration changes were made"
                 }
                 _ = sendResponse(response, to: clientSocket)
-                
+
             case .status:
                 // Gather status information
                 var lines: [String] = []
@@ -3448,14 +3427,13 @@ class SocketCommunication {
                         break
                     }
 
-                    configMgr.config.defaults.muteTriggers = enable
-                    if !enable {
-                        globalState.clearMuteTriggersTimeout()
-                    }
-
                     do {
-                        try configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
+                        try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                            candidate.defaults.muteTriggers = enable
+                        }
+                        if !enable {
+                            globalState.clearMuteTriggersTimeout()
+                        }
                         response = enable
                             ? "Trigger matching muted persistently (config updated)."
                             : "Trigger matching unmuted persistently (config updated); runtime mute cleared."
@@ -3489,10 +3467,11 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.urls[name] = AppConfiguration.Url(action: "")
                         do {
-                            try configMgr.saveConfig()
-                            configMgr.onConfigChanged?(nil)
+                            try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                                try self.requireAvailableActionName(name, in: candidate)
+                                candidate.urls[name] = AppConfiguration.Url(action: "")
+                            }
                             response = "URL action '\(name)' added"
                         } catch {
                             response = "Failed to save URL action '\(name)': \(error.localizedDescription)"
@@ -3507,10 +3486,11 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.shortcuts[name] = AppConfiguration.Shortcut(action: "")
                         do {
-                            try configMgr.saveConfig()
-                            configMgr.onConfigChanged?(nil)
+                            try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                                try self.requireAvailableActionName(name, in: candidate)
+                                candidate.shortcuts[name] = AppConfiguration.Shortcut(action: "")
+                            }
                             response = "Shortcut action '\(name)' added"
                         } catch {
                             response = "Failed to save shortcut action '\(name)': \(error.localizedDescription)"
@@ -3525,10 +3505,11 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.scriptsShell[name] = AppConfiguration.ScriptShell(action: "")
                         do {
-                            try configMgr.saveConfig()
-                            configMgr.onConfigChanged?(nil)
+                            try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                                try self.requireAvailableActionName(name, in: candidate)
+                                candidate.scriptsShell[name] = AppConfiguration.ScriptShell(action: "")
+                            }
                             response = "Shell script action '\(name)' added"
                         } catch {
                             response = "Failed to save shell script action '\(name)': \(error.localizedDescription)"
@@ -3543,10 +3524,11 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        configMgr.config.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "")
                         do {
-                            try configMgr.saveConfig()
-                            configMgr.onConfigChanged?(nil)
+                            try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                                try self.requireAvailableActionName(name, in: candidate)
+                                candidate.scriptsAS[name] = AppConfiguration.ScriptAppleScript(action: "")
+                            }
                             response = "AppleScript action '\(name)' added"
                         } catch {
                             response = "Failed to save AppleScript action '\(name)': \(error.localizedDescription)"
@@ -3561,11 +3543,11 @@ class SocketCommunication {
                         response = "Action name '\(name)' already exists"
                         notify(title: "Macrowhisper", message: "Action name '\(name)' already exists")
                     } else {
-                        let newInsert = AppConfiguration.Insert(action: "")
-                        configMgr.config.inserts[name] = newInsert
                         do {
-                            try configMgr.saveConfig()
-                            configMgr.onConfigChanged?(nil)
+                            try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                                try self.requireAvailableActionName(name, in: candidate)
+                                candidate.inserts[name] = AppConfiguration.Insert(action: "")
+                            }
                             response = "Insert '\(name)' added"
                         } catch {
                             response = "Failed to save insert '\(name)': \(error.localizedDescription)"
@@ -3583,41 +3565,31 @@ class SocketCommunication {
                     return
                 }
                 
-                var actionRemoved = false
-                var actionType = ""
-                
-                // Try to remove from each action type
-                if configMgr.config.inserts.removeValue(forKey: name) != nil {
-                    actionRemoved = true
-                    actionType = "insert"
-                } else if configMgr.config.urls.removeValue(forKey: name) != nil {
-                    actionRemoved = true
-                    actionType = "URL"
-                } else if configMgr.config.shortcuts.removeValue(forKey: name) != nil {
-                    actionRemoved = true
-                    actionType = "shortcut"
-                } else if configMgr.config.scriptsShell.removeValue(forKey: name) != nil {
-                    actionRemoved = true
-                    actionType = "shell script"
-                } else if configMgr.config.scriptsAS.removeValue(forKey: name) != nil {
-                    actionRemoved = true
-                    actionType = "AppleScript"
-                }
-                
-                if actionRemoved {
-                    // Clear active action if it was the one being removed
-                    if configMgr.config.defaults.activeAction == name {
-                        configMgr.config.defaults.activeAction = ""
+                do {
+                    var actionType = ""
+                    try configMgr.mutateConfiguration(reason: "commandLineUpdate") { candidate in
+                        if candidate.inserts.removeValue(forKey: name) != nil {
+                            actionType = "insert"
+                        } else if candidate.urls.removeValue(forKey: name) != nil {
+                            actionType = "URL"
+                        } else if candidate.shortcuts.removeValue(forKey: name) != nil {
+                            actionType = "shortcut"
+                        } else if candidate.scriptsShell.removeValue(forKey: name) != nil {
+                            actionType = "shell script"
+                        } else if candidate.scriptsAS.removeValue(forKey: name) != nil {
+                            actionType = "AppleScript"
+                        } else {
+                            throw ConfigurationManager.ConfigurationError.invalidJSON("Action '\(name)' not found")
+                        }
+                        // Preserve the CLI's explicit active-action cleanup. Other
+                        // inbound references are rejected by candidate validation.
+                        if candidate.defaults.activeAction == name {
+                            candidate.defaults.activeAction = ""
+                        }
                     }
-                    do {
-                        try configMgr.saveConfig()
-                        configMgr.onConfigChanged?(nil)
-                        response = "\(actionType.capitalized) action '\(name)' removed"
-                    } catch {
-                        response = "Failed to save after removing '\(name)': \(error.localizedDescription)"
-                    }
-                } else {
-                    response = "Action '\(name)' not found"
+                    response = "\(actionType.capitalized) action '\(name)' removed"
+                } catch {
+                    response = "Failed to remove '\(name)': \(error.localizedDescription)"
                 }
                 _ = sendResponse(response, to: clientSocket)
                 

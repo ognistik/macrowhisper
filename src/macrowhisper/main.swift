@@ -374,7 +374,7 @@ private func beginPersistentWatchPathRecovery() {
     let timer = Timer(timeInterval: 60, repeats: true) { _ in
         if attemptWatchPathRecovery(reason: "the recovery wait check found Superwhisper's folder") {
             stopPersistentWatchPathRecovery()
-            configManager.onConfigChanged?("watchPathChanged")
+            // The committed transaction publishes the configuration callback.
         } else if configuredRecordingsFolderExists() {
             stopPersistentWatchPathRecovery()
             configManager.onConfigChanged?("watchPathChanged")
@@ -395,18 +395,13 @@ private func attemptWatchPathRecovery(reason: String) -> Bool {
         return false
     }
 
-    var updatedConfig = configManager.config
-    updatedConfig.defaults.watch = recoveredWatchPath
-    configManager.config = updatedConfig
-
     do {
-        try configManager.saveConfig()
-        guard let savedConfig = configManager.loadConfig(),
-              savedConfig.defaults.watch == recoveredWatchPath else {
-            updatedConfig.defaults.watch = previousWatchPath
-            configManager.config = updatedConfig
-            logError("Recovered Superwhisper watch path could not be verified on disk")
-            return false
+        try configManager.mutateConfiguration(reason: "watchPathChanged") { candidate in
+            // Recovery was resolved from this path. A newer selection wins.
+            guard candidate.defaults.watch == previousWatchPath else {
+                throw ConfigurationManager.ConfigurationError.invalidJSON("Watch path changed during recovery")
+            }
+            candidate.defaults.watch = recoveredWatchPath
         }
         logInfo("Recovered Superwhisper watch path from '\(previousWatchPath)' to '\(recoveredWatchPath)' (\(reason))")
         notify(
@@ -415,8 +410,6 @@ private func attemptWatchPathRecovery(reason: String) -> Bool {
         )
         return true
     } catch {
-        updatedConfig.defaults.watch = previousWatchPath
-        configManager.config = updatedConfig
         logError("Failed to save recovered Superwhisper watch path: \(error.localizedDescription)")
         return false
     }
@@ -439,7 +432,7 @@ private func scheduleWatchPathRecovery(reason: String) {
             if attemptWatchPathRecovery(reason: reason) {
                 cancelWatchPathRecoveryRetries()
                 stopPersistentWatchPathRecovery()
-                configManager.onConfigChanged?("watchPathChanged")
+                // The committed transaction publishes the configuration callback.
                 return
             }
 
@@ -569,6 +562,10 @@ func rearmFilesystemWatchersAfterWake(versionChecker: VersionChecker? = nil) {
         logError("History manager not initialized. Cannot re-arm watchers after wake.")
         return
     }
+
+    // A recovery transaction also queues a configuration callback. This wake
+    // flow is already rebuilding the watcher for the committed path.
+    lastWatchPath = currentWatchPath
 
     if FileManager.default.fileExists(atPath: recordingsPath) {
         recordingsWatcher = makeRecordingsWatcher(basePath: currentWatchPath, historyManager: currentHistoryManager, versionChecker: versionChecker)
@@ -1920,9 +1917,8 @@ if runWatcher { logDebug("Watcher: \(watchFolderPath)/recordings") }
 // Server setup - only if jsonPath is provided
 // MARK: - Server and Watcher Setup
 
-// Start the socket server
-logDebug("About to start socket server...")
-socketCommunication.startServer(configManager: configManager)
+// Initialize dependencies before installing callbacks or accepting commands.
+let versionChecker = VersionChecker()
 
 // Add a deinit to stop the server and watchers when the app terminates
 defer {
@@ -1986,27 +1982,29 @@ if runWatcher {
 
 // Set up configuration change handler for live updates
 configManager.onConfigChanged = { reason in
+    // Use one accepted snapshot throughout this runtime reconfiguration.
+    let committedConfiguration = configManager.config
     // Store previous values to detect changes using thread-safe access
     let previousDisableUpdates = globalState.disableUpdates
     
     // Update global state variables using thread-safe operations
-    globalState.disableUpdates = configManager.config.defaults.disableUpdateCheck
-    globalState.disableNotifications = configManager.config.defaults.muteNotifications
-    redactedLogsEnabled = verboseLogging ? false : configManager.config.defaults.redactedLogs
+    globalState.disableUpdates = committedConfiguration.defaults.disableUpdateCheck
+    globalState.disableNotifications = committedConfiguration.defaults.muteNotifications
+    redactedLogsEnabled = verboseLogging ? false : committedConfiguration.defaults.redactedLogs
     
     // Apply clipboard buffer changes live to the global ClipboardMonitor
     if let watcher = recordingsWatcher {
-        let bufferSeconds = configManager.config.defaults.clipboardBuffer
+        let bufferSeconds = committedConfiguration.defaults.clipboardBuffer
         watcher.getClipboardMonitor().updateClipboardBuffer(seconds: bufferSeconds)
         
         // Apply clipboard ignore pattern changes live to the global ClipboardMonitor
-        let ignorePattern = configManager.config.defaults.clipboardIgnore ?? ""
+        let ignorePattern = committedConfiguration.defaults.clipboardIgnore ?? ""
         watcher.getClipboardMonitor().updateClipboardIgnore(pattern: ignorePattern)
 
         // Retain binary clipboard representations only when at least one
         // currently selectable root action can enable attachment handling.
         watcher.getClipboardMonitor().updateClipboardAttachments(
-            enabled: configManager.config.canCaptureClipboardAttachments
+            enabled: committedConfiguration.canCaptureClipboardAttachments
         )
     }
     
@@ -2020,7 +2018,7 @@ configManager.onConfigChanged = { reason in
     }
     
     // Handle watch path changes and validation
-    let currentWatchPath = expandTilde(configManager.config.defaults.watch)
+    let currentWatchPath = expandTilde(committedConfiguration.defaults.watch)
     let recordingsPath = "\(currentWatchPath)/recordings"
     let recordingsFolderExists = FileManager.default.fileExists(atPath: recordingsPath)
 
@@ -2096,8 +2094,9 @@ configManager.onConfigChanged = { reason in
 }
 
 
-// Initialize version checker
-let versionChecker = VersionChecker()
+// Accept commands only after the runtime configuration callback is installed.
+logDebug("About to start socket server...")
+socketCommunication.startServer(configManager: configManager)
 
 if !configuredRecordingsFolderExists() {
     beginPersistentWatchPathRecovery()

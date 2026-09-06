@@ -52,7 +52,8 @@ These pages describe implementation and contributor workflows. The user referenc
 | [Codebase map](development/codebase-map.md) | Source layout, component responsibilities, and where to make changes. |
 | [Processing flow](development/processing-flow.md) | Watchers, action selection and execution, clipboard synchronization, timing, and edge cases. |
 | [Releasing](development/releasing.md) | Release setup, preparation, preflight, signing and notarization, draft review, publication, and recovery. |
-| [Local editor plan](development/web-editor-plan.md) | Proposed experimental web configuration editor: design direction, architecture, implementation milestones, and verification gates. Not an implemented feature. |
+| [Local editor prototype](development/web-editor-prototype.md) | Run and review the fixture-backed Defaults/Insert interface; scope and transaction foundation. |
+| [Local editor plan](development/web-editor-plan.md) | Approved experimental editor design, architecture, remaining milestones, and verification gates. |
 
 Agents working on the repository should also read [AGENTS.md](../AGENTS.md). Version history is in the root [changelog](../CHANGELOG.md).
 

@@ -161,6 +161,10 @@ macrowhisper --mute-triggers 10m     # mute triggers temporarily
 
 `--exec-action`, `--run-auto`, and `--copy-action` use the latest valid result by default. Use `--meta` to target a recording folder, folder path, or compatible JSON file; the [CLI reference](docs/cli-reference.md) covers those forms and the full command set.
 
+The experimental local configuration editor is currently a developer prototype
+with synthetic data. See the [prototype guide](docs/development/web-editor-prototype.md)
+to preview Defaults and Inserts; it does not edit your live configuration.
+
 ## Documentation
 
 For complete feature explanations, configuration examples, and troubleshooting, start with [the documentation index](docs/README.md).

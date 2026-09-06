@@ -28,7 +28,8 @@ src/
 │   ├── main.swift                        # Entry point, CLI parsing, daemon/bootstrap, watcher lifecycle
 │   ├── Config/
 │   │   ├── AppConfiguration.swift        # Codable config model, action definitions, configVersion 2
-│   │   └── ConfigurationManager.swift    # Loading, validation, migration, live reload, persistence
+│   │   ├── ConfigurationManager.swift    # Loading, validation, migration, live reload, transactions
+│   │   └── ConfigurationTransaction.swift # Structured edits, revisions, snapshots, stable errors
 │   ├── History/
 │   │   └── HistoryManager.swift          # Retention-based recordings cleanup
 │   ├── Watcher/
@@ -63,6 +64,10 @@ src/
 ├── Package.swift                        # SwiftPM compile-check manifest; output is a developer binary under src/.build/
 └── Tests/                                # Focused regression tests for parser/runtime edge cases
 ```
+
+The root `editor/` directory contains the experimental React/TypeScript
+Defaults and Insert interface. It uses synthetic fixtures and is not yet served
+by the daemon. See the [prototype guide](web-editor-prototype.md).
 
 ## Build topology
 
@@ -115,6 +120,8 @@ regression runners](README.md#focused-regression-runners) for the commands.
 - Auto-migrates legacy naming/semantics to config version 2 when allowed
 - Preserves schema references and normalizes persisted config values
 - Reports detailed validation issues for `--validate-config`
+- Owns serialized configuration transactions used by CLI edits and the future editor
+- Separates disk validation and revision checks from runtime fallback loading
 
 ### 3. Recording / Watcher Pipeline
 

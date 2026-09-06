@@ -2,7 +2,7 @@
 
 [Documentation index](../README.md) · [Development guide](README.md)
 
-Status: proposed implementation plan, prepared September 5, 2026 against `main` at `c88ad1f` (2.2.0). No editor functionality is implemented by this document. The experimental branch is `feat/web-config-editor`, checked out separately in `../macrowhisper-editor` so the original checkout can remain on `main`.
+Status: approved implementation plan (commit `a440e9a`), prepared September 5, 2026 against `main` at `c88ad1f` (2.2.0). The first fixture interface and transaction foundation are described in the [prototype guide](web-editor-prototype.md); connected editor access and packaging remain unimplemented. The experimental branch is `feat/web-config-editor`, checked out separately in `../macrowhisper-editor` so the original checkout can remain on `main`.
 
 ## Product goal and decisions
 
