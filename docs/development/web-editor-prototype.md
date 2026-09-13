@@ -116,10 +116,12 @@ or expand placeholders against private runtime context.
 - Start with Defaults, then select an Insert. Compare System, Light, and Dark.
 - Change a discrete choice and observe its pending acknowledgement. Type into
   a text control and leave it to commit; there is no global Save button.
-- Return an override to Default, and compare an intentionally empty payload
-  with a built-in template. Stored sibling settings must survive mode changes.
-- Place the caret inside a payload and insert a placeholder. The toolbar and
-  textarea form one editing boundary.
+- Add and remove an action override, and compare an intentionally empty payload
+  with a built-in template. Removing an override must restore Use Defaults, and
+  stored sibling settings must survive payload-mode changes.
+- Insert a placeholder source at the caret, then put the caret inside it to edit
+  its transform and regex replacements in the inline inspector. The toolbar,
+  textarea, and inspector form one editing boundary.
 - Exercise validation, conflict, empty-list, and disconnected fixtures. A
   rejected write must retain the draft and must not display a successful save.
 - Review narrow windows and keyboard navigation as well as the desktop layout.

@@ -280,11 +280,11 @@ The left rail is sticky and quiet, with uppercase group labels, 16px line icons,
 
 ### Disclosure Rows
 
-Native `details`/`summary` rows keep Insertion behavior, Conditions, Chaining, Advanced payload syntax, and other settings available but out of the first-run path. Each row exposes its title, consequence, and count/status summary before it opens; the chevron rotates as an orientation cue.
+Native `details`/`summary` rows keep Insertion behavior, Conditions, Triggers, Chaining, and other settings available but out of the first-run path. Defaults opens one section at a time and each collapsed row summarizes effective behavior instead of reporting a schema-field count. Action disclosures show configured exceptions first; empty sections offer a single Add control. Each row exposes its title, consequence, and useful state summary before it opens; the chevron rotates as an orientation cue.
 
 ### Payload Editor
 
-The payload editor is the signature interaction: a bordered editing boundary with a mode label, a familiar placeholder helper, built-in choice cards for Auto-paste / Do nothing / Custom text, a raw text area, and a character/state footer. Placeholder and regex helpers are progressive overlays, while the raw value remains visible and technical semantics remain intact.
+The payload editor is the signature interaction: a bordered editing boundary with a mode label, a source-only placeholder menu, built-in choice cards for Auto-paste / Do nothing / Custom text, a raw text area, and a character/state footer. Date formatting belongs to the Date insertion flow. When the caret is inside a recognized placeholder, a persistent inline inspector edits that placeholder's source, transform, and ordered regex replacements without nesting a builder inside a menu. The raw value remains visible and unsupported technical syntax stays intact.
 
 ## Do's and Don'ts
 

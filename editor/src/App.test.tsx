@@ -86,7 +86,7 @@ describe('configuration editor interactions', () => {
     expect(fallback).toHaveValue('quickReply')
     expect(notifications).toHaveValue('on')
     expect(updates).toHaveValue('on')
-    expect(within(updates).getByRole('option', { name: 'Allow checks (default)' })).toBeInTheDocument()
+    expect(within(updates).getByRole('option', { name: 'Allow checks (Built-in)' })).toBeInTheDocument()
   })
 
   it('opens the populated Insert editor and exposes only valid trigger logic choices', async () => {
@@ -102,8 +102,10 @@ describe('configuration editor interactions', () => {
     expect(screen.getByRole('heading', { name: 'autoPaste' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'No Inserts yet' })).not.toBeInTheDocument()
 
+    expect(screen.queryByRole('combobox', { name: 'Trigger logic' })).not.toBeInTheDocument()
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
     const logic = screen.getByRole('combobox', { name: 'Trigger logic' })
-    expect(within(logic).getByRole('option', { name: 'Default (Any OR)' })).toBeInTheDocument()
+    expect(within(logic).getByRole('option', { name: 'Use Defaults (Any OR)' })).toBeInTheDocument()
     expect(within(logic).getByRole('option', { name: 'Any (OR)' })).toBeInTheDocument()
     expect(within(logic).getByRole('option', { name: 'All (AND)' })).toBeInTheDocument()
     expect(within(logic).queryByRole('option', { name: /explicit empty/ })).not.toBeInTheDocument()
@@ -117,6 +119,24 @@ describe('configuration editor interactions', () => {
     const insertionField = screen.getByRole('combobox', { name: 'Simulate Escape' })
     expect(insertionField.closest('details')).not.toHaveAttribute('open')
     await user.click(screen.getByText('Insertion', { selector: 'strong' }))
+    expect(screen.getByRole('combobox', { name: 'Simulate Escape' })).toBeInTheDocument()
+    expect(screen.getByText('General behavior', { selector: 'strong' }).closest('details')).not.toHaveAttribute('open')
+    expect(screen.queryByText(/settings ·/)).not.toBeInTheDocument()
+  })
+
+  it('shows configured action state first and adds exceptions on demand', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    expect(within(actionList).queryByRole('button', { name: 'Duplicate' })).not.toBeInTheDocument()
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+
+    await user.click(screen.getByText('Insertion behavior', { selector: 'strong' }))
+    expect(screen.getByText('Using Defaults')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Simulate Escape' })).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Add override' }), 'simEsc')
     expect(screen.getByRole('combobox', { name: 'Simulate Escape' })).toBeInTheDocument()
   })
 
@@ -177,7 +197,7 @@ describe('configuration editor interactions', () => {
     expect(doNothing).toHaveAttribute('aria-checked', 'true')
   })
 
-  it('offers structured placeholder, transform, date, and replacement helpers only for Custom text', async () => {
+  it('keeps placeholder insertion focused on sources and opens customization at the caret', async () => {
     const user = userEvent.setup()
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
@@ -189,12 +209,20 @@ describe('configuration editor interactions', () => {
     const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
     expect(within(menu).getByRole('menuitem', { name: /Raw dictation/ })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: /Language-model result/ })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: /Uppercase/ })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: /Uppercase/ })).not.toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: /regex replacement/i })).not.toBeInTheDocument()
     expect(within(menu).getByRole('combobox', { name: 'Date format' })).toBeInTheDocument()
-    await user.click(within(menu).getByRole('menuitem', { name: /Build regex replacement/ }))
-    expect(screen.getByRole('heading', { name: /Payload/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Add replacement stage/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Insert replacement/ })).toBeDisabled()
+    await user.keyboard('{Escape}')
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    const placeholderStart = payload.value.indexOf('{{swResult}}')
+    payload.focus()
+    payload.setSelectionRange(placeholderStart + 2, placeholderStart + 2)
+    fireEvent.select(payload)
+
+    expect(screen.getByRole('region', { name: 'Edit placeholder' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Placeholder transform' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Placeholder syntax reference' })).toBeInTheDocument()
   })
 
   it('encodes literal double pipes in regex replacement stages for parser round-trips', async () => {
@@ -205,16 +233,18 @@ describe('configuration editor interactions', () => {
     const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
-    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
-    const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
-    await user.click(within(menu).getByRole('menuitem', { name: /Build regex replacement/ }))
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    const placeholderStart = payload.value.indexOf('{{swResult}}')
+    payload.focus()
+    payload.setSelectionRange(placeholderStart + 2, placeholderStart + 2)
+    fireEvent.select(payload)
+    await user.click(screen.getByRole('button', { name: /Add replacement/ }))
     await user.type(screen.getByRole('textbox', { name: 'Find pattern 1' }), '||')
     await user.type(screen.getByRole('textbox', { name: 'Replacement text 1' }), '||')
 
     const expression = '{{swResult||\\|\\|||\\|\\|}}'
-    expect(screen.getByText('Preview').parentElement?.querySelector('code')).toHaveTextContent(expression)
-    await user.click(screen.getByRole('button', { name: /Insert replacement/ }))
-    expect((screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement).value).toContain(expression)
+    expect(screen.getByText('Generated syntax').parentElement?.querySelector('code')).toHaveTextContent(expression)
+    expect(payload.value).toContain(expression)
   })
 
   it('preserves actual newlines in regex replacement stages for parser round-trips', async () => {
@@ -225,16 +255,18 @@ describe('configuration editor interactions', () => {
     const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
-    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
-    const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
-    await user.click(within(menu).getByRole('menuitem', { name: /Build regex replacement/ }))
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    const placeholderStart = payload.value.indexOf('{{swResult}}')
+    payload.focus()
+    payload.setSelectionRange(placeholderStart + 2, placeholderStart + 2)
+    fireEvent.select(payload)
+    await user.click(screen.getByRole('button', { name: /Add replacement/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'middle' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'line 1\nline 2' } })
 
     const expression = '{{swResult||middle||line 1\nline 2}}'
-    expect(screen.getByText('Preview').parentElement?.querySelector('code')?.textContent).toBe(expression)
-    await user.click(screen.getByRole('button', { name: /Insert replacement/ }))
-    expect((screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement).value).toContain(expression)
+    expect(screen.getByText('Generated syntax').parentElement?.querySelector('code')?.textContent).toBe(expression)
+    expect(payload.value).toContain(expression)
   })
 
   it('does not flag recognized raw trigger modes, but requires opt-in for incompatible syntax', async () => {

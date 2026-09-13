@@ -87,7 +87,7 @@ The requested taste skill is primarily a marketing-page skill and explicitly exc
 
 On desktop, use a quiet left sidebar for Defaults and action groups, a searchable action list when a group is selected, and one editing pane. Defaults uses the available content area without an empty action-list column. Keep a compact page title and save state in a stable location. Show the selected configuration path in a secondary details area, especially when a custom path is active.
 
-Defaults should group fields by purpose: general behavior, insertion, clipboard, recordings, chains/scripts, and advanced settings. Insert editing should lead with name and content, then triggers, insertion behavior, clipboard, chaining, recording handling, and advanced options. Frequently used settings stay visible; advanced groups use labeled disclosures. Search should reveal a matching field inside a collapsed group.
+Defaults should group fields by purpose: general behavior, insertion, clipboard, recordings, chains/scripts, and advanced settings. Keep these areas sectional, open one at a time, and make each collapsed summary describe its effective behavior rather than expose an implementation-oriented field count. Insert editing should lead with name and content, then show the overrides, conditions, triggers, and chaining that are actually configured. Empty sections offer an explicit Add control instead of rendering every possible schema field. Search should reveal a matching field inside a collapsed group.
 
 On narrow windows, collapse the sidebar into navigation and make the action list and action editor separate views with a clear Back action. No horizontal form scrolling. Verify at 1440, 1024, and 768px widths plus a narrow layout, with 200% zoom and long action names.
 
@@ -109,19 +109,19 @@ Internal navigation attempts to commit a valid text draft before leaving. Invali
 
 | Concept | Planned control and behavior |
 | --- | --- |
-| Inheritable boolean | `Default (On)` / `On` / `Off`. The default choice writes inheritance, not the displayed effective value. An accessible description names the Defaults field. |
-| Inheritable number | `Default (0.3 s)` or an explicit numeric value with its unit. Empty typing is a draft, not zero or an implicit reset. |
-| Root default | Show the resolved built-in/default value and field-specific reset behavior. Do not give root defaults an action-style parent inheritance control. Preserve nullable meanings such as history retention. |
+| Inheritable boolean | `Use Defaults (On)` / `On` / `Off`. The Defaults choice writes inheritance, not the displayed effective value. An accessible description names the Defaults field. |
+| Inheritable number | `Use Defaults (0.3 s)` or an explicit numeric value with its unit. Empty typing is a draft, not zero or an implicit reset. |
+| Root default | Show the resolved shipped value with a subdued `Built-in` marker and field-specific reset behavior. Do not give root defaults an action-style parent inheritance control. Preserve nullable meanings such as history retention. |
 | Action payload | Text plus explicit built-in choices where supported. `action` is required and has no Defaults payload to inherit. Empty text and `.none` remain separate choices. |
 | Built-in templates | Show `.autoPaste` and `.none` as named modes with their actual effective settings. Disable or explain controls overridden by the runtime template. Preserve stored sibling values when viewing/changing modes; do not silently rewrite them. |
-| `nextAction` | Search all five action groups. Include `Default (…)` and explicit `None`; exclude the current action and explain known invalid links. Show that default next-step inheritance applies to the root step only. Server chain validation remains authoritative. |
+| `nextAction` | Search all five action groups. Include `Use Defaults (…)` and explicit `None`; exclude the current action and explain known invalid links. Show that default next-step inheritance applies to the root step only. Server chain validation remains authoritative. |
 | `defaults.activeAction` | Search existing actions, with a clear `None` option. Label it as the fallback action, not the next step. |
 | `moveTo` | Default, Keep recording, Move to folder, Delete recording. Preserve `null`, empty text, a path, and `.delete` respectively. Folder text is not a browser filesystem-browsing API. |
 | `icon` | Default, No icon, or Custom. Do not translate an empty icon to `.none`. |
 | `triggerLogic` | Default / Any (OR) / All (AND), with copy about combining configured trigger types. |
-| Input conditions | For each supported setting, expose Always / Inside a text field / Outside a text field. Explain that an unmet condition generally restores default behavior, while payload behavior has its own rule. These controls serialize tokens without showing pipe syntax as the normal UI. |
+| Input conditions | Show only configured rules and offer Add condition for another supported setting. Removing a rule means Always. Explain that an unmet condition generally restores Defaults behavior, while payload behavior has its own rule. These controls serialize tokens without showing pipe syntax as the normal UI. |
 | Trigger expressions | Make ordinary alternatives understandable without losing regex, exclusions, or valid manual expressions. If a value cannot round-trip through a builder, keep it editable in an explicitly advanced text control. |
-| Placeholders | An `Insert placeholder` menu with commonly used choices: Result, Selected text, Clipboard context, Front app, App context, App vocabulary, Date, and Action result. Insert syntax at the caret; do not expand it against private live context in the editor. |
+| Placeholders | An `Insert placeholder` menu chooses sources only: Result, Selected text, Clipboard context, Front app, App context, App vocabulary, Date, and Action result. Date format is chosen during insertion. A recognized placeholder at the caret opens persistent inline controls for its source, optional transform, and ordered regex replacements. Unsupported syntax remains editable as raw payload text. Do not expand it against private live context in the editor. |
 
 An effective-value explanation is a configuration explanation, not a simulation of execution. Conditions depend on runtime focus, built-in templates can override fields, and clipboard stacking/attachments are controlled by the root action for the full chain. Reuse or extract the production resolution rules where necessary, with regression coverage shared across watcher and CLI expectations.
 

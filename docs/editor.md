@@ -14,8 +14,8 @@ The connected, writable slice is deliberately small and complete:
 
 | Area | Connected behavior |
 | --- | --- |
-| Defaults | Edit the shared settings, inheritance, paths, timing, clipboard, recording, and chain controls. |
-| Inserts | Create, duplicate, rename, edit, and delete Insert actions; edit payloads, triggers, conditions, overrides, and links. |
+| Defaults | Review shared behavior in concise section summaries, then open one area at a time to change paths, timing, clipboard, recording, and chain controls. |
+| Inserts | Create, duplicate, rename, edit, and delete Insert actions; add only the overrides, triggers, conditions, and links that differ from normal behavior. |
 | URLs, Shortcuts, Shell, AppleScript | Names and counts come from the authenticated live snapshot, but the type-specific panels remain read-only until their editor slice is implemented. In the standalone Vite preview, these values are fixtures. |
 
 Names from every action group can still appear in the Defaults and Insert
@@ -92,7 +92,10 @@ validated transaction. The revision identifies the daemon/configuration
 generation, accepted version, and on-disk fingerprint. This prevents an older
 browser response from silently replacing a newer change.
 
-Configuration values retain their JSON meaning:
+The editor distinguishes three related concepts in its labels: **Defaults** are
+the user's shared configuration, **Use Defaults** removes an action-level
+override, and **Built-in** identifies Macrowhisper's shipped behavior or a
+sentinel template. Configuration values retain their JSON meaning:
 
 - `null` or an omitted action override means inherit from Defaults;
 - `""` means an intentional empty string, not inheritance;
@@ -102,9 +105,21 @@ Configuration values retain their JSON meaning:
 
 Insert names are unique across all five action groups. Rename updates inbound
 `activeAction` and `nextAction` references in the same transaction. Deletion is
-blocked while Defaults or another action still points at the Insert. The
-placeholder menu inserts syntax at the caret; it never expands placeholders
-against private live app or clipboard context in the editor.
+blocked while Defaults or another action still points at the Insert.
+
+Collapsed action sections summarize the behavior that is actually configured.
+Opening Insertion behavior, Conditions, or Triggers shows configured entries
+first and offers an explicit Add control for another exception. Removing an
+override restores **Use Defaults**; removing a condition restores **Always**.
+Unsupported or ambiguous raw condition and trigger expressions remain available
+for deliberate raw editing and are never silently simplified.
+
+The placeholder menu inserts sources at the caret; Date offers its format as
+part of insertion. Put the caret in a recognized placeholder to edit that
+placeholder's source, transform, and ordered regex replacements in the inline
+inspector below the payload. The raw payload remains canonical and available
+for syntax the inspector cannot represent. The editor never expands
+placeholders against private live app or clipboard context.
 
 ## Changes made elsewhere and invalid files
 
