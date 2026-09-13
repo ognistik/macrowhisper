@@ -49,20 +49,18 @@ class SchemaManager {
             logDebug("Schema file not found alongside binary at: \(localSchemaPath)")
         }
         
-        // Strategy 2: For Homebrew installations, check relative paths
-        // Homebrew typically installs to /opt/homebrew/bin/ or /usr/local/bin/
-        if binaryPath.contains("/homebrew/") || binaryPath.contains("/usr/local/") {
-            // Try ../share/macrowhisper/ (common Homebrew pattern)
-            let homebrewSchemaPath = URL(fileURLWithPath: binaryDir)
-                .appendingPathComponent("../share/macrowhisper")
-                .appendingPathComponent(schemaFileName)
-                .standardized
-                .path
-            
-            if FileManager.default.fileExists(atPath: homebrewSchemaPath) {
-                logDebug("Found schema file in Homebrew share directory: \(homebrewSchemaPath)")
-                return homebrewSchemaPath
-            }
+        // Strategy 2: Check the shared-resource layout used by Homebrew and
+        // the script installer. This is relative to any absolute executable
+        // prefix, so custom paths such as /Applications/My Tools/bin work too.
+        let sharedSchemaPath = URL(fileURLWithPath: binaryDir)
+            .appendingPathComponent("../share/macrowhisper")
+            .appendingPathComponent(schemaFileName)
+            .standardized
+            .path
+
+        if FileManager.default.fileExists(atPath: sharedSchemaPath) {
+            logDebug("Found schema file in shared resource directory: \(sharedSchemaPath)")
+            return sharedSchemaPath
         }
         
         // Strategy 3: Check if we're in a development environment

@@ -12,14 +12,16 @@ For release-specific behavior, consult the documentation at that release's Git t
 
 1. [Getting started](getting-started.md): what Macrowhisper does, setup, and what happens after you dictate.
 2. [Configuration](configuration.md): the configuration structure, inheritance, special values, and every global default.
-3. [Actions](actions.md) and [triggers and conditions](triggers-and-conditions.md): choose what runs and when it runs.
-4. [Examples](examples.md): complete configurations and workflows to adapt.
+3. [Local configuration editor](editor.md): open the authenticated local browser editor, understand its connected Defaults/Insert scope, and recover from conflicts.
+4. [Actions](actions.md) and [triggers and conditions](triggers-and-conditions.md): choose what runs and when it runs.
+5. [Examples](examples.md): complete configurations and workflows to adapt.
 
 ## User reference
 
 | Document | What you will find |
 | --- | --- |
 | [Getting started](getting-started.md) | Capabilities, installation, essential Superwhisper settings, first use, and the recording-to-action sequence. |
+| [Local configuration editor](editor.md) | Authenticated loopback editor commands, connected Defaults and Inserts, save behavior, conflicts, invalid files, and resource layout. |
 | [CLI reference](cli-reference.md) | Commands for configuration, services, and actions; runtime behavior matrix; `--meta`; updates; full uninstall. |
 | [Configuration](configuration.md) | Top-level sections, defaults and action overrides, `null` and empty values, special action values, watch-folder recovery, and validation rules. |
 | [Actions](actions.md) | Insert, URL, Shortcut, shell, and AppleScript actions; shared and type-specific fields; `nextAction` chains; script output and wait behavior. |
@@ -40,6 +42,7 @@ For release-specific behavior, consult the documentation at that release's Git t
 - **Run an action against an earlier recording:** read the `--meta` and recording-selection commands in the [CLI reference](cli-reference.md).
 - **Understand why an action did not run:** begin with [troubleshooting](troubleshooting.md), then check [triggers and conditions](triggers-and-conditions.md) and [runtime](runtime.md).
 - **Update or uninstall:** use the [CLI reference](cli-reference.md).
+- **Edit the live configuration in a browser:** use the [local configuration editor](editor.md), then return to the [configuration reference](configuration.md) for field semantics.
 - **Build a signed binary for manual testing:** use the [development guide](development/README.md).
 
 ## Development and maintenance
@@ -52,8 +55,8 @@ These pages describe implementation and contributor workflows. The user referenc
 | [Codebase map](development/codebase-map.md) | Source layout, component responsibilities, and where to make changes. |
 | [Processing flow](development/processing-flow.md) | Watchers, action selection and execution, clipboard synchronization, timing, and edge cases. |
 | [Releasing](development/releasing.md) | Release setup, preparation, preflight, signing and notarization, draft review, publication, and recovery. |
-| [Local editor prototype](development/web-editor-prototype.md) | Run and review the fixture-backed Defaults/Insert interface; scope and transaction foundation. |
-| [Local editor plan](development/web-editor-plan.md) | Approved experimental editor design, architecture, remaining milestones, and verification gates. |
+| [Local editor prototype and connected preview](development/web-editor-prototype.md) | Run the fixture preview, understand live versus fixture mode, and review editor verification scenarios. |
+| [Local editor plan](development/web-editor-plan.md) | Approved editor design, current connected Defaults/Insert milestone, architecture, packaging, and remaining work. |
 
 Agents working on the repository should also read [AGENTS.md](../AGENTS.md). Version history is in the root [changelog](../CHANGELOG.md).
 

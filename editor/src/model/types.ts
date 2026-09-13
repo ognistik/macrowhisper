@@ -110,7 +110,7 @@ export interface ConfigSnapshot {
     message?: string
   }
   runtime: {
-    status: 'connected' | 'fallback' | 'disconnected'
+    status: 'connected' | 'fallback' | 'disconnected' | 'loading'
     message: string
   }
   /** Fields retained from the source configuration but not editable here. */
@@ -125,6 +125,31 @@ export interface ReadOnlyField {
 export interface MutationResult {
   snapshot: ConfigSnapshot
   request: EditRequest
+}
+
+/**
+ * The store contract shared by the live HTTP adapter and the in-memory
+ * fixture.  The optional methods are intentionally limited to fixture
+ * controls; production stores only need to implement the core editor
+ * operations below.
+ */
+export interface EditorStore {
+  getSnapshot(): ConfigSnapshot
+  subscribe(listener: StoreListener): () => void
+  request(edits: Edit[]): EditRequest
+  mutate(request: EditRequest): Promise<MutationResult>
+  createInsert(name: string, action: InsertConfig): Promise<MutationResult>
+  duplicateInsert(sourceName: string, targetName: string): Promise<MutationResult>
+  renameInsert(sourceName: string, targetName: string): Promise<MutationResult>
+  deleteInsert(name: string): Promise<MutationResult>
+
+  getScenario?(): StoreScenario
+  setScenario?(scenario: StoreScenario): void
+  reconnect?(): ConfigSnapshot
+  simulateExternalChange?(change?: FixtureExternalChange): ConfigSnapshot
+  externalChange?(change?: FixtureExternalChange): ConfigSnapshot
+  setPersistenceFailure?(enabled: boolean, message?: string): void
+  setFailWrites?(enabled: boolean, message?: string): void
 }
 
 export type EditorErrorCode = 'disconnected' | 'conflict' | 'stale' | 'validation' | 'persistence'

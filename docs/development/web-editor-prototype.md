@@ -1,17 +1,31 @@
-# Local editor prototype
+# Local editor preview and connected slice
 
 [Documentation index](../README.md) · [Development guide](README.md) · [Approved implementation plan](web-editor-plan.md)
 
-This experimental branch contains the first Defaults/Insert interface and a
-configuration transaction foundation. The browser uses synthetic fixtures held
-in memory. Its save indicators acknowledge fixture transactions; they do not
-mean that your `macrowhisper.json` has changed. Reloading the page resets fixture
-configuration. Only the appearance preference is retained in browser storage.
+This branch has two editor modes. The connected mode is served by the running
+Macrowhisper daemon after `macrowhisper --editor` (or `-e`) opens a one-use
+authenticated loopback URL. It reads and writes the canonical JSON file through
+the manager's revision-checked transaction API. The connected editing scope is
+Defaults and Inserts. URL, Shortcut, Shell, and AppleScript names and counts
+come from the live snapshot for cross-action context, but their type-specific
+panels remain read-only. In the Vite preview, all configuration data is fixture-backed.
 
-The daemon does not yet serve this interface. `--editor`, `-e`, and
-`--editor-url` are still planned commands. Authentication, live synchronization,
-resource packaging, and connected browser persistence remain separate gates in
-the [implementation plan](web-editor-plan.md#implementation-sequence-and-completion-gates).
+The Vite development preview remains fixture-backed when it is opened on its
+default port without a live credential. Fixture save indicators acknowledge
+in-memory transactions only; they do not mean that `macrowhisper.json` changed,
+and reloading resets fixture configuration. The appearance preference is the
+only browser-local setting. See the [user editor guide](../editor.md) for the
+supported connected behavior and the [implementation plan](web-editor-plan.md)
+for the remaining expansion gates.
+
+The daemon serves only bundled static resources from the executable's resolved
+Homebrew-style share root (or the documented `.build/editor` development
+output). It binds `127.0.0.1`, uses port `49172` when available and otherwise an
+OS-selected loopback port, and never serves editor JavaScript from the current
+working directory. `--editor-url` prints the credential-bearing URL without
+opening a browser. The bootstrap fragment is exchanged once, removed from the
+address bar, and replaced by a bearer session held in that tab's
+`sessionStorage`; a new tab or a daemon restart needs a fresh link.
 
 ## Run the interface locally
 
@@ -41,27 +55,31 @@ Press Control-C in Terminal to stop the preview. Run the same command to start
 it again. If a preview is already running, use its printed address or stop it
 before starting another copy.
 
-This is a development preview of synthetic configuration, with no access to the running Macrowhisper service.
-Node is a development dependency; the planned installed interface will use
-bundled static assets.
+This is a development preview of synthetic configuration, with no access to the
+running Macrowhisper service. To test the connected mode, use the signed manual
+build workflow in the [development guide](README.md#signed-xcode-build-for-manual-testing)
+and open the resulting binary's editor URL. Node is a development/build
+dependency only; an installed editor uses bundled static assets.
 
 ### Binary and installation status
 
-Compiling this branch today does not connect the webpage to Macrowhisper.
-The manager transaction code is implemented independently of the browser;
-the local server, authentication, opening commands, and resource packaging
-are later integration work. Copying this prototype's files beside your
-installed binary will not enable an editor.
+The connected slice is implemented for the signed local build, release archive,
+and script installer. Node is not required to run it. All distribution paths use
+the same layout:
 
-For the connected milestone, a signed local test binary and matching static
-assets will be prepared using the [signed build workflow](README.md#signed-xcode-build-for-manual-testing).
-Node will not be required to run the installed editor. The planned Homebrew
-layout keeps resources under `share/macrowhisper/editor/`; the manual archive
-and script installer must also install the matching resources. Those layouts
-still need implementation and package tests, so there is no supported
-installation or Homebrew replacement procedure for the editor yet.
-The current script installer copies only the binary and schema beside one
-another in its binary directory; it does not copy an editor directory.
+```text
+<prefix>/bin/macrowhisper
+<prefix>/share/macrowhisper/macrowhisper-schema.json
+<prefix>/share/macrowhisper/editor/index.html
+<prefix>/share/macrowhisper/editor/assets/...
+```
+
+The installer infers `<prefix>` as the parent of the selected `BIN_DIR`, so a
+custom absolute directory such as `/Applications/My Tools/bin` keeps its spaces
+and receives the matching `share/macrowhisper` tree. It stages the binary and
+owned resources together, refuses malformed/symlinked resource targets, and
+restores the prior pair if replacement fails. It does not install a service or
+change the active configuration selection.
 
 Your current service and installation can stay in place throughout this
 design review. A later switch to the test daemon needs its own tested startup
@@ -123,8 +141,8 @@ isolated signed runtime test setup described in the development guide.
 
 ## Configuration transaction boundary
 
-`ConfigurationManager` owns persistence. The future browser API must submit
-structured path segments and an expected revision to that manager; it must not
+`ConfigurationManager` owns persistence. The live browser API submits structured
+path segments and an expected revision to that manager; it must not
 load a configuration, mutate a shared property, and call `saveConfig()` as
 separate operations. Existing socket commands and watch-folder recovery use
 the manager's closure transaction entry point.

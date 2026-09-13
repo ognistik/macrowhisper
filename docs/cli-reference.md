@@ -15,6 +15,8 @@ macrowhisper --reveal-config
 macrowhisper --validate-config
 macrowhisper --service-status
 macrowhisper --get-config
+macrowhisper --editor
+macrowhisper --editor-url
 ```
 
 Short aliases are available for the common commands: `-h` is `--help`, `-v` is
@@ -69,6 +71,47 @@ Useful notes:
 - `--validate-config` checks both JSON validity and config rules; an explicit
   `--config` path is validated for that command without being saved
 - `--update-config` refreshes formatting and schema-related fields
+
+### Local configuration editor
+
+The editor commands contact the already-running daemon. They do not start a
+second daemon, install or modify a service, switch the configuration path, or
+fall back to the fixture preview:
+
+```bash
+# Start once if the service is not running
+macrowhisper --start-service
+
+# Open a fresh authenticated browser link
+macrowhisper --editor
+
+# Print only the fresh credential-bearing URL
+macrowhisper --editor-url
+```
+
+`-e` is an alias for `--editor`. `--editor` opens the URL with the default
+browser and prints the clean loopback address that was opened. If opening the
+browser fails, use `--editor-url` and paste that fresh URL into a browser.
+`--editor-url` writes only the URL to standard output; failures go to standard
+error and return a nonzero status. Both commands require a reachable daemon;
+they do not start one automatically.
+
+The daemon binds the editor to `127.0.0.1`. It tries port `49172` and uses an
+OS-selected available loopback port when that port is occupied. The URL always
+contains the actual port. The CLI obtains a short-lived, single-use bootstrap
+token through the same-user Unix socket. The browser exchanges the token from
+the URL fragment for a bearer session and removes the fragment from the address
+bar. Sessions are held in that tab's `sessionStorage`, last up to eight hours,
+and are invalidated when the daemon restarts. A clean-URL reload in the same tab
+normally remains connected; a new tab, bookmark, or expired session needs a
+fresh editor command. Treat the URL as a secret while it is valid.
+
+The connected editor currently writes Defaults and Inserts only. URL, Shortcut,
+Shell, and AppleScript names come from its live snapshot, but their
+type-specific screens remain read-only. The standalone Vite preview is the
+fixture-backed mode. See the
+[local configuration editor guide](editor.md) for the controls, inheritance,
+save timing, conflict handling, invalid-file behavior, and resource layout.
 
 ### Service commands
 
@@ -321,6 +364,12 @@ Macrowhisper has four main parts:
 - the executable itself
 - usually installed by Homebrew or at `/usr/local/bin/macrowhisper`
 
+**Editor resources**
+
+- the JSON schema and bundled browser files
+- usually installed by Homebrew at `/opt/homebrew/share/macrowhisper` or
+  `/usr/local/share/macrowhisper`, alongside the selected `bin` prefix
+
 **Your config files**
 
 - your settings and preferences
@@ -351,7 +400,14 @@ If you installed with the script:
 ```bash
 macrowhisper --uninstall-service
 sudo rm -f /usr/local/bin/macrowhisper
+sudo rm -rf /usr/local/share/macrowhisper
 ```
+
+For a custom script-install directory, remove only the matching binary and
+owned resource root: if `BIN_DIR` was `/path/with spaces/bin`, remove
+`/path/with spaces/bin/macrowhisper` and
+`/path/with spaces/share/macrowhisper`. The installer never owns or removes
+the rest of the prefix.
 
 ### Step 3: Complete data cleanup
 

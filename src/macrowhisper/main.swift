@@ -717,6 +717,17 @@ func stopSocketHealthMonitor() {
 // ---- QUICK COMMANDS: These should never start the daemon ----
 let args = CommandLine.arguments
 
+private struct EditorBootstrapCLIResponse: Decodable {
+    let address: String
+    let bootstrapURL: String
+    let expiresAt: TimeInterval
+}
+
+private func editorCommandFailure(_ message: String) -> Never {
+    fputs("\(message)\n", stderr)
+    exit(1)
+}
+
 // Handle verbose logging for quick commands too
 if args.contains("--verbose") {
     logger.setConsoleLogLevel(.debug)
@@ -738,6 +749,38 @@ if args.contains("--debug-ax-tree") {
     // Quick commands run before config load; force unredacted output for this diagnostic command.
     redactedLogsEnabled = false
     debugDumpFrontAppAccessibilityTree(maxDepth: 8)
+    exit(0)
+}
+
+// Editor opening commands are deliberately handled before lock acquisition or
+// daemon startup. They must talk to the existing same-user daemon rather than
+// creating a second process with a competing configuration/socket.
+let editorCommandFlags = ["--editor", "-e", "--editor-url"].filter { args.contains($0) }
+if !editorCommandFlags.isEmpty {
+    guard editorCommandFlags.count == 1 else {
+        editorCommandFailure("Use only one of --editor, -e, or --editor-url.")
+    }
+    let editorCommunication = SocketCommunication(socketPath: socketPath)
+    guard let bootstrapResponse = editorCommunication.sendCommand(.editorBootstrap),
+          let responseData = bootstrapResponse.data(using: .utf8),
+          let payload = try? JSONDecoder().decode(EditorBootstrapCLIResponse.self, from: responseData),
+          !payload.bootstrapURL.isEmpty,
+          URL(string: payload.bootstrapURL) != nil else {
+        editorCommandFailure("The running macrowhisper daemon could not provide an editor URL. Start the daemon and try again.")
+    }
+
+    if args.contains("--editor-url") {
+        // This is intentionally the only command that prints the credential
+        // URL. It is supplied for scripts; normal --editor output remains a
+        // clean address and opens the browser directly.
+        print(payload.bootstrapURL)
+    } else {
+        guard let editorURL = URL(string: payload.bootstrapURL),
+              NSWorkspace.shared.open(editorURL) else {
+            editorCommandFailure("Could not open the editor URL. Copy the URL from --editor-url into a browser.")
+        }
+        print("Opened the Macrowhisper editor at \(payload.address)")
+    }
     exit(0)
 }
 
@@ -1588,7 +1631,8 @@ if args.count > 1 {
         "--reset-config", "--get-config", "--update-config", "--validate-config", "--schema-info",
         "--install-service", "--start-service", "--stop-service", "--restart-service", 
         "--uninstall-service", "--service-status", "--test-update-dialog", "--test-version", 
-        "--test-description", "--version-state", "--version-clear", "--debug-ax-tree"
+        "--test-description", "--version-state", "--version-clear", "--debug-ax-tree",
+        "--editor", "-e", "--editor-url"
     ]
     let allValidCommands = validDaemonArgs + validQuickCommands + requireDaemonCommands
     
@@ -1678,6 +1722,8 @@ func printHelp() {
       -h, --help                    Show this help message
       -v, --version                 Show version information
       --debug-ax-tree               Dump front app AX tree to logs for diagnostics
+      -e, --editor                  Open the authenticated local configuration editor
+      --editor-url                  Print a fresh authenticated editor URL only
       
     CONFIG MANAGEMENT (work without running instance):
       --set-config <path>           Persist config path without starting daemon
@@ -2096,7 +2142,20 @@ configManager.onConfigChanged = { reason in
 
 // Accept commands only after the runtime configuration callback is installed.
 logDebug("About to start socket server...")
+let editorServer = EditorServer(configManager: configManager)
+socketCommunication.setEditorBootstrapHandler { [weak editorServer] in
+    editorServer?.issueBootstrapPayloadJSON()
+}
 socketCommunication.startServer(configManager: configManager)
+
+// The editor is auxiliary to transcription automation. If its listener or
+// resources are unavailable, keep the daemon and existing CLI/socket behavior
+// running and report the editor failure through logs.
+do {
+    try editorServer.start()
+} catch {
+    logWarning("Editor server unavailable; macrowhisper automation will continue: \(error.localizedDescription)")
+}
 
 if !configuredRecordingsFolderExists() {
     beginPersistentWatchPathRecovery()

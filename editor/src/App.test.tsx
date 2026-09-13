@@ -66,13 +66,13 @@ describe('configuration editor interactions', () => {
     expect([...new Set(insertControls)].sort()).toEqual(Object.keys(insertSchema).sort())
   })
 
-  it('keeps root null meanings distinct and serializes rapid field changes', async () => {
+  it('presents one root default choice while preserving serialized field changes', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderWithStore()
 
     const fallback = screen.getByRole('combobox', { name: 'Fallback action' })
-    expect(within(fallback).getByRole('option', { name: 'None (null)' })).toBeInTheDocument()
-    expect(within(fallback).getByRole('option', { name: 'None (empty)' })).toBeInTheDocument()
+    expect(within(fallback).getByRole('option', { name: 'No fallback action' })).toBeInTheDocument()
+    expect(within(fallback).queryByRole('option', { name: /explicit/ })).not.toBeInTheDocument()
     expect(within(fallback).queryByRole('option', { name: 'Use built-in (autoPaste)' })).not.toBeInTheDocument()
 
     await user.selectOptions(fallback, 'quickReply')
@@ -82,16 +82,16 @@ describe('configuration editor interactions', () => {
     // second write against the first result instead of surfacing a stale error.
     await user.selectOptions(notifications, 'on')
     await user.selectOptions(updates, 'on')
-    await screen.findByText('Saved', {}, { timeout: 1500 })
+    await waitFor(() => expect(screen.getAllByText('Saved').length).toBeGreaterThanOrEqual(3))
     expect(fallback).toHaveValue('quickReply')
     expect(notifications).toHaveValue('on')
     expect(updates).toHaveValue('on')
-    expect(within(updates).getByRole('option', { name: 'Use built-in (Allow checks)' })).toBeInTheDocument()
+    expect(within(updates).getByRole('option', { name: 'Allow checks (default)' })).toBeInTheDocument()
   })
 
   it('opens the populated Insert editor and exposes only valid trigger logic choices', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderWithStore()
 
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
@@ -109,9 +109,167 @@ describe('configuration editor interactions', () => {
     expect(within(logic).queryByRole('option', { name: /explicit empty/ })).not.toBeInTheDocument()
   })
 
+  it('keeps Defaults calm until a section is opened', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+
+    expect(screen.getByRole('heading', { name: 'Defaults' })).toBeInTheDocument()
+    const insertionField = screen.getByRole('combobox', { name: 'Simulate Escape' })
+    expect(insertionField.closest('details')).not.toHaveAttribute('open')
+    await user.click(screen.getByText('Insertion', { selector: 'strong' }))
+    expect(screen.getByRole('combobox', { name: 'Simulate Escape' })).toBeInTheDocument()
+  })
+
+  it('protects the .autoPaste built-in and keeps Do nothing explicit', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+    expect(deleteButton).toBeDisabled()
+    expect(screen.getByRole('radio', { name: /Do nothing/ })).toBeInTheDocument()
+    expect(screen.queryByText('Prototype mode')).not.toBeInTheDocument()
+  })
+
+  it('presents .none actions as Do nothing while retaining their stored name and value', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+
+    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const skipOutside = within(actionList).getByRole('option', { name: /Do nothing/ })
+    expect(skipOutside).toHaveTextContent('Do nothing')
+    expect(skipOutside).toHaveTextContent('skipOutside')
+    await user.click(skipOutside)
+
+    expect(screen.getByRole('heading', { name: 'Do nothing', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Action name' })).toHaveValue('skipOutside')
+    expect(store.getSnapshot().inserts.skipOutside.action).toBe('.none')
+    expect(screen.queryByText('.none')).not.toBeInTheDocument()
+  })
+
+  it('exposes payload and appearance choices as keyboard-operable radio groups', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+
+    const appearance = screen.getByRole('radiogroup', { name: 'Appearance' })
+    const light = within(appearance).getByRole('radio', { name: 'Light' })
+    const dark = within(appearance).getByRole('radio', { name: 'Dark' })
+    expect(light).toHaveAttribute('aria-checked', 'false')
+    await user.click(light)
+    expect(light).toHaveAttribute('aria-checked', 'true')
+    light.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(dark).toHaveAttribute('aria-checked', 'true')
+
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const payloadModes = screen.getByRole('radiogroup', { name: 'Payload mode' })
+    const customText = within(payloadModes).getByRole('radio', { name: /Custom text/ })
+    const doNothing = within(payloadModes).getByRole('radio', { name: /Do nothing/ })
+    expect(within(payloadModes).getByRole('radio', { name: /Auto-paste/ })).toHaveAttribute('aria-checked', 'true')
+    await user.click(customText)
+    expect(customText).toHaveAttribute('aria-checked', 'true')
+    customText.focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(doNothing).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('offers structured placeholder, transform, date, and replacement helpers only for Custom text', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
+    const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
+    expect(within(menu).getByRole('menuitem', { name: /Raw dictation/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Language-model result/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Uppercase/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('combobox', { name: 'Date format' })).toBeInTheDocument()
+    await user.click(within(menu).getByRole('menuitem', { name: /Build regex replacement/ }))
+    expect(screen.getByRole('heading', { name: /Payload/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Add replacement stage/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Insert replacement/ })).toBeDisabled()
+  })
+
+  it('encodes literal double pipes in regex replacement stages for parser round-trips', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
+    const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
+    await user.click(within(menu).getByRole('menuitem', { name: /Build regex replacement/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Find pattern 1' }), '||')
+    await user.type(screen.getByRole('textbox', { name: 'Replacement text 1' }), '||')
+
+    const expression = '{{swResult||\\|\\|||\\|\\|}}'
+    expect(screen.getByText('Preview').parentElement?.querySelector('code')).toHaveTextContent(expression)
+    await user.click(screen.getByRole('button', { name: /Insert replacement/ }))
+    expect((screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement).value).toContain(expression)
+  })
+
+  it('preserves actual newlines in regex replacement stages for parser round-trips', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
+    const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
+    await user.click(within(menu).getByRole('menuitem', { name: /Build regex replacement/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'middle' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'line 1\nline 2' } })
+
+    const expression = '{{swResult||middle||line 1\nline 2}}'
+    expect(screen.getByText('Preview').parentElement?.querySelector('code')?.textContent).toBe(expression)
+    await user.click(screen.getByRole('button', { name: /Insert replacement/ }))
+    expect((screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement).value).toContain(expression)
+  })
+
+  it('does not flag recognized raw trigger modes, but requires opt-in for incompatible syntax', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    act(() => {
+      store.simulateExternalChange({ path: ['inserts', 'quickReply', 'triggerVoice'], operation: 'set', value: '==^(reply|respond)$==' })
+    })
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Voice trigger mode' })).toHaveValue('regex'))
+    expect(screen.queryByText(/saved trigger expression needs Advanced raw mode/)).not.toBeInTheDocument()
+
+    act(() => {
+      store.simulateExternalChange({ path: ['inserts', 'quickReply', 'triggerApps'], operation: 'set', value: 'Mail||Messages' })
+    })
+    await waitFor(() => expect(screen.getByText(/saved trigger expression needs Advanced raw mode/)).toBeInTheDocument())
+    const frontApps = screen.getByLabelText('Advanced Front apps')
+    await user.click(within(frontApps.closest('.trigger-field') as HTMLElement).getByRole('checkbox', { name: 'Advanced raw mode' }))
+    expect(screen.queryByText(/saved trigger expression needs Advanced raw mode/)).not.toBeInTheDocument()
+
+    act(() => {
+      store.simulateExternalChange({ path: ['inserts', 'quickReply', 'triggerVoice'], operation: 'set', value: 'foo||bar' })
+    })
+    await waitFor(() => expect(screen.getByText(/saved trigger expression needs Advanced raw mode/)).toBeInTheDocument())
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Voice trigger mode' }), 'advanced')
+    expect(screen.queryByText(/saved trigger expression needs Advanced raw mode/)).not.toBeInTheDocument()
+  })
+
   it('inserts a placeholder at the saved caret while keeping the payload toolbar composite', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
     const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
@@ -136,7 +294,7 @@ describe('configuration editor interactions', () => {
 
   it('uses a native modal dialog with focus restoration for deletion confirmation', async () => {
     const user = userEvent.setup()
-    render(<App />)
+    renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
     const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
@@ -155,7 +313,7 @@ describe('configuration editor interactions', () => {
   it('makes the mobile navigation modal and returns focus to its menu button', async () => {
     installMediaQuery(true)
     const user = userEvent.setup()
-    render(<App />)
+    renderWithStore()
     const menu = screen.getByRole('button', { name: /Menu/ })
     await user.click(menu)
 

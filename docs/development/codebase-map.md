@@ -57,7 +57,8 @@ src/
 │   │   ├── Accessibility.swift           # Focus/input-field detection and keyboard helpers
 │   │   └── UserDefaultsManager.swift     # Saved config-path persistence
 │   └── Networking/
-│       ├── SocketCommunication.swift     # Unix socket server and CLI command handling
+│       ├── SocketCommunication.swift     # Unix socket server, CLI commands, editor bootstrap
+│       ├── EditorServer.swift             # Authenticated loopback editor HTTP server and resources
 │       └── VersionChecker.swift          # Update checks
 ├── macrowhisper-schema.json              # JSON schema for config editing/validation
 ├── macrowhisper.xcodeproj/               # Supported signed application build
@@ -65,9 +66,13 @@ src/
 └── Tests/                                # Focused regression tests for parser/runtime edge cases
 ```
 
-The root `editor/` directory contains the experimental React/TypeScript
-Defaults and Insert interface. It uses synthetic fixtures and is not yet served
-by the daemon. See the [prototype guide](web-editor-prototype.md).
+The root `editor/` directory contains the React/TypeScript configuration
+interface. Its connected slice serves and edits Defaults and Inserts through
+the daemon; URL, Shortcut, Shell, and AppleScript names come from the live
+snapshot while their type-specific panels remain read-only. The standalone
+Vite preview is fixture-backed. `npm --prefix editor run build` writes static assets to
+`.build/editor`; the daemon never runs Vite. See the [user editor guide](../editor.md)
+and [prototype guide](web-editor-prototype.md).
 
 ## Build topology
 
@@ -90,6 +95,13 @@ standalone runners in `src/Tests/` remain independent `swiftc` binaries. See
 the [SwiftPM compile check](README.md#swiftpm-compile-check) and [focused
 regression runners](README.md#focused-regression-runners) for the commands.
 
+The signed Xcode build copies `.build/editor` into
+`.build/local-xcode/Build/Products/<Configuration>/editor/` beside the binary.
+Release and installation packaging move that same resource tree into
+`share/macrowhisper/editor/`, with the schema at
+`share/macrowhisper/macrowhisper-schema.json` and the executable at
+`bin/macrowhisper`.
+
 ---
 
 ## Core Components
@@ -98,6 +110,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
 - Parses CLI commands, starts the socket server, and owns watcher lifecycle
 - Applies startup config auto-update when `defaults.autoUpdateConfig` is enabled
 - Exposes config utilities like `--update-config`, `--validate-config`, `--set-config`, and `--reset-config`
+- Exposes `--editor` / `-e` and `--editor-url` to obtain a fresh authenticated editor link from the running daemon
 - Exposes runtime/action commands like `--exec-action`, `--run-auto`, `--get-action`, `--copy-action`, `--folder-name`, `--folder-path`, and `--mute-triggers`
 - Reinitializes watchers live when config path or watch path changes
 
@@ -120,7 +133,8 @@ regression runners](README.md#focused-regression-runners) for the commands.
 - Auto-migrates legacy naming/semantics to config version 2 when allowed
 - Preserves schema references and normalizes persisted config values
 - Reports detailed validation issues for `--validate-config`
-- Owns serialized configuration transactions used by CLI edits and the future editor
+- Owns serialized configuration transactions used by CLI edits and the connected editor
+- Supplies revision-checked, typed snapshots and edits to the connected Defaults/Insert editor while preserving invalid-file fallback state separately
 - Separates disk validation and revision checks from runtime fallback loading
 
 ### 3. Recording / Watcher Pipeline
@@ -215,7 +229,23 @@ regression runners](README.md#focused-regression-runners) for the commands.
   - folder lookup commands (`--folder-name`, `--folder-path`)
 - Preserves CLI clipboard behavior separately from watcher execution while matching chain-level restore semantics; pure CLI and `copyAction` do not perform attachment handoff, although supported original restoration may be shared
 
-### 8. Supporting Infrastructure
+#### [src/macrowhisper/Networking/EditorServer.swift](../../src/macrowhisper/Networking/EditorServer.swift)
+- Binds the local editor to `127.0.0.1`, trying port `49172` before an OS-selected fallback
+- Serves only the bundled `index.html` and `assets/` tree from the executable/resource layout
+- Exchanges same-user Unix-socket bootstrap tokens for expiring bearer sessions
+- Exposes authenticated configuration snapshots and revision-checked typed edits; `ConfigurationManager` remains the persistence owner
+- Keeps disk validity and runtime fallback separate, and returns stable errors for stale revisions, invalid files, validation failures, and persistence failures
+
+### 8. Frontend editor
+
+#### [editor/src/App.tsx](../../editor/src/App.tsx) and [editor/src/store/apiStore.ts](../../editor/src/store/apiStore.ts)
+- Render Defaults and the complete Insert lifecycle against the shared `EditorStore` contract
+- Use the live API adapter for a credential-bearing daemon URL and the fixture adapter for disconnected/prototype review
+- Queue mutations per tab, save choices immediately, and save text controls on blur while retaining dirty drafts on failure or conflict
+- Keep URL, Shortcut, Shell, and AppleScript type-specific screens read-only in connected mode until their editors land; their Vite-preview data remains fixture-backed
+- Poll authenticated snapshots so clean fields can follow external changes without replacing dirty drafts
+
+### 9. Supporting Infrastructure
 - [src/macrowhisper/Utils/SchemaManager.swift](../../src/macrowhisper/Utils/SchemaManager.swift): finds a local schema and manages `$schema` references without requiring network access
 - [src/macrowhisper/History/HistoryManager.swift](../../src/macrowhisper/History/HistoryManager.swift): deletes old recording folders based on `defaults.history`
 - [src/macrowhisper/Utils/ServiceManager.swift](../../src/macrowhisper/Utils/ServiceManager.swift): install/start/stop/restart/uninstall for launchd service mode

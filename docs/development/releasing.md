@@ -2,9 +2,10 @@
 
 [Documentation index](../README.md)
 
-The release helper keeps builds inside the repository, signs and notarizes the
-standalone executable, packages the executable with its JSON schema, and prepares
-the installer, Homebrew formula, and GitHub release.
+The release helper keeps builds inside the repository, builds the static editor,
+signs and notarizes the standalone executable, packages the executable with its
+JSON schema and editor resources, and prepares the installer, Homebrew formula,
+and GitHub release.
 
 Run the commands in this guide from the repository root. For the signed local
 binary used for manual testing, including its stable output path and signature
@@ -12,10 +13,10 @@ checks, see the [development build and test guide](README.md).
 
 ## One-time setup
 
-The release commands require Xcode's build tools, a Developer ID Application
-signing identity, a Keychain notary profile, authenticated GitHub CLI access,
-and the sibling Homebrew formula repository. The script checks its required
-commands before drafting a release.
+The release commands require Xcode's build tools, Node/npm for the pinned editor
+build, a Developer ID Application signing identity, a Keychain notary profile,
+authenticated GitHub CLI access, and the sibling Homebrew formula repository.
+The script checks its required commands before drafting a release.
 
 Copy `.release.env.example` to `.release.env`, fill in the signing identity and
 Keychain notary profile, and make sure `.release.env` is listed in
@@ -68,8 +69,11 @@ does not build, sign, notarize, package, create a GitHub draft, or update the
 formula.
 
 Before drafting, the only allowed Macrowhisper working-tree changes are the
-prepared `CHANGELOG.md`, `versions.json`, and `src/macrowhisper/main.swift`.
-Do not push the prepared metadata to `main` before the release exists.
+prepared `CHANGELOG.md`, `versions.json`, `scripts/install.sh`,
+`scripts/release.sh`, and `src/macrowhisper/main.swift`. The script and installer
+changes must be the reviewed release-tooling changes for that release; do not
+use this allowlist to hide unrelated edits. Do not push the prepared metadata to
+`main` before the release exists.
 
 Build, sign, notarize, package, and create the GitHub draft:
 
@@ -77,19 +81,63 @@ Build, sign, notarize, package, and create the GitHub draft:
 scripts/release.sh draft "$RELEASE_VERSION"
 ```
 
-The draft builds a universal `arm64`/`x86_64` Release executable, signs and
-notarizes it, verifies its reported version, and packages it with the schema.
-It updates the installer version/checksum and the sibling Homebrew formula,
-then creates and pushes `release/vVERSION` with a release commit and creates
-the GitHub draft against that branch. The formula changes remain uncommitted
-until publication.
+The draft first runs `npm --prefix editor ci` and
+`npm --prefix editor run build`, then verifies `.build/editor/index.html` and
+its non-empty `assets/` directory. Xcode's Release phase copies that exact
+editor tree into the product beside the binary. The draft then builds a
+universal `arm64`/`x86_64` executable, signs and notarizes it, verifies its
+reported version and signature, verifies the copied editor resources, and
+packages the result. It updates the installer version/checksum and the sibling
+Homebrew formula, then creates and pushes `release/vVERSION` with a release
+commit and creates the GitHub draft against that branch. The formula changes
+remain uncommitted until publication.
 
-The final archive contains exactly:
+The final archive contains exactly these top-level paths (directory entries may
+also be present):
 
 ```text
-macrowhisper
-macrowhisper-schema.json
+bin/macrowhisper
+share/macrowhisper/macrowhisper-schema.json
+share/macrowhisper/editor/index.html
+share/macrowhisper/editor/assets/...
 ```
+
+The release helper rejects any other archive path and requires at least one
+editor asset file. This layout is deliberately independent of the current
+working directory: the daemon resolves resources from the executable's
+Homebrew-style prefix (including a resolved Homebrew symlink).
+
+### Homebrew formula expectations
+
+The formula lives in the separate `homebrew-formulae` repository. This release
+workflow may update that checked-out formula during draft preparation, but this
+task does not edit or publish it. For an archive with the layout above, the
+formula's `def install` must install the nested paths explicitly:
+
+```ruby
+def install
+  bin.install "bin/macrowhisper"
+  share_dir = share/"macrowhisper"
+  share_dir.install "share/macrowhisper/macrowhisper-schema.json"
+  share_dir.install "share/macrowhisper/editor"
+end
+```
+
+The formula test should continue checking the version/help/config command and
+also assert that
+`share/"macrowhisper/editor/index.html"` and at least one file below
+`share/"macrowhisper/editor/assets"` exist. The URL and SHA-256 must match the
+archive generated at `.build/release/vVERSION/macrowhisper-VERSION-macos.tar.gz`.
+Do not flatten the archive paths or copy editor files into `bin`.
+
+The script installer uses the same tree. With its default `BIN_DIR` it installs
+the binary at `/usr/local/bin/macrowhisper` and resources at
+`/usr/local/share/macrowhisper`; with a custom absolute `BIN_DIR`, it uses the
+parent prefix and preserves spaces in the path. It verifies the archive checksum
+and required paths before staging an upgrade. An upgrade moves the legacy
+schema formerly installed beside the binary into the same rollback staging area
+before installing the shared resource tree. Keep the version and hash lines in
+`scripts/install.sh` synchronized with the release archive.
 
 Review the draft release, its `vVERSION` title and tag, the release notes, and the
 uploaded archive. Publishing is a separate, explicit action:
@@ -120,4 +168,11 @@ in sequence; if it fails partway through, inspect which steps completed before
 retrying. Do not assume the entire operation rolled back.
 
 The final archive, release notes, checksum, and notarization response remain under
-`.build/release/vVERSION` for inspection.
+`.build/release/vVERSION` for inspection. A package failure before installer
+metadata or the release commit leaves the existing installed binary/resources
+untouched. If an installed update must be rolled back, stop the service if it is
+running, retain the prior archive and its matching version/hash, and rerun that
+prior archive's installer with the intended `BIN_DIR`; the release helper does
+not perform installation or service changes. Resource and binary replacement is
+staged together, and a failed installer replacement restores the previous owned
+pair.

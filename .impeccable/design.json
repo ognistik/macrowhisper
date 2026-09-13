@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-13T05:27:37Z",
+  "title": "Design System: Macrowhisper Configuration Editor",
+  "extensions": {
+    "colorMeta": {
+      "background": { "role": "neutral", "displayName": "Quiet Gray", "canonical": "#f5f5f5", "tonalRamp": ["#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#d9d9d9", "#f5f5f5"] },
+      "surface": { "role": "neutral", "displayName": "Paper Surface", "canonical": "#ffffff", "tonalRamp": ["#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#d9d9d9", "#ffffff"] },
+      "surface-muted": { "role": "neutral", "displayName": "Muted Gray", "canonical": "#ebebeb", "tonalRamp": ["#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#d9d9d9", "#ebebeb"] },
+      "surface-raised": { "role": "neutral", "displayName": "Raised Paper", "canonical": "#ffffff", "tonalRamp": ["#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#d9d9d9", "#ffffff"] },
+      "surface-selected": { "role": "neutral", "displayName": "Selected Gray", "canonical": "#dedede", "tonalRamp": ["#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#c7c7c7", "#dedede"] },
+      "text": { "role": "neutral", "displayName": "Graphite Ink", "canonical": "#111111", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "text-soft": { "role": "neutral", "displayName": "Soft Ink", "canonical": "#4a4a4a", "tonalRamp": ["#1a1a1a", "#303030", "#4a4a4a", "#646464", "#7e7e7e", "#999999", "#bdbdbd", "#eeeeee"] },
+      "text-muted": { "role": "neutral", "displayName": "Muted Ink", "canonical": "#666666", "tonalRamp": ["#262626", "#404040", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#c6c6c6", "#f0f0f0"] },
+      "border": { "role": "neutral", "displayName": "Hairline Gray", "canonical": "#d2d2d2", "tonalRamp": ["#262626", "#404040", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#c0c0c0", "#d2d2d2"] },
+      "border-strong": { "role": "neutral", "displayName": "Strong Hairline", "canonical": "#aaaaaa", "tonalRamp": ["#262626", "#404040", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#bdbdbd", "#d7d7d7"] },
+      "accent": { "role": "primary", "displayName": "Graphite Accent", "canonical": "#111111", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "accent-inverse": { "role": "neutral", "displayName": "Accent Inverse", "canonical": "#ffffff", "tonalRamp": ["#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#a6a6a6", "#d9d9d9", "#ffffff"] },
+      "focus": { "role": "neutral", "displayName": "Focus Graphite", "canonical": "#111111", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "focus-soft": { "role": "neutral", "displayName": "Soft Focus", "canonical": "rgba(17, 17, 17, 0.16)", "tonalRamp": ["rgba(17,17,17,.05)", "rgba(17,17,17,.08)", "rgba(17,17,17,.11)", "rgba(17,17,17,.14)", "rgba(17,17,17,.16)", "rgba(17,17,17,.18)", "rgba(17,17,17,.2)", "rgba(17,17,17,.22)"] },
+      "success": { "role": "status", "displayName": "Success Green", "canonical": "#2d6d4d", "tonalRamp": ["#123426", "#1b4d37", "#276548", "#2d6d4d", "#438466", "#69a486", "#a6caae", "#e9f4ed"] },
+      "success-soft": { "role": "status", "displayName": "Success Wash", "canonical": "#e9f4ed", "tonalRamp": ["#123426", "#1b4d37", "#276548", "#438466", "#69a486", "#8dbba0", "#c5dfcf", "#e9f4ed"] },
+      "warning": { "role": "status", "displayName": "Warning Amber", "canonical": "#895d16", "tonalRamp": ["#3b2508", "#59370b", "#704b10", "#895d16", "#a57522", "#c3984c", "#e5c990", "#fff7e7"] },
+      "warning-soft": { "role": "status", "displayName": "Warning Wash", "canonical": "#fff7e7", "tonalRamp": ["#3b2508", "#59370b", "#704b10", "#a57522", "#c3984c", "#e0c792", "#f4e2bc", "#fff7e7"] },
+      "danger": { "role": "status", "displayName": "Repair Red", "canonical": "#a33c39", "tonalRamp": ["#481614", "#6a211f", "#852d29", "#a33c39", "#b95a54", "#cf837e", "#e8b6b1", "#fff0ef"] },
+      "danger-soft": { "role": "status", "displayName": "Repair Wash", "canonical": "#fff0ef", "tonalRamp": ["#481614", "#6a211f", "#852d29", "#b95a54", "#cf837e", "#e8b6b1", "#f5d3d0", "#fff0ef"] },
+      "dark-background": { "role": "neutral", "displayName": "Dark Graphite Canvas", "canonical": "#111111", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-surface": { "role": "neutral", "displayName": "Dark Surface", "canonical": "#1a1a1a", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-surface-muted": { "role": "neutral", "displayName": "Dark Muted Surface", "canonical": "#242424", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-surface-raised": { "role": "neutral", "displayName": "Dark Raised Surface", "canonical": "#202020", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-surface-selected": { "role": "neutral", "displayName": "Dark Selected Surface", "canonical": "#303030", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-text": { "role": "neutral", "displayName": "Dark Paper Ink", "canonical": "#f5f5f5", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-text-soft": { "role": "neutral", "displayName": "Dark Soft Ink", "canonical": "#c7c7c7", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-text-muted": { "role": "neutral", "displayName": "Dark Muted Ink", "canonical": "#a5a5a5", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-border": { "role": "neutral", "displayName": "Dark Hairline", "canonical": "#3e3e3e", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-border-strong": { "role": "neutral", "displayName": "Dark Strong Hairline", "canonical": "#575757", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-accent": { "role": "primary", "displayName": "Dark Paper Accent", "canonical": "#f2f2f2", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f2f2f2"] },
+      "dark-accent-inverse": { "role": "neutral", "displayName": "Dark Accent Inverse", "canonical": "#111111", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-focus": { "role": "neutral", "displayName": "Dark Focus Paper", "canonical": "#f5f5f5", "tonalRamp": ["#111111", "#262626", "#3f3f3f", "#595959", "#737373", "#8c8c8c", "#bdbdbd", "#f5f5f5"] },
+      "dark-focus-soft": { "role": "neutral", "displayName": "Dark Soft Focus", "canonical": "rgba(245, 245, 245, 0.2)", "tonalRamp": ["rgba(245,245,245,.05)", "rgba(245,245,245,.08)", "rgba(245,245,245,.11)", "rgba(245,245,245,.14)", "rgba(245,245,245,.16)", "rgba(245,245,245,.18)", "rgba(245,245,245,.2)", "rgba(245,245,245,.22)"] },
+      "dark-success": { "role": "status", "displayName": "Dark Success Green", "canonical": "#82c39a", "tonalRamp": ["#173b27", "#285c3e", "#3f8057", "#5da375", "#82c39a", "#a1d2b1", "#c4e4cd", "#e8f6ec"] },
+      "dark-success-soft": { "role": "status", "displayName": "Dark Success Wash", "canonical": "#1e3427", "tonalRamp": ["#173b27", "#285c3e", "#3f8057", "#5da375", "#82c39a", "#a1d2b1", "#c4e4cd", "#e8f6ec"] },
+      "dark-warning": { "role": "status", "displayName": "Dark Warning Amber", "canonical": "#e8bd6a", "tonalRamp": ["#3b2508", "#704b10", "#a57522", "#c3984c", "#e8bd6a", "#f1cf91", "#f8dfb2", "#fff7e7"] },
+      "dark-warning-soft": { "role": "status", "displayName": "Dark Warning Wash", "canonical": "#3a2f1b", "tonalRamp": ["#3b2508", "#704b10", "#a57522", "#c3984c", "#e8bd6a", "#f1cf91", "#f8dfb2", "#fff7e7"] },
+      "dark-danger": { "role": "status", "displayName": "Dark Repair Red", "canonical": "#f09b95", "tonalRamp": ["#481614", "#852d29", "#b95a54", "#cf837e", "#f09b95", "#f5b4af", "#f9d0cc", "#fff0ef"] },
+      "dark-danger-soft": { "role": "status", "displayName": "Dark Repair Wash", "canonical": "#40201f", "tonalRamp": ["#481614", "#852d29", "#b95a54", "#cf837e", "#f09b95", "#f5b4af", "#f9d0cc", "#fff0ef"] }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "System Body", "purpose": "Readable explanatory copy and normal control text." },
+      "title": { "displayName": "Control Room Title", "purpose": "Page and selected-action titles." },
+      "section-title": { "displayName": "Section Title", "purpose": "Settings and disclosure headings." },
+      "label": { "displayName": "Utility Label", "purpose": "Field labels, buttons, metadata, and navigation copy." },
+      "mono": { "displayName": "Configuration Mono", "purpose": "Paths, serialized values, placeholders, and generated expressions." }
+    },
+    "shadows": [
+      { "name": "popover-light", "value": "0 14px 35px rgba(0, 0, 0, 0.14), 0 2px 7px rgba(0, 0, 0, 0.07)", "purpose": "Ambient separation for light-theme popovers, drawers, and dialogs." },
+      { "name": "popover-dark", "value": "0 18px 40px rgba(0, 0, 0, 0.44), 0 2px 8px rgba(0, 0, 0, 0.34)", "purpose": "Stronger ambient separation for dark-theme popovers, drawers, and dialogs." },
+      { "name": "payload-hairline", "value": "0 1px 1px rgba(0, 0, 0, 0.025)", "purpose": "Barely lift the payload editing boundary at rest." },
+      { "name": "focus-ring-light", "value": "0 0 0 3px rgba(17, 17, 17, 0.16)", "purpose": "Visible focus-within ring around the payload boundary in light appearance." },
+      { "name": "focus-ring-dark", "value": "0 0 0 3px rgba(245, 245, 245, 0.2)", "purpose": "Visible focus-within ring around the payload boundary in dark appearance." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "120ms ease", "purpose": "Navigation and control hover/color transitions." },
+      { "name": "disclosure-transition", "value": "130ms ease", "purpose": "Chevron orientation feedback on disclosure rows." },
+      { "name": "drawer-transition", "value": "160ms ease", "purpose": "Mobile navigation drawer entrance and exit." },
+      { "name": "reduced-motion", "value": "0.01ms", "purpose": "Near-zero transition and animation duration when reduced motion is requested." }
+    ],
+    "breakpoints": [
+      { "name": "defaults-stack", "value": "1200px" },
+      { "name": "compact-shell", "value": "1050px" },
+      { "name": "mobile-surface", "value": "780px" },
+      { "name": "narrow-controls", "value": "430px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Compact graphite action for creating or committing configuration changes.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\"><svg viewBox=\"0 0 15 15\" aria-hidden=\"true\"><path d=\"M7.5 1v13M1 7.5h13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg><span>New Insert</span></button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--accent-inverse); font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; white-space: nowrap; transition: opacity 120ms ease, transform 120ms ease; } .ds-btn-primary svg { width: 14px; height: 14px; } .ds-btn-primary:hover { opacity: .88; } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Neutral bordered action for secondary and navigation-adjacent choices.",
+      "html": "<button class=\"ds-btn-quiet\" type=\"button\">Duplicate</button>",
+      "css": ".ds-btn-quiet { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-soft); font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; white-space: nowrap; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease; } .ds-btn-quiet:hover { border-color: var(--border-strong); background: var(--surface-muted); color: var(--text); } .ds-btn-quiet:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-btn-quiet:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Semantic red action used for deletion and repair-risk choices.",
+      "html": "<button class=\"ds-btn-danger\" type=\"button\">Delete Insert</button>",
+      "css": ".ds-btn-danger { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border)); border-radius: 6px; background: transparent; color: var(--danger); font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; white-space: nowrap; transition: background 120ms ease, transform 120ms ease; } .ds-btn-danger:hover { background: var(--danger-soft); } .ds-btn-danger:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-btn-danger:active { transform: translateY(1px); } .ds-btn-danger.ds-is-filled { border-color: var(--danger); background: var(--danger); color: #fff; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "text-field",
+      "description": "Native field with a strong hairline, readable padding, and explicit focus treatment.",
+      "html": "<label class=\"ds-field\"><span>Action name</span><input type=\"text\" value=\"dailyNotes\"/></label>",
+      "css": ".ds-field { display: grid; gap: 5px; color: var(--text-soft); font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; } .ds-field input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--text); font: 400 14px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; transition: border-color 120ms ease; } .ds-field input:hover { border-color: var(--text-muted); } .ds-field input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Neutral rail navigation row with a tonal selected state.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Configuration sections\"><button class=\"ds-nav-item ds-is-active\" type=\"button\" aria-current=\"page\"><svg class=\"ds-nav-icon\" viewBox=\"0 0 15 15\" aria-hidden=\"true\"><path d=\"M7.5 1.2 13 3.6v3.6c0 3.1-2.1 5.5-5.5 6.6C4.1 12.7 2 10.3 2 7.2V3.6l5.5-2.4Z\" fill=\"none\" stroke=\"currentColor\"/></svg><span>Defaults</span><span class=\"ds-nav-count\">4</span></button></nav>",
+      "css": ".ds-nav { display: grid; gap: 3px; padding: 8px; background: var(--surface); } .ds-nav-item { display: flex; align-items: center; width: 100%; gap: 10px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-soft); text-align: left; font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; transition: background 120ms ease, color 120ms ease; } .ds-nav-icon { width: 16px; height: 16px; color: var(--text-muted); } .ds-nav-item:hover { background: var(--surface-muted); color: var(--text); } .ds-nav-item.ds-is-active { background: var(--surface-selected); color: var(--text); } .ds-nav-item.ds-is-active .ds-nav-icon { color: var(--text); } .ds-nav-count { margin-left: auto; color: var(--text-muted); font-weight: 400; } .ds-nav-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Action List Item",
+      "kind": "custom",
+      "refersTo": "action-list-item",
+      "description": "Scannable action row that keeps the name, payload detail, and selection state legible.",
+      "html": "<button class=\"ds-action-item ds-is-selected\" type=\"button\"><span class=\"ds-action-icon\" aria-hidden=\"true\">A</span><span class=\"ds-action-copy\"><strong>dailyNotes</strong><small>Paste a note with context</small></span></button>",
+      "css": ".ds-action-item { display: flex; align-items: center; min-width: 0; width: 100%; gap: 9px; padding: 9px 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text); text-align: left; font: inherit; transition: background 120ms ease, border-color 120ms ease; } .ds-action-item:hover { background: var(--surface-muted); } .ds-action-item.ds-is-selected { border-color: var(--border); background: var(--surface-selected); } .ds-action-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-action-icon { display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-soft); font: 650 13px/1 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-action-copy { display: grid; min-width: 0; gap: 2px; } .ds-action-copy strong, .ds-action-copy small { overflow: hidden; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; } .ds-action-copy strong { font-size: 13px; font-weight: 650; } .ds-action-copy small { color: var(--text-muted); font-size: 13px; }"
+    },
+    {
+      "name": "Source Pill",
+      "kind": "chip",
+      "refersTo": "source-pill",
+      "description": "Small neutral badge that identifies the origin or inheritance state of an action.",
+      "html": "<span class=\"ds-source-pill ds-source-inherited\"><svg viewBox=\"0 0 15 15\" aria-hidden=\"true\"><path d=\"M7.5 2.1v10.8M4.2 5.2 7.5 2l3.3 3.2M4.2 9.8 7.5 13l3.3-3.2\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\"/></svg>Inherits Defaults</span>",
+      "css": ".ds-source-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 19px; padding: 2px 6px; border-radius: 4px; background: var(--surface-muted); color: var(--text-soft); font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-source-pill svg { width: 13px; height: 13px; } .ds-source-pill.ds-source-invalid { background: var(--danger-soft); color: var(--danger); }"
+    },
+    {
+      "name": "Source Pill — Repair",
+      "kind": "chip",
+      "refersTo": "source-pill-invalid",
+      "description": "Semantic repair badge for an action whose saved configuration needs attention.",
+      "html": "<span class=\"ds-source-pill ds-source-invalid\"><svg viewBox=\"0 0 15 15\" aria-hidden=\"true\"><path d=\"M7.5 1.2 14 13H1L7.5 1.2Zm0 4.1v3.2M7.5 11v.1\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>Needs repair</span>",
+      "css": ".ds-source-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 19px; padding: 2px 6px; border-radius: 4px; background: var(--danger-soft); color: var(--danger); font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-source-pill svg { width: 13px; height: 13px; } .ds-source-pill:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Connection Card",
+      "kind": "card",
+      "refersTo": "connection-card",
+      "description": "Quiet status card that explains the live, fixture, fallback, or disconnected connection.",
+      "html": "<section class=\"ds-connection-card\"><div class=\"ds-connection-line\"><span class=\"ds-status-dot ds-status-connected\" aria-hidden=\"true\"></span><strong>Fixture connected</strong></div><p>Connected to the in-memory fixture adapter.</p></section>",
+      "css": ".ds-connection-card { padding: 11px 11px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); color: var(--text); font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-connection-line { display: flex; align-items: center; gap: 7px; font-weight: 650; } .ds-status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); } .ds-status-connected { background: var(--success); } .ds-status-warning { background: var(--warning); } .ds-status-error { background: var(--danger); } .ds-connection-card p { margin: 5px 0 0; color: var(--text-muted); line-height: 1.4; }"
+    },
+    {
+      "name": "Disclosure Row",
+      "kind": "custom",
+      "refersTo": "disclosure",
+      "description": "Progressive-disclosure row that keeps advanced configuration available without crowding the first path.",
+      "html": "<details class=\"ds-disclosure\"><summary><span><strong>Conditions</strong><small>Match a phrase, app, mode, or URL.</small></span><span class=\"ds-disclosure-meta\">2 configured</span><span class=\"ds-chevron\" aria-hidden=\"true\">⌄</span></summary><div class=\"ds-disclosure-body\">Structured controls and deliberate raw mode.</div></details>",
+      "css": ".ds-disclosure { border-top: 1px solid var(--border); color: var(--text); font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-disclosure summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 58px; padding: 8px 1px; list-style: none; cursor: pointer; } .ds-disclosure summary::-webkit-details-marker { display: none; } .ds-disclosure summary > span:first-child { display: grid; gap: 3px; min-width: 0; } .ds-disclosure strong { font-weight: 650; } .ds-disclosure small, .ds-disclosure-meta { color: var(--text-muted); } .ds-disclosure-meta { margin-left: auto; white-space: nowrap; } .ds-chevron { color: var(--text-muted); transition: transform 130ms ease; } .ds-disclosure[open] .ds-chevron { transform: rotate(180deg); } .ds-disclosure summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-disclosure-body { padding: 0 0 19px; color: var(--text-soft); }"
+    },
+    {
+      "name": "Payload Editor",
+      "kind": "custom",
+      "refersTo": "payload-editor",
+      "description": "Signature text-editing boundary with built-in modes, helper affordance, and explicit draft status.",
+      "html": "<section class=\"ds-payload-editor\"><div class=\"ds-payload-toolbar\"><span>Custom text</span><button class=\"ds-toolbar-button\" type=\"button\"><svg viewBox=\"0 0 15 15\" aria-hidden=\"true\"><path d=\"M7.5 1v13M1 7.5h13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>Insert placeholder</button></div><textarea aria-label=\"Insert payload\" rows=\"5\">{{swResult}}</textarea><div class=\"ds-payload-footer\"><span>12 characters</span><span class=\"ds-saved\">✓ Saved</span></div></section>",
+      "css": ".ds-payload-editor { overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); box-shadow: 0 1px 1px rgba(0,0,0,.025); } .ds-payload-editor:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-soft); } .ds-payload-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 5px 8px 5px 13px; border-bottom: 1px solid var(--border); } .ds-payload-toolbar > span { color: var(--text-muted); font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; letter-spacing: .03em; text-transform: uppercase; } .ds-toolbar-button { display: inline-flex; align-items: center; gap: 7px; min-height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-soft); font: 650 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; transition: background 120ms ease, border-color 120ms ease; } .ds-toolbar-button svg { width: 14px; height: 14px; } .ds-toolbar-button:hover { border-color: var(--border); background: var(--surface-muted); } .ds-toolbar-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-payload-editor textarea { display: block; width: 100%; min-height: 173px; padding: 11px 12px; border: 0; border-radius: 0; outline: 0; background: transparent; color: var(--text); font: 400 14px/1.55 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; resize: vertical; } .ds-payload-footer { display: flex; align-items: center; justify-content: space-between; min-height: 30px; padding: 0 11px; border-top: 1px solid var(--border); color: var(--text-muted); font: 400 13px/1.4 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; } .ds-saved { color: var(--success); font-weight: 650; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Control Room",
+    "overview": "This is an operate-mode interface for a local configuration editor. It should feel like a calm control room: dependable, legible, and ready for a precise adjustment without demanding attention from the work around it. Graphite, white, and gray surfaces establish hierarchy through tone, borders, and spacing rather than decoration.\n\nThe system is compact but not cramped. Familiar controls carry the interaction, while progressive disclosure keeps advanced conditions, chaining, placeholders, and raw syntax available without making the first useful path feel technical. Light and dark appearances use the same neutral roles; green, amber, and red are reserved for connection, save, warning, and error meaning.",
+    "keyCharacteristics": ["Quiet graphite-and-paper surfaces with no colored cast.", "A clear navigation rail, top context bar, and focused editing workspace.", "State made explicit with text, icons, and restrained semantic color.", "Dense enough for configuration work, with a single-surface mobile path."],
+    "rules": [
+      { "name": "The Quiet Surface Rule", "body": "Keep surfaces, navigation, and controls inside the graphite/white/gray family. Semantic hues are for status and risk, never for decoration.", "section": "colors" },
+      { "name": "The State Must Speak Rule", "body": "Never make a status depend on color alone: pair semantic color with a label, icon, or explicit copy.", "section": "colors" },
+      { "name": "The Utility Type Rule", "body": "Use system sans for prose and controls; reserve monospace for paths, serialized values, and expressions. There is no decorative display face.", "section": "typography" },
+      { "name": "The Flat Resting Rule", "body": "Keep ordinary navigation, list items, fields, and settings flat. Reserve shadows for transient layers or the payload boundary's barely perceptible separation.", "section": "elevation" }
+    ],
+    "dos": ["Do use neutral graphite, white, and gray roles for all resting surfaces and structural chrome.", "Do reserve green, amber, and red for connection, saved/saving, warning, error, and destructive states, and pair each with text or an icon.", "Do show whether a value is Saved, Saving, Unsaved, Not saved, inherited, a built-in template, fixture-backed, or live-connected.", "Do keep advanced syntax behind a deliberate disclosure or raw-mode opt-in while keeping the raw value recoverable.", "Do preserve the desktop navigation → list → editor hierarchy and the mobile list/editor single-surface behavior.", "Do keep familiar native controls, visible focus, readable wrapping, and reduced-motion behavior."],
+    "donts": ["Don't introduce blue, purple, gradients, or colored surface washes into the neutral editor chrome.", "Don't use semantic color as decoration or as the only signal for state.", "Don't imply that a fixture-only, failed, or disconnected write was saved to the real configuration.", "Don't flatten every advanced setting into an always-open form or hide the consequences of raw configuration.", "Don't add strong shadows to ordinary rows, cards, or controls; depth belongs to transient layers.", "Don't replace the canonical configuration semantics with a simplified visual-only model."]
+  }
+}

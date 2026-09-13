@@ -132,7 +132,9 @@ curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/ins
 ```
 
 The script installs the prebuilt release version specified in the script and
-verifies its SHA-256 hash before copying the binary.
+verifies its SHA-256 hash before copying the binary. It also installs the JSON
+schema and local editor resources under the `share/macrowhisper` directory
+next to the selected `bin` directory; paths containing spaces are supported.
 
 ### Set up Superwhisper
 
@@ -186,6 +188,23 @@ Check that it is running:
 ```bash
 macrowhisper --service-status
 ```
+
+### Optional: open the local configuration editor
+
+With the service running, open a fresh authenticated editor link:
+
+```bash
+macrowhisper --editor
+```
+
+Use `macrowhisper -e` as the short alias, or
+`macrowhisper --editor-url` to print the credential-bearing link without
+opening a browser. These commands contact the existing daemon and do not start
+or install a second service. The editor is local-only and currently writes
+Defaults and Inserts; URL, Shortcut, Shell, and AppleScript names come from the
+live snapshot, but their type-specific panels remain read-only. The standalone
+Vite preview is fixture-backed. See the [local configuration editor guide](editor.md)
+for authentication, save behavior, conflicts, and invalid configuration files.
 
 ### First test
 

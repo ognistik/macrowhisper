@@ -30,7 +30,12 @@ brew install ognistik/formulae/macrowhisper
 curl -L https://raw.githubusercontent.com/ognistik/macrowhisper/main/scripts/install.sh | sudo sh
 ```
 
-The script installs the prebuilt release specified in the script and its JSON schema after checking the archive's SHA-256 hash. The release process updates that version and hash. It installs to `/usr/local/bin` by default; pass an absolute directory as the script argument when you need another location.
+The script installs the prebuilt release specified in the script after checking
+the archive's SHA-256 hash. It installs the binary to `/usr/local/bin` by
+default and the schema plus local editor resources to
+`/usr/local/share/macrowhisper`; pass an absolute directory as the script
+argument when you need another prefix. The release process updates the version
+and hash in the installer.
 
 ## First use
 
@@ -66,6 +71,22 @@ macrowhisper --service-status
 The generated `defaults.watch` value follows Superwhisper's configured folder when it can read that setting. A fresh installation normally uses `~/superwhisper`; existing `~/Documents/superwhisper` and custom locations are supported. The value is the Superwhisper folder containing `recordings`, rather than the `recordings` directory itself.
 
 If the recording window does not close reliably, try a small `defaults.actionDelay` such as `0.05` to `0.2` seconds.
+
+Once the service is running, you can edit the live configuration in a local
+browser:
+
+```bash
+macrowhisper --editor       # open a fresh authenticated link
+macrowhisper --editor-url   # print the fresh link without opening a browser
+```
+
+The editor is bound to `127.0.0.1` and currently writes only Defaults and
+Inserts. In connected mode, URL, Shortcut, Shell, and AppleScript names come
+from the live snapshot but their type-specific panels remain read-only; use the
+canonical JSON file or the CLI for those action types. The separate Vite preview
+is fixture-backed throughout.
+See the [local configuration editor guide](docs/editor.md) for sessions,
+conflicts, invalid files, and the complete scope.
 
 ## Configuration
 
@@ -129,7 +150,8 @@ The first applicable level wins. Trigger matches are ranked by voice, Superwhisp
 
 ## Essential commands
 
-Configuration and service commands do not require a running daemon:
+Configuration and service commands do not require a running daemon. The editor
+commands below are the exception: they contact the already-running daemon.
 
 ```bash
 macrowhisper --help
@@ -140,6 +162,8 @@ macrowhisper --update-config
 macrowhisper --start-service
 macrowhisper --service-status
 macrowhisper --restart-service
+macrowhisper --editor
+macrowhisper --editor-url
 ```
 
 Runtime and action commands use the running service:
@@ -161,9 +185,12 @@ macrowhisper --mute-triggers 10m     # mute triggers temporarily
 
 `--exec-action`, `--run-auto`, and `--copy-action` use the latest valid result by default. Use `--meta` to target a recording folder, folder path, or compatible JSON file; the [CLI reference](docs/cli-reference.md) covers those forms and the full command set.
 
-The experimental local configuration editor is currently a developer prototype
-with synthetic data. See the [prototype guide](docs/development/web-editor-prototype.md)
-to preview Defaults and Inserts; it does not edit your live configuration.
+The local configuration editor connects to the running daemon through a fresh
+same-user authenticated link. Defaults and Inserts are connected and writable;
+URLs, Shortcuts, Shell, and AppleScript are live-snapshot-backed but their
+type-specific panels remain read-only. See the [editor guide](docs/editor.md) for the live workflow
+and the [prototype guide](docs/development/web-editor-prototype.md) to review
+the synthetic fixtures without a daemon.
 
 ## Documentation
 

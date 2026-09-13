@@ -2,7 +2,38 @@
 
 [Documentation index](../README.md) · [Development guide](README.md)
 
-Status: approved implementation plan (commit `a440e9a`), prepared September 5, 2026 against `main` at `c88ad1f` (2.2.0). The first fixture interface and transaction foundation are described in the [prototype guide](web-editor-prototype.md); connected editor access and packaging remain unimplemented. The experimental branch is `feat/web-config-editor`, checked out separately in `../macrowhisper-editor` so the original checkout can remain on `main`.
+Status: approved implementation plan (commit `a440e9a`), prepared September 5, 2026 against `main` at `c88ad1f` (2.2.0). The experimental branch is `feat/web-config-editor`, checked out separately in `../macrowhisper-editor` so the original checkout can remain on `main`. The branch now contains the connected Defaults/Insert slice and matching resource assembly; signed-build and release verification remain gates before publication.
+
+## Current implementation status
+
+The connected editor is served by the running daemon and opened with
+`macrowhisper --editor` (or `-e`). `macrowhisper --editor-url` prints the fresh
+authenticated URL without opening a browser. Both commands contact the existing
+daemon through the same-user Unix socket; they do not start another daemon,
+install a service, or change the selected configuration path.
+
+The HTTP server binds to `127.0.0.1`, tries port `49172`, and falls back to an
+OS-selected loopback port. A single-use bootstrap token in the URL fragment is
+exchanged for a bearer session, then removed from the address bar. The browser
+keeps that session in tab-scoped `sessionStorage` for up to eight hours; a new
+tab/bookmark or daemon restart requires a fresh editor link. API reads and writes
+require the bearer and exact loopback Origin/Host checks.
+
+The JSON configuration remains canonical. The connected writable scope is
+Defaults and Inserts; URLs, Shortcuts, Shell, and AppleScript are present for
+cross-action context but remain live-snapshot-backed/read-only until their
+type-specific editors are implemented. Choices save immediately. Text inputs,
+textareas, numeric text, and composite placeholder editing save on blur; there is
+no global Save button. Revision, configuration generation, and disk fingerprint
+checks reject stale drafts. Explicit `null`, empty strings, `false`, and `0`
+remain distinct from omission or inheritance.
+
+Invalid, empty, legacy, future-version, or unknown-field files are reported as a
+disk problem and are not rewritten when the editor opens. The runtime fallback
+is shown separately. A failed validation or persistence write retains the draft;
+an external edit produces a conflict with an explicit review/reapply choice.
+Changing the selected configuration path or restarting the daemon invalidates
+the old generation/session.
 
 ## Product goal and decisions
 
@@ -118,9 +149,17 @@ flowchart LR
     Updates --> Browser
 ```
 
-Introduce a dedicated `EditorServer` and resource resolver. Keep HTTP routing outside `main.swift`; the entry point owns lifecycle and dependency wiring. Editor startup belongs to daemon startup after configuration/socket setup, including the existing missing-recordings-folder recovery flow. Install runtime callbacks before accepting editor mutations: the current main startup starts the socket before assigning `onConfigChanged`, so simple adjacent startup wiring is insufficient. The editor must remain available when no recordings are being watched or the config is invalid.
+The dedicated `EditorServer` and resource resolver keep HTTP routing outside
+`main.swift`; the entry point owns lifecycle and dependency wiring. Editor
+startup belongs to daemon startup after configuration/socket setup, including
+the existing missing-recordings-folder recovery flow. Runtime callbacks are
+installed before accepting editor mutations. The editor remains available when
+no recordings are being watched or the config is invalid.
 
-Bind explicitly to `127.0.0.1`; do not use Swifter's defaults without proving the address. The example port `49172` is a provisional candidate, not an allocated or guaranteed port. Try the chosen documented default, then let the OS allocate a loopback port and record the bound result. Multiple macOS user sessions must be able to coexist. Editor failure must not take down transcription automation; report it clearly through the editor CLI commands.
+The implementation binds explicitly to `127.0.0.1`, tries documented port
+`49172`, and lets the OS allocate another loopback port when necessary. Multiple
+macOS user sessions can coexist. Editor failure does not take down transcription
+automation; it is reported through logs and the editor CLI commands.
 
 `--editor` / `-e` requests a fresh opening URL, opens it with the normal macOS browser mechanism, and prints the clean address. `--editor-url` prints only the fresh authenticated opening URL to stdout, with errors on stderr and a nonzero failure status. If opening the browser fails, explain that `--editor-url` can supply a fresh link. Do not start a second daemon or change service installation automatically when these commands fail.
 
@@ -130,9 +169,14 @@ Issue short-lived, single-use bootstrap tokens only to the same-user CLI. Valida
 
 Keep the clean address separate from the credential-bearing opening URL. Prefer a fragment token, exchanged by the local bootstrap page in a same-origin POST and immediately removed with `history.replaceState`. Tokens and config payloads must not appear in request logs, referrers, analytics, or third-party asset requests. The page loads bundled resources only.
 
-Complete a small authentication/browser spike before locking session storage. A cookie is not automatically the best choice: cookies do not isolate ports, and `Secure` behavior on HTTP loopback must be tested rather than inferred from HTTPS examples. [RFC 6265, weak confidentiality](https://www.rfc-editor.org/rfc/rfc6265#section-8.5), [cookie attributes and localhost behavior](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie).
-
-The preferred prototype is an origin-scoped bearer session in tab memory/session storage, supplied explicitly on API requests, with server-side expiry and invalidation on daemon restart. This allows clean-URL reloads in that tab, but a new tab/bookmark may require `-e` again. Browser-wide clean-bookmark access from the earlier proposal remains a convenience to evaluate; do not claim it works with a tab-only session. Before shipping, document the selected lifetime, reauthentication behavior, and tradeoff.
+The implementation uses an origin-scoped bearer session in tab
+`sessionStorage`, supplied explicitly on API requests, with an eight-hour
+server-side expiry and invalidation on daemon restart. A clean-URL reload in
+the same tab normally remains connected; a new tab or bookmark requires `-e`
+or `--editor-url` again. Cookies are intentionally not used for this local
+credential flow. The security rationale remains documented in [RFC 6265,
+weak confidentiality](https://www.rfc-editor.org/rfc/rfc6265#section-8.5) and
+[cookie attributes and localhost behavior](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie).
 
 Validate exact Host including bound port, reject foreign/null Origins on mutations, require JSON plus an explicit authentication header, deny cross-origin API access, and reject unexpected methods/content types. Protect configuration reads as well as writes. Use no-store for private responses, a restrictive CSP with frame embedding disabled, no-referrer, and nosniff. Serve only a bounded asset root, reject traversal/symlink escapes, and enforce request-size, connection, and timeout limits. SameSite alone is not a complete CSRF defense. [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
 
@@ -171,7 +215,11 @@ Clean fields update on external changes. Dirty fields retain their base value an
 
 Put frontend source in `editor/` at the repository root, with pinned dependencies and a lockfile. Keep generated frontend output and test artifacts under `.build/`. Vite's production output is static; neither its development server nor `vite preview` is the shipped server. [Vite production build guidance](https://vite.dev/guide/build.html).
 
-Introduce a shared resource resolver while retaining existing schema behavior where compatible. Resolve editor assets from the installed executable/resource root, including resolved Homebrew symlinks, or an explicit development resource path. Do not give arbitrary working-directory JavaScript precedence. Include an asset/API compatibility identifier and fail with a clear diagnostic for missing or incompatible editor resources.
+The shared resource resolver retains existing schema behavior where compatible.
+It resolves editor assets from the installed executable/resource root, including
+resolved Homebrew symlinks, or the explicit `.build/editor` development path.
+It does not give arbitrary working-directory JavaScript precedence and fails
+clearly when the required editor entry point or assets are missing.
 
 Target Homebrew layout:
 
@@ -182,7 +230,7 @@ share/macrowhisper/editor/index.html
 share/macrowhisper/editor/assets/...
 ```
 
-Coordinate resource copying for signed Xcode builds, the SwiftPM developer workflow, manual archives/install/update/uninstall, and the Homebrew formula. Neither the current SwiftPM target nor the Xcode tool target automatically packages the proposed frontend. The release helper explicitly asserts an archive containing exactly the binary and schema, and the installer copies only those files: update both assembly and verification, plus relevant release changed-file checks. The Homebrew formula is maintained in the separate formula repository; prepare and test a coordinated formula change without publishing it as part of local development.
+Coordinate resource copying for signed Xcode builds, the SwiftPM developer workflow, manual archives/install/update/uninstall, and the Homebrew formula. The Xcode target copies the built editor directory beside the signed local binary; SwiftPM remains a compile-oriented developer workflow. The release helper builds the frontend before Xcode, verifies the copied resources, and asserts the deterministic archive layout below. The installer replaces the binary and owned share tree as one staged update, preserving the prior pair if replacement fails. The Homebrew formula is maintained in the separate formula repository; prepare and test a coordinated formula change without publishing it as part of local development.
 
 Test both Apple Silicon and Intel prefix layouts, executable symlinks, paths containing spaces, and an offline launch from an unrelated working directory. Ensure an upgrade cannot leave an old editor paired with a new API and uninstall removes only owned editor assets.
 
@@ -194,11 +242,11 @@ As implementation lands, update root setup/basic usage, CLI help and [CLI refere
 
 | Milestone | Work and evidence needed to finish |
 | --- | --- |
-| Design the working controls | Build the fixture-backed React shell, Defaults and Insert screens, both themes, inheritance controls, placeholder insertion, blur saving, and error/conflict states. Inspect real rendered views and keyboard behavior; iterate on visual quality before expanding scope. |
-| Establish safe transactions | Extract explicit save results, pure validation, revision/disk state, serialized edits, and post-commit callbacks. Run focused tests for valid/invalid/stale edits, failed writes, symlinks, unknown fields, and interleaved CLI/watcher/editor updates. |
-| Prove local access | Integrate Swifter lifecycle, resource discovery, same-user socket discovery, auth, and CLI opening commands. Verify actual bind addresses, port fallback, bounded requests, browser auth/session behavior, and clear failure states. |
-| Connect the useful slice | Wire every supported Defaults/Insert control to validated persistence; include Insert lifecycle, live synchronization, drafts, and recovery. Demonstrate actual JSON changes without changing watcher/CLI action semantics. |
-| Package and verify | Build frontend assets and SwiftPM successfully; build and verify a signed manual-test binary using the development guide; validate offline resource layouts, local package contents, and installation fixture behavior. Record the binary path and signature. |
+| Design the working controls | Complete for the fixture-backed React shell, Defaults and Insert screens, both themes, inheritance controls, placeholder insertion, blur saving, and error/conflict states. Continue the browser accessibility audit before release. |
+| Establish safe transactions | Implemented the manager-owned revision/disk transaction and focused regression seams. Keep valid/invalid/stale edits, failed writes, symlinks, unknown fields, and interleaved CLI/watcher/editor updates covered. |
+| Prove local access | Implemented loopback lifecycle, bounded resources, same-user bootstrap, auth/session handling, and CLI opening commands. Signed runtime verification of bind addresses, port fallback, browser re-open behavior, and failure states remains a release gate. |
+| Connect the useful slice | Complete for the connected Defaults/Insert controls, Insert lifecycle, live synchronization, drafts, recovery, and actual canonical JSON changes. URL, Shortcut, Shell, and AppleScript names come from the live snapshot, but their type-specific panels remain read-only; the Vite preview remains fixture-backed. |
+| Package and verify | Release and install scripts now build frontend assets first and package/validate the binary, schema, and editor tree. Build and verify a signed manual-test binary and exercise offline resource layouts and installer fixtures before publication. |
 | Expand action coverage | Reuse the proven architecture for URLs, Shortcuts, Shell, and AppleScript. Add their required/type-specific fields and richer text editing; only then tackle optional advanced builders or execution previews. |
 
 Frontend design work and backend transaction work can proceed independently with a shared contract and synthetic fixtures. Delegate bounded tasks with explicit file ownership; integrate and review before parallelizing further. Keep changes small enough to review as coherent commits. Periodically bring main-branch changes into the experimental branch; do not merge or publish the editor until its release gates pass.
@@ -216,6 +264,12 @@ Frontend design work and backend transaction work can proceed independently with
 
 ## Remaining decisions to resolve during implementation
 
-There are no blocking design questions for starting the prototype. The user's monochrome brief, Defaults-first hierarchy, and interaction preferences are clear. The first rendered screens will make typography, density, and grouping much easier to assess than another abstract questionnaire.
-
-Record the chosen default port, auth/session lifetime and new-tab behavior, streaming versus polling result, exact compatible asset layout, and any unsupported advanced trigger/condition expressions after the initial technical spikes. Treat those as engineering decisions to verify, not reasons to postpone the first visual prototype. The next concrete deliverable is that interactive prototype plus the tested transaction foundation, followed by the connected Defaults/Insert slice.
+The engineering choices are now explicit: the default port is `49172` with an
+OS-selected loopback fallback; sessions are bearer tokens in tab-scoped
+`sessionStorage`, valid for up to eight hours and invalidated on daemon restart;
+the browser uses bounded polling; and the compatible resource layout is
+`bin/macrowhisper` plus `share/macrowhisper/macrowhisper-schema.json` and
+`share/macrowhisper/editor/{index.html,assets/...}`. The remaining product scope
+decision is intentional: type-specific editing for URLs, Shortcuts, Shell, and
+AppleScript follows the connected Defaults/Insert slice. Unsupported expressions
+and fields stay visible/read-only rather than being silently rewritten.

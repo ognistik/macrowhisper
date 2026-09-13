@@ -43,6 +43,57 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let result5 = processDynamicPlaceholders(action: action5, metaJson: meta5, actionType: .insert).text
         assertEqual(result5, "ABC", "unknown capture transform fails open")
 
+        let literalPipePattern = #"{{swResult||\|\|||joined}}"#
+        let literalPipePatternMeta: [String: Any] = ["llmResult": "left||right"]
+        let literalPipePatternResult = processDynamicPlaceholders(
+            action: literalPipePattern,
+            metaJson: literalPipePatternMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            literalPipePatternResult,
+            "leftjoinedright",
+            "escaped double pipes remain part of a regex pattern"
+        )
+
+        let literalPipeReplacement = #"{{swResult||middle||\|\|}}"#
+        let literalPipeReplacementMeta: [String: Any] = ["llmResult": "leftmiddleright"]
+        let literalPipeReplacementResult = processDynamicPlaceholders(
+            action: literalPipeReplacement,
+            metaJson: literalPipeReplacementMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            literalPipeReplacementResult,
+            "left||right",
+            "escaped double pipes remain literal replacement text"
+        )
+
+        let escapedReplacementNewline = #"{{swResult||middle||\n}}"#
+        let replacementNewlineMeta: [String: Any] = ["llmResult": "leftmiddleright"]
+        let escapedReplacementNewlineResult = processDynamicPlaceholders(
+            action: escapedReplacementNewline,
+            metaJson: replacementNewlineMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            escapedReplacementNewlineResult,
+            "leftnright",
+            "backslash-n in replacement text remains a literal n"
+        )
+
+        let actualReplacementNewline = "{{swResult||middle||\n}}"
+        let actualReplacementNewlineResult = processDynamicPlaceholders(
+            action: actualReplacementNewline,
+            metaJson: replacementNewlineMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            actualReplacementNewlineResult,
+            "left\nright",
+            "actual replacement newlines survive placeholder parsing"
+        )
+
         let action6 = "{{swResult::titleCase:fr}}"
         let meta6: [String: Any] = ["llmResult": "le seigneur des anneaux et l'amour perdu"]
         let result6 = processDynamicPlaceholders(action: action6, metaJson: meta6, actionType: .insert).text

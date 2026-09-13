@@ -9,6 +9,7 @@ CHANGELOG="$ROOT_DIR/CHANGELOG.md"
 VERSIONS_JSON="$ROOT_DIR/versions.json"
 INSTALL_SCRIPT="$ROOT_DIR/scripts/install.sh"
 SCHEMA_PATH="$ROOT_DIR/src/macrowhisper-schema.json"
+EDITOR_SOURCE="$ROOT_DIR/.build/editor"
 ENV_FILE="$ROOT_DIR/.release.env"
 GITHUB_REPO="${GITHUB_REPO:-ognistik/macrowhisper}"
 FORMULA_PATH="${HOMEBREW_FORMULA:-$ROOT_DIR/../homebrew-formulae/macrowhisper.rb}"
@@ -45,6 +46,47 @@ info() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+verify_editor_assets() {
+  editor_root="$1"
+  [ -d "$editor_root" ] || fail "Editor asset directory not found: $editor_root"
+  [ -f "$editor_root/index.html" ] || fail "Editor entry point not found: $editor_root/index.html"
+  [ -d "$editor_root/assets" ] || fail "Editor asset directory not found: $editor_root/assets"
+  [ -n "$(find "$editor_root/assets" -type f -print -quit)" ] \
+    || fail "Editor asset directory is empty: $editor_root/assets"
+  [ -z "$(find "$editor_root" -type l -print -quit)" ] \
+    || fail "Editor assets must not contain symlinks: $editor_root"
+}
+
+verify_archive_layout() {
+  archive="$1"
+  archive_entries="$(tar -tzf "$archive" | sed 's#/$##')"
+  [ -n "$archive_entries" ] || fail "Release archive is empty: $archive"
+
+  while IFS= read -r entry; do
+    case "$entry" in
+      ../*|*/../*|*/..|./*|*/./*) fail "Unsafe path in release archive: $entry" ;;
+    esac
+    case "$entry" in
+      bin|bin/macrowhisper|share|share/macrowhisper|share/macrowhisper/macrowhisper-schema.json|share/macrowhisper/editor|share/macrowhisper/editor/index.html|share/macrowhisper/editor/assets|share/macrowhisper/editor/assets/*) ;;
+      *) fail "Unexpected archive entry: $entry" ;;
+    esac
+  done <<EOF
+$archive_entries
+EOF
+
+  for required_entry in \
+    bin/macrowhisper \
+    share/macrowhisper/macrowhisper-schema.json \
+    share/macrowhisper/editor/index.html; do
+    printf '%s\n' "$archive_entries" | grep -Fxq "$required_entry" \
+      || fail "Release archive is missing: $required_entry"
+  done
+
+  printf '%s\n' "$archive_entries" \
+    | grep -Eq '^share/macrowhisper/editor/assets/[^/]+$' \
+    || fail "Release archive contains no editor asset files"
 }
 
 validate_version() {
@@ -314,6 +356,7 @@ draft_release() {
 
   require_command git
   require_command gh
+  require_command npm
   require_command xcodebuild
   require_command codesign
   require_command xcrun
@@ -324,8 +367,10 @@ draft_release() {
   require_command lipo
   require_command spctl
   require_command ruby
+  require_command ditto
 
   [ -f "$SCHEMA_PATH" ] || fail "Schema file not found: $SCHEMA_PATH"
+  [ -d "$ROOT_DIR/editor" ] || fail "Editor source directory not found: $ROOT_DIR/editor"
   [ -f "$FORMULA_PATH" ] || fail "Formula file not found: $FORMULA_PATH"
   gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated."
   verify_notary_access
@@ -335,7 +380,7 @@ draft_release() {
   changed_files="$(git -C "$ROOT_DIR" status --porcelain | sed 's/^...//')"
   for changed_file in $changed_files; do
     case "$changed_file" in
-      CHANGELOG.md|versions.json|src/macrowhisper/main.swift) ;;
+      CHANGELOG.md|versions.json|scripts/install.sh|scripts/release.sh|src/macrowhisper/main.swift) ;;
       *) fail "Unexpected changed file before draft: $changed_file" ;;
     esac
   done
@@ -359,7 +404,12 @@ draft_release() {
   release_branch="release/v$version"
 
   rm -rf "$release_dir"
-  mkdir -p "$staging_dir" "$payload_dir" "$verify_dir"
+  mkdir -p "$staging_dir" "$payload_dir/bin" "$payload_dir/share/macrowhisper" "$verify_dir"
+
+  info "Building editor assets"
+  npm --prefix "$ROOT_DIR/editor" ci
+  npm --prefix "$ROOT_DIR/editor" run build
+  verify_editor_assets "$EDITOR_SOURCE"
 
   info "Building universal Release binary"
   xcodebuild \
@@ -375,6 +425,8 @@ draft_release() {
 
   built_binary="$derived_data/Build/Products/Release/macrowhisper"
   [ -f "$built_binary" ] || fail "Built binary not found: $built_binary"
+  built_editor="$derived_data/Build/Products/Release/editor"
+  verify_editor_assets "$built_editor"
   cp "$built_binary" "$binary_path"
   chmod 755 "$binary_path"
 
@@ -420,14 +472,15 @@ draft_release() {
   [ "$actual_version" = "$version" ] || fail "Built binary reports version '$actual_version', expected '$version'."
   "$verify_dir/macrowhisper" --help >/dev/null
 
-  cp "$verify_dir/macrowhisper" "$payload_dir/macrowhisper"
-  cp "$SCHEMA_PATH" "$payload_dir/macrowhisper-schema.json"
+  cp "$verify_dir/macrowhisper" "$payload_dir/bin/macrowhisper"
+  chmod 755 "$payload_dir/bin/macrowhisper"
+  cp "$SCHEMA_PATH" "$payload_dir/share/macrowhisper/macrowhisper-schema.json"
+  ditto "$built_editor/" "$payload_dir/share/macrowhisper/editor/"
+  verify_editor_assets "$payload_dir/share/macrowhisper/editor"
 
   info "Creating final distribution archive"
-  COPYFILE_DISABLE=1 tar -czf "$archive_path" -C "$payload_dir" macrowhisper macrowhisper-schema.json
-  archive_entries="$(tar -tzf "$archive_path")"
-  [ "$archive_entries" = "macrowhisper
-macrowhisper-schema.json" ] || fail "Unexpected archive contents:\n$archive_entries"
+  COPYFILE_DISABLE=1 tar -czf "$archive_path" -C "$payload_dir" bin share
+  verify_archive_layout "$archive_path"
   hash="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
 
   replace_installer_metadata "$version" "$hash"
@@ -444,7 +497,7 @@ macrowhisper-schema.json" ] || fail "Unexpected archive contents:\n$archive_entr
 
   info "Creating release commit and GitHub draft"
   git -C "$ROOT_DIR" switch -c "$release_branch"
-  git -C "$ROOT_DIR" add CHANGELOG.md versions.json scripts/install.sh src/macrowhisper/main.swift
+  git -C "$ROOT_DIR" add CHANGELOG.md versions.json scripts/install.sh scripts/release.sh src/macrowhisper/main.swift
   git -C "$ROOT_DIR" commit -m "Prepare v$version release"
   git -C "$ROOT_DIR" push -u origin "$release_branch"
 

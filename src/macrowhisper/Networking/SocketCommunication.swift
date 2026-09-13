@@ -37,6 +37,10 @@ class SocketCommunication {
     private let queue = DispatchQueue(label: "com.macrowhisper.socket", qos: .utility)
     private var configManagerRef: ConfigurationManager?
     private var clipboardMonitorRef: ClipboardMonitor?
+    /// Installed before the Unix socket starts accepting commands. The
+    /// returned JSON contains a clean editor address and a short-lived
+    /// fragment bootstrap URL; credentials are never logged here.
+    private var editorBootstrapHandler: (() -> String?)?
 
     private enum CLIActionMetaSourceKind {
         case latestValid
@@ -166,6 +170,7 @@ class SocketCommunication {
         case removeAction
         case folderName
         case folderPath
+        case editorBootstrap
     }
     
     struct CommandMessage: Codable {
@@ -214,6 +219,26 @@ class SocketCommunication {
     /// Sets the clipboard monitor reference for CLI action cleanup
     func setClipboardMonitor(_ clipboardMonitor: ClipboardMonitor) {
         self.clipboardMonitorRef = clipboardMonitor
+    }
+
+    func setEditorBootstrapHandler(_ handler: (() -> String?)?) {
+        self.editorBootstrapHandler = handler
+    }
+
+    private func socketFileIsOwnedSocket(at path: String) -> Bool {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return false }
+        let fileType = info.st_mode & S_IFMT
+        return fileType == S_IFSOCK && info.st_uid == getuid()
+    }
+
+    private func peerBelongsToCurrentUser(_ socket: Int32) -> Bool {
+        var effectiveUID: uid_t = 0
+        var effectiveGID: gid_t = 0
+        guard getpeereid(socket, &effectiveUID, &effectiveGID) == 0 else {
+            return false
+        }
+        return effectiveUID == getuid()
     }
     
     /// Reads from socket with timeout to prevent blocking indefinitely
@@ -302,6 +327,10 @@ class SocketCommunication {
             try? FileManager.default.createDirectory(atPath: socketDir, withIntermediateDirectories: true)
         }
         if FileManager.default.fileExists(atPath: socketPath) {
+            guard socketFileIsOwnedSocket(at: socketPath) else {
+                logError("Refusing to replace a non-owned or non-socket path at \(socketPath)")
+                return
+            }
             try? FileManager.default.removeItem(atPath: socketPath)
         }
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -322,11 +351,24 @@ class SocketCommunication {
             }
         }
         guard bindResult == 0 else {
-            logError("Failed to bind socket: \(errno)"); close(serverSocket); return
+            logError("Failed to bind socket: \(errno)"); close(serverSocket); serverSocket = -1; return
         }
-        chmod(socketPath, 0o777)
+        guard chmod(socketPath, mode_t(0o600)) == 0 else {
+            logError("Failed to restrict socket permissions: \(errno)")
+            close(serverSocket)
+            serverSocket = -1
+            try? FileManager.default.removeItem(atPath: socketPath)
+            return
+        }
+        guard socketFileIsOwnedSocket(at: socketPath) else {
+            logError("Refusing to serve through an unexpected socket file at \(socketPath)")
+            close(serverSocket)
+            serverSocket = -1
+            try? FileManager.default.removeItem(atPath: socketPath)
+            return
+        }
         guard listen(serverSocket, 5) == 0 else {
-            logError("Failed to listen on socket: \(errno)"); close(serverSocket); return
+            logError("Failed to listen on socket: \(errno)"); close(serverSocket); serverSocket = -1; return
         }
         server = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         server?.setEventHandler { [weak self] in
@@ -334,7 +376,7 @@ class SocketCommunication {
             let clientSocket = accept(self.serverSocket, nil, nil)
             guard clientSocket >= 0 else { logError("Failed to accept connection: \(errno)"); return }
             self.queue.async {
-                self.handleConnection(clientSocket: clientSocket, configManager: globalConfigManager)
+                self.handleConnection(clientSocket: clientSocket, configManager: self.configManagerRef)
             }
         }
         server?.setCancelHandler { [weak self] in
@@ -3134,6 +3176,11 @@ class SocketCommunication {
 
     /// Handles client connections with timeout protection to prevent blocking
     private func handleConnection(clientSocket: Int32, configManager: ConfigurationManager?) {
+        guard peerBelongsToCurrentUser(clientSocket) else {
+            logWarning("Rejected a Unix-socket client from another user")
+            close(clientSocket)
+            return
+        }
         guard let configMgr = self.configManagerRef ?? configManager ?? globalConfigManager else {
             logError("No valid config manager"); close(clientSocket); return
         }
@@ -3158,6 +3205,10 @@ class SocketCommunication {
             var response = ""
             
             switch commandMessage.command {
+            case .editorBootstrap:
+                response = editorBootstrapHandler?() ?? "Editor server is unavailable"
+                _ = sendResponse(response, to: clientSocket)
+
             case .reloadConfig:
                 if configMgr.reloadConfiguration() {
                     response = "Configuration reloaded successfully"
@@ -4115,7 +4166,8 @@ class SocketCommunication {
 
     func sendCommand(_ command: Command, arguments: [String: String]? = nil) -> String? {
         // Check if socket file exists first - if not, no point in trying to connect
-        guard FileManager.default.fileExists(atPath: socketPath) else {
+        guard FileManager.default.fileExists(atPath: socketPath),
+              socketFileIsOwnedSocket(at: socketPath) else {
             // Only return a simple failure message, no logging
             return nil
         }

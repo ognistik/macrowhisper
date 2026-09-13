@@ -43,13 +43,30 @@ manual runtime tests. The package has no test target. The focused regression
 runners in `src/Tests/` remain separate standalone binaries and are compiled
 with `swiftc` as listed below.
 
-### Local configuration editor prototype
+### Local configuration editor
 
-The experimental React interface runs separately from the daemon and saves
-synthetic fixtures in browser memory. See the [prototype guide](web-editor-prototype.md)
-for development commands, review scenarios, and the persistence boundary.
+The editor has two deliberately separate modes. A browser opened by
+`macrowhisper --editor` or `--editor-url` connects to the daemon and writes the
+canonical JSON file through authenticated, revision-checked transactions. The
+connected scope is Defaults and Inserts. URL, Shortcut, Shell, and AppleScript
+names come from the live snapshot, but their type-specific panels remain
+read-only; only the standalone Vite preview is fixture-backed. The [user editor guide](../editor.md)
+covers the workflow and [prototype guide](web-editor-prototype.md) covers the
+synthetic preview.
+
+For frontend development, install the pinned Node dependencies and build the
+static output into `.build/editor`:
+
+```bash
+npm --prefix editor ci
+npm --prefix editor test
+npm --prefix editor run build
+```
+
 Use `swift build --package-path src --scratch-path .build/swiftpm` to keep
-editor-branch compile products under the root `.build/` directory.
+editor-branch compile products under the root `.build/` directory. Node is a
+build dependency only; the daemon serves the bundled output and does not run a
+Vite development server.
 
 ### Signed Xcode build for manual testing
 
@@ -74,22 +91,67 @@ if [ -x "$LOCAL_BINARY" ]; then
 fi
 ```
 
-Build the signed Release binary into the stable local derived-data directory:
+Build the frontend before the signed Xcode build. The Xcode target has a build
+phase that copies `.build/editor` beside the signed local binary, so a missing
+frontend build is a build error rather than a partially packaged editor:
 
 ```bash
+npm --prefix editor ci
+npm --prefix editor run build
 xcodebuild -project src/macrowhisper.xcodeproj -scheme macrowhisper -configuration Release -derivedDataPath .build/local-xcode build
 cp src/macrowhisper-schema.json .build/local-xcode/Build/Products/Release/
 ```
 
+The exact manual-test resources are:
+
+```text
+.build/local-xcode/Build/Products/Release/macrowhisper
+.build/local-xcode/Build/Products/Release/macrowhisper-schema.json
+.build/local-xcode/Build/Products/Release/editor/index.html
+.build/local-xcode/Build/Products/Release/editor/assets/...
+```
+
 Keep the matching schema beside the local binary so configuration creation and
-updates can discover it. `SchemaManager` uses local files and has no remote
+updates can discover it. `EditorResourceResolver` finds the editor directory
+beside this binary; `SchemaManager` uses the local schema and has no remote
 schema fallback.
+
+This is a manual-test build only. Building it does not install over Homebrew or
+the script-installed binary, change launchd, or start/modify a service. A
+connected runtime test cannot coexist with the normal singleton daemon. Record
+the current state, stop that daemon yourself, launch this exact binary in the
+foreground, then use another terminal to run its `--editor` command:
+
+```bash
+LOCAL_BINARY=".build/local-xcode/Build/Products/Release/macrowhisper"
+INSTALLED_BINARY="$(command -v macrowhisper)"
+"$INSTALLED_BINARY" --get-config
+"$INSTALLED_BINARY" --service-status
+"$INSTALLED_BINARY" --stop-service
+"$LOCAL_BINARY" --verbose
+# In another terminal, while the foreground daemon is running:
+"$LOCAL_BINARY" --editor
+```
+
+The foreground process uses the selected configuration and Unix socket.
+`--config` persists the normalized selection and is not an isolation switch.
+To roll back, stop the manual daemon with Control-C, restore a changed path with
+`"$INSTALLED_BINARY" --set-config '<recorded-path>'` (or use `--reset-config`
+only when the default path was the original selection), then run
+`"$INSTALLED_BINARY" --start-service` and verify
+`"$INSTALLED_BINARY" --service-status`. The build procedure itself leaves the
+installed files and saved configuration untouched; only the explicit manual
+runtime sequence above stops and restarts the service.
 
 Verify the identity and signature before launching it:
 
 ```bash
 LOCAL_BINARY=".build/local-xcode/Build/Products/Release/macrowhisper"
+LOCAL_EDITOR_DIR=".build/local-xcode/Build/Products/Release/editor"
 test -x "$LOCAL_BINARY"
+test -f "$LOCAL_EDITOR_DIR/index.html"
+test -d "$LOCAL_EDITOR_DIR/assets"
+test -n "$(find "$LOCAL_EDITOR_DIR/assets" -type f -print -quit)"
 codesign -d -r- "$LOCAL_BINARY" 2>&1
 codesign --display --verbose=4 "$LOCAL_BINARY" 2>&1 | grep -E 'Identifier=|TeamIdentifier=|Authority='
 codesign --verify --strict --verbose=2 "$LOCAL_BINARY"
