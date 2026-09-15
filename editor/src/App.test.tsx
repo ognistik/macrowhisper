@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import App, { defaultFieldGroups, overrideFields } from './App'
+import App, { defaultFieldGroups, DEFAULTS_OPEN_SECTION_STORAGE_KEY, overrideFields } from './App'
 import { defaultsSchema, insertSchema } from './generated/schema'
 import { FixtureStore } from './store/fixtureStore'
 import type { StoreScenario } from './model/types'
@@ -78,6 +78,7 @@ describe('configuration editor interactions', () => {
     await user.selectOptions(fallback, 'quickReply')
     const notifications = screen.getByRole('combobox', { name: 'System notifications' })
     const updates = screen.getByRole('combobox', { name: 'Automatic update checks' })
+    expect(updates.closest('.select-metadata-stack')).toHaveTextContent('Built-in')
     // Both writes start from the same visible revision. The editor queues the
     // second write against the first result instead of surfacing a stale error.
     await user.selectOptions(notifications, 'on')
@@ -86,7 +87,20 @@ describe('configuration editor interactions', () => {
     expect(fallback).toHaveValue('quickReply')
     expect(notifications).toHaveValue('on')
     expect(updates).toHaveValue('on')
-    expect(within(updates).getByRole('option', { name: 'Allow checks (Built-in)' })).toBeInTheDocument()
+    expect(within(updates).getByRole('option', { name: 'Allow checks' })).toBeInTheDocument()
+    expect(updates.closest('.select-metadata-stack')).not.toHaveTextContent('Built-in')
+  })
+
+  it('separates built-in dropdown choices from explicit values', () => {
+    renderWithStore()
+
+    const fallback = screen.getByRole('combobox', { name: 'Fallback action' })
+    const updates = screen.getByRole('combobox', { name: 'Automatic update checks' })
+    const moveRecording = screen.getByRole('combobox', { name: 'Move recording mode' })
+
+    expect(fallback.querySelector('optgroup[label="Built-in value"] + hr + optgroup[label="Actions"]')).toBeInTheDocument()
+    expect(updates.querySelector('optgroup[label="Built-in value"] + hr + optgroup[label="Explicit values"]')).toBeInTheDocument()
+    expect(moveRecording.querySelector('optgroup[label="Built-in value"] + hr + optgroup[label="Explicit values"]')).toBeInTheDocument()
   })
 
   it('opens the populated Insert editor and exposes only valid trigger logic choices', async () => {
@@ -120,8 +134,59 @@ describe('configuration editor interactions', () => {
     expect(insertionField.closest('details')).not.toHaveAttribute('open')
     await user.click(screen.getByText('Insertion', { selector: 'strong' }))
     expect(screen.getByRole('combobox', { name: 'Simulate Escape' })).toBeInTheDocument()
+    expect(screen.getByText('Insertion', { selector: 'strong' }).closest('details')).toHaveAttribute('open')
     expect(screen.getByText('General behavior', { selector: 'strong' }).closest('details')).not.toHaveAttribute('open')
     expect(screen.queryByText(/settings ·/)).not.toBeInTheDocument()
+  })
+
+  it('switches Defaults sections with one click and lets the current section close', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+
+    const general = screen.getByText('General behavior', { selector: 'strong' }).closest('details')
+    const insertionTitle = screen.getByText('Insertion', { selector: 'strong' })
+    const insertion = insertionTitle.closest('details')
+
+    expect(general).not.toHaveAttribute('open')
+    await user.click(insertionTitle)
+    expect(general).not.toHaveAttribute('open')
+    expect(insertion).toHaveAttribute('open')
+    await user.click(insertionTitle)
+    expect(insertion).not.toHaveAttribute('open')
+  })
+
+  it('restores a persisted Defaults section and explicit all-collapsed state', async () => {
+    const user = userEvent.setup()
+    const storage = (window as Window & { localStorage?: Storage }).localStorage
+    if (!storage) return
+    const first = render(<App store={new FixtureStore('populated')} />)
+    const insertionTitle = screen.getByText('Insertion', { selector: 'strong' })
+    expect(defaultFieldGroups.every((section) => !screen.getByText(section.label, { selector: 'strong' }).closest('details')?.hasAttribute('open'))).toBe(true)
+    await user.click(insertionTitle)
+    expect(storage.getItem(DEFAULTS_OPEN_SECTION_STORAGE_KEY)).toBe('insertion')
+    first.unmount()
+
+    render(<App store={new FixtureStore('populated')} />)
+    const restoredInsertion = screen.getByText('Insertion', { selector: 'strong' }).closest('details')
+    expect(restoredInsertion).toHaveAttribute('open')
+    await user.click(screen.getByText('Insertion', { selector: 'strong' }))
+    expect(storage.getItem(DEFAULTS_OPEN_SECTION_STORAGE_KEY)).toBe('')
+    screen.getByText('General behavior', { selector: 'strong' })
+    expect(screen.getByText('General behavior', { selector: 'strong' }).closest('details')).not.toHaveAttribute('open')
+  })
+
+  it('groups root actions by each field’s shipped built-in value', () => {
+    renderWithStore()
+    const active = screen.getByRole('combobox', { name: 'Fallback action' })
+    const next = screen.getByRole('combobox', { name: 'Default next action' })
+    expect(within(active).getByRole('group', { name: 'Built-in value' })).toHaveTextContent('Auto-paste')
+    expect(within(active).getAllByRole('group', { name: 'Actions' }).some((group) => group.textContent?.includes('Do nothing'))).toBe(true)
+    expect(within(next).getByRole('group', { name: 'Built-in value' })).toHaveTextContent('No next action')
+    expect(within(next).getAllByRole('group', { name: 'Actions' }).some((group) => group.textContent?.includes('Auto-paste'))).toBe(true)
+    expect(active.closest('.select-control-wrapper')).toHaveTextContent('Built-in')
+    expect(next.closest('.select-control-wrapper')).toHaveTextContent('Built-in')
+    expect(active).toHaveAccessibleDescription('Built-in')
+    expect(next).toHaveAccessibleDescription('Built-in')
   })
 
   it('shows configured action state first and adds exceptions on demand', async () => {
@@ -370,10 +435,111 @@ describe('configuration editor interactions', () => {
     expect(control).toHaveValue('off')
   })
 
+  it('removes a Saved acknowledgement after its transient window', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Simulate Escape' }), 'off')
+    await waitForSaved()
+    await waitFor(() => expect(screen.queryByText('Saved')).not.toBeInTheDocument(), { timeout: 2300 })
+  })
+
+  it('offers Use built-in in a stable utility area only while a root field differs from its shipped value', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const control = screen.getByRole('textbox', { name: 'Action delay' })
+    const row = control.closest('.setting-row') as HTMLElement
+    const utility = row.querySelector('.setting-utility') as HTMLElement
+
+    expect(utility).toBeInTheDocument()
+    expect(within(utility).queryByRole('button', { name: 'Use built-in' })).not.toBeInTheDocument()
+    await user.clear(control)
+    await user.type(control, '0.2')
+    fireEvent.blur(control)
+
+    await waitFor(() => expect(store.getSnapshot().defaults.actionDelay).toBe(0.2))
+    const useBuiltIn = within(utility).getByRole('button', { name: 'Use built-in' })
+    expect(within(row.querySelector('.setting-control') as HTMLElement).queryByRole('button', { name: 'Use built-in' })).not.toBeInTheDocument()
+    await user.click(useBuiltIn)
+
+    await waitFor(() => expect(store.getSnapshot().defaults.actionDelay).toBeNull())
+    expect(within(utility).queryByRole('button', { name: 'Use built-in' })).not.toBeInTheDocument()
+    expect(utility).toBeInTheDocument()
+  })
+
+  it('keeps the custom icon input mounted and identifiable when its draft is cleared', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const iconMode = screen.getByRole('combobox', { name: 'Default icon mode' })
+    const row = iconMode.closest('.setting-row') as HTMLElement
+
+    await user.selectOptions(iconMode, 'custom')
+    const customIcon = screen.getByRole('textbox', { name: 'Custom icon' })
+    await user.type(customIcon, '4')
+    await user.clear(customIcon)
+
+    expect(customIcon).toBeInTheDocument()
+    expect(customIcon).toHaveValue('')
+    expect(row.querySelector('.nullable-control > input')).toBe(customIcon)
+    expect(within(row).getByText('Unsaved')).toBeInTheDocument()
+  })
+
+  it('lets pointer and keyboard Revert discard a focused draft without saving it', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const mutate = vi.spyOn(store, 'mutate')
+    const control = screen.getByRole('textbox', { name: 'Superwhisper folder' })
+    const initial = store.getSnapshot().defaults.watch
+
+    await user.clear(control)
+    await user.type(control, '~/Documents/pointer-draft')
+    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    expect(control).toHaveValue(initial)
+    expect(mutate).not.toHaveBeenCalled()
+
+    await user.clear(control)
+    await user.type(control, '~/Documents/keyboard-draft')
+    const revert = screen.getByRole('button', { name: 'Revert' })
+    await user.tab({ shift: true })
+    expect(revert).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(control).toHaveValue(initial)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('uses built-in numeric Defaults when an ordinary numeric field is left blank', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const actionDelay = screen.getByRole('textbox', { name: 'Action delay' })
+    const returnDelay = screen.getByRole('textbox', { name: 'Return delay' })
+
+    await user.clear(actionDelay)
+    fireEvent.blur(actionDelay)
+    await waitFor(() => expect(store.getSnapshot().defaults.actionDelay).toBeNull())
+    expect(actionDelay).toHaveValue('')
+    expect(screen.queryByText('Use a number for this field.')).not.toBeInTheDocument()
+
+    await user.clear(returnDelay)
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(store.getSnapshot().defaults.returnDelay).toBeNull())
+    expect(returnDelay).toHaveValue('')
+  })
+
+  it('keeps an explicit zero distinct from an unset numeric Default', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const timeout = screen.getByRole('textbox', { name: 'Scheduled action timeout' })
+
+    await user.clear(timeout)
+    await user.type(timeout, '0')
+    fireEvent.blur(timeout)
+    await waitFor(() => expect(store.getSnapshot().defaults.scheduledActionTimeout).toBe(0))
+    expect(timeout).toHaveValue('0')
+  })
+
   it('keeps text edits local until the control blurs', async () => {
     const user = userEvent.setup()
     const store = renderWithStore()
-    const control = screen.getByRole('textbox', { name: 'Watch folder' })
+    const control = screen.getByRole('textbox', { name: 'Superwhisper folder' })
     const initial = store.getSnapshot().defaults.watch
 
     await user.clear(control)
@@ -425,7 +591,7 @@ describe('configuration editor interactions', () => {
   it('keeps a dirty draft and its external baseline through an independent save', async () => {
     const user = userEvent.setup()
     const store = renderWithStore()
-    const watch = screen.getByRole('textbox', { name: 'Watch folder' })
+    const watch = screen.getByRole('textbox', { name: 'Superwhisper folder' })
     const escape = screen.getByRole('combobox', { name: 'Simulate Escape' })
 
     await user.clear(watch)

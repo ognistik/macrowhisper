@@ -14,7 +14,7 @@ The connected, writable slice is deliberately small and complete:
 
 | Area | Connected behavior |
 | --- | --- |
-| Defaults | Review shared behavior in concise section summaries, then open one area at a time to change paths, timing, clipboard, recording, and chain controls. |
+| Defaults | Review shared behavior in concise section summaries, then open one area at a time to change paths, timing, clipboard, recording, and chain controls. The first visit starts fully collapsed; the browser remembers the last open section or an intentionally collapsed overview. |
 | Inserts | Create, duplicate, rename, edit, and delete Insert actions; add only the overrides, triggers, conditions, and links that differ from normal behavior. |
 | URLs, Shortcuts, Shell, AppleScript | Names and counts come from the authenticated live snapshot, but the type-specific panels remain read-only until their editor slice is implemented. In the standalone Vite preview, these values are fixtures. |
 
@@ -82,8 +82,12 @@ sandbox against software already running as the same macOS user.
 
 There is no global Save button. Discrete choices are submitted immediately.
 Text fields and textareas—including numeric text fields—save when focus leaves
-the control. The interface shows `Unsaved`, `Saving…`, and `Saved` states; a
-failed request keeps the draft and offers Revert or Retry. Textarea placeholder
+the control; ordinary numeric Defaults also save on Enter. The interface shows
+`Unsaved`, `Saving…`, and a brief `Saved`
+acknowledgement that clears after roughly two seconds; a failed request keeps
+the draft and offers Revert or Retry until it is resolved. **Revert** discards
+the local draft and restores the last successfully saved value without writing
+to the configuration. Textarea placeholder
 tools are part of the same editing boundary, so choosing a placeholder does not
 save halfway through an insertion.
 
@@ -94,10 +98,20 @@ browser response from silently replacing a newer change.
 
 The editor distinguishes three related concepts in its labels: **Defaults** are
 the user's shared configuration, **Use Defaults** removes an action-level
-override, and **Built-in** identifies Macrowhisper's shipped behavior or a
-sentinel template. Configuration values retain their JSON meaning:
+override, and **Built-in** identifies the value Macrowhisper ships with for the
+specific root setting being edited. Built-in action templates remain named
+action modes; they do not become the Built-in value of an unrelated setting.
+Dropdowns place the Built-in value first, then separate it visually and
+semantically from explicit values or configured actions.
+Eligible text and numeric root fields with an unambiguous shipped fallback offer
+**Use built-in** only while they differ from that behavior. This control removes
+the custom value and saves the change; it is distinct from Revert. Configuration
+values retain their JSON meaning:
 
 - `null` or an omitted action override means inherit from Defaults;
+- `null` or an omitted ordinary numeric Default means use its shipped value;
+- a blank ordinary numeric Default saves that built-in state, while `0` remains
+  an explicit numeric zero;
 - `""` means an intentional empty string, not inheritance;
 - `false`, `0`, and empty payloads are not converted by truthiness rules; and
 - built-in action values such as `.autoPaste` and `.none` remain distinct from

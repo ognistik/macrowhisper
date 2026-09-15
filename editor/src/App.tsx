@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, FocusEvent, ReactNode } from 'react'
+import type { ChangeEvent, FocusEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -57,6 +57,7 @@ interface DraftEntry {
   version: number
   requestId?: number
   reviewed?: boolean
+  savedAt?: number
 }
 
 interface GroupDefinition {
@@ -70,6 +71,7 @@ interface GroupDefinition {
 interface SelectOption {
   value: string
   label: string
+  controlLabel?: string
 }
 
 const groups: GroupDefinition[] = [
@@ -142,7 +144,7 @@ export const defaultFieldGroups: Array<{ key: string; label: string; description
   {
     key: 'general',
     label: 'General behavior',
-    description: 'Defaults used when an action leaves a setting at Default.',
+    description: 'Shared behavior used unless an action overrides it.',
     fields: ['activeAction', 'nextAction', 'disableUpdateCheck', 'muteNotifications'],
   },
   {
@@ -177,8 +179,10 @@ export const defaultFieldGroups: Array<{ key: string; label: string; description
   },
 ]
 
+export const DEFAULTS_OPEN_SECTION_STORAGE_KEY = 'macrowhisper-editor-defaults-open-section'
+
 const defaultFieldLabels: Record<string, { label: string; description: string }> = {
-  watch: { label: 'Watch folder', description: 'Superwhisper folder containing recordings.' },
+  watch: { label: 'Superwhisper folder', description: 'The folder configured in Superwhisper. Macrowhisper watches its recordings subfolder.' },
   disableUpdateCheck: { label: 'Automatic update checks', description: 'Allow Macrowhisper to check for new versions.' },
   muteNotifications: { label: 'System notifications', description: 'Show completion and error notifications.' },
   activeAction: { label: 'Fallback action', description: 'Action used when no trigger matches.' },
@@ -473,6 +477,10 @@ function pathKey(path: string[]): string {
   return path.join('\u001f')
 }
 
+function isFieldBlurActionTarget(target: EventTarget | null, key: string): boolean {
+  return target instanceof HTMLElement && target.closest<HTMLButtonElement>('[data-field-blur-action]')?.dataset.fieldBlurAction === key
+}
+
 function readPath(snapshot: ConfigSnapshot, path: string[]): FieldValue {
   let current: unknown = snapshot
   for (const segment of path) {
@@ -525,6 +533,18 @@ function numberDefaultText(field: string): string {
   return value === null || value === undefined || value === '' ? 'None' : String(value)
 }
 
+function shouldRestoreBuiltIn(field: string, value: FieldValue): boolean {
+  if (field === 'clipboardIgnore' || field === 'bypassModes') return typeof value === 'string' && value !== ''
+  if (field === 'history') return value !== null && value !== undefined && value !== ''
+  const fixedNumericDefaults = new Set(['actionDelay', 'returnDelay', 'restoreClipboardDelay', 'scheduledActionTimeout', 'scriptWaitTimeout', 'clipboardBuffer'])
+  if (!fixedNumericDefaults.has(field)) return false
+  const defaultValue = schemaDefault(field)
+  if (defaultValue === null || defaultValue === undefined) return false
+  if (value === null || value === undefined || value === '') return false
+  const currentValue = typeof value === 'string' ? Number(value) : value
+  return Number.isNaN(currentValue) || !Object.is(currentValue, defaultValue)
+}
+
 function inheritedNumberDefaultText(snapshot: ConfigSnapshot, field: string): string {
   const value = effectiveDefault(snapshot, field)
   return value === null || value === undefined || value === '' ? 'None' : String(value)
@@ -573,15 +593,6 @@ function defaultSectionSummary(sectionKey: string, snapshot: ConfigSnapshot, val
   }
 }
 
-function defaultSectionDraftStatus(section: { fields: string[] }, drafts: Record<string, DraftEntry>): string {
-  const statuses = section.fields.map((field) => drafts[pathKey(['defaults', field])]?.status).filter(Boolean)
-  if (statuses.includes('error')) return 'Not saved'
-  if (statuses.includes('saving')) return 'Saving…'
-  if (statuses.includes('dirty')) return 'Unsaved'
-  if (statuses.includes('saved')) return 'Saved'
-  return ''
-}
-
 function fieldErrorId(path: string[]): string {
   return `${pathKey(path)}-error`.replace(/[^a-zA-Z0-9_-]/g, '-')
 }
@@ -620,13 +631,23 @@ function actionOptions(snapshot: ConfigSnapshot, currentPath?: string[]): Select
     const name = actionDisplayName(item.name, action)
     const storedName = name === item.name ? '' : ` (${item.name})`
     const builtInLabel = action.action === '.autoPaste'
-      ? 'Built-in auto-paste'
+      ? 'Auto-paste'
       : action.action === '.none'
-        ? 'Built-in do-nothing template'
+        ? 'Do nothing'
         : name
     const visibleName = action.action === '.autoPaste' || action.action === '.none' ? builtInLabel : `${builtInLabel}${storedName}`
     const storedNameSuffix = action.action === '.none' ? ` · ${item.name}` : ''
-    options.push({ value: item.name, label: `${visibleName}${storedNameSuffix} · ${groupById.get(item.group)?.shortLabel ?? item.group}` })
+    const suffix = ` · ${groupById.get(item.group)?.shortLabel ?? item.group}`
+    const controlLabel = action.action === '.autoPaste'
+      ? `Auto-paste${suffix}`
+      : action.action === '.none'
+        ? `Do nothing · ${item.name}${suffix}`
+        : undefined
+    options.push({
+      value: item.name,
+      label: `${visibleName}${storedNameSuffix}${suffix}`,
+      controlLabel,
+    })
   }
   return options
 }
@@ -748,7 +769,7 @@ function FieldState({
         {statusText(entry.status)}
       </span>
       {(entry.status === 'dirty' || entry.status === 'error') && (
-        <button type="button" className="text-button" onClick={onRevert}>Revert</button>
+        <button type="button" className="text-button" data-field-blur-action={pathKey(entry.path)} onPointerDown={(event) => event.preventDefault()} onClick={onRevert}>Revert</button>
       )}
       {entry.status === 'error' && onRetry && (
         <button type="button" className="text-button" onClick={onRetry}>Retry</button>
@@ -830,6 +851,8 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   const draftsRef = useRef(drafts)
   const mutationQueueRef = useRef<Promise<boolean>>(Promise.resolve(true))
   const pendingMutationsRef = useRef(new Map<string, Promise<boolean>>())
+  const savedTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const mountedRef = useRef(true)
   const requestCounterRef = useRef(0)
   const epochRef = useRef(0)
   const lifecyclePromiseRef = useRef<Promise<boolean> | null>(null)
@@ -916,6 +939,33 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     setDrafts(next)
   }, [])
 
+  const scheduleSavedExpiry = useCallback((key: string, version: number, savedAt: number) => {
+    if (!mountedRef.current) return
+    const previousTimer = savedTimersRef.current.get(key)
+    if (previousTimer) clearTimeout(previousTimer)
+    const timer = setTimeout(() => {
+      if (!mountedRef.current) return
+      updateDrafts((previous) => {
+        const entry = previous[key]
+        if (entry?.status !== 'saved' || entry.version !== version || entry.savedAt !== savedAt) return previous
+        const next = { ...previous }
+        delete next[key]
+        return next
+      })
+      savedTimersRef.current.delete(key)
+    }, 1800)
+    savedTimersRef.current.set(key, timer)
+  }, [updateDrafts])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      for (const timer of savedTimersRef.current.values()) clearTimeout(timer)
+      savedTimersRef.current.clear()
+    }
+  }, [])
+
   const setDraftValue = useCallback((path: string[], value: FieldValue) => {
     const key = pathKey(path)
     updateDrafts((previous) => {
@@ -932,7 +982,8 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
           error: undefined,
           errorCode: undefined,
           request: preserveBaseline ? existing.request : undefined,
-          version: (preserveBaseline ? existing.version : 0) + 1,
+          version: (preserveBaseline ? existing.version : (existing?.version ?? 0)) + 1,
+          savedAt: undefined,
         },
       }
     })
@@ -945,7 +996,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     const numericField = field === 'actionDelay' || field === 'returnDelay' || field === 'restoreClipboardDelay' || field === 'scheduledActionTimeout' || field === 'scriptWaitTimeout' || field === 'clipboardBuffer' || field === 'history'
     if (numericField) {
       if (typeof rawValue === 'string' && rawValue.trim() !== '') value = Number(rawValue)
-      else if (typeof rawValue === 'string' && rawValue.trim() === '' && field === 'history') value = null
+      else if (typeof rawValue === 'string' && rawValue.trim() === '' && path[0] === 'defaults') value = null
     }
     const existingDraft = draftsRef.current[key]
     if ((!existingDraft || existingDraft.status === 'saved') && Object.is(value, readPath(snapshotRef.current, path))) return true
@@ -966,8 +1017,9 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
           error: undefined,
           errorCode: undefined,
           request: [edit],
-          version: existing?.version ?? 0,
+          version: (preserveBaseline ? existing?.version ?? 0 : (existing?.version ?? 0) + 1),
           requestId,
+          savedAt: undefined,
         },
       }
     })
@@ -1018,6 +1070,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
             return next
           }
           const savedValue = readPath(result.snapshot, path)
+          const savedAt = Date.now()
           next[key] = {
             ...existing,
             value: savedValue,
@@ -1028,9 +1081,15 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
             errorCode: undefined,
             request: undefined,
             requestId: undefined,
+            version: existing.version + 1,
+            savedAt,
           }
           return next
         })
+        const savedEntry = draftsRef.current[key]
+        if (savedEntry?.status === 'saved' && savedEntry.savedAt !== undefined) {
+          scheduleSavedExpiry(key, savedEntry.version, savedEntry.savedAt)
+        }
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : 'The change could not be saved.'
@@ -1128,8 +1187,14 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     value: displayValue(valueFor(path)),
     onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraftValue(path, event.target.value),
     onBlur: (event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (isFieldBlurActionTarget(event.relatedTarget, pathKey(path))) return
       const entry = draftsRef.current[pathKey(path)]
       if (entry?.status === 'dirty' || event.currentTarget.value !== displayValue(readPath(snapshotRef.current, path))) void commitField(path, event.currentTarget.value)
+    },
+    onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (event.key !== 'Enter' || event.currentTarget instanceof HTMLTextAreaElement) return
+      event.preventDefault()
+      event.currentTarget.blur()
     },
   })
 
@@ -1510,25 +1575,38 @@ interface DefaultsScreenProps {
 }
 
 function DefaultsScreen({ snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField }: DefaultsScreenProps) {
-  const [openSection, setOpenSection] = useState<string | null>('general')
+  const [openSection, setOpenSection] = useState<string | null>(() => {
+    try {
+      const stored = localStorage.getItem(DEFAULTS_OPEN_SECTION_STORAGE_KEY)
+      if (!stored || stored === 'null') return null
+      return defaultFieldGroups.some((section) => section.key === stored) ? stored : null
+    } catch {
+      return null
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(DEFAULTS_OPEN_SECTION_STORAGE_KEY, openSection ?? '')
+    } catch {
+      // Accordion state is a convenience and should not block configuration.
+    }
+  }, [openSection])
   const sectionProps = (section: { key: string; label: string; description: string; fields: string[] }) => ({
     section,
     open: openSection === section.key,
-    onToggle: (nextOpen: boolean) => setOpenSection(nextOpen ? section.key : null),
+    onToggle: (nextOpen: boolean) => setOpenSection((current) => {
+      if (nextOpen) return section.key
+      return current === section.key ? null : current
+    }),
   })
   return (
     <div className="screen-content defaults-screen">
       <div className="screen-intro">
-        <div><h1>Defaults</h1><p className="screen-description">Set the behavior shared by every action. Open a section only when you need to change it.</p></div>
+        <div><h1>Defaults</h1><p className="screen-description">Set the behavior shared by every action. Built-in marks what Macrowhisper ships with; Use built-in removes a custom value.</p></div>
         <div className="intro-meta"><span className="meta-label">CONFIG VERSION</span><strong>2</strong><span className="meta-label">WATCH FOLDER</span><code>{snapshot.defaults.watch ?? '~/Documents/superwhisper'}</code></div>
       </div>
-      <div className="defaults-grid">
-        <div className="defaults-column">
-          {defaultFieldGroups.slice(0, 3).map((section) => <DefaultSection key={section.key} {...sectionProps(section)} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />)}
-        </div>
-        <div className="defaults-column">
-          {defaultFieldGroups.slice(3).map((section) => <DefaultSection key={section.key} {...sectionProps(section)} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />)}
-        </div>
+      <div className="defaults-accordion">
+        {defaultFieldGroups.map((section) => <DefaultSection key={section.key} {...sectionProps(section)} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />)}
       </div>
     </div>
   )
@@ -1541,12 +1619,11 @@ interface DefaultSectionProps extends DefaultsScreenProps {
 }
 
 function DefaultSection({ section, open, onToggle, snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField }: DefaultSectionProps) {
-  const effectiveSummary = defaultSectionSummary(section.key, snapshot, valueFor)
-  const draftStatus = defaultSectionDraftStatus(section, drafts)
-  const summary = draftStatus ? `${effectiveSummary} · ${draftStatus}` : effectiveSummary
+  const summary = defaultSectionSummary(section.key, snapshot, valueFor)
   return (
     <section className="settings-section">
-      <Disclosure title={section.label} subtitle={section.description} meta={summary} open={open} onToggle={onToggle}>
+      <Disclosure title={section.label} subtitle="" meta={summary} open={open} onToggle={onToggle} variant="defaults">
+        <p className="defaults-section-description">{section.description}</p>
         <div className="field-list">
           {section.fields.map((field) => <DefaultField key={field} field={field} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />)}
         </div>
@@ -1563,6 +1640,7 @@ function NullableTextControl({
   onBlur,
   ariaLabel,
   errorId,
+  revertKey,
   collapseDefault = false,
 }: {
   kind: 'icon' | 'moveTo'
@@ -1572,6 +1650,7 @@ function NullableTextControl({
   onBlur: (value: string) => void
   ariaLabel: string
   errorId?: string
+  revertKey?: string
   collapseDefault?: boolean
 }) {
   const isMove = kind === 'moveTo'
@@ -1579,34 +1658,44 @@ function NullableTextControl({
   const [customOpen, setCustomOpen] = useState(isCustomValue)
   const mode = customOpen || isCustomValue ? 'custom' : isMove && value === '.delete' ? 'delete' : collapseDefault ? 'empty' : value === null || value === undefined ? 'default' : 'empty'
   const inputId = `${kind}-custom-value`
+  const builtInActive = collapseDefault && mode === 'empty'
+  const builtInDescriptionId = `${kind}-built-in-description`
   return (
     <div className="nullable-control">
-      <select aria-label={`${ariaLabel} mode`} value={mode} onChange={(event) => {
-        const next = event.target.value
-        if (next === 'default') {
-          setCustomOpen(false)
-          onChoice(null)
-        } else if (next === 'empty') {
-          setCustomOpen(false)
-          onChoice('')
-        } else if (next === 'delete') {
-          setCustomOpen(false)
-          onChoice('.delete')
-        } else {
-          setCustomOpen(true)
-        }
-      }}>
-        {!collapseDefault && <option value="default">Default</option>}
-        {!isMove && <option value="empty">No icon{collapseDefault ? ' (Built-in)' : ''}</option>}
-        {isMove && <option value="empty">Keep recording{collapseDefault ? ' (Built-in)' : ''}</option>}
-        {isMove && <option value="delete">Delete recording</option>}
-        <option value="custom">Custom</option>
-      </select>
+      <div className="select-control-wrapper nullable-select-control">
+        <select aria-label={`${ariaLabel} mode`} aria-describedby={builtInActive ? builtInDescriptionId : undefined} value={mode} onChange={(event) => {
+          const next = event.target.value
+          if (next === 'default') {
+            setCustomOpen(false)
+            onChoice(null)
+          } else if (next === 'empty') {
+            setCustomOpen(false)
+            onChoice('')
+          } else if (next === 'delete') {
+            setCustomOpen(false)
+            onChoice('.delete')
+          } else {
+            setCustomOpen(true)
+          }
+        }}>
+          {!collapseDefault && <option value="default">Default</option>}
+          {collapseDefault ? <>
+            <optgroup label="Built-in value"><option value="empty">{isMove ? 'Keep recording' : 'No icon'}</option></optgroup>
+            <hr />
+            <optgroup label="Explicit values">{isMove && <option value="delete">Delete recording</option>}<option value="custom">Custom</option></optgroup>
+          </> : <>
+            <option value="empty">{isMove ? 'Keep recording' : 'No icon'}</option>
+            {isMove && <option value="delete">Delete recording</option>}
+            <option value="custom">Custom</option>
+          </>}
+        </select>
+        {builtInActive && <BuiltInPill id={builtInDescriptionId} />}
+      </div>
       {mode === 'custom' && <input
         id={inputId}
         value={displayValue(value) === '.delete' ? '' : displayValue(value)}
         onChange={(event) => onText(event.target.value)}
-        onBlur={(event) => onBlur(event.target.value)}
+        onBlur={(event) => { if (!revertKey || !isFieldBlurActionTarget(event.relatedTarget, revertKey)) onBlur(event.target.value) }}
         aria-label={isMove ? 'Recording folder path' : 'Custom icon'}
         aria-describedby={errorId}
         placeholder={isMove ? '~/Documents/processed-recordings' : 'Optional symbol'}
@@ -1627,37 +1716,56 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
     const options = actionOptions(snapshot)
     const rootReferenceValue = value === null || value === undefined || value === '' ? EMPTY_CHOICE : displayValue(value)
     const emptyChoiceLabel = field === 'activeAction' ? 'No fallback action' : 'No next action'
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><select id={field} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} aria-label={meta.label} value={rootReferenceValue} onChange={(event) => {
+    const actionChoices = options.slice(1)
+    const builtInChoiceValue = field === 'activeAction' ? displayValue(schemaDefault('activeAction')) : EMPTY_CHOICE
+    const builtInChoices = actionChoices.filter((option) => option.value === builtInChoiceValue)
+    const configuredChoices = actionChoices.filter((option) => option.value !== builtInChoiceValue)
+    const selectedOption = actionChoices.find((option) => option.value === rootReferenceValue)
+    const builtInActive = field === 'nextAction' ? rootReferenceValue === EMPTY_CHOICE : selectedOption?.value === builtInChoiceValue
+    const builtInDescriptionId = `${field}-built-in-description`
+    const descriptionIds = [entry?.error ? fieldErrorId(path) : '', builtInActive ? builtInDescriptionId : ''].filter(Boolean).join(' ') || undefined
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><div className="select-control-wrapper select-metadata-stack"><select id={field} aria-describedby={descriptionIds} aria-label={meta.label} value={rootReferenceValue} onChange={(event) => {
       const next = event.target.value === EMPTY_CHOICE ? '' : event.target.value
       onChoice(next)
-    }}><option value={EMPTY_CHOICE}>{emptyChoiceLabel}</option>{options.slice(1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></SettingRow>
+    }}><optgroup label="Built-in value">{field === 'nextAction' && <option value={EMPTY_CHOICE}>{emptyChoiceLabel}</option>}{builtInChoices.map((option) => <option key={option.value} value={option.value}>{option.controlLabel ?? option.label}</option>)}</optgroup><hr /><optgroup label="Actions">{field === 'activeAction' && <option value={EMPTY_CHOICE}>{emptyChoiceLabel}</option>}{configuredChoices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup></select>{builtInActive && <BuiltInPill id={builtInDescriptionId} />}</div></SettingRow>
   }
 
   if (field === 'icon' || field === 'moveTo') {
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />}><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={(next) => setDraftValue(path, next)} onBlur={(next) => { if (entry?.status === 'dirty' || next !== displayValue(readPath(snapshot, path))) void commitField(path, next) }} ariaLabel={meta.label} errorId={fieldErrorId(path)} collapseDefault /></SettingRow>
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />}><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={(next) => setDraftValue(path, next)} onBlur={(next) => { if (entry?.status === 'dirty' || next !== displayValue(readPath(snapshot, path))) void commitField(path, next) }} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} collapseDefault /></SettingRow>
   }
 
   if (field === 'watch' || field === 'clipboardIgnore' || field === 'bypassModes') {
     const props = textHandlers(path)
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><div className="setting-input-stack"><div className="input-with-affordance"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} placeholder={field === 'watch' ? '~/superwhisper' : ''} />{field === 'watch' && <span className="input-affordance"><Link1Icon aria-hidden="true" /></span>}</div><button type="button" className="text-button reset-field-button" onClick={() => onChoice(null)} disabled={value === null || value === undefined}>Reset to default</button></div></SettingRow>
+    const useBuiltIn = shouldRestoreBuiltIn(field, value) ? <button type="button" className="text-button" data-field-blur-action={pathKey(path)} onPointerDown={(event) => event.preventDefault()} onClick={() => onChoice(null)}>Use built-in</button> : null
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack"><div className="input-with-affordance"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} placeholder={field === 'watch' ? '~/superwhisper' : ''} />{field === 'watch' && <span className="input-affordance"><Link1Icon aria-hidden="true" /></span>}</div></div></SettingRow>
   }
 
   if (field === 'history' || field === 'actionDelay' || field === 'returnDelay' || field === 'restoreClipboardDelay' || field === 'scheduledActionTimeout' || field === 'scriptWaitTimeout' || field === 'clipboardBuffer') {
     const props = textHandlers(path)
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><div className="setting-input-stack"><div className="input-with-unit"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} inputMode="decimal" type="text" placeholder={field === 'history' ? 'Keep forever' : numberDefaultText(field)} />{field !== 'history' && <span>{numberUnits[field]}</span>}</div><button type="button" className="text-button reset-field-button" onClick={() => onChoice(null)} disabled={value === null || value === undefined}>{field === 'history' ? 'Keep forever' : 'Reset to default'}</button></div></SettingRow>
+    const useBuiltIn = shouldRestoreBuiltIn(field, value) ? <button type="button" className="text-button" data-field-blur-action={pathKey(path)} onPointerDown={(event) => event.preventDefault()} onClick={() => onChoice(null)}>Use built-in</button> : null
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack"><div className="input-with-unit"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} inputMode="decimal" type="text" placeholder={field === 'history' ? 'Keep forever' : numberDefaultText(field)} />{field !== 'history' && <span>{numberUnits[field]}</span>}</div></div></SettingRow>
   }
 
   if (booleanFields.has(field)) {
     const builtIn = schemaDefault(field) === true
     const selected = value === null || value === undefined ? (builtIn ? 'on' : 'off') : value ? 'on' : 'off'
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><select id={field} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} aria-label={meta.label} value={selected} onChange={(event) => onChoice(event.target.value === 'on')}><option value="on">{booleanText(field, true)}{builtIn ? ' (Built-in)' : ''}</option><option value="off">{booleanText(field, false)}{!builtIn ? ' (Built-in)' : ''}</option></select></SettingRow>
+    const builtInValue = builtIn ? 'on' : 'off'
+    const alternativeValue = builtIn ? 'off' : 'on'
+    const builtInActive = selected === builtInValue
+    const builtInDescriptionId = `${field}-built-in-description`
+    const descriptionIds = [entry?.error ? fieldErrorId(path) : '', builtInActive ? builtInDescriptionId : ''].filter(Boolean).join(' ') || undefined
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><div className="select-control-wrapper select-metadata-stack"><select id={field} aria-describedby={descriptionIds} aria-label={meta.label} value={selected} onChange={(event) => onChoice(event.target.value === 'on')}><optgroup label="Built-in value"><option value={builtInValue}>{booleanText(field, builtIn)}</option></optgroup><hr /><optgroup label="Explicit values"><option value={alternativeValue}>{booleanText(field, !builtIn)}</option></optgroup></select>{builtInActive && <BuiltInPill id={builtInDescriptionId} />}</div></SettingRow>
   }
 
   return null
 }
 
-function SettingRow({ label, description, state, children, controlId }: { label: string; description: string; state?: ReactNode; children: ReactNode; controlId?: string }) {
-  return <div className="setting-row"><div className="setting-copy"><div className="setting-label"><label htmlFor={controlId}>{label}</label>{state}</div><p>{description}</p></div><div className="setting-control">{children}</div></div>
+function SettingRow({ label, description, state, utility, children, controlId }: { label: string; description: string; state?: ReactNode; utility?: ReactNode; children: ReactNode; controlId?: string }) {
+  return <div className="setting-row"><div className="setting-copy"><div className="setting-label"><label htmlFor={controlId}>{label}</label><div className="setting-utility"><div className="setting-utility-state">{state}</div><div className="setting-utility-action">{utility}</div></div></div><p>{description}</p></div><div className="setting-control">{children}</div></div>
+}
+
+function BuiltInPill({ id }: { id: string }) {
+  return <span id={id} className="built-in-pill">Built-in</span>
 }
 
 interface ActionListProps {
@@ -2095,11 +2203,11 @@ function OverrideField({ field, path, snapshot, value, entry, meta, onChoice, on
   const [numberOpen, setNumberOpen] = useState(value !== null && value !== undefined)
 
   if (field === 'icon' || field === 'moveTo') {
-    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} /></div>
+    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} /></div>
   }
   if (numberField) {
     const showingValue = numberOpen || (value !== null && value !== undefined)
-    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><div className="override-control"><select aria-label={`${meta.label} inheritance`} value={showingValue ? 'value' : 'default'} onChange={(event) => { if (event.target.value === 'default') { setNumberOpen(false); onChoice(null) } else setNumberOpen(true) }}><option value="default">Use Defaults ({inheritedNumberDefaultText(snapshot, field)} s)</option><option value="value">Override</option></select>{showingValue && <input id={inputId} value={displayValue(value)} inputMode="decimal" onChange={(event) => onText(event.target.value)} onBlur={(event) => onBlur(event.target.value)} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} />}<span className="unit">seconds</span></div></div>
+    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><div className="override-control"><select aria-label={`${meta.label} inheritance`} value={showingValue ? 'value' : 'default'} onChange={(event) => { if (event.target.value === 'default') { setNumberOpen(false); onChoice(null) } else setNumberOpen(true) }}><option value="default">Use Defaults ({inheritedNumberDefaultText(snapshot, field)} s)</option><option value="value">Override</option></select>{showingValue && <input id={inputId} value={displayValue(value)} inputMode="decimal" onChange={(event) => onText(event.target.value)} onBlur={(event) => { if (!isFieldBlurActionTarget(event.relatedTarget, pathKey(path))) onBlur(event.target.value) }} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} />}<span className="unit">seconds</span></div></div>
   }
   if (booleanFields.has(field)) {
     const inherited = effectiveDefault(snapshot, field) === true
@@ -2110,8 +2218,8 @@ function OverrideField({ field, path, snapshot, value, entry, meta, onChoice, on
   return null
 }
 
-function Disclosure({ title, subtitle, meta, open, onToggle, children }: { title: string; subtitle: string; meta?: ReactNode; open: boolean; onToggle: (open: boolean) => void; children: ReactNode }) {
-  return <details className="disclosure" open={open} onToggle={(event) => onToggle((event.currentTarget as HTMLDetailsElement).open)}><summary><span><strong>{title}</strong><small>{subtitle}</small></span><span className="disclosure-summary-meta">{meta}</span><ChevronDownIcon aria-hidden="true" /></summary><div className="disclosure-body">{children}</div></details>
+function Disclosure({ title, subtitle, meta, open, onToggle, children, variant = 'standard' }: { title: string; subtitle: string; meta?: ReactNode; open: boolean; onToggle: (open: boolean) => void; children: ReactNode; variant?: 'standard' | 'defaults' }) {
+  return <details className={`disclosure ${variant === 'defaults' ? 'defaults-disclosure' : ''}`} open={open} onToggle={(event) => onToggle((event.currentTarget as HTMLDetailsElement).open)}><summary><span className="disclosure-heading"><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</span><span className="disclosure-summary-meta">{meta}</span><ChevronDownIcon aria-hidden="true" /></summary><div className="disclosure-body">{children}</div></details>
 }
 
 function UnsupportedActionGroup({ group, snapshot, fixtureBacked }: { group: GroupDefinition; snapshot: ConfigSnapshot; fixtureBacked: boolean }) {

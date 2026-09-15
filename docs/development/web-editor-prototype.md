@@ -13,8 +13,9 @@ panels remain read-only. In the Vite preview, all configuration data is fixture-
 The Vite development preview remains fixture-backed when it is opened on its
 default port without a live credential. Fixture save indicators acknowledge
 in-memory transactions only; they do not mean that `macrowhisper.json` changed,
-and reloading resets fixture configuration. The appearance preference is the
-only browser-local setting. See the [user editor guide](../editor.md) for the
+and reloading resets fixture configuration. Appearance and the last open—or
+intentionally all-collapsed—Defaults section are browser-local presentation
+preferences. See the [user editor guide](../editor.md) for the
 supported connected behavior and the [implementation plan](web-editor-plan.md)
 for the remaining expansion gates.
 
@@ -113,6 +114,10 @@ or expand placeholders against private runtime context.
 
 ## Review the interactions
 
+- Defaults is a single centered accordion capped at `940px`, with `12px` between flat, subtly bordered section surfaces. The first visit starts fully collapsed; after interaction, browser storage restores the last open section or an intentionally collapsed overview. Choosing another section closes the current one and opens the new section in the same interaction. Closed sections show only their title and effective-state summary, while the explanatory copy and fields appear after opening with a restrained `180ms` reveal and matching chevron rotation.
+- Open Defaults sections give controls a `280px` to `320px` column on desktop and stack labels above controls below `780px`. A native `Built-in value` group identifies only the value shipped for that particular setting; a decorative divider and a second semantic group clearly separate explicit choices. When the built-in value is active, the closed control shows the plain value with an integrated `Built-in` source label; eligible text and numeric fields with an unambiguous shipped fallback expose `Use built-in` only until restoration succeeds.
+- Field save acknowledgement is intentionally brief: `Saving…` remains while a write is pending, `Saved` clears after roughly two seconds, and errors persist until resolved. Descriptions use a protected reading measure so long copy wraps before entering the utility rail's visual territory. Status and `Use built-in` occupy a stable, right-aligned trailing rail beside the field label; it is optically aligned with the corresponding desktop control, moves to the lower input baseline when a custom two-control editor is open, and remains visually empty when idle so routine state changes do not resize the row. Revert suppresses the field's blur commit and restores the last saved value without issuing a write. Save activity is not folded into a section's effective-behavior summary.
+- Clearing an ordinary numeric Default and leaving the field—or pressing Enter—saves `null` to use the shipped value. An explicit `0` remains distinct, History keeps its blank `Keep forever` meaning, and nonempty invalid or negative values continue to surface validation errors.
 - Start with Defaults, then select an Insert. Compare System, Light, and Dark.
 - Change a discrete choice and observe its pending acknowledgement. Type into
   a text control and leave it to commit; there is no global Save button.
