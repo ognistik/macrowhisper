@@ -1391,6 +1391,61 @@ let MIN_INFERRED_TRANSIENT_INITIAL_COUNT_DELTA = 3
 let ADJACENT_STARTUP_TRANSIENT_CANDIDATE_WINDOW: TimeInterval = 1.0
 let ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW: TimeInterval = 0.5
 
+struct StartupClipboardBootstrapState: Equatable {
+    let stableGlobalChangeCount: Int
+    let stableGlobalPayloadFingerprint: String
+    let stableGlobalLastChangeObservedAt: Date?
+    let sessionSnapshotChangeCount: Int
+    let sessionSnapshotPayloadFingerprint: String
+    let sessionSnapshotObservedAt: Date
+}
+
+enum StartupClipboardBootstrapRestoreDecision: String, Equatable {
+    case capture
+    case ignoreRestoredStableClipboard
+}
+
+/// Recognizes the startup ordering where monitoring's stable clipboard is X,
+/// Superwhisper temporarily replaces it with Y while the recording session is
+/// being initialized, and the first session observation is the restoration to X.
+/// Exact adjacent counts and payload fingerprints keep this narrower than a
+/// general startup blackout, so genuine copies remain eligible.
+/// The stable value itself may legitimately be old (it had been unchanged for
+/// several minutes in the motivating trace), so its last-change age is logged
+/// for diagnosis but is not used as a freshness gate.
+func evaluateStartupClipboardBootstrapRestore(
+    state: StartupClipboardBootstrapState?,
+    sessionStartInputFieldState: SessionStartInputFieldState,
+    sessionStartTime: Date,
+    observedAt: Date,
+    observedChangeCount: Int,
+    observedPayloadFingerprint: String,
+    candidateWindow: TimeInterval = ADJACENT_STARTUP_TRANSIENT_CANDIDATE_WINDOW,
+    restoreWindow: TimeInterval = ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW
+) -> StartupClipboardBootstrapRestoreDecision {
+    guard sessionStartInputFieldState == .outsideInputField,
+          let state,
+          state.sessionSnapshotObservedAt >= sessionStartTime,
+          state.sessionSnapshotObservedAt <= sessionStartTime.addingTimeInterval(max(0, candidateWindow)),
+          observedAt >= state.sessionSnapshotObservedAt,
+          observedAt <= state.sessionSnapshotObservedAt.addingTimeInterval(max(0, restoreWindow)),
+          state.stableGlobalPayloadFingerprint != state.sessionSnapshotPayloadFingerprint,
+          state.stableGlobalPayloadFingerprint == observedPayloadFingerprint else {
+        return .capture
+    }
+
+    let sessionCount = state.stableGlobalChangeCount.addingReportingOverflow(1)
+    let restoredCount = state.sessionSnapshotChangeCount.addingReportingOverflow(1)
+    guard !sessionCount.overflow,
+          !restoredCount.overflow,
+          state.sessionSnapshotChangeCount == sessionCount.partialValue,
+          observedChangeCount == restoredCount.partialValue else {
+        return .capture
+    }
+
+    return .ignoreRestoredStableClipboard
+}
+
 enum IgnoredClipboardMarkerSequenceDecision: String, Equatable {
     case capture
     case ignoreMarker
@@ -1540,6 +1595,24 @@ struct InferredTransientRestoreTracker {
             return
         }
         self.pendingCandidate = nil
+    }
+
+    /// Makes an already-classified transaction visible to both samplers. This
+    /// is used when the faster session sampler classifies a startup restore
+    /// before the global sampler has observed that restore change count.
+    mutating func recordIgnoredTransaction(
+        candidateChangeCount: Int,
+        restoreChangeCount: Int,
+        classifiedAt: Date
+    ) {
+        let transaction = IgnoredTransaction(
+            candidateChangeCount: candidateChangeCount,
+            restoreChangeCount: restoreChangeCount,
+            classifiedAt: classifiedAt
+        )
+        ignoredTransactionsByChangeCount[candidateChangeCount] = transaction
+        ignoredTransactionsByChangeCount[restoreChangeCount] = transaction
+        pendingCandidate = nil
     }
 
     mutating func decision(
@@ -2474,6 +2547,7 @@ class ClipboardMonitor {
         var hasAudioRecordingStarted: Bool = false
         var lastCapturedClipboardContent: String? // The last unique clipboard content captured during early monitoring
         var lastCapturedClipboardPayload: ClipboardPayload?
+        var startupBootstrapState: StartupClipboardBootstrapState?
         var ignoredClipboardChangeCounts: Set<Int> = []
         var lastObservedClipboardActivityAt: Date? = nil
         var lastDiagnosticClipboardChangeObservedAt: Date? = nil
@@ -2485,7 +2559,7 @@ class ClipboardMonitor {
         let id: String
         let createdAt: Date
         let rootRecordingPath: String
-        let rootOriginalSnapshot: ClipboardOriginalSnapshot?
+        var rootOriginalSnapshot: ClipboardOriginalSnapshot?
         var rootClipboardAttachmentsEnabled: Bool
         var rootClipboardStackingEnabled: Bool
         let rootSelectedText: String?
@@ -2655,11 +2729,14 @@ class ClipboardMonitor {
     /// context snapshots cannot be evicted without changing restoration or
     /// handoff semantics, so a new capture is classified as unavailable when
     /// no protected budget remains.
-    private func limitsForNewOriginalSnapshot() -> ClipboardAttachmentLimits {
+    private func limitsForNewOriginalSnapshot(
+        replacingOriginalForGroupId: String? = nil
+    ) -> ClipboardAttachmentLimits {
         var protectedBytes = 0
         sessionsQueue.sync {
-            protectedBytes += executionGroups.reduce(0) {
-                $0 + ($1.value.rootOriginalSnapshot?.retainedImageByteCount ?? 0)
+            protectedBytes += executionGroups.reduce(0) { total, entry in
+                guard entry.key != replacingOriginalForGroupId else { return total }
+                return total + (entry.value.rootOriginalSnapshot?.retainedImageByteCount ?? 0)
             }
             protectedBytes += executionGroups.reduce(0) {
                 $0 + ($1.value.frozenContextSnapshot?.retainedImageByteCount ?? 0)
@@ -2736,6 +2813,18 @@ class ClipboardMonitor {
     /// Also captures selected text at the moment the recording folder appears
     /// Enhanced to also capture clipboard content from approximately 5 seconds before recording
     func startEarlyMonitoring(for recordingPath: String, sessionStartTime: Date = Date()) {
+        var stableGlobalChangeCount: Int?
+        var stableGlobalPayloadFingerprint: String?
+        var stableGlobalContent: String?
+        var stableGlobalObservedAt: Date?
+        globalHistoryQueue.sync {
+            guard !isFirstGlobalCheck, let lastSeenClipboardPayload else { return }
+            stableGlobalChangeCount = lastSeenChangeCount
+            stableGlobalPayloadFingerprint = lastSeenClipboardPayload.fingerprint
+            stableGlobalContent = lastSeenClipboardContent
+            stableGlobalObservedAt = lastSeenClipboardChangeObservedAt
+        }
+
         let pasteboard = NSPasteboard.general
         let originalCaptureLimits = limitsForNewOriginalSnapshot()
         let originalPasteboardSnapshot = captureClipboardPasteboardSnapshot(
@@ -2745,7 +2834,39 @@ class ClipboardMonitor {
             captureOriginalSnapshot: true,
             attachmentLimits: originalCaptureLimits
         )
+        let sessionSnapshotObservedAt = Date()
         let userOriginalSnapshot = originalPasteboardSnapshot?.originalSnapshot
+        let startupBootstrapState: StartupClipboardBootstrapState? = {
+            guard let stableGlobalChangeCount,
+                  let stableGlobalPayloadFingerprint,
+                  let originalPasteboardSnapshot else {
+                return nil
+            }
+            let expectedSessionCount = stableGlobalChangeCount.addingReportingOverflow(1)
+            guard !expectedSessionCount.overflow,
+                  originalPasteboardSnapshot.changeCount == expectedSessionCount.partialValue,
+                  originalPasteboardSnapshot.payload.fingerprint != stableGlobalPayloadFingerprint else {
+                return nil
+            }
+            return StartupClipboardBootstrapState(
+                stableGlobalChangeCount: stableGlobalChangeCount,
+                stableGlobalPayloadFingerprint: stableGlobalPayloadFingerprint,
+                stableGlobalLastChangeObservedAt: stableGlobalObservedAt,
+                sessionSnapshotChangeCount: originalPasteboardSnapshot.changeCount,
+                sessionSnapshotPayloadFingerprint: originalPasteboardSnapshot.payload.fingerprint,
+                sessionSnapshotObservedAt: sessionSnapshotObservedAt
+            )
+        }()
+        if startupBootstrapState != nil, let originalPasteboardSnapshot {
+            logClipboardObservationDiagnostic(
+                source: "session-start-bootstrap",
+                snapshot: originalPasteboardSnapshot,
+                observedAt: sessionSnapshotObservedAt,
+                previousChangeCount: stableGlobalChangeCount,
+                previousObservedAt: stableGlobalObservedAt,
+                previousContent: stableGlobalContent
+            )
+        }
 
         if let payload = originalPasteboardSnapshot?.payload,
            payload.unavailableAttachmentCount > 0 {
@@ -2950,6 +3071,9 @@ class ClipboardMonitor {
                 lastSeenChangeCount: currentChangeCount,
                 lastCapturedClipboardContent: effectiveLastCapturedClipboardContent,
                 lastCapturedClipboardPayload: originalPasteboardSnapshot?.payload,
+                startupBootstrapState: activeGroupId == nil && sessionStartInputFieldState == .outsideInputField
+                    ? startupBootstrapState
+                    : nil,
                 clipboardContextResetAt: self.executionGroups[groupId]?.clipboardContextResetAt
             )
             self.earlyMonitoringSessions[recordingPath] = session
@@ -2963,6 +3087,16 @@ class ClipboardMonitor {
         logDebug("[ClipboardMonitor] Started early monitoring for \(recordingPath)")
         logDebug("[ClipboardMonitor] Captured user original clipboard snapshot")
         logDebug("[ClipboardMonitor] Session-start input field state: \(sessionStartInputFieldState.logValue)")
+        if let startupBootstrapState {
+            logDebug(
+                "[ClipboardMonitor] Startup clipboard bootstrap candidate " +
+                "stableChangeCount=\(startupBootstrapState.stableGlobalChangeCount) " +
+                "sessionChangeCount=\(startupBootstrapState.sessionSnapshotChangeCount) " +
+                "stableFingerprint=\(startupBootstrapState.stableGlobalPayloadFingerprint) " +
+                "sessionFingerprint=\(startupBootstrapState.sessionSnapshotPayloadFingerprint) " +
+                "inputState=\(sessionStartInputFieldState.logValue)"
+            )
+        }
         if !selectedText.isEmpty {
             logDebug("[ClipboardMonitor] Captured selected text at recording start")
         }
@@ -3210,6 +3344,7 @@ class ClipboardMonitor {
                 session.preRecordingChanges.removeAll()
                 session.preRecordingIgnoredReplayCount = 0
                 session.startupReplayGuardEndsAt = nil
+                session.startupBootstrapState = nil
                 session.ignoredClipboardChangeCounts.removeAll()
                 session.lastSeenChangeCount = currentChangeCount
                 session.lastCapturedClipboardContent = currentClipboard
@@ -3438,11 +3573,13 @@ class ClipboardMonitor {
             guard let groupId = recordingPathToGroupId[recordingPath] else {
                 earlyMonitoringSessions[recordingPath]?.isExecutingAction = true
                 earlyMonitoringSessions[recordingPath]?.startupReplayGuardEndsAt = nil
+                earlyMonitoringSessions[recordingPath]?.startupBootstrapState = nil
                 return
             }
 
             for path in recordingPathToGroupId.compactMap({ $0.value == groupId ? $0.key : nil }) {
                 earlyMonitoringSessions[path]?.startupReplayGuardEndsAt = nil
+                earlyMonitoringSessions[path]?.startupBootstrapState = nil
             }
             earlyMonitoringSessions[recordingPath]?.isExecutingAction = true
         }
@@ -4155,8 +4292,9 @@ class ClipboardMonitor {
             lastSeenChangeCount: Int,
             lastCapturedClipboardContent: String?,
             lastCapturedClipboardPayload: ClipboardPayload?,
-            lastDiagnosticClipboardChangeObservedAt: Date?
-        ) = (false, false, false, 0, nil, nil, nil)
+            lastDiagnosticClipboardChangeObservedAt: Date?,
+            startupBootstrapState: StartupClipboardBootstrapState?
+        ) = (false, false, false, 0, nil, nil, nil, nil)
         
         sessionsQueue.sync { [weak self] in
             guard let session = self?.earlyMonitoringSessions[recordingPath] else { return }
@@ -4169,6 +4307,7 @@ class ClipboardMonitor {
             sessionData.lastCapturedClipboardContent = session.lastCapturedClipboardContent
             sessionData.lastCapturedClipboardPayload = session.lastCapturedClipboardPayload
             sessionData.lastDiagnosticClipboardChangeObservedAt = session.lastDiagnosticClipboardChangeObservedAt
+            sessionData.startupBootstrapState = session.startupBootstrapState
         }
         
         // Exit silently if session is not active - session will be cleaned up naturally
@@ -4204,6 +4343,19 @@ class ClipboardMonitor {
         let currentClipboard = pasteboardSnapshot.payload.textProjection(
             attachmentsEnabled: clipboardAttachmentsEnabled
         ) ?? (clipboardAttachmentsEnabled ? nil : pasteboardSnapshot.content)
+
+        if let startupBootstrapState = sessionData.startupBootstrapState,
+           currentChangeCount != startupBootstrapState.sessionSnapshotChangeCount,
+           self.reconcileStartupClipboardBootstrapRestore(
+               for: recordingPath,
+               observedSnapshot: pasteboardSnapshot,
+               observedAt: Date()
+           ) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+                self?.monitorClipboardChangesForSession(recordingPath: recordingPath)
+            }
+            return
+        }
         
         // Use changeCount for more reliable change detection
         if currentChangeCount != sessionData.lastSeenChangeCount {
@@ -5217,6 +5369,157 @@ class ClipboardMonitor {
             }
         }
         return shouldAllow
+    }
+
+    /// Reconciles the narrow bootstrap race where the session-start snapshot
+    /// catches Superwhisper's temporary clipboard and the first visible session
+    /// operation restores the previously stable clipboard. This performs no
+    /// waiting and only re-reads the pasteboard after the exact transaction has
+    /// already matched.
+    private func reconcileStartupClipboardBootstrapRestore(
+        for recordingPath: String,
+        observedSnapshot: ClipboardPasteboardSnapshot,
+        observedAt: Date
+    ) -> Bool {
+        var state: StartupClipboardBootstrapState?
+        var inputFieldState: SessionStartInputFieldState = .unknown
+        var sessionStartTime = observedAt
+        var targetGroupId: String?
+        sessionsQueue.sync {
+            guard let session = earlyMonitoringSessions[recordingPath], session.isActive else { return }
+            state = session.startupBootstrapState
+            inputFieldState = session.sessionStartInputFieldState
+            sessionStartTime = session.startTime
+            targetGroupId = session.groupId
+        }
+
+        var globalRestoreOperationObservedAt: Date?
+        globalHistoryQueue.sync {
+            if lastSeenChangeCount == observedSnapshot.changeCount,
+               lastSeenClipboardPayload?.fingerprint == observedSnapshot.payload.fingerprint {
+                globalRestoreOperationObservedAt = lastSeenClipboardChangeObservedAt
+            } else if let globalObservation = globalClipboardHistory.last(where: {
+                $0.changeCount == observedSnapshot.changeCount
+            }), globalObservation.payload.fingerprint == observedSnapshot.payload.fingerprint {
+                globalRestoreOperationObservedAt = globalObservation.timestamp
+            }
+        }
+
+        // Prefer the global operation timestamp because it remains accurate if
+        // Accessibility work delays the session poll. If the 10 ms session
+        // sampler reaches the restoration before the 500 ms global sampler,
+        // its own timely observation is sufficient and avoids adding a wait.
+        let candidateObservationTimes: [(source: String, observedAt: Date)] = {
+            var values: [(String, Date)] = []
+            if let globalRestoreOperationObservedAt {
+                values.append(("global", globalRestoreOperationObservedAt))
+            }
+            values.append(("session", observedAt))
+            return values
+        }()
+        guard let matchedObservation = candidateObservationTimes.first(where: { candidate in
+            evaluateStartupClipboardBootstrapRestore(
+                state: state,
+                sessionStartInputFieldState: inputFieldState,
+                sessionStartTime: sessionStartTime,
+                observedAt: candidate.observedAt,
+                observedChangeCount: observedSnapshot.changeCount,
+                observedPayloadFingerprint: observedSnapshot.payload.fingerprint
+            ) == .ignoreRestoredStableClipboard
+        }), let state else {
+            return false
+        }
+        let decision = StartupClipboardBootstrapRestoreDecision.ignoreRestoredStableClipboard
+        let restoreOperationObservedAt = matchedObservation.observedAt
+
+        // Capture the restored X state representation-faithfully only after the
+        // pure count/fingerprint classifier has matched X -> Y -> X. This keeps
+        // ordinary recording startup on the existing fast path.
+        guard let correctedSnapshot = captureClipboardPasteboardSnapshot(
+            from: .general,
+            source: "startup-bootstrap-reconcile",
+            includeAttachments: true,
+            captureOriginalSnapshot: true,
+            attachmentLimits: limitsForNewOriginalSnapshot(
+                replacingOriginalForGroupId: targetGroupId
+            )
+        ), correctedSnapshot.changeCount == observedSnapshot.changeCount else {
+            logDebug(
+                "[ClipboardMonitor] Startup clipboard bootstrap reconciliation deferred " +
+                "(reason: clipboard-changed-during-snapshot, stableChangeCount: \(state.stableGlobalChangeCount), " +
+                "sessionChangeCount: \(state.sessionSnapshotChangeCount), " +
+                "observedChangeCount: \(observedSnapshot.changeCount))"
+            )
+            return false
+        }
+
+        let transactionChangeCounts: Set<Int> = [
+            state.sessionSnapshotChangeCount,
+            observedSnapshot.changeCount
+        ]
+        var didReconcile = false
+        globalHistoryQueue.sync(flags: .barrier) {
+            sessionsQueue.sync(flags: .barrier) {
+                guard var session = earlyMonitoringSessions[recordingPath],
+                      session.isActive,
+                      session.startupBootstrapState == state,
+                      let groupId = recordingPathToGroupId[recordingPath],
+                      var group = executionGroups[groupId],
+                      group.rootRecordingPath == recordingPath else {
+                    return
+                }
+
+                session.startupBootstrapState = nil
+                session.ignoredClipboardChangeCounts.formUnion(transactionChangeCounts)
+                session.clipboardChanges.removeAll { transactionChangeCounts.contains($0.changeCount) }
+                session.lastSeenChangeCount = observedSnapshot.changeCount
+                session.lastCapturedClipboardContent = observedSnapshot.content
+                session.lastCapturedClipboardPayload = observedSnapshot.payload
+                session.lastObservedClipboardActivityAt = restoreOperationObservedAt
+                session.lastDiagnosticClipboardChangeObservedAt = observedAt
+                earlyMonitoringSessions[recordingPath] = session
+
+                group.rootOriginalSnapshot = correctedSnapshot.originalSnapshot
+                executionGroups[groupId] = group
+                globalClipboardHistory.removeAll { transactionChangeCounts.contains($0.changeCount) }
+                ignoredMarkerSequenceQueue.sync {
+                    inferredTransientRestoreTracker.recordIgnoredTransaction(
+                        candidateChangeCount: state.sessionSnapshotChangeCount,
+                        restoreChangeCount: observedSnapshot.changeCount,
+                        classifiedAt: restoreOperationObservedAt
+                    )
+                }
+                didReconcile = true
+            }
+        }
+        guard didReconcile else { return false }
+        enforceMonitorWideImageRetentionBudget()
+
+        let operationElapsedMilliseconds = Int(
+            max(0, restoreOperationObservedAt.timeIntervalSince(state.sessionSnapshotObservedAt)) * 1_000
+        )
+        let pollElapsedMilliseconds = Int(max(0, observedAt.timeIntervalSince(sessionStartTime)) * 1_000)
+        let stableBaselineAgeMilliseconds = state.stableGlobalLastChangeObservedAt.map {
+            Int(max(0, state.sessionSnapshotObservedAt.timeIntervalSince($0)) * 1_000)
+        }
+        let stableBaselineAgeLogValue = stableBaselineAgeMilliseconds.map(String.init) ?? "unknown"
+        let correctedOriginal = correctedSnapshot.originalSnapshot
+        logDebug(
+            "[ClipboardMonitor] Reconciled startup clipboard bootstrap restore " +
+            "(decision: \(decision.rawValue), stableChangeCount: \(state.stableGlobalChangeCount), " +
+            "temporaryChangeCount: \(state.sessionSnapshotChangeCount), " +
+            "restoreChangeCount: \(observedSnapshot.changeCount), " +
+            "timingSource: \(matchedObservation.source), operationElapsedMs: \(operationElapsedMilliseconds), " +
+            "pollElapsedMs: \(pollElapsedMilliseconds), " +
+            "stableBaselineAgeMs: \(stableBaselineAgeLogValue), " +
+            "stableFingerprint: \(state.stableGlobalPayloadFingerprint), " +
+            "temporaryFingerprint: \(state.sessionSnapshotPayloadFingerprint), " +
+            "restoreFingerprint: \(observedSnapshot.payload.fingerprint), " +
+            "restoreTypes: \(observedSnapshot.types.map(\.rawValue).sorted()), " +
+            "originalSnapshotComplete: \(correctedOriginal?.isComplete ?? false), " +
+            "omittedAttachments: \(correctedOriginal?.omittedAttachmentCount ?? 0))"
+        )
+        return true
     }
 
     private func isInferredTransientChangeCountIgnored(_ changeCount: Int) -> Bool {

@@ -2,6 +2,9 @@
 
 ## UNRELEASED
 
+### Fixed
+* When dictation starts outside a text field, Superwhisper's brief clipboard replacement and restoration no longer appear in `{{clipboardContext}}` as user copies. Macrowhisper recognizes only the exact adjacent restore sequence, so ordinary clipboard changes at startup remain available as context.
+
 ---
 ## [v2.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.2.0) - 2026/09/04
 
