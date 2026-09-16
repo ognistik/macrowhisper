@@ -3632,8 +3632,8 @@ class SocketCommunication {
                 
             case .forceUpdateCheck:
                 let versionChecker = VersionChecker()
-                versionChecker.forceUpdateCheck()
-                response = "Forced update check initiated (all timing constraints reset). Check logs for results."
+                let result = versionChecker.forceUpdateCheck()
+                response = result.socketPayload() ?? "Failed to encode update check result"
                 _ = sendResponse(response, to: clientSocket)
                 
             case .versionClear:

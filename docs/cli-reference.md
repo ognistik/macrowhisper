@@ -191,7 +191,7 @@ You can check mute state through `--status`.
 
 #### Other runtime commands
 
-- `--check-updates` forces an update check, even when automatic checks are disabled or throttled. The check runs synchronously and the dialog's **Open Release** button opens the GitHub release page; it does not install an update.
+- `--check-updates` forces an update check, even when automatic checks are disabled or throttled, and prints whether Macrowhisper is current, an update is available, or the check failed. Failures return a nonzero exit status and include the diagnostic log path. The check runs synchronously; when an update is available, the dialog's **Open Release** button opens the GitHub release page but does not install the update.
 - `--version-state` prints the update-check timestamps and reminder state for debugging.
 - `--version-clear` clears the update-check UserDefaults so the next check starts without prior timing or reminder state.
 

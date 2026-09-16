@@ -159,10 +159,13 @@ Its 24-hour rate limit is per running daemon process.
 Automatic checks are limited to once per 24 hours, retry failures after a
 one-hour backoff, and remind about the same version no more than every four
 days. `--check-updates` forces a synchronous check even when automatic checks
-are disabled or throttled, and clears those timing/reminder limits for the
-check. Choosing **Open Release** opens the GitHub release page; Macrowhisper
-does not install the binary. For diagnostics, `--version-state` shows the
-stored state and `--version-clear` removes it.
+are disabled or throttled. It prints the result directly and bypasses those
+limits without first erasing reminder history; failures return a nonzero exit
+status and point to the main log for additional diagnostics. Choosing **Open
+Release** opens the GitHub release page; Macrowhisper does not install the
+binary. When an available-update dialog is shown, that version becomes the
+latest reminder as usual. For diagnostics, `--version-state` shows the stored
+state and `--version-clear` removes it.
 
 ### Service status and lifecycle
 
