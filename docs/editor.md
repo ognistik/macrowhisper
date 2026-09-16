@@ -97,6 +97,20 @@ to the configuration. Textarea placeholder
 tools are part of the same editing boundary, so choosing a placeholder does not
 save halfway through an insertion.
 
+The standalone Vite development preview uses deliberately different language:
+it shows **Preview mode**, **Updating preview…**, and **Updated in preview**.
+Its persistent notice and Editor details both explain that the sample values
+stay in memory, reset on reload, and do not write `macrowhisper.json`. The live
+editor alone uses **Connected** and **Saved** for an acknowledged canonical
+configuration write.
+
+Long Defaults sections are divided by quiet internal headings so related
+decisions scan together without adding nested panels. Root timing values remain
+visible beside their related behaviors because they can still be inherited by
+action-level overrides. **Return delay** also controls the Return press forced
+by one-shot CLI auto-return, even when the default **Press Return after insert**
+setting is off.
+
 The compact status control at the bottom of the navigation stays quiet while
 the editor is connected, changes to Saving or Not saved when a write needs
 attention, and gives disconnected or runtime-fallback states semantic warning

@@ -5,6 +5,7 @@ import App, { defaultFieldGroups, DEFAULTS_OPEN_SECTION_STORAGE_KEY, overrideFie
 import { defaultsSchema, insertSchema } from './generated/schema'
 import { FixtureStore } from './store/fixtureStore'
 import type { StoreScenario } from './model/types'
+import type { EditorStore } from './model/types'
 
 function installMediaQuery(matches: boolean) {
   const media = {
@@ -31,7 +32,21 @@ function renderWithStore(scenario: StoreScenario = 'populated', writeDelayMs = 0
 }
 
 async function waitForSaved() {
-  await waitFor(() => expect(screen.getAllByText('Saved').length).toBeGreaterThan(0))
+  await waitFor(() => expect(screen.getAllByText('Updated in preview').length).toBeGreaterThan(0))
+}
+
+function liveLikeStore(): EditorStore {
+  const fixture = new FixtureStore('populated', { writeDelayMs: 35 })
+  return {
+    getSnapshot: () => fixture.getSnapshot(),
+    subscribe: (listener) => fixture.subscribe(listener),
+    request: (edits) => fixture.request(edits),
+    mutate: (request) => fixture.mutate(request),
+    createInsert: (name, action) => fixture.createInsert(name, action),
+    duplicateInsert: (sourceName, targetName) => fixture.duplicateInsert(sourceName, targetName),
+    renameInsert: (sourceName, targetName) => fixture.renameInsert(sourceName, targetName),
+    deleteInsert: (name) => fixture.deleteInsert(name),
+  }
 }
 
 describe('configuration editor interactions', () => {
@@ -85,7 +100,7 @@ describe('configuration editor interactions', () => {
     // second write against the first result instead of surfacing a stale error.
     await user.selectOptions(notifications, 'on')
     await user.selectOptions(updates, 'on')
-    await waitFor(() => expect(screen.getAllByText('Saved').length).toBeGreaterThanOrEqual(3))
+    await waitFor(() => expect(screen.getAllByText('Updated in preview').length).toBeGreaterThanOrEqual(3))
     expect(fallback).toHaveTextContent('quickReply')
     expect(notifications).toHaveValue('on')
     expect(updates).toHaveValue('on')
@@ -136,7 +151,7 @@ describe('configuration editor interactions', () => {
     renderWithStore('empty')
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
 
-    expect(screen.getByRole('button', { name: 'Connected' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Preview mode' })).toBeInTheDocument()
     expect(screen.queryByText('Configuration file is empty')).not.toBeInTheDocument()
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
 
@@ -157,6 +172,39 @@ describe('configuration editor interactions', () => {
     expect(screen.getByText('Insertion', { selector: 'strong' }).closest('details')).toHaveAttribute('open')
     expect(screen.getByText('General behavior', { selector: 'strong' }).closest('details')).not.toHaveAttribute('open')
     expect(screen.queryByText(/settings ·/)).not.toBeInTheDocument()
+  })
+
+  it('chunks long Defaults sections and keeps inherited timing defaults available', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+
+    await user.click(screen.getByText('Insertion', { selector: 'strong' }))
+    expect(screen.getByRole('heading', { name: 'Before the action', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Text handling', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'After insertion', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Return delay' })).toBeInTheDocument()
+    expect(screen.getByText('Default wait before pressing Return, including one-shot CLI auto-return.')).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Press Return after insert' }), 'on')
+    expect(screen.getByRole('textbox', { name: 'Return delay' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Press Return after insert' }), 'off')
+    expect(screen.getByRole('textbox', { name: 'Return delay' })).toBeInTheDocument()
+
+    await user.click(screen.getByText('Clipboard', { selector: 'strong' }))
+    expect(screen.getByRole('heading', { name: 'Capture and filter', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Clipboard context', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'After the action chain', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Clipboard restore delay' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Restore clipboard' }), 'off')
+    expect(screen.getByRole('textbox', { name: 'Clipboard restore delay' })).toBeInTheDocument()
+
+    await user.click(screen.getByText('Scripts and triggers', { selector: 'strong' }))
+    expect(screen.getByRole('heading', { name: 'Script execution', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Trigger matching', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Script wait timeout' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Run scripts asynchronously' }), 'off')
+    expect(screen.getByRole('textbox', { name: 'Script wait timeout' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Run scripts asynchronously' }), 'on')
+    expect(screen.getByRole('textbox', { name: 'Script wait timeout' })).toBeInTheDocument()
   })
 
   it('switches Defaults sections with one click and lets the current section close', async () => {
@@ -328,27 +376,42 @@ describe('configuration editor interactions', () => {
     await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.nextAction).toBeNull())
   })
 
-  it('keeps healthy editor details concise and exposes global actions there', async () => {
+  it('labels the fixture as an in-memory preview instead of a connected configuration', async () => {
     const user = userEvent.setup()
     renderWithStore()
+    expect(screen.getByRole('note')).toHaveTextContent('Preview mode')
+    expect(screen.getByRole('note')).toHaveTextContent('They do not write macrowhisper.json')
     expect(screen.queryByRole('dialog', { name: 'Editor details' })).not.toBeInTheDocument()
     expect(screen.queryByText('Revision 7')).not.toBeInTheDocument()
     expect(screen.queryByText('CONFIG VERSION')).not.toBeInTheDocument()
     expect(screen.queryByText('WATCH FOLDER')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Connected' }))
+    await user.click(screen.getByRole('button', { name: 'Preview mode' }))
     const details = screen.getByRole('dialog', { name: 'Editor details' })
-    expect(within(details).getByText('macrowhisper.json')).toHaveAttribute('title', '~/Library/Application Support/Superwhisper/macrowhisper.json')
-    expect(within(details).queryByText('Connected to the in-memory fixture adapter.')).not.toBeInTheDocument()
+    expect(within(details).getByText('Changes stay in this browser tab and reset when the preview reloads. macrowhisper.json is not changed.')).toBeInTheDocument()
+    expect(within(details).getByText('Preview storage')).toBeInTheDocument()
+    expect(within(details).getByText('In-memory sample data')).toBeInTheDocument()
+    expect(within(details).getByText('Reloading resets these sample values. No configuration file is read or written.')).toBeInTheDocument()
     expect(within(details).queryByRole('button', { name: 'Close editor details' })).not.toBeInTheDocument()
     expect(within(details).queryByRole('button', { name: 'Copy diagnostics' })).not.toBeInTheDocument()
-    expect(within(details).getByRole('button', { name: 'Copy path' })).toBeEnabled()
-    expect(within(details).getByRole('button', { name: 'Reveal' })).toBeDisabled()
+    expect(within(details).queryByRole('button', { name: 'Copy path' })).not.toBeInTheDocument()
+    expect(within(details).queryByRole('button', { name: 'Reveal' })).not.toBeInTheDocument()
     expect(within(details).getByRole('radiogroup', { name: 'Appearance' })).toBeInTheDocument()
     expect(within(details).queryByText('Technical details')).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'Editor details' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Connected' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Preview mode' })).toHaveFocus()
+  })
+
+  it('preserves canonical Connected and Saved labels for a live store', async () => {
+    const user = userEvent.setup()
+    render(<App store={liveLikeStore()} />)
+
+    expect(screen.getByRole('button', { name: 'Connected' })).toBeInTheDocument()
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Simulate Escape' }), 'off')
+    await waitFor(() => expect(screen.getAllByText('Saving…').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('Saved').length).toBeGreaterThan(0))
   })
 
   it('reveals status context and diagnostics only when the editor needs attention', async () => {
@@ -421,7 +484,7 @@ describe('configuration editor interactions', () => {
     const user = userEvent.setup()
     renderWithStore()
 
-    await user.click(screen.getByRole('button', { name: 'Connected' }))
+    await user.click(screen.getByRole('button', { name: 'Preview mode' }))
     const appearance = screen.getByRole('radiogroup', { name: 'Appearance' })
     const light = within(appearance).getByRole('radio', { name: 'Light' })
     const dark = within(appearance).getByRole('radio', { name: 'Dark' })
@@ -568,7 +631,7 @@ describe('configuration editor interactions', () => {
     // Moving to another editor section commits once, after the toolbar menu
     // has finished, instead of saving the pre-insertion value on blur.
     await user.click(screen.getByRole('heading', { name: 'Payload' }))
-    await screen.findByText('Saved', {}, { timeout: 1500 })
+    await screen.findByText('Updated in preview', {}, { timeout: 1500 })
     expect(payload).toHaveValue('{{swResult}}' + original)
   })
 
@@ -612,18 +675,18 @@ describe('configuration editor interactions', () => {
 
     await user.selectOptions(control, 'off')
 
-    await waitFor(() => expect(screen.getAllByText('Saving…').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('Updating preview…').length).toBeGreaterThan(0))
     await waitFor(() => expect(store.getSnapshot().defaults.simEsc).toBe(false), { timeout: 1000 })
     await waitForSaved()
     expect(control).toHaveValue('off')
   })
 
-  it('removes a Saved acknowledgement after its transient window', async () => {
+  it('removes a preview acknowledgement after its transient window', async () => {
     const user = userEvent.setup()
     renderWithStore()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Simulate Escape' }), 'off')
     await waitForSaved()
-    await waitFor(() => expect(screen.queryByText('Saved')).not.toBeInTheDocument(), { timeout: 2300 })
+    await waitFor(() => expect(screen.queryByText('Updated in preview')).not.toBeInTheDocument(), { timeout: 2300 })
   })
 
   it('offers Use built-in in a stable utility area only while a root field differs from its shipped value', async () => {
@@ -693,7 +756,6 @@ describe('configuration editor interactions', () => {
     const user = userEvent.setup()
     const store = renderWithStore()
     const actionDelay = screen.getByRole('textbox', { name: 'Action delay' })
-    const returnDelay = screen.getByRole('textbox', { name: 'Return delay' })
 
     await user.clear(actionDelay)
     fireEvent.blur(actionDelay)
@@ -701,6 +763,8 @@ describe('configuration editor interactions', () => {
     expect(actionDelay).toHaveValue('')
     expect(screen.queryByText('Use a number for this field.')).not.toBeInTheDocument()
 
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Press Return after insert' }), 'on')
+    const returnDelay = screen.getByRole('textbox', { name: 'Return delay' })
     await user.clear(returnDelay)
     await user.keyboard('{Enter}')
     await waitFor(() => expect(store.getSnapshot().defaults.returnDelay).toBeNull())

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FocusEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import {
   ArrowLeftIcon,
@@ -46,6 +46,8 @@ import { isEditorStoreError } from './model/types'
 type Screen = 'defaults' | ActionGroup
 type FieldValue = Scalar | undefined
 type DraftStatus = 'dirty' | 'saving' | 'saved' | 'error'
+
+const PreviewModeContext = createContext(false)
 
 interface DraftEntry {
   path: string[]
@@ -177,6 +179,30 @@ export const defaultFieldGroups: Array<{ key: string; label: string; description
   },
 ]
 
+interface DefaultFieldLayoutGroup {
+  key: string
+  label: string
+  description: string
+  fields: string[]
+}
+
+const defaultFieldLayouts: Partial<Record<string, DefaultFieldLayoutGroup[]>> = {
+  insertion: [
+    { key: 'before', label: 'Before the action', description: 'Prepare the frontmost app before Macrowhisper inserts anything.', fields: ['simEsc', 'actionDelay'] },
+    { key: 'text', label: 'Text handling', description: 'Choose how text is entered and cleaned up at the insertion boundary.', fields: ['simKeypress', 'smartCasing', 'smartPunctuation', 'smartSpacing'] },
+    { key: 'after', label: 'After insertion', description: 'Optional behavior after the Insert finishes.', fields: ['simReturn', 'returnDelay'] },
+  ],
+  clipboard: [
+    { key: 'capture', label: 'Capture and filter', description: 'Control which recent clipboard changes Macrowhisper can use as context.', fields: ['clipboardBuffer', 'clipboardIgnore'] },
+    { key: 'context', label: 'Clipboard context', description: 'Choose how eligible text and attachments are collected for an action chain.', fields: ['clipboardStacking', 'clipboardAttachments'] },
+    { key: 'restore', label: 'After the action chain', description: 'Choose whether and when the original clipboard returns.', fields: ['restoreClipboard', 'restoreClipboardDelay'] },
+  ],
+  scripts: [
+    { key: 'execution', label: 'Script execution', description: 'Control whether script-like actions continue immediately or wait for completion.', fields: ['scriptAsync', 'scriptWaitTimeout'] },
+    { key: 'matching', label: 'Trigger matching', description: 'Choose which Superwhisper modes participate and whether triggers run at all.', fields: ['bypassModes', 'muteTriggers'] },
+  ],
+}
+
 export const DEFAULTS_OPEN_SECTION_STORAGE_KEY = 'macrowhisper-editor-defaults-open-section'
 
 const defaultFieldLabels: Record<string, { label: string; description: string }> = {
@@ -195,12 +221,12 @@ const defaultFieldLabels: Record<string, { label: string; description: string }>
   actionDelay: { label: 'Action delay', description: 'Wait before the action starts.' },
   history: { label: 'History retention', description: 'Days to keep recording history. Empty means keep forever.' },
   simReturn: { label: 'Press Return after insert', description: 'Press Return after an Insert completes.' },
-  returnDelay: { label: 'Return delay', description: 'Wait before pressing Return.' },
+  returnDelay: { label: 'Return delay', description: 'Default wait before pressing Return, including one-shot CLI auto-return.' },
   restoreClipboard: { label: 'Restore clipboard', description: 'Restore the original clipboard after the action chain.' },
-  restoreClipboardDelay: { label: 'Clipboard restore delay', description: 'Wait before restoring the original clipboard.' },
+  restoreClipboardDelay: { label: 'Clipboard restore delay', description: 'Default wait before restoring the original clipboard for an action flow.' },
   scheduledActionTimeout: { label: 'Scheduled action timeout', description: 'How long a scheduled action waits for a session.' },
   scriptAsync: { label: 'Run scripts asynchronously', description: 'Continue immediately instead of waiting for a script.' },
-  scriptWaitTimeout: { label: 'Script wait timeout', description: 'Maximum wait when a script runs synchronously.' },
+  scriptWaitTimeout: { label: 'Script wait timeout', description: 'Default maximum wait when a script action runs synchronously.' },
   clipboardStacking: { label: 'Stack clipboard context', description: 'Keep eligible clipboard changes in order.' },
   clipboardAttachments: { label: 'Clipboard attachments', description: 'Allow supported files and images during handoff.' },
   clipboardBuffer: { label: 'Clipboard buffer', description: 'Seconds of clipboard history captured before dictation.' },
@@ -607,11 +633,11 @@ function displayValue(value: FieldValue): string {
   return String(value)
 }
 
-function statusText(status: DraftStatus | undefined): string {
+function statusText(status: DraftStatus | undefined, previewMode = false): string {
   if (status === 'dirty') return 'Unsaved'
-  if (status === 'saving') return 'Saving…'
-  if (status === 'saved') return 'Saved'
-  if (status === 'error') return 'Not saved'
+  if (status === 'saving') return previewMode ? 'Updating preview…' : 'Saving…'
+  if (status === 'saved') return previewMode ? 'Updated in preview' : 'Saved'
+  if (status === 'error') return previewMode ? 'Preview not updated' : 'Not saved'
   return ''
 }
 
@@ -756,6 +782,7 @@ function EditorStatusControl({
   onThemeChange: (theme: ThemeChoice) => void
   revealConfiguration?: () => Promise<void>
 }) {
+  const previewMode = useContext(PreviewModeContext)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
@@ -772,15 +799,21 @@ function EditorStatusControl({
       : runtimeStatus === 'loading'
         ? { label: 'Connecting…', tone: 'loading' }
         : hasSaveError
-          ? { label: 'Not saved', tone: 'disconnected' }
+          ? { label: previewMode ? 'Preview not updated' : 'Not saved', tone: 'disconnected' }
           : pendingCount > 0
-            ? { label: pendingCount > 1 ? `Saving ${pendingCount}…` : 'Saving…', tone: 'saving' }
-            : { label: 'Connected', tone: 'connected' }
-  const showStatusDetails = runtimeStatus !== 'connected' || hasSaveError
+            ? { label: previewMode ? 'Updating preview…' : pendingCount > 1 ? `Saving ${pendingCount}…` : 'Saving…', tone: 'saving' }
+            : previewMode
+              ? { label: 'Preview mode', tone: 'preview' }
+              : { label: 'Connected', tone: 'connected' }
+  const showStatusDetails = previewMode || runtimeStatus !== 'connected' || hasSaveError
   const showDiagnostics = runtimeStatus === 'disconnected' || runtimeStatus === 'fallback' || hasSaveError
   const statusMessage = hasSaveError
-    ? 'The latest change could not be saved. Review the highlighted field and try again.'
-    : snapshot.runtime.message
+    ? previewMode
+      ? 'The latest change could not update the preview. Review the highlighted field and try again.'
+      : 'The latest change could not be saved. Review the highlighted field and try again.'
+    : previewMode && runtimeStatus === 'connected'
+      ? 'Changes stay in this browser tab and reset when the preview reloads. macrowhisper.json is not changed.'
+      : snapshot.runtime.message
   const configurationName = snapshot.path.split('/').filter(Boolean).pop() || 'Unavailable'
 
   useEffect(() => {
@@ -897,13 +930,19 @@ function EditorStatusControl({
           )}
 
           <div className="editor-details-section">
-            <span className="editor-details-label">Configuration</span>
-            <span className="editor-configuration-name" title={snapshot.path}>{configurationName}</span>
-            <div className="editor-details-actions">
-              <button type="button" className="quiet-button compact" disabled={!revealConfiguration || revealing} title={revealConfiguration ? undefined : 'Available in the connected editor'} onClick={() => void reveal()}><FileTextIcon aria-hidden="true" /> {revealing ? 'Revealing…' : 'Reveal'}</button>
-              <button type="button" className="quiet-button compact" disabled={!snapshot.path} onClick={() => void copyPath()}><CopyIcon aria-hidden="true" /> Copy path</button>
-            </div>
-            {feedback && feedbackContext === 'configuration' && <span className={feedbackError ? 'editor-details-feedback is-error' : 'editor-details-feedback'} role="status">{feedback}</span>}
+            <span className="editor-details-label">{previewMode ? 'Preview storage' : 'Configuration'}</span>
+            <span className="editor-configuration-name" title={previewMode ? undefined : snapshot.path}>{previewMode ? 'In-memory sample data' : configurationName}</span>
+            {previewMode ? (
+              <span className="editor-details-feedback">Reloading resets these sample values. No configuration file is read or written.</span>
+            ) : (
+              <>
+                <div className="editor-details-actions">
+                  <button type="button" className="quiet-button compact" disabled={!revealConfiguration || revealing} title={revealConfiguration ? undefined : 'Available in the connected editor'} onClick={() => void reveal()}><FileTextIcon aria-hidden="true" /> {revealing ? 'Revealing…' : 'Reveal'}</button>
+                  <button type="button" className="quiet-button compact" disabled={!snapshot.path} onClick={() => void copyPath()}><CopyIcon aria-hidden="true" /> Copy path</button>
+                </div>
+                {feedback && feedbackContext === 'configuration' && <span className={feedbackError ? 'editor-details-feedback is-error' : 'editor-details-feedback'} role="status">{feedback}</span>}
+              </>
+            )}
           </div>
 
           <div className="editor-details-section">
@@ -929,6 +968,7 @@ function FieldState({
   onResync?: () => void
   errorId?: string
 }) {
+  const previewMode = useContext(PreviewModeContext)
   if (!entry) return null
   const canResync = entry.status === 'error' && (entry.errorCode === 'conflict' || entry.errorCode === 'stale')
   return (
@@ -936,7 +976,7 @@ function FieldState({
       <span className={`field-state field-state-${entry.status}`} aria-live="polite">
         {entry.status === 'saved' && <CheckIcon aria-hidden="true" />}
         {entry.status === 'error' && <ExclamationTriangleIcon aria-hidden="true" />}
-        {statusText(entry.status)}
+        {statusText(entry.status, previewMode)}
       </span>
       {(entry.status === 'dirty' || entry.status === 'error') && (
         <button type="button" className="text-button" data-field-blur-action={pathKey(entry.path)} onPointerDown={(event) => event.preventDefault()} onClick={onRevert}>Revert</button>
@@ -1602,6 +1642,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }, [hasDrafts])
 
   return (
+    <PreviewModeContext.Provider value={Boolean(fixtureStore)}>
     <div className="app-shell">
       <aside
         id="configuration-navigation"
@@ -1655,14 +1696,16 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
           <button ref={mobileMenuRef} type="button" className="mobile-menu-button" aria-expanded={mobileNavOpen} aria-controls="configuration-navigation" onClick={() => setMobileNavOpen(true)}><GearIcon aria-hidden="true" /> Menu</button>
           <div className="breadcrumb"><span>Macrowhisper</span><span className="breadcrumb-separator">/</span><span>{screen === 'defaults' ? 'Defaults' : currentGroup?.label}</span>{currentAction && <><span className="breadcrumb-separator">/</span><strong title={selectedName}>{actionDisplayName(selectedName, currentAction)}</strong></>}</div>
           <div className="topbar-tools">
-            {fixtureStore && <label className="scenario-picker">Fixture
-              <select aria-label="Fixture scenario" value={scenario} onChange={(event) => handleScenario(event.target.value as StoreScenario)}>
+            {fixtureStore && <label className="scenario-picker">Preview
+              <select aria-label="Preview scenario" value={scenario} onChange={(event) => handleScenario(event.target.value as StoreScenario)}>
                 <option value="populated">Populated</option><option value="invalid">Invalid field</option><option value="conflict">Conflict</option><option value="empty">Empty Inserts</option><option value="disconnected">Disconnected</option>
               </select>
               <ChevronDownIcon aria-hidden="true" />
             </label>}
           </div>
         </header>
+
+        {fixtureStore && <div className="prototype-notice" role="note"><span className="status-dot status-preview" aria-hidden="true" /><div><strong>Preview mode</strong><span>Changes are temporary in this browser tab. They do not write macrowhisper.json, and reloading resets them.</span></div></div>}
 
         {snapshot.disk.status !== 'valid' && <DiskBanner snapshot={snapshot} />}
         {snapshot.runtime.status === 'disconnected' && <div className="inline-banner warning"><ExclamationTriangleIcon aria-hidden="true" /><div><strong>Working offline</strong><span>{fixtureStore ? 'Drafts stay in this tab until the fixture adapter reconnects. Retry after choosing a connected scenario.' : 'Open a fresh editor link with macrowhisper --editor to reconnect. Unsaved drafts remain in this tab.'}</span></div></div>}
@@ -1727,6 +1770,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
       {deleteOpen && <DeleteDialog name={actionDisplayName(selectedName, currentAction)} storedName={selectedName} fixtureBacked={Boolean(fixtureStore)} references={inboundReferences(snapshot, selectedName)} onClose={() => setDeleteOpen(false)} onDelete={() => void deleteInsert()} busy={lifecycleStatus === 'saving'} />}
       {navPrompt && <NavigationDialog target={navPrompt.label} onClose={() => setNavPrompt(null)} onDiscard={discardAndNavigate} />}
     </div>
+    </PreviewModeContext.Provider>
   )
 }
 
@@ -1794,12 +1838,17 @@ interface DefaultSectionProps extends DefaultsScreenProps {
 
 function DefaultSection({ section, open, onToggle, snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField, folderPickerPreview, chooseDirectory }: DefaultSectionProps) {
   const summary = defaultSectionSummary(section.key, snapshot, valueFor)
+  const layout = defaultFieldLayouts[section.key]
+  const renderField = (field: string) => <DefaultField key={field} field={field} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />
   return (
     <section className="settings-section">
       <Disclosure title={section.label} subtitle="" meta={summary} open={open} onToggle={onToggle} variant="defaults">
         <p className="defaults-section-description">{section.description}</p>
-        <div className="field-list">
-          {section.fields.map((field) => <DefaultField key={field} field={field} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />)}
+        <div className={layout ? 'field-list default-field-groups' : 'field-list'}>
+          {layout ? layout.map((group) => {
+            const headingId = `defaults-${section.key}-${group.key}`
+            return <div className="default-field-group" role="group" aria-labelledby={headingId} key={group.key}><div className="default-field-group-heading"><h3 id={headingId}>{group.label}</h3><p>{group.description}</p></div><div className="default-field-group-fields">{group.fields.map(renderField)}</div></div>
+          }) : section.fields.map(renderField)}
         </div>
       </Disclosure>
     </section>
@@ -2414,8 +2463,9 @@ function SourcePill({ source }: { source: 'custom' | 'inherited' | 'template' | 
 }
 
 function FieldLifecycle({ status }: { status: 'idle' | 'saving' | 'saved' }) {
+  const previewMode = useContext(PreviewModeContext)
   if (status === 'idle') return null
-  return <span className={`field-state field-state-${status === 'saving' ? 'saving' : 'saved'}`}>{status === 'saving' ? 'Saving…' : <><CheckIcon aria-hidden="true" /> Saved</>}</span>
+  return <span className={`field-state field-state-${status === 'saving' ? 'saving' : 'saved'}`}>{status === 'saving' ? (previewMode ? 'Updating preview…' : 'Saving…') : <><CheckIcon aria-hidden="true" /> {previewMode ? 'Updated in preview' : 'Saved'}</>}</span>
 }
 
 function ChoiceCard({ selected, value, displayValue: visibleValue = value, label, description, onClick }: { selected: boolean; value: string; displayValue?: string; label: string; description: string; onClick: () => void }) {
