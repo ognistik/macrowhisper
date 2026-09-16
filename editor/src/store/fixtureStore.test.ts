@@ -15,7 +15,11 @@ const insert = (action: string): InsertConfig => ({ action, triggerLogic: 'or' }
 describe('fixture configuration snapshots', () => {
   it('keeps the populated fixture valid and confines brokenLink to invalid', () => {
     expect(createFixtureSnapshot('populated').inserts).not.toHaveProperty('brokenLink')
-    expect(createFixtureSnapshot('empty').defaults.activeAction).toBe('')
+    const empty = createFixtureSnapshot('empty')
+    expect(empty.defaults.activeAction).toBe('')
+    expect(empty.inserts).toEqual({})
+    expect(empty.disk.status).toBe('valid')
+    expect(empty.runtime.status).toBe('connected')
     expect(createFixtureSnapshot('invalid').inserts.brokenLink.nextAction).toBe('does-not-exist')
   })
 })

@@ -91,7 +91,7 @@ Defaults should group fields by purpose: general behavior, insertion, clipboard,
 
 On narrow windows, collapse the sidebar into navigation and make the action list and action editor separate views with a clear Back action. No horizontal form scrolling. Verify at 1440, 1024, and 768px widths plus a narrow layout, with 200% zoom and long action names.
 
-The initial frontend milestone must include actual interactive components with synthetic configuration fixtures in both themes. The fixtures must cover a populated Defaults screen, an inherited Insert, a custom override, a built-in template, an invalid field, a conflict, an empty action list, and a disconnected editor. The visual review is an iteration milestone, not a requirement for another permission prompt.
+The initial frontend milestone must include actual interactive components with synthetic configuration fixtures in both themes. The fixtures must cover a populated Defaults screen, an inherited Insert, a custom override, a built-in template, an invalid field, a conflict, a healthy empty action list, and a disconnected editor. Empty action dictionaries are valid configuration states and must use creation prompts rather than disk-error treatment. The visual review is an iteration milestone, not a requirement for another permission prompt.
 
 ## Editing behavior
 

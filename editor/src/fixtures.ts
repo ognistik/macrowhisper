@@ -210,11 +210,12 @@ function baseSnapshot(scenario: StoreScenario): ConfigSnapshot {
     inserts,
     ...sharedOtherActions,
   }
+  // An empty action group is a valid configuration state. `empty` disk status
+  // is reserved for a configuration file with no decodable contents, not a
+  // healthy file whose Inserts dictionary happens to contain no actions.
   const disk = scenario === 'invalid'
     ? { status: 'invalid' as const, message: 'The JSON is readable, but semantic validation found an invalid Insert.' }
-    : scenario === 'empty'
-      ? { status: 'empty' as const, message: 'The Inserts group is empty. Create an Insert to get started.' }
-      : { status: 'valid' as const }
+    : { status: 'valid' as const }
   const runtime = scenario === 'disconnected'
     ? { status: 'disconnected' as const, message: 'Fixture API disconnected. Changes remain in this browser tab.' }
     : scenario === 'invalid'

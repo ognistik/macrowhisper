@@ -131,6 +131,20 @@ describe('configuration editor interactions', () => {
     expect(within(logic).queryByRole('option', { name: /explicit empty/ })).not.toBeInTheDocument()
   })
 
+  it('treats an empty Inserts group as a healthy starting state', async () => {
+    const user = userEvent.setup()
+    renderWithStore('empty')
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+
+    expect(screen.getByRole('button', { name: 'Connected' })).toBeInTheDocument()
+    expect(screen.queryByText('Configuration file is empty')).not.toBeInTheDocument()
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+
+    expect(screen.getByRole('heading', { name: 'No Inserts yet' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create Insert' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('keeps Defaults calm until a section is opened', async () => {
     const user = userEvent.setup()
     renderWithStore()

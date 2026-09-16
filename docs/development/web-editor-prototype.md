@@ -135,8 +135,10 @@ or expand placeholders against private runtime context.
 - Insert a placeholder source at the caret, then put the caret inside it to edit
   its transform and regex replacements in the inline inspector. The toolbar,
   textarea, and inspector form one editing boundary.
-- Exercise validation, conflict, empty-list, and disconnected fixtures. A
-  rejected write must retain the draft and must not display a successful save.
+- Exercise validation, conflict, empty-list, and disconnected fixtures. The
+  empty-list fixture is a healthy configuration with no Inserts and presents a
+  creation prompt rather than a disk error. A rejected write must retain the
+  draft and must not display a successful save.
 - Review narrow windows and keyboard navigation as well as the desktop layout.
 
 The current prototype was inspected at 1440, 1024, 768, and 390 CSS pixels in
