@@ -19,8 +19,10 @@ The connected, writable slice is deliberately small and complete:
 | URLs, Shortcuts, Shell, AppleScript | Names and counts come from the authenticated live snapshot, but the type-specific panels remain read-only until their editor slice is implemented. In the standalone Vite preview, these values are fixtures. |
 
 Names from every action group can still appear in the Defaults and Insert
-pickers. This lets an Insert link to an existing action without pretending that
-the type-specific editor is finished. The runtime action behavior itself is
+pickers. These pickers are searchable by action name and type, keep the
+no-action/inheritance choices explicit, and support arrow-key selection. This
+lets an Insert link to an existing action without pretending that the
+type-specific editor is finished. The runtime action behavior itself is
 unchanged. Manual JSON editing and the existing CLI remain available for URL,
 Shortcut, Shell, and AppleScript actions.
 
@@ -77,8 +79,10 @@ require the exact loopback `Host`, the editor `Origin`, and JSON content. The
 editor has no remote-access, action-execution, shell-evaluation, or arbitrary
 file-read API. The folder-picker bridge can only present one native directory
 panel and return the path the user explicitly selects; it cannot list or read a
-supplied path. This protects against unrelated websites and users; it is not a
-sandbox against software already running as the same macOS user.
+supplied path. **Reveal** is similarly bounded: it accepts no browser
+path and can reveal only the configuration currently selected by the manager.
+This protects against unrelated websites and users; it is not a sandbox against
+software already running as the same macOS user.
 
 ## Editing and saving
 
@@ -92,6 +96,18 @@ the local draft and restores the last successfully saved value without writing
 to the configuration. Textarea placeholder
 tools are part of the same editing boundary, so choosing a placeholder does not
 save halfway through an insertion.
+
+The compact status control at the bottom of the navigation stays quiet while
+the editor is connected, changes to Saving or Not saved when a write needs
+attention, and gives disconnected or runtime-fallback states semantic warning
+color in addition to text. Open it for the current configuration filename,
+**Copy path**, **Reveal**, and Appearance. The full path remains available from
+the filename tooltip and Copy path without occupying the normal panel. Healthy
+connection copy is omitted because the trigger already communicates that state.
+When the editor is disconnected, using runtime fallback, or cannot save, the
+panel adds an explanation and **Copy diagnostics**. Those diagnostics include
+the full path, schema version, revision, generation, fingerprint, and disk state
+for troubleshooting; the revision is concurrency metadata, not editable history.
 
 Folder path controls also offer **Choose…**. In a connected editor this opens a
 native macOS directory picker through the local daemon. Choosing a directory
@@ -111,8 +127,9 @@ the user's shared configuration, **Use Defaults** removes an action-level
 override, and **Built-in** identifies the value Macrowhisper ships with for the
 specific root setting being edited. Built-in action templates remain named
 action modes; they do not become the Built-in value of an unrelated setting.
-Dropdowns place the Built-in value first, then separate it visually and
-semantically from explicit values or configured actions.
+Ordinary dropdowns place the Built-in value first, then separate it visually
+and semantically from explicit values. Searchable action pickers use the same
+grouping for built-in, inheritance, no-action, and configured-action choices.
 Eligible text and numeric root fields with an unambiguous shipped fallback offer
 **Use built-in** only while they differ from that behavior. This control removes
 the custom value and saves the change; it is distinct from Revert. Configuration
@@ -122,6 +139,8 @@ values retain their JSON meaning:
 - `null` or an omitted ordinary numeric Default means use its shipped value;
 - a blank ordinary numeric Default saves that built-in state, while `0` remains
   an explicit numeric zero;
+- History retention displays its value in days; leaving it blank means keep
+  forever;
 - `""` means an intentional empty string, not inheritance;
 - `false`, `0`, and empty payloads are not converted by truthiness rules; and
 - built-in action values such as `.autoPaste` and `.none` remain distinct from

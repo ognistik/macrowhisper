@@ -138,12 +138,12 @@ components:
     rounded: "{rounded.sm}"
     padding: "2px 6px"
     height: "19px"
-  connection-card:
-    backgroundColor: "{colors.surface-muted}"
+  editor-status-control:
+    backgroundColor: "transparent"
     textColor: "{colors.text}"
     typography: "{typography.label}"
-    rounded: "{rounded.panel}"
-    padding: "11px"
+    rounded: "{rounded.item}"
+    padding: "0 9px"
   disclosure:
     backgroundColor: "transparent"
     textColor: "{colors.text}"
@@ -261,26 +261,26 @@ Buttons are direct and compact, with monochrome fills or strokes that keep atten
 ### Chips
 
 - **Source pills:** small neutral badges (`4px` radius, `2px 6px` padding) identify Custom override, Inherits Defaults, or Built-in template. Invalid/repair state alone uses the danger colors.
-- **Revision and count chips:** quiet metadata uses the same neutral surfaces and muted text, never a decorative accent.
+- **Count chips:** quiet metadata uses the same neutral surfaces and muted text, never a decorative accent. Raw configuration revision metadata belongs only in copyable troubleshooting diagnostics, never primary chrome.
 
 ### Cards / Containers
 
-- **Connection card:** muted surface, one-pixel border, `8px` radius, compact internal padding; the status dot and explicit sentence explain live, fixture, fallback, or disconnected state.
+- **Editor status control:** a compact bottom-rail row stays quiet while connected and changes text plus semantic tone for saving, failure, fallback, or disconnection. Its transient popover shows only the configuration filename, bounded Copy/Reveal actions, and Appearance in the healthy state. The full path remains available by tooltip and copy action. Degraded states add an explanation and Copy diagnostics; raw schema and revision metadata never compete with routine controls.
 - **Create panel / modal:** raised or muted surface with a one-pixel edge and `8px`/`10px` radius; modals add the shared overlay shadow and keep actions aligned at the end.
 - **Action list item:** flat at rest, muted on hover, selected gray with a one-pixel border; a small bordered icon box anchors the row without competing with its name.
 - **Payload boundary:** clean surface with an eight-pixel radius, a toolbar/footer divider, and the focus ring when editing.
 
 ### Inputs / Fields
 
-Fields are familiar native controls: `36px` inputs/selects, one-pixel strong hairline borders, six-pixel corners, and surface backgrounds. Textareas use `11px 12px` padding and a `1.55` line-height. Hover increases border contrast; focus uses the shared two-pixel outline, and a focused payload boundary adds a three-pixel ring. Units, reset links, and field state stay adjacent to the control rather than being hidden in tooltips.
+Fields are familiar native controls: `36px` inputs/selects, one-pixel strong hairline borders, six-pixel corners, and surface backgrounds. Cross-action references use a searchable listbox with predictable exact, prefix, then substring matching; each result exposes its type and the picker preserves complete keyboard operation. Textareas use `11px 12px` padding and a `1.55` line-height. Hover increases border contrast; focus uses the shared two-pixel outline, and a focused payload boundary adds a three-pixel ring. Units, reset links, and field state stay adjacent to the control rather than being hidden in tooltips.
 
 ### Navigation
 
-The left rail is sticky and quiet, with uppercase group labels, 16px line icons, 36px navigation rows, and neutral selected-state fill. The top bar provides the Macrowhisper breadcrumb, revision/live signal, and fixture scenario selector. At mobile width the rail becomes a modal drawer with a close control and focus containment; action editing switches between list and editor surfaces instead of squeezing both panes together.
+The left rail is sticky and quiet, with uppercase group labels, 16px line icons, 36px navigation rows, neutral selected-state fill, and the compact editor-status control at its base. The top bar provides the Macrowhisper breadcrumb and development-only fixture scenario selector; it does not expose the internal revision number as a user task. At mobile width the rail becomes a modal drawer with a close control and focus containment; action editing switches between list and editor surfaces instead of squeezing both panes together.
 
 ### Disclosure Rows
 
-Native `details`/`summary` rows keep Insertion behavior, Conditions, Triggers, Chaining, and other settings available but out of the first-run path. Defaults opens one section at a time in a single centered accordion. Each quiet, flat, one-pixel-bordered section surface uses spacing instead of repeated full-width rules to establish hierarchy: its collapsed header shows only the title and effective-state summary, then reveals the explanatory copy and fields when opened. A native `Built-in value` group identifies only the value Macrowhisper ships with for that particular root setting; a decorative divider and a second semantic group separate explicit choices, and an integrated source pill appears inside the closed control while the built-in value is active. Eligible text and numeric root fields with an unambiguous shipped fallback expose `Use built-in` only until restoration succeeds. Default descriptions use a protected reading measure so long copy wraps before entering the trailing utility rail's visual territory. Transient status, recovery controls, and this persistent reset action occupy that stable, right-aligned rail beside the field label; the rail is optically aligned with a single desktop control, shifts to the lower input baseline only while a custom two-control editor is open, and remains visually empty when idle so routine state changes never resize the row. Revert discards the local draft without triggering a blur save. Clearing an ordinary numeric Default saves the built-in state, while explicit zero remains distinct and History retains its `Keep forever` meaning. The Defaults body reveal and chevron rotation share a restrained `180ms` transition and respect reduced-motion preferences. Successful save acknowledgement clears after roughly two seconds, while errors remain until resolved; neither save activity nor error recovery copy is folded into the effective-behavior summary. Action disclosures show configured exceptions first; empty sections offer a single Add control. Each row exposes its title, consequence, and useful state summary before it opens; the chevron rotates as an orientation cue.
+Native `details`/`summary` rows keep Insertion behavior, Conditions, Triggers, Chaining, and other settings available but out of the first-run path. Defaults opens one section at a time in a single centered accordion. Each quiet, flat, one-pixel-bordered section surface uses spacing instead of repeated full-width rules to establish hierarchy: its collapsed header shows only the title and effective-state summary, then reveals the explanatory copy and fields when opened. A native `Built-in value` group identifies only the value Macrowhisper ships with for that particular root setting; action references preserve the same distinction in their searchable picker, and an integrated source pill appears inside the closed control while the built-in value is active. Eligible text and numeric root fields with an unambiguous shipped fallback expose `Use built-in` only until restoration succeeds. Default descriptions use a protected reading measure so long copy wraps before entering the trailing utility rail's visual territory. Transient status, recovery controls, and this persistent reset action occupy that stable, right-aligned rail beside the field label; the rail is optically aligned with a single desktop control, shifts to the lower input baseline only while a custom two-control editor is open, and remains visually empty when idle so routine state changes never resize the row. Revert discards the local draft without triggering a blur save. Clearing an ordinary numeric Default saves the built-in state, while explicit zero remains distinct and History retains its `Keep forever` meaning with a visible `days` unit for numeric values. The Defaults body reveal and chevron rotation share a restrained `180ms` transition and respect reduced-motion preferences. Successful save acknowledgement clears after roughly two seconds, while errors remain until resolved; neither save activity nor error recovery copy is folded into the effective-behavior summary. Action disclosures show configured exceptions first; empty sections offer a single Add control. Each row exposes its title, consequence, and useful state summary before it opens; the chevron rotates as an orientation cue.
 
 ### Payload Editor
 

@@ -23,6 +23,15 @@ private struct EditorFolderPickerResponse: Decodable {
     let path: String?
 }
 
+private struct EditorConfigurationRevealResponse: Decodable {
+    let success: Bool
+}
+
+private struct EditorAPIErrorResponse: Decodable {
+    let code: String
+    let message: String
+}
+
 private final class ControlledDirectoryPicker: EditorDirectoryPicking {
     private let lock = NSLock()
     private var completion: ((Result<String?, Error>) -> Void)?
@@ -44,6 +53,28 @@ private final class ControlledDirectoryPicker: EditorDirectoryPicking {
         completion = nil
         lock.unlock()
         callback?(.success(path))
+    }
+}
+
+private final class ControlledConfigurationRevealer: EditorConfigurationRevealing {
+    private let lock = NSLock()
+    private(set) var paths: [String] = []
+    private var shouldFail = false
+
+    func revealConfiguration(at path: String) throws {
+        lock.lock()
+        paths.append(path)
+        let fail = shouldFail
+        lock.unlock()
+        if fail {
+            throw NSError(domain: "EditorServerRegression", code: 14)
+        }
+    }
+
+    func setFailure(_ enabled: Bool) {
+        lock.lock()
+        shouldFail = enabled
+        lock.unlock()
     }
 }
 
@@ -206,11 +237,13 @@ private func runEditorServerRegression() throws {
 
     let manager = ConfigurationManager(configPath: configPath.path)
     let directoryPicker = ControlledDirectoryPicker()
+    let configurationRevealer = ControlledConfigurationRevealer()
     let server = EditorServer(
         configManager: manager,
         resourceResolver: EditorResourceResolver(roots: [resourceRoot]),
         preferredPort: 0,
-        directoryPicker: directoryPicker
+        directoryPicker: directoryPicker,
+        configurationRevealer: configurationRevealer
     )
     try server.start()
     defer { server.stop() }
@@ -259,6 +292,55 @@ private func runEditorServerRegression() throws {
     assertTrue(snapshotResponse.status == 200, "authenticated snapshot succeeds")
     let snapshot = try decode(ConfigurationSnapshot.self, snapshotResponse)
     assertTrue(snapshot.diskIsValid, "snapshot carries valid disk state")
+
+    let revealHeaders = [
+        "Authorization": authorization,
+        "Origin": "http://127.0.0.1:\(port)"
+    ]
+    let unauthenticatedReveal = try request(
+        port: port,
+        method: "POST",
+        path: "/api/config/reveal",
+        headers: ["Origin": "http://127.0.0.1:\(port)"]
+    )
+    assertTrue(unauthenticatedReveal.status == 401, "configuration reveal requires bearer authentication")
+    let foreignReveal = try request(
+        port: port,
+        method: "POST",
+        path: "/api/config/reveal",
+        headers: ["Authorization": authorization, "Origin": "http://example.invalid"]
+    )
+    assertTrue(foreignReveal.status == 403, "configuration reveal rejects a foreign origin")
+    let clientPathReveal = try request(
+        port: port,
+        method: "POST",
+        path: "/api/config/reveal",
+        headers: revealHeaders,
+        body: Data("{\"path\":\"/tmp/client-supplied-path\"}".utf8)
+    )
+    assertTrue(clientPathReveal.status == 400, "configuration reveal rejects client-supplied paths")
+    assertTrue(configurationRevealer.paths.isEmpty, "rejected reveal does not invoke Finder")
+    let revealResponse = try request(
+        port: port,
+        method: "POST",
+        path: "/api/config/reveal",
+        headers: revealHeaders
+    )
+    assertTrue(revealResponse.status == 200, "authenticated same-origin configuration reveal succeeds")
+    let revealPayload = try decode(EditorConfigurationRevealResponse.self, revealResponse)
+    assertTrue(revealPayload.success, "configuration reveal returns a stable success payload")
+    assertTrue(configurationRevealer.paths == [configPath.path], "configuration reveal uses the manager's current selected path")
+    configurationRevealer.setFailure(true)
+    let failedReveal = try request(
+        port: port,
+        method: "POST",
+        path: "/api/config/reveal",
+        headers: revealHeaders
+    )
+    assertTrue(failedReveal.status == 500, "Finder failure returns an internal error")
+    let revealError = try decode(EditorAPIErrorResponse.self, failedReveal)
+    assertTrue(revealError.code == "revealFailed", "Finder failure uses a stable error code")
+    assertTrue(!revealError.message.isEmpty, "Finder failure returns an error message")
 
     let pickerHeaders = [
         "Authorization": authorization,

@@ -112,6 +112,7 @@ function revisionRank(revision: Revision, current: Revision): number {
 function initialSnapshot(status: 'loading' | 'disconnected', message: string): ConfigSnapshot {
   return {
     revision: cloneValue(unavailableRevision),
+    schemaVersion: 0,
     path: '',
     defaults: {} as DefaultsConfig,
     inserts: {},
@@ -213,8 +214,12 @@ export function mapConfigurationSnapshot(payload: unknown): ConfigSnapshot {
     : 'Runtime is using fallback defaults while the configuration file is invalid.'
 
   const config = payload.config
+  if (typeof config.configVersion !== 'number' || !Number.isInteger(config.configVersion) || config.configVersion < 0) {
+    throw new Error('The configuration response has no valid schema version.')
+  }
   const snapshot: ConfigSnapshot = {
     revision,
+    schemaVersion: config.configVersion,
     path: payload.configPath,
     defaults: mapDefaults(config),
     inserts: mapActionGroup(config, 'inserts') as Record<string, InsertConfig>,
@@ -656,6 +661,29 @@ export class ApiStore implements EditorStore {
         throw new EditorStoreError('persistence', typeof status.message === 'string' ? status.message : 'The macOS folder picker could not be opened.')
       }
       throw new EditorStoreError('persistence', 'The folder picker status was malformed.')
+    }
+  }
+
+  async revealConfiguration(): Promise<void> {
+    if (!this.sessionToken) throw new EditorStoreError('disconnected', 'The editor is not connected.')
+    let response: ResponseLike
+    try {
+      response = await this.fetchImpl(this.endpoint('/api/config/reveal'), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${this.sessionToken}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      }) as ResponseLike
+    } catch {
+      throw new EditorStoreError('disconnected', 'Macrowhisper could not be reached to reveal the configuration.')
+    }
+    if (!response.ok) throw await this.responseError(response)
+    const payload = await responseBody(response)
+    if (!isRecord(payload) || payload.success !== true) {
+      throw new EditorStoreError('persistence', 'The reveal response was malformed.')
     }
   }
 

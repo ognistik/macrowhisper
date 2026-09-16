@@ -99,6 +99,7 @@ describe('ApiStore', () => {
       headers: expect.objectContaining({ Authorization: 'Bearer stored-bearer' }),
     }))
     expect(snapshot.path).toBe('/tmp/macrowhisper.json')
+    expect(snapshot.schemaVersion).toBe(2)
     expect(snapshot.defaults.actionDelay).toBe(0)
     expect(snapshot.defaults.history).toBeNull()
     expect(snapshot.defaults.simEsc).toBe(false)
@@ -197,6 +198,25 @@ describe('ApiStore', () => {
     await expect(store.deleteInsert('oldName')).rejects.toBeInstanceOf(EditorStoreError)
     await expect(store.deleteInsert('oldName')).rejects.toMatchObject({ code: 'validation', path: ['inserts', 'oldName'] })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    store.dispose()
+  })
+
+  it('reveals only the daemon-selected configuration through the authenticated bridge', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(snapshotPayload()))
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+    const store = new ApiStore({ fetch: fetchMock, pollIntervalMs: 0 })
+    await store.start()
+
+    await expect(store.revealConfiguration()).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/config/reveal', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer stored-bearer',
+        'Content-Type': 'application/json',
+      }),
+    }))
+    expect(fetchMock.mock.calls[1][1]).not.toHaveProperty('body')
     store.dispose()
   })
 

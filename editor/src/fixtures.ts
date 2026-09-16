@@ -227,6 +227,7 @@ function baseSnapshot(scenario: StoreScenario): ConfigSnapshot {
       version: 7,
       fingerprint: fingerprintFor(snapshotData),
     },
+    schemaVersion: 2,
     path: '~/Library/Application Support/Superwhisper/macrowhisper.json',
     defaults,
     inserts: scenario === 'empty' ? {} : structuredClone(inserts),

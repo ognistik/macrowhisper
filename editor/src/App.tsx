@@ -24,6 +24,8 @@ import {
 } from '@radix-ui/react-icons'
 import { getAllActionNames } from './fixtures'
 import { defaultsSchema } from './generated/schema'
+import { ActionPicker } from './components/ActionPicker'
+import type { ActionPickerOption } from './components/ActionPicker'
 import { API_SESSION_STORAGE_KEY, ApiStore } from './store/apiStore'
 import { FixtureStore } from './store/fixtureStore'
 import type {
@@ -68,11 +70,7 @@ interface GroupDefinition {
   description: string
 }
 
-interface SelectOption {
-  value: string
-  label: string
-  controlLabel?: string
-}
+type SelectOption = ActionPickerOption
 
 const groups: GroupDefinition[] = [
   { id: 'inserts', label: 'Inserts', shortLabel: 'Insert', icon: <FileTextIcon />, description: 'Paste or type text into the focused app.' },
@@ -622,31 +620,28 @@ function isActionGroup(value: Screen): value is ActionGroup {
 }
 
 function actionOptions(snapshot: ConfigSnapshot, currentPath?: string[]): SelectOption[] {
-  const options: SelectOption[] = [{ value: '', label: 'Do nothing' }]
+  const options: SelectOption[] = []
   const names = getAllActionNames(snapshot)
     .filter((item) => !(currentPath && item.group === currentPath[0] && item.name === currentPath[1]))
     .sort((a, b) => a.name.localeCompare(b.name))
   for (const item of names) {
     const action = (snapshot[item.group] as Record<string, InsertConfig>)[item.name]
     const name = actionDisplayName(item.name, action)
-    const storedName = name === item.name ? '' : ` (${item.name})`
     const builtInLabel = action.action === '.autoPaste'
       ? 'Auto-paste'
       : action.action === '.none'
         ? 'Do nothing'
         : name
-    const visibleName = action.action === '.autoPaste' || action.action === '.none' ? builtInLabel : `${builtInLabel}${storedName}`
-    const storedNameSuffix = action.action === '.none' ? ` · ${item.name}` : ''
-    const suffix = ` · ${groupById.get(item.group)?.shortLabel ?? item.group}`
-    const controlLabel = action.action === '.autoPaste'
-      ? `Auto-paste${suffix}`
-      : action.action === '.none'
-        ? `Do nothing · ${item.name}${suffix}`
-        : undefined
+    const groupLabel = groupById.get(item.group)?.shortLabel ?? item.group
+    const detail = name === item.name && action.action !== '.none'
+      ? groupLabel
+      : `${item.name} · ${groupLabel}`
     options.push({
       value: item.name,
-      label: `${visibleName}${storedNameSuffix}${suffix}`,
-      controlLabel,
+      label: builtInLabel,
+      detail,
+      group: 'Actions',
+      keywords: `${item.name} ${name} ${groupLabel}`,
     })
   }
   return options
@@ -746,6 +741,181 @@ function ThemeControl({ theme, onChange }: { theme: ThemeChoice; onChange: (them
   )
 }
 
+function EditorStatusControl({
+  snapshot,
+  pendingCount,
+  hasSaveError,
+  theme,
+  onThemeChange,
+  revealConfiguration,
+}: {
+  snapshot: ConfigSnapshot
+  pendingCount: number
+  hasSaveError: boolean
+  theme: ThemeChoice
+  onThemeChange: (theme: ThemeChoice) => void
+  revealConfiguration?: () => Promise<void>
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [feedback, setFeedback] = useState('')
+  const [feedbackError, setFeedbackError] = useState(false)
+  const [feedbackContext, setFeedbackContext] = useState<'configuration' | 'diagnostics'>('configuration')
+  const [revealing, setRevealing] = useState(false)
+
+  const runtimeStatus = snapshot.runtime.status
+  const status = runtimeStatus === 'disconnected'
+    ? { label: 'Disconnected', tone: 'disconnected' }
+    : runtimeStatus === 'fallback'
+      ? { label: 'Runtime fallback', tone: 'fallback' }
+      : runtimeStatus === 'loading'
+        ? { label: 'Connecting…', tone: 'loading' }
+        : hasSaveError
+          ? { label: 'Not saved', tone: 'disconnected' }
+          : pendingCount > 0
+            ? { label: pendingCount > 1 ? `Saving ${pendingCount}…` : 'Saving…', tone: 'saving' }
+            : { label: 'Connected', tone: 'connected' }
+  const showStatusDetails = runtimeStatus !== 'connected' || hasSaveError
+  const showDiagnostics = runtimeStatus === 'disconnected' || runtimeStatus === 'fallback' || hasSaveError
+  const statusMessage = hasSaveError
+    ? 'The latest change could not be saved. Review the highlighted field and try again.'
+    : snapshot.runtime.message
+  const configurationName = snapshot.path.split('/').filter(Boolean).pop() || 'Unavailable'
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  const copyPath = async () => {
+    setFeedback('')
+    setFeedbackError(false)
+    setFeedbackContext('configuration')
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.')
+      await navigator.clipboard.writeText(snapshot.path)
+      setFeedback('Configuration path copied.')
+    } catch (error) {
+      setFeedbackError(true)
+      setFeedback(error instanceof Error ? error.message : 'The configuration path could not be copied.')
+    }
+  }
+
+  const copyDiagnostics = async () => {
+    setFeedback('')
+    setFeedbackError(false)
+    setFeedbackContext('diagnostics')
+    const diagnostics = [
+      'Macrowhisper editor diagnostics',
+      `Status: ${status.label}`,
+      `Message: ${statusMessage}`,
+      `Configuration: ${snapshot.path || 'Unavailable'}`,
+      `Schema: ${snapshot.schemaVersion > 0 ? snapshot.schemaVersion : 'Unavailable'}`,
+      `Revision: ${snapshot.revision.version}`,
+      `Generation: ${snapshot.revision.generation}`,
+      `Fingerprint: ${snapshot.revision.fingerprint}`,
+      `Disk: ${snapshot.disk.status}`,
+    ].join('\n')
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.')
+      await navigator.clipboard.writeText(diagnostics)
+      setFeedback('Diagnostics copied.')
+    } catch (error) {
+      setFeedbackError(true)
+      setFeedback(error instanceof Error ? error.message : 'Diagnostics could not be copied.')
+    }
+  }
+
+  const reveal = async () => {
+    if (!revealConfiguration || revealing) return
+    setFeedback('')
+    setFeedbackError(false)
+    setFeedbackContext('configuration')
+    setRevealing(true)
+    try {
+      await revealConfiguration()
+      setFeedback('Configuration revealed in Finder.')
+    } catch (error) {
+      setFeedbackError(true)
+      setFeedback(error instanceof Error ? error.message : 'The configuration could not be revealed in Finder.')
+    } finally {
+      setRevealing(false)
+    }
+  }
+
+  return (
+    <div ref={rootRef} className="editor-status-control">
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`editor-status-trigger status-tone-${status.tone}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => {
+          setFeedback('')
+          setFeedbackError(false)
+          setFeedbackContext('configuration')
+          setOpen((current) => !current)
+        }}
+      >
+        <span className={`status-dot status-${status.tone}`} aria-hidden="true" />
+        <span>{status.label}</span>
+        <ChevronDownIcon aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div className="editor-details-popover" role="dialog" aria-label="Editor details">
+          <div className="editor-details-heading">
+            <strong>Editor</strong>
+          </div>
+
+          {showStatusDetails && (
+            <div className="editor-details-status">
+              <span className={`status-dot status-${status.tone}`} aria-hidden="true" />
+              <div>
+                <strong>{status.label}</strong>
+                <span>{statusMessage}</span>
+                {showDiagnostics && <button type="button" className="text-button editor-diagnostics-button" onClick={() => void copyDiagnostics()}>Copy diagnostics</button>}
+                {feedback && feedbackContext === 'diagnostics' && <span className={feedbackError ? 'editor-details-feedback is-error' : 'editor-details-feedback'} role="status">{feedback}</span>}
+              </div>
+            </div>
+          )}
+
+          <div className="editor-details-section">
+            <span className="editor-details-label">Configuration</span>
+            <span className="editor-configuration-name" title={snapshot.path}>{configurationName}</span>
+            <div className="editor-details-actions">
+              <button type="button" className="quiet-button compact" disabled={!revealConfiguration || revealing} title={revealConfiguration ? undefined : 'Available in the connected editor'} onClick={() => void reveal()}><FileTextIcon aria-hidden="true" /> {revealing ? 'Revealing…' : 'Reveal'}</button>
+              <button type="button" className="quiet-button compact" disabled={!snapshot.path} onClick={() => void copyPath()}><CopyIcon aria-hidden="true" /> Copy path</button>
+            </div>
+            {feedback && feedbackContext === 'configuration' && <span className={feedbackError ? 'editor-details-feedback is-error' : 'editor-details-feedback'} role="status">{feedback}</span>}
+          </div>
+
+          <div className="editor-details-section">
+            <span className="editor-details-label">Appearance</span>
+            <ThemeControl theme={theme} onChange={onThemeChange} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FieldState({
   entry,
   onRevert,
@@ -823,6 +993,9 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   const chooseDirectory = store.chooseDirectory
     ? (purpose: FolderPickerPurpose) => store.chooseDirectory!(purpose)
     : undefined
+  const revealConfiguration = store.revealConfiguration
+    ? () => store.revealConfiguration!()
+    : undefined
   const [snapshot, setSnapshot] = useState<ConfigSnapshot>(() => store.getSnapshot())
   const [screen, setScreen] = useState<Screen>('defaults')
   const [selectedName, setSelectedName] = useState('dailyNotes')
@@ -883,7 +1056,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   useEffect(() => {
     if (!isNarrow) return
     if (mobileNavOpen) {
-      const firstControl = sidebarRef.current?.querySelector<HTMLElement>('button, a, input, select, textarea')
+      const firstControl = sidebarRef.current?.querySelector<HTMLElement>('button, a, input, select, textarea, summary')
       firstControl?.focus()
       const closeOnEscape = (event: KeyboardEvent) => {
         if (event.key === 'Escape') {
@@ -892,7 +1065,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
           return
         }
         if (event.key !== 'Tab') return
-        const controls = Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])') ?? [])
+        const controls = Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary') ?? [])
         if (controls.length === 0) return
         const current = document.activeElement
         const index = controls.indexOf(current as HTMLElement)
@@ -1416,6 +1589,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }
 
   const hasDrafts = Object.values(drafts).some((entry) => entry.status === 'dirty' || entry.status === 'saving' || entry.status === 'error')
+  const hasSaveError = Object.values(drafts).some((entry) => entry.status === 'error') || Boolean(lifecycleError)
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -1471,13 +1645,8 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="connection-card">
-            <div className="connection-line"><span className={`status-dot status-${snapshot.runtime.status}`} aria-hidden="true" /><span>{snapshot.runtime.status === 'connected' ? (fixtureStore ? 'Fixture connected' : 'Connected') : snapshot.runtime.status === 'loading' ? 'Connecting' : snapshot.runtime.status === 'fallback' ? 'Runtime fallback' : 'Disconnected'}</span></div>
-            <p>{snapshot.runtime.message}</p>
-            {fixtureStore && snapshot.runtime.status === 'disconnected' && <button type="button" className="quiet-button compact connection-action" onClick={reconnectFixture}>Reconnect fixture</button>}
-          </div>
-          <div className="path-block"><span>CONFIGURATION</span><code>{snapshot.path}</code></div>
-          <ThemeControl theme={theme} onChange={setTheme} />
+          <EditorStatusControl snapshot={snapshot} pendingCount={pendingCount} hasSaveError={hasSaveError} theme={theme} onThemeChange={setTheme} revealConfiguration={revealConfiguration} />
+          {fixtureStore && snapshot.runtime.status === 'disconnected' && <button type="button" className="quiet-button compact connection-action" onClick={reconnectFixture}>Reconnect fixture</button>}
         </div>
       </aside>
 
@@ -1486,7 +1655,6 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
           <button ref={mobileMenuRef} type="button" className="mobile-menu-button" aria-expanded={mobileNavOpen} aria-controls="configuration-navigation" onClick={() => setMobileNavOpen(true)}><GearIcon aria-hidden="true" /> Menu</button>
           <div className="breadcrumb"><span>Macrowhisper</span><span className="breadcrumb-separator">/</span><span>{screen === 'defaults' ? 'Defaults' : currentGroup?.label}</span>{currentAction && <><span className="breadcrumb-separator">/</span><strong title={selectedName}>{actionDisplayName(selectedName, currentAction)}</strong></>}</div>
           <div className="topbar-tools">
-            <div className="revision-chip" title={`${snapshot.revision.generation} · version ${snapshot.revision.version}`} aria-live="polite"><span className="revision-dot" />{pendingCount > 0 ? ` Saving${pendingCount > 1 ? ` ${pendingCount}` : ''}…` : ` Revision ${snapshot.revision.version}`}</div>
             {fixtureStore && <label className="scenario-picker">Fixture
               <select aria-label="Fixture scenario" value={scenario} onChange={(event) => handleScenario(event.target.value as StoreScenario)}>
                 <option value="populated">Populated</option><option value="invalid">Invalid field</option><option value="conflict">Conflict</option><option value="empty">Empty Inserts</option><option value="disconnected">Disconnected</option>
@@ -1610,7 +1778,6 @@ function DefaultsScreen({ snapshot, valueFor, drafts, textHandlers, setDraftValu
     <div className="screen-content defaults-screen">
       <div className="screen-intro">
         <div><h1>Defaults</h1><p className="screen-description">Set the behavior shared by every action. Built-in marks what Macrowhisper ships with; Use built-in removes a custom value.</p></div>
-        <div className="intro-meta"><span className="meta-label">CONFIG VERSION</span><strong>2</strong><span className="meta-label">WATCH FOLDER</span><code>{snapshot.defaults.watch ?? '~/Documents/superwhisper'}</code></div>
       </div>
       <div className="defaults-accordion">
         {defaultFieldGroups.map((section) => <DefaultSection key={section.key} {...sectionProps(section)} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />)}
@@ -1770,7 +1937,7 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
     const options = actionOptions(snapshot)
     const rootReferenceValue = value === null || value === undefined || value === '' ? EMPTY_CHOICE : displayValue(value)
     const emptyChoiceLabel = field === 'activeAction' ? 'No fallback action' : 'No next action'
-    const actionChoices = options.slice(1)
+    const actionChoices = options
     const builtInChoiceValue = field === 'activeAction' ? displayValue(schemaDefault('activeAction')) : EMPTY_CHOICE
     const builtInChoices = actionChoices.filter((option) => option.value === builtInChoiceValue)
     const configuredChoices = actionChoices.filter((option) => option.value !== builtInChoiceValue)
@@ -1778,10 +1945,17 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
     const builtInActive = field === 'nextAction' ? rootReferenceValue === EMPTY_CHOICE : selectedOption?.value === builtInChoiceValue
     const builtInDescriptionId = `${field}-built-in-description`
     const descriptionIds = [entry?.error ? fieldErrorId(path) : '', builtInActive ? builtInDescriptionId : ''].filter(Boolean).join(' ') || undefined
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><div className="select-control-wrapper select-metadata-stack"><select id={field} aria-describedby={descriptionIds} aria-label={meta.label} value={rootReferenceValue} onChange={(event) => {
-      const next = event.target.value === EMPTY_CHOICE ? '' : event.target.value
+    const pickerOptions: ActionPickerOption[] = [
+      ...(field === 'nextAction'
+        ? [{ value: EMPTY_CHOICE, label: emptyChoiceLabel, detail: 'Built-in', group: 'Built-in value', keywords: 'none stop chain' }]
+        : builtInChoices.map((option) => ({ ...option, group: 'Built-in value' }))),
+      ...(field === 'activeAction' ? [{ value: EMPTY_CHOICE, label: emptyChoiceLabel, detail: 'Do nothing when no trigger matches', group: 'Actions', keywords: 'none' }] : []),
+      ...configuredChoices.map((option) => ({ ...option, group: 'Actions' })),
+    ]
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><div className="select-control-wrapper select-metadata-stack"><ActionPicker id={field} label={meta.label} describedBy={descriptionIds} value={rootReferenceValue} options={pickerOptions} onChange={(selectedValue) => {
+      const next = selectedValue === EMPTY_CHOICE ? '' : selectedValue
       onChoice(next)
-    }}><optgroup label="Built-in value">{field === 'nextAction' && <option value={EMPTY_CHOICE}>{emptyChoiceLabel}</option>}{builtInChoices.map((option) => <option key={option.value} value={option.value}>{option.controlLabel ?? option.label}</option>)}</optgroup><hr /><optgroup label="Actions">{field === 'activeAction' && <option value={EMPTY_CHOICE}>{emptyChoiceLabel}</option>}{configuredChoices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup></select>{builtInActive && <BuiltInPill id={builtInDescriptionId} />}</div></SettingRow>
+    }} />{builtInActive && <BuiltInPill id={builtInDescriptionId} />}</div></SettingRow>
   }
 
   if (field === 'icon' || field === 'moveTo') {
@@ -1800,7 +1974,7 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
   if (field === 'history' || field === 'actionDelay' || field === 'returnDelay' || field === 'restoreClipboardDelay' || field === 'scheduledActionTimeout' || field === 'scriptWaitTimeout' || field === 'clipboardBuffer') {
     const props = textHandlers(path)
     const useBuiltIn = shouldRestoreBuiltIn(field, value) ? <button type="button" className="text-button" data-field-blur-action={pathKey(path)} onPointerDown={(event) => event.preventDefault()} onClick={() => onChoice(null)}>Use built-in</button> : null
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack"><div className="input-with-unit"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} inputMode="decimal" type="text" placeholder={field === 'history' ? 'Keep forever' : numberDefaultText(field)} />{field !== 'history' && <span>{numberUnits[field]}</span>}</div></div></SettingRow>
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack"><div className="input-with-unit"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} inputMode="decimal" type="text" placeholder={field === 'history' ? 'Keep forever' : numberDefaultText(field)} /><span>{numberUnits[field]}</span></div></div></SettingRow>
   }
 
   if (booleanFields.has(field)) {
@@ -2048,7 +2222,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
         <div className="editor-header-actions"><SourcePill source={source} /><button type="button" className="quiet-button" onClick={onDuplicate}><CopyIcon aria-hidden="true" /> Duplicate</button><button type="button" className="quiet-button danger-button" onClick={onDelete} disabled={payload === '.autoPaste'} title={payload === '.autoPaste' ? 'The .autoPaste built-in cannot be deleted' : undefined}><TrashIcon aria-hidden="true" /> Delete</button></div>
       </div>
       <div className="editor-scroll">
-        <div className="editor-title-row"><div><h1 title={selectedName}>{actionDisplayName(selectedName, action)}</h1><p className="screen-description">{groupById.get('inserts')?.description}</p></div><div className="editor-revision"><span>Revision</span><strong>{snapshot.revision.version}</strong></div></div>
+        <div className="editor-title-row"><div><h1 title={selectedName}>{actionDisplayName(selectedName, action)}</h1><p className="screen-description">{groupById.get('inserts')?.description}</p></div></div>
 
         {source === 'invalid' && <div className="field-alert"><ExclamationTriangleIcon aria-hidden="true" /><div><strong>This action has invalid configuration.</strong><span>Fix the highlighted fields before saving another change. Existing text is preserved so you can repair it deliberately.</span></div></div>}
         {source === 'template' && <div className="template-callout"><div className="template-icon"><RocketIcon aria-hidden="true" /></div><div><strong>{payloadMode === 'autoPaste' ? 'Auto-paste template' : 'Do nothing template'}</strong><span>{payloadMode === 'autoPaste' ? 'Macrowhisper’s built-in paste behavior supplies the payload and insertion details at runtime.' : 'This action intentionally performs no payload operation. Its triggers and chain settings can still apply.'}</span></div></div>}
@@ -2095,7 +2269,11 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
 
         <TriggerEditor action={action} selectedName={selectedName} actionPath={actionPath} drafts={drafts} valueFor={valueFor} setDraftValue={setDraftValue} commitIfChanged={commitIfChanged} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />
 
-        <div className="editor-section"><Disclosure title="Chaining" subtitle="Continue to another action after this step." meta={valueFor(actionPath('nextAction')) ? 'Linked' : 'No next action'} open={chainingOpen} onToggle={setChainingOpen}><div className="chain-field"><label htmlFor="next-action">Next action</label><p>The Defaults next action applies only to the root step. Select an action from any group.</p><select id="next-action" aria-describedby={drafts[pathKey(actionPath('nextAction'))]?.error ? fieldErrorId(actionPath('nextAction')) : undefined} value={valueFor(actionPath('nextAction')) === null || valueFor(actionPath('nextAction')) === undefined ? NULL_CHOICE : valueFor(actionPath('nextAction')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('nextAction')))} onChange={(event) => { const next = event.target.value === NULL_CHOICE ? null : event.target.value === EMPTY_CHOICE ? '' : event.target.value; void commitField(actionPath('nextAction'), next) }}><option value={NULL_CHOICE}>Use Defaults next action</option><option value={EMPTY_CHOICE}>Stop chain</option>{actionOptions(snapshot, ['inserts', selectedName]).slice(1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{action.nextAction === 'does-not-exist' && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />The saved link “does-not-exist” is unavailable. Choose another action or Stop chain.</div>}{drafts[pathKey(actionPath('nextAction'))] && <FieldState entry={drafts[pathKey(actionPath('nextAction'))]} onRevert={() => revertField(actionPath('nextAction'))} onRetry={() => retryField(actionPath('nextAction'))} onResync={() => resyncField(actionPath('nextAction'))} errorId={fieldErrorId(actionPath('nextAction'))} />}</div></Disclosure></div>
+        <div className="editor-section"><Disclosure title="Chaining" subtitle="Continue to another action after this step." meta={valueFor(actionPath('nextAction')) ? 'Linked' : 'No next action'} open={chainingOpen} onToggle={setChainingOpen}><div className="chain-field"><label htmlFor="next-action">Next action</label><p>The Defaults next action applies only to the root step. Select an action from any group.</p><ActionPicker id="next-action" label="Next action" describedBy={drafts[pathKey(actionPath('nextAction'))]?.error ? fieldErrorId(actionPath('nextAction')) : undefined} value={valueFor(actionPath('nextAction')) === null || valueFor(actionPath('nextAction')) === undefined ? NULL_CHOICE : valueFor(actionPath('nextAction')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('nextAction')))} options={[
+          { value: NULL_CHOICE, label: 'Use Defaults next action', detail: 'Only for the first step', group: 'Defaults', keywords: 'inherit root' },
+          { value: EMPTY_CHOICE, label: 'Stop chain', detail: 'Do not continue to another action', group: 'Chain behavior', keywords: 'none stop' },
+          ...actionOptions(snapshot, ['inserts', selectedName]),
+        ]} onChange={(selectedValue) => { const next = selectedValue === NULL_CHOICE ? null : selectedValue === EMPTY_CHOICE ? '' : selectedValue; void commitField(actionPath('nextAction'), next) }} />{action.nextAction === 'does-not-exist' && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />The saved link “does-not-exist” is unavailable. Choose another action or Stop chain.</div>}{drafts[pathKey(actionPath('nextAction'))] && <FieldState entry={drafts[pathKey(actionPath('nextAction'))]} onRevert={() => revertField(actionPath('nextAction'))} onRetry={() => retryField(actionPath('nextAction'))} onResync={() => resyncField(actionPath('nextAction'))} errorId={fieldErrorId(actionPath('nextAction'))} />}</div></Disclosure></div>
       </div>
     </section>
   )

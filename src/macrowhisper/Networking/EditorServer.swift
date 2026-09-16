@@ -65,6 +65,27 @@ final class MacOSDirectoryPicker: EditorDirectoryPicking {
     }
 }
 
+protocol EditorConfigurationRevealing {
+    func revealConfiguration(at path: String) throws
+}
+
+final class MacOSConfigurationRevealer: EditorConfigurationRevealing {
+    func revealConfiguration(at path: String) throws {
+        guard !path.isEmpty else {
+            throw EditorConfigurationRevealError.invalidPath
+        }
+        let url = URL(fileURLWithPath: path)
+        guard NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") else {
+            throw EditorConfigurationRevealError.finderUnavailable
+        }
+    }
+}
+
+private enum EditorConfigurationRevealError: Error {
+    case invalidPath
+    case finderUnavailable
+}
+
 /// The resource root used by the installed editor.  The editor is deliberately
 /// resolved from the executable's Homebrew-style share directory or from the
 /// repository's build output; it is never resolved relative to an arbitrary
@@ -237,6 +258,7 @@ final class EditorServer {
     private let bootstrapLifetime: TimeInterval
     private let sessionLifetime: TimeInterval
     private let directoryPicker: EditorDirectoryPicking
+    private let configurationRevealer: EditorConfigurationRevealing
     private let acceptQueue = DispatchQueue(label: "com.macrowhisper.editor.accept", qos: .utility)
     // A single bounded connection worker keeps request ordering predictable
     // for the revision-based editor contract and avoids unbounded work when a
@@ -261,7 +283,8 @@ final class EditorServer {
         preferredPort: UInt16 = EditorServer.defaultPort,
         bootstrapLifetime: TimeInterval = EditorServer.bootstrapLifetime,
         sessionLifetime: TimeInterval = EditorServer.sessionLifetime,
-        directoryPicker: EditorDirectoryPicking = MacOSDirectoryPicker()
+        directoryPicker: EditorDirectoryPicking = MacOSDirectoryPicker(),
+        configurationRevealer: EditorConfigurationRevealing = MacOSConfigurationRevealer()
     ) {
         self.configManager = configManager
         self.resourceResolver = resourceResolver
@@ -269,6 +292,7 @@ final class EditorServer {
         self.bootstrapLifetime = max(0.01, bootstrapLifetime)
         self.sessionLifetime = max(0.01, sessionLifetime)
         self.directoryPicker = directoryPicker
+        self.configurationRevealer = configurationRevealer
     }
 
     var isRunning: Bool {
@@ -388,6 +412,10 @@ final class EditorServer {
         let status: FolderPickerStatus
         let path: String?
         let message: String?
+    }
+
+    private struct ConfigurationRevealPayload: Codable {
+        let success: Bool
     }
 
     private enum FolderPickerStatus: String, Codable {
@@ -803,12 +831,52 @@ final class EditorServer {
                 return HTTPResponse(status: status, reason: Self.reasonPhrase(for: status), body: data, contentType: "application/json; charset=utf-8")
             }
 
+        case "/api/config/reveal":
+            return handleConfigurationReveal(request)
+
         case "/api/folder-picker":
             return handleFolderPickerStart(request)
 
         default:
             return makeAPIErrorResponse(status: 404, reason: "Not Found", code: "notFound", message: "Editor API endpoint was not found")
         }
+    }
+
+    private func handleConfigurationReveal(_ request: HTTPRequest) -> HTTPResponse {
+        guard request.method == "POST" else {
+            return makeAPIErrorResponse(status: 405, reason: "Method Not Allowed", code: "methodNotAllowed", message: "Configuration reveal requires POST")
+        }
+        guard hasValidSession(request) else {
+            return makeAPIErrorResponse(status: 401, reason: "Unauthorized", code: "unauthorized", message: "A valid editor session is required")
+        }
+        guard request.body.isEmpty else {
+            return makeAPIErrorResponse(status: 400, reason: "Bad Request", code: "bodyNotAllowed", message: "Configuration reveal requests must not include a body")
+        }
+        guard let origin = request.headers["origin"], origin == editorOrigin else {
+            return makeAPIErrorResponse(status: 403, reason: "Forbidden", code: "origin", message: "Configuration reveal requires the editor origin")
+        }
+
+        // The browser cannot choose or submit a path. Read the manager's
+        // current selection at the point of the action so a path switch is
+        // reflected immediately and no arbitrary file-reveal primitive is
+        // exposed over HTTP.
+        let path = configManager.getCurrentConfigPath()
+        do {
+            try configurationRevealer.revealConfiguration(at: path)
+        } catch {
+            return makeAPIErrorResponse(
+                status: 500,
+                reason: "Internal Server Error",
+                code: "revealFailed",
+                message: "The configuration could not be revealed in Finder"
+            )
+        }
+
+        let payload = ConfigurationRevealPayload(success: true)
+        guard let data = try? Self.encodeJSON(payload) else {
+            return makeAPIErrorResponse(status: 500, reason: "Internal Server Error", code: "encoding", message: "Configuration reveal response could not be encoded")
+        }
+        return HTTPResponse(status: 200, reason: "OK", body: data, contentType: "application/json; charset=utf-8")
     }
 
     private func handleFolderPickerStart(_ request: HTTPRequest) -> HTTPResponse {

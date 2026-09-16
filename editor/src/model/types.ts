@@ -98,6 +98,7 @@ export type ActionConfig = InsertConfig
 
 export interface ConfigSnapshot {
   revision: Revision
+  schemaVersion: number
   path: string
   defaults: DefaultsConfig
   inserts: Record<string, InsertConfig>
@@ -145,6 +146,8 @@ export interface EditorStore {
   deleteInsert(name: string): Promise<MutationResult>
   /** Present the daemon-owned macOS directory picker when the live bridge is available. */
   chooseDirectory?(purpose: FolderPickerPurpose): Promise<string | null>
+  /** Reveal the manager-selected configuration file without accepting a browser-provided path. */
+  revealConfiguration?(): Promise<void>
 
   getScenario?(): StoreScenario
   setScenario?(scenario: StoreScenario): void
