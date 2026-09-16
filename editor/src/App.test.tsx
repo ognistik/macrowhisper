@@ -175,6 +175,70 @@ describe('configuration editor interactions', () => {
     expect(screen.getByText('General behavior', { selector: 'strong' }).closest('details')).not.toHaveAttribute('open')
   })
 
+  it('previews the Superwhisper folder chooser without changing the draft', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    await user.click(screen.getByText('Recordings', { selector: 'strong' }))
+
+    const watch = screen.getByRole('textbox', { name: 'Superwhisper folder' })
+    const initial = store.getSnapshot().defaults.watch
+    const mutate = vi.spyOn(store, 'mutate')
+    const row = watch.closest('.setting-row') as HTMLElement
+    await user.click(within(row).getByRole('button', { name: 'Choose Superwhisper folder' }))
+
+    expect(screen.getByRole('dialog', { name: 'Folder picker preview' })).toBeInTheDocument()
+    expect(store.getSnapshot().defaults.watch).toBe(initial)
+    expect(mutate).not.toHaveBeenCalled()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Folder picker preview' })).not.toBeInTheDocument()
+
+    await user.click(within(row).getByRole('button', { name: 'Choose Superwhisper folder' }))
+    await user.click(screen.getByRole('button', { name: 'Continue typing' }))
+    expect(screen.queryByRole('dialog', { name: 'Folder picker preview' })).not.toBeInTheDocument()
+  })
+
+  it('saves a folder returned by the live picker bridge', async () => {
+    const user = userEvent.setup()
+    const store = new FixtureStore('populated', { writeDelayMs: 0 })
+    const chooseDirectory = vi.fn().mockResolvedValue('~/Documents/selected-superwhisper')
+    Object.assign(store, { chooseDirectory })
+    render(<App store={store} />)
+    await user.click(screen.getByText('Recordings', { selector: 'strong' }))
+
+    const watch = screen.getByRole('textbox', { name: 'Superwhisper folder' })
+    const row = watch.closest('.setting-row') as HTMLElement
+    await user.click(within(row).getByRole('button', { name: 'Choose Superwhisper folder' }))
+
+    expect(chooseDirectory).toHaveBeenCalledWith('watch')
+    await waitFor(() => expect(store.getSnapshot().defaults.watch).toBe('~/Documents/selected-superwhisper'))
+    expect(watch).toHaveValue('~/Documents/selected-superwhisper')
+    expect(screen.queryByRole('dialog', { name: 'Folder picker preview' })).not.toBeInTheDocument()
+  })
+
+  it('shows the clipboard app and bypass mode examples in their empty fields', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    await user.click(screen.getByText('Clipboard', { selector: 'strong' }))
+    await user.click(screen.getByText('Scripts and triggers', { selector: 'strong' }))
+
+    expect(screen.getByRole('textbox', { name: 'Ignore clipboard apps' })).toHaveAttribute('placeholder', 'Arc|Bitwarden|com.apple.passwords')
+    expect(screen.getByRole('textbox', { name: 'Bypass modes' })).toHaveAttribute('placeholder', 'dictation|raw')
+    expect(screen.getByText(/App names or bundle IDs to ignore/)).toBeInTheDocument()
+    expect(screen.getByText(/Superwhisper modes to leave untouched/)).toBeInTheDocument()
+  })
+
+  it('reveals a recording path and chooser when Move recording is custom', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    await user.click(screen.getByText('Recordings', { selector: 'strong' }))
+
+    const mode = screen.getByRole('combobox', { name: 'Move recording mode' })
+    await user.selectOptions(mode, 'custom')
+    const path = screen.getByRole('textbox', { name: 'Recording folder path' })
+    const row = path.closest('.setting-row') as HTMLElement
+    expect(within(row).getByRole('button', { name: 'Choose recording destination' })).toBeInTheDocument()
+  })
+
   it('groups root actions by each field’s shipped built-in value', () => {
     renderWithStore()
     const active = screen.getByRole('combobox', { name: 'Fallback action' })

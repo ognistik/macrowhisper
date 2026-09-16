@@ -234,6 +234,7 @@ Release and installation packaging move that same resource tree into
 - Serves only the bundled `index.html` and `assets/` tree from the executable/resource layout
 - Exchanges same-user Unix-socket bootstrap tokens for expiring bearer sessions
 - Exposes authenticated configuration snapshots and revision-checked typed edits; `ConfigurationManager` remains the persistence owner
+- Owns the authenticated, single-operation native directory-picker bridge and returns only the user-selected path through short-lived polled status
 - Keeps disk validity and runtime fallback separate, and returns stable errors for stale revisions, invalid files, validation failures, and persistence failures
 
 ### 8. Frontend editor
@@ -244,6 +245,7 @@ Release and installation packaging move that same resource tree into
 - Queue mutations per tab, save choices immediately, and save text controls on blur while retaining dirty drafts on failure or conflict
 - Keep URL, Shortcut, Shell, and AppleScript type-specific screens read-only in connected mode until their editors land; their Vite-preview data remains fixture-backed
 - Poll authenticated snapshots so clean fields can follow external changes without replacing dirty drafts
+- Start and poll native folder selection in connected mode while keeping the fixture preview explicitly non-filesystem-backed
 
 ### 9. Supporting Infrastructure
 - [src/macrowhisper/Utils/SchemaManager.swift](../../src/macrowhisper/Utils/SchemaManager.swift): finds a local schema and manages `$schema` references without requiring network access

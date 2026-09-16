@@ -19,6 +19,13 @@ preferences. See the [user editor guide](../editor.md) for the
 supported connected behavior and the [implementation plan](web-editor-plan.md)
 for the remaining expansion gates.
 
+The preview also shows the **Choose…** control beside folder paths. Opening it
+explains the integration boundary without inventing a filesystem selection or
+writing a fixture value. In the connected editor, the same control uses the
+authenticated daemon bridge to open a native macOS directory panel and saves a
+selected path immediately. Cancelling leaves the field unchanged. Manual path
+entry keeps the existing blur-save behavior in both modes.
+
 The daemon serves only bundled static resources from the executable's resolved
 Homebrew-style share root (or the documented `.build/editor` development
 output). It binds `127.0.0.1`, uses port `49172` when available and otherwise an

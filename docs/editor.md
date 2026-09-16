@@ -75,7 +75,9 @@ fresh `macrowhisper --editor` or `macrowhisper --editor-url` link.
 Reads and writes require the authenticated session. Writes additionally
 require the exact loopback `Host`, the editor `Origin`, and JSON content. The
 editor has no remote-access, action-execution, shell-evaluation, or arbitrary
-file-read API. This protects against unrelated websites and users; it is not a
+file-read API. The folder-picker bridge can only present one native directory
+panel and return the path the user explicitly selects; it cannot list or read a
+supplied path. This protects against unrelated websites and users; it is not a
 sandbox against software already running as the same macOS user.
 
 ## Editing and saving
@@ -90,6 +92,14 @@ the local draft and restores the last successfully saved value without writing
 to the configuration. Textarea placeholder
 tools are part of the same editing boundary, so choosing a placeholder does not
 save halfway through an insertion.
+
+Folder path controls also offer **Choose…**. In a connected editor this opens a
+native macOS directory picker through the local daemon. Choosing a directory
+saves its path immediately; cancelling leaves the current value and any typed
+draft unchanged. You can still type or paste a path. The Superwhisper folder is
+the parent that contains its recordings, while **Move recording** accepts the
+destination directory. Paths under the current user's home folder are stored
+in the shorter `~/…` form.
 
 Every mutation includes the revision that was read and is applied as one typed,
 validated transaction. The revision identifies the daemon/configuration

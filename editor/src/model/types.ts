@@ -127,11 +127,12 @@ export interface MutationResult {
   request: EditRequest
 }
 
+export type FolderPickerPurpose = 'watch' | 'moveTo'
+
 /**
  * The store contract shared by the live HTTP adapter and the in-memory
- * fixture.  The optional methods are intentionally limited to fixture
- * controls; production stores only need to implement the core editor
- * operations below.
+ * fixture. Optional capabilities keep native and fixture-only behavior honest
+ * while both adapters implement the core editor operations below.
  */
 export interface EditorStore {
   getSnapshot(): ConfigSnapshot
@@ -142,6 +143,8 @@ export interface EditorStore {
   duplicateInsert(sourceName: string, targetName: string): Promise<MutationResult>
   renameInsert(sourceName: string, targetName: string): Promise<MutationResult>
   deleteInsert(name: string): Promise<MutationResult>
+  /** Present the daemon-owned macOS directory picker when the live bridge is available. */
+  chooseDirectory?(purpose: FolderPickerPurpose): Promise<string | null>
 
   getScenario?(): StoreScenario
   setScenario?(scenario: StoreScenario): void

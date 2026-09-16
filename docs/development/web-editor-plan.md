@@ -116,7 +116,7 @@ Internal navigation attempts to commit a valid text draft before leaving. Invali
 | Built-in templates | Show `.autoPaste` and `.none` as named modes with their actual effective settings. Disable or explain controls overridden by the runtime template. Preserve stored sibling values when viewing/changing modes; do not silently rewrite them. |
 | `nextAction` | Search all five action groups. Include `Use Defaults (…)` and explicit `None`; exclude the current action and explain known invalid links. Show that default next-step inheritance applies to the root step only. Server chain validation remains authoritative. |
 | `defaults.activeAction` | Search existing actions, with a clear `None` option. Label it as the fallback action, not the next step. |
-| `moveTo` | Default, Keep recording, Move to folder, Delete recording. Preserve `null`, empty text, a path, and `.delete` respectively. Folder text is not a browser filesystem-browsing API. |
+| `moveTo` | Default, Keep recording, Move to folder, Delete recording. Preserve `null`, empty text, a path, and `.delete` respectively. The connected editor uses the authenticated daemon's native directory picker; text entry remains available. |
 | `icon` | Default, No icon, or Custom. Do not translate an empty icon to `.none`. |
 | `triggerLogic` | Default / Any (OR) / All (AND), with copy about combining configured trigger types. |
 | Input conditions | Show only configured rules and offer Add condition for another supported setting. Removing a rule means Always. Explain that an unmet condition generally restores Defaults behavior, while payload behavior has its own rule. These controls serialize tokens without showing pipe syntax as the normal UI. |
@@ -180,7 +180,7 @@ weak confidentiality](https://www.rfc-editor.org/rfc/rfc6265#section-8.5) and
 
 Validate exact Host including bound port, reject foreign/null Origins on mutations, require JSON plus an explicit authentication header, deny cross-origin API access, and reject unexpected methods/content types. Protect configuration reads as well as writes. Use no-store for private responses, a restrictive CSP with frame embedding disabled, no-referrer, and nosniff. Serve only a bounded asset root, reject traversal/symlink escapes, and enforce request-size, connection, and timeout limits. SameSite alone is not a complete CSRF defense. [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
 
-This protects against unrelated websites and other users obtaining editor access; it is not a sandbox against software already executing as the same macOS user. No action-execution, shell evaluation, arbitrary file-read, or remote-access API is part of the first editor.
+This protects against unrelated websites and other users obtaining editor access; it is not a sandbox against software already executing as the same macOS user. No action-execution, shell evaluation, arbitrary file-read, or remote-access API is part of the first editor. The folder-picker endpoint is a bounded native-UI bridge: it starts one daemon-owned directory panel, returns only the path explicitly selected by the user, and never lists or reads a client-supplied path. The HTTP request returns a short-lived operation ID immediately and the browser polls its authenticated status, so the server worker is never held open by user interaction.
 
 ### Configuration transaction contract
 

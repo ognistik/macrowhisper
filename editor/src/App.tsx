@@ -12,7 +12,6 @@ import {
   GearIcon,
   GlobeIcon,
   LightningBoltIcon,
-  Link1Icon,
   MagnifyingGlassIcon,
   MinusCircledIcon,
   Pencil1Icon,
@@ -32,6 +31,7 @@ import type {
   ConfigSnapshot,
   Edit,
   EditorStore,
+  FolderPickerPurpose,
   InsertConfig,
   JsonValue,
   Revision,
@@ -206,8 +206,8 @@ const defaultFieldLabels: Record<string, { label: string; description: string }>
   clipboardStacking: { label: 'Stack clipboard context', description: 'Keep eligible clipboard changes in order.' },
   clipboardAttachments: { label: 'Clipboard attachments', description: 'Allow supported files and images during handoff.' },
   clipboardBuffer: { label: 'Clipboard buffer', description: 'Seconds of clipboard history captured before dictation.' },
-  clipboardIgnore: { label: 'Ignore clipboard apps', description: 'Regex for apps whose clipboard changes should be skipped.' },
-  bypassModes: { label: 'Bypass modes', description: 'Pipe-separated Superwhisper modes to leave untouched.' },
+  clipboardIgnore: { label: 'Ignore clipboard apps', description: 'App names or bundle IDs to ignore. Separate alternatives with |; regular expressions are supported. Leave empty to capture every app.' },
+  bypassModes: { label: 'Bypass modes', description: 'Superwhisper modes to leave untouched. Separate exact names with |. Leave empty to process every mode.' },
   muteTriggers: { label: 'Mute all triggers', description: 'Skip trigger matching and use the fallback action.' },
   autoUpdateConfig: { label: 'Update config on startup', description: 'Apply schema changes and formatting on startup.' },
   redactedLogs: { label: 'Redact sensitive logs', description: 'Keep dictation, clipboard, and context values out of logs.' },
@@ -820,6 +820,9 @@ function createDefaultStore(): EditorStore {
 function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   const store = useMemo(() => suppliedStore ?? createDefaultStore(), [suppliedStore])
   const fixtureStore = store instanceof FixtureStore ? store : null
+  const chooseDirectory = store.chooseDirectory
+    ? (purpose: FolderPickerPurpose) => store.chooseDirectory!(purpose)
+    : undefined
   const [snapshot, setSnapshot] = useState<ConfigSnapshot>(() => store.getSnapshot())
   const [screen, setScreen] = useState<Screen>('defaults')
   const [selectedName, setSelectedName] = useState('dailyNotes')
@@ -1497,7 +1500,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
         {snapshot.runtime.status === 'disconnected' && <div className="inline-banner warning"><ExclamationTriangleIcon aria-hidden="true" /><div><strong>Working offline</strong><span>{fixtureStore ? 'Drafts stay in this tab until the fixture adapter reconnects. Retry after choosing a connected scenario.' : 'Open a fresh editor link with macrowhisper --editor to reconnect. Unsaved drafts remain in this tab.'}</span></div></div>}
 
         {screen === 'defaults' ? (
-          <DefaultsScreen snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />
+          <DefaultsScreen snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={Boolean(fixtureStore)} chooseDirectory={chooseDirectory} />
         ) : screen === 'inserts' ? (
           <div className={`action-workspace mobile-${mobileActionView}`}>
             {(!isNarrow || mobileActionView === 'list') && <ActionList
@@ -1539,6 +1542,8 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
                 onBack={() => setMobileActionView('list')}
                 lifecycleError={lifecycleError}
                 lifecycleStatus={lifecycleStatus}
+                folderPickerPreview={Boolean(fixtureStore)}
+                chooseDirectory={chooseDirectory}
               />
             ) : (
               <EmptyState onCreate={openCreate} />
@@ -1572,9 +1577,11 @@ interface DefaultsScreenProps {
   revertField: (path: string[]) => void
   retryField: (path: string[]) => void
   resyncField: (path: string[]) => void
+  folderPickerPreview: boolean
+  chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>
 }
 
-function DefaultsScreen({ snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField }: DefaultsScreenProps) {
+function DefaultsScreen({ snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField, folderPickerPreview, chooseDirectory }: DefaultsScreenProps) {
   const [openSection, setOpenSection] = useState<string | null>(() => {
     try {
       const stored = localStorage.getItem(DEFAULTS_OPEN_SECTION_STORAGE_KEY)
@@ -1606,7 +1613,7 @@ function DefaultsScreen({ snapshot, valueFor, drafts, textHandlers, setDraftValu
         <div className="intro-meta"><span className="meta-label">CONFIG VERSION</span><strong>2</strong><span className="meta-label">WATCH FOLDER</span><code>{snapshot.defaults.watch ?? '~/Documents/superwhisper'}</code></div>
       </div>
       <div className="defaults-accordion">
-        {defaultFieldGroups.map((section) => <DefaultSection key={section.key} {...sectionProps(section)} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />)}
+        {defaultFieldGroups.map((section) => <DefaultSection key={section.key} {...sectionProps(section)} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />)}
       </div>
     </div>
   )
@@ -1618,18 +1625,53 @@ interface DefaultSectionProps extends DefaultsScreenProps {
   onToggle: (open: boolean) => void
 }
 
-function DefaultSection({ section, open, onToggle, snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField }: DefaultSectionProps) {
+function DefaultSection({ section, open, onToggle, snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField, folderPickerPreview, chooseDirectory }: DefaultSectionProps) {
   const summary = defaultSectionSummary(section.key, snapshot, valueFor)
   return (
     <section className="settings-section">
       <Disclosure title={section.label} subtitle="" meta={summary} open={open} onToggle={onToggle} variant="defaults">
         <p className="defaults-section-description">{section.description}</p>
         <div className="field-list">
-          {section.fields.map((field) => <DefaultField key={field} field={field} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />)}
+          {section.fields.map((field) => <DefaultField key={field} field={field} snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />)}
         </div>
       </Disclosure>
     </section>
   )
+}
+
+function FolderIcon() {
+  return <svg viewBox="0 0 15 15" aria-hidden="true"><path fill="currentColor" d="M1.5 2.5A1.5 1.5 0 0 1 3 1h2.1c.4 0 .8.16 1.08.44L7.74 3H12a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 12H3a1.5 1.5 0 0 1-1.5-1.5v-8Zm1 1.5v6.5c0 .28.22.5.5.5h9a.5.5 0 0 0 .5-.5v-6a.5.5 0 0 0-.5-.5H7.53c-.4 0-.78-.16-1.06-.44L4.9 2H3a.5.5 0 0 0-.5.5V4Z" /></svg>
+}
+
+function FolderPathControl({ label, blurActionKey, children, chooseFolder, onSelected }: { label: string; blurActionKey?: string; children: ReactNode; chooseFolder?: () => Promise<string | null>; onSelected?: (path: string) => void }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [choosing, setChoosing] = useState(false)
+  const [pickerError, setPickerError] = useState('')
+  const errorId = `folder-picker-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-error`
+  const choose = async () => {
+    if (!chooseFolder) {
+      setPreviewOpen(true)
+      return
+    }
+    setChoosing(true)
+    setPickerError('')
+    try {
+      const path = await chooseFolder()
+      if (path) onSelected?.(path)
+    } catch (error) {
+      setPickerError(error instanceof Error ? error.message : 'The folder picker could not be opened. Try again, or type the path.')
+    } finally {
+      setChoosing(false)
+    }
+  }
+  return <>
+    <div className="path-control">
+      {children}
+      <button type="button" className="quiet-button path-choose-button" aria-label={`Choose ${label}`} aria-haspopup={chooseFolder ? undefined : 'dialog'} aria-expanded={chooseFolder ? undefined : previewOpen} aria-describedby={pickerError ? errorId : undefined} disabled={choosing} data-field-blur-action={blurActionKey} onClick={() => void choose()}><FolderIcon /> {choosing ? 'Choosing…' : 'Choose…'}</button>
+    </div>
+    {pickerError && <p id={errorId} className="path-picker-error" role="alert">{pickerError}</p>}
+    {previewOpen && <FolderChooserPreviewDialog label={label} onClose={() => setPreviewOpen(false)} />}
+  </>
 }
 
 function NullableTextControl({
@@ -1642,6 +1684,8 @@ function NullableTextControl({
   errorId,
   revertKey,
   collapseDefault = false,
+  folderPickerPreview = false,
+  chooseDirectory,
 }: {
   kind: 'icon' | 'moveTo'
   value: FieldValue
@@ -1652,6 +1696,8 @@ function NullableTextControl({
   errorId?: string
   revertKey?: string
   collapseDefault?: boolean
+  folderPickerPreview?: boolean
+  chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>
 }) {
   const isMove = kind === 'moveTo'
   const isCustomValue = typeof value === 'string' && value !== '' && (!isMove || value !== '.delete')
@@ -1691,7 +1737,15 @@ function NullableTextControl({
         </select>
         {builtInActive && <BuiltInPill id={builtInDescriptionId} />}
       </div>
-      {mode === 'custom' && <input
+      {mode === 'custom' && (isMove && (folderPickerPreview || chooseDirectory) ? <FolderPathControl label="recording destination" blurActionKey={revertKey} chooseFolder={chooseDirectory ? () => chooseDirectory('moveTo') : undefined} onSelected={(path) => onChoice(path)}><input
+        id={inputId}
+        value={displayValue(value) === '.delete' ? '' : displayValue(value)}
+        onChange={(event) => onText(event.target.value)}
+        onBlur={(event) => { if (!revertKey || !isFieldBlurActionTarget(event.relatedTarget, revertKey)) onBlur(event.target.value) }}
+        aria-label="Recording folder path"
+        aria-describedby={errorId}
+        placeholder="~/Documents/processed-recordings"
+      /></FolderPathControl> : <input
         id={inputId}
         value={displayValue(value) === '.delete' ? '' : displayValue(value)}
         onChange={(event) => onText(event.target.value)}
@@ -1699,12 +1753,12 @@ function NullableTextControl({
         aria-label={isMove ? 'Recording folder path' : 'Custom icon'}
         aria-describedby={errorId}
         placeholder={isMove ? '~/Documents/processed-recordings' : 'Optional symbol'}
-      />}
+      />)}
     </div>
   )
 }
 
-function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField }: { field: string } & DefaultsScreenProps) {
+function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraftValue, commitField, revertField, retryField, resyncField, folderPickerPreview, chooseDirectory }: { field: string } & DefaultsScreenProps) {
   const path = ['defaults', field]
   const entry = drafts[pathKey(path)]
   const meta = defaultFieldLabels[field]
@@ -1731,13 +1785,16 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
   }
 
   if (field === 'icon' || field === 'moveTo') {
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />}><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={(next) => setDraftValue(path, next)} onBlur={(next) => { if (entry?.status === 'dirty' || next !== displayValue(readPath(snapshot, path))) void commitField(path, next) }} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} collapseDefault /></SettingRow>
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />}><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={(next) => setDraftValue(path, next)} onBlur={(next) => { if (entry?.status === 'dirty' || next !== displayValue(readPath(snapshot, path))) void commitField(path, next) }} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} collapseDefault folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} /></SettingRow>
   }
 
   if (field === 'watch' || field === 'clipboardIgnore' || field === 'bypassModes') {
     const props = textHandlers(path)
     const useBuiltIn = shouldRestoreBuiltIn(field, value) ? <button type="button" className="text-button" data-field-blur-action={pathKey(path)} onPointerDown={(event) => event.preventDefault()} onClick={() => onChoice(null)}>Use built-in</button> : null
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack"><div className="input-with-affordance"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} placeholder={field === 'watch' ? '~/superwhisper' : ''} />{field === 'watch' && <span className="input-affordance"><Link1Icon aria-hidden="true" /></span>}</div></div></SettingRow>
+    const descriptionIds = [`${field}-description`, entry?.error ? fieldErrorId(path) : ''].filter(Boolean).join(' ')
+    const placeholder = field === 'watch' ? '~/superwhisper' : field === 'clipboardIgnore' ? 'Arc|Bitwarden|com.apple.passwords' : 'dictation|raw'
+    const input = <input id={field} {...props} aria-label={meta.label} aria-describedby={descriptionIds} placeholder={placeholder} />
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack">{field === 'watch' && (folderPickerPreview || chooseDirectory) ? <FolderPathControl label="Superwhisper folder" blurActionKey={pathKey(path)} chooseFolder={chooseDirectory ? () => chooseDirectory('watch') : undefined} onSelected={(selectedPath) => void commitField(path, selectedPath)}>{input}</FolderPathControl> : input}</div></SettingRow>
   }
 
   if (field === 'history' || field === 'actionDelay' || field === 'returnDelay' || field === 'restoreClipboardDelay' || field === 'scheduledActionTimeout' || field === 'scriptWaitTimeout' || field === 'clipboardBuffer') {
@@ -1761,7 +1818,7 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
 }
 
 function SettingRow({ label, description, state, utility, children, controlId }: { label: string; description: string; state?: ReactNode; utility?: ReactNode; children: ReactNode; controlId?: string }) {
-  return <div className="setting-row"><div className="setting-copy"><div className="setting-label"><label htmlFor={controlId}>{label}</label><div className="setting-utility"><div className="setting-utility-state">{state}</div><div className="setting-utility-action">{utility}</div></div></div><p>{description}</p></div><div className="setting-control">{children}</div></div>
+  return <div className="setting-row"><div className="setting-copy"><div className="setting-label"><label htmlFor={controlId}>{label}</label><div className="setting-utility"><div className="setting-utility-state">{state}</div><div className="setting-utility-action">{utility}</div></div></div><p id={controlId ? `${controlId}-description` : undefined}>{description}</p></div><div className="setting-control">{children}</div></div>
 }
 
 function BuiltInPill({ id }: { id: string }) {
@@ -1825,9 +1882,11 @@ interface InsertEditorProps {
   onBack: () => void
   lifecycleError: string
   lifecycleStatus: 'idle' | 'saving' | 'saved'
+  folderPickerPreview: boolean
+  chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>
 }
 
-function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDraftValue, commitField, revertField, retryField, resyncField, renameValue, setRenameValue, onRename, onDuplicate, onDelete, onBack, lifecycleError, lifecycleStatus }: InsertEditorProps) {
+function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDraftValue, commitField, revertField, retryField, resyncField, renameValue, setRenameValue, onRename, onDuplicate, onDelete, onBack, lifecycleError, lifecycleStatus, folderPickerPreview, chooseDirectory }: InsertEditorProps) {
   const actionPath = (field: string) => ['inserts', selectedName, field]
   const payloadPath = actionPath('action')
   const payloadEntry = drafts[pathKey(payloadPath)]
@@ -2021,7 +2080,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           {visibleOverrides.length === 0 && <div className="section-empty"><strong>Using Defaults</strong><span>This Insert has no insertion overrides.</span></div>}
           <div className="configured-list">{visibleOverrides.map((field) => {
             const configured = configuredOverrides.includes(field)
-            return <div className="configured-item" key={field}><fieldset className="template-field" disabled={payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard')}><OverrideField field={field} path={actionPath(field)} snapshot={snapshot} value={valueFor(actionPath(field))} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) setPendingOverrides((current) => current.filter((item) => item !== field)) }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); setPendingOverrides((current) => current.filter((item) => item !== field)) }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} />{payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard') && <p className="template-note">{payloadMode === 'autoPaste' ? 'Template: Off outside text fields; Defaults inside text fields.' : 'Template: Off.'} Stored override is retained.</p>}</fieldset><button type="button" className="text-button remove-configured" onClick={() => { setPendingOverrides((current) => current.filter((item) => item !== field)); if (configured) void commitField(actionPath(field), null) }}><Cross2Icon aria-hidden="true" /> {configured ? 'Use Defaults' : 'Cancel'}</button></div>
+            return <div className="configured-item" key={field}><fieldset className="template-field" disabled={payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard')}><OverrideField field={field} path={actionPath(field)} snapshot={snapshot} value={valueFor(actionPath(field))} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) setPendingOverrides((current) => current.filter((item) => item !== field)) }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); setPendingOverrides((current) => current.filter((item) => item !== field)) }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />{payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard') && <p className="template-note">{payloadMode === 'autoPaste' ? 'Template: Off outside text fields; Defaults inside text fields.' : 'Template: Off.'} Stored override is retained.</p>}</fieldset><button type="button" className="text-button remove-configured" onClick={() => { setPendingOverrides((current) => current.filter((item) => item !== field)); if (configured) void commitField(actionPath(field), null) }}><Cross2Icon aria-hidden="true" /> {configured ? 'Use Defaults' : 'Cancel'}</button></div>
           })}</div>
           {availableOverrides.length > 0 && <label className="add-setting-control"><span className="sr-only">Add override</span><PlusIcon aria-hidden="true" /><select aria-label="Add override" value="" onChange={(event) => { const field = event.target.value; if (field) setPendingOverrides((current) => [...current, field]) }}><option value="">Add override…</option>{availableOverrides.map((field) => <option key={field} value={field}>{actionMeta[field].label}</option>)}</select></label>}
           <div className="template-note"><MinusCircledIcon aria-hidden="true" /> Removing an override restores Use Defaults. Empty strings remain explicit values.</div>
@@ -2196,14 +2255,14 @@ function ChoiceCard({ selected, value, displayValue: visibleValue = value, label
   }}><span className="choice-radio" aria-hidden="true">{selected && <CheckIcon />}</span><span><strong>{label}</strong><small>{description}</small></span><code>{visibleValue}</code></button>
 }
 
-function OverrideField({ field, path, snapshot, value, entry, meta, onChoice, onText, onBlur, onRevert, onRetry, onResync }: { field: string; path: string[]; snapshot: ConfigSnapshot; value: FieldValue; entry?: DraftEntry; meta: { label: string; description: string }; onChoice: (value: FieldValue) => void; onText: (value: string) => void; onBlur: (value: string) => void; onRevert: () => void; onRetry: () => void; onResync: () => void }) {
+function OverrideField({ field, path, snapshot, value, entry, meta, onChoice, onText, onBlur, onRevert, onRetry, onResync, folderPickerPreview, chooseDirectory }: { field: string; path: string[]; snapshot: ConfigSnapshot; value: FieldValue; entry?: DraftEntry; meta: { label: string; description: string }; onChoice: (value: FieldValue) => void; onText: (value: string) => void; onBlur: (value: string) => void; onRevert: () => void; onRetry: () => void; onResync: () => void; folderPickerPreview: boolean; chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null> }) {
   const state = <FieldState entry={entry} onRevert={onRevert} onRetry={onRetry} onResync={onResync} errorId={fieldErrorId(path)} />
   const inputId = path.join('-')
   const numberField = field === 'actionDelay' || field === 'restoreClipboardDelay' || field === 'scriptWaitTimeout'
   const [numberOpen, setNumberOpen] = useState(value !== null && value !== undefined)
 
   if (field === 'icon' || field === 'moveTo') {
-    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} /></div>
+    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} /></div>
   }
   if (numberField) {
     const showingValue = numberOpen || (value !== null && value !== undefined)
@@ -2262,6 +2321,13 @@ function useModalBehavior(dialogRef: React.RefObject<HTMLElement | null>, initia
       previous?.focus()
     }
   }, [dialogRef, initialRef, onClose])
+}
+
+function FolderChooserPreviewDialog({ label, onClose }: { label: string; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  useModalBehavior(dialogRef, closeRef, onClose)
+  return <div className="modal-backdrop" role="presentation"><dialog open ref={dialogRef} className="modal small-modal" aria-modal="true" aria-labelledby="folder-preview-title" aria-describedby="folder-preview-description"><div className="modal-icon neutral"><FolderIcon /></div><h2 id="folder-preview-title">Folder picker preview</h2><p id="folder-preview-description">This Vite preview cannot open the native macOS picker or return a usable path for the {label}. Type or paste the path for now. The connected editor uses this control through the daemon's native folder bridge.</p><div className="modal-actions"><button ref={closeRef} type="button" className="primary-button" onClick={onClose}>Continue typing</button></div></dialog></div>
 }
 
 function DeleteDialog({ name, storedName, fixtureBacked, references, onClose, onDelete, busy }: { name: string; storedName?: string; fixtureBacked: boolean; references: string[]; onClose: () => void; onDelete: () => void; busy: boolean }) {

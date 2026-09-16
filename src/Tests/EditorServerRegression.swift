@@ -17,6 +17,36 @@ private struct EditorEditRequest: Encodable {
     let edits: [ConfigurationEdit]
 }
 
+private struct EditorFolderPickerResponse: Decodable {
+    let operationID: String
+    let status: String
+    let path: String?
+}
+
+private final class ControlledDirectoryPicker: EditorDirectoryPicking {
+    private let lock = NSLock()
+    private var completion: ((Result<String?, Error>) -> Void)?
+    private(set) var purposes: [EditorFolderPickerPurpose] = []
+
+    func chooseDirectory(
+        purpose: EditorFolderPickerPurpose,
+        completion: @escaping (Result<String?, Error>) -> Void
+    ) {
+        lock.lock()
+        purposes.append(purpose)
+        self.completion = completion
+        lock.unlock()
+    }
+
+    func complete(path: String?) {
+        lock.lock()
+        let callback = completion
+        completion = nil
+        lock.unlock()
+        callback?(.success(path))
+    }
+}
+
 private struct HTTPTestResponse {
     let status: Int
     let body: Data
@@ -140,6 +170,14 @@ private func encoded<T: Encodable>(_ value: T) throws -> Data {
 }
 
 private func runEditorServerRegression() throws {
+    let developmentEditorRoot = EditorResourceResolver.developmentEditorRoot(
+        sourceFilePath: "/workspace/macrowhisper-editor/src/macrowhisper/Networking/EditorServer.swift"
+    )
+    assertTrue(
+        developmentEditorRoot.path == "/workspace/macrowhisper-editor/.build/editor",
+        "development editor resources resolve from the repository root"
+    )
+
     let root = try makeTemporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
 
@@ -167,10 +205,12 @@ private func runEditorServerRegression() throws {
     )
 
     let manager = ConfigurationManager(configPath: configPath.path)
+    let directoryPicker = ControlledDirectoryPicker()
     let server = EditorServer(
         configManager: manager,
         resourceResolver: EditorResourceResolver(roots: [resourceRoot]),
-        preferredPort: 0
+        preferredPort: 0,
+        directoryPicker: directoryPicker
     )
     try server.start()
     defer { server.stop() }
@@ -219,6 +259,91 @@ private func runEditorServerRegression() throws {
     assertTrue(snapshotResponse.status == 200, "authenticated snapshot succeeds")
     let snapshot = try decode(ConfigurationSnapshot.self, snapshotResponse)
     assertTrue(snapshot.diskIsValid, "snapshot carries valid disk state")
+
+    let pickerHeaders = [
+        "Authorization": authorization,
+        "Origin": "http://127.0.0.1:\(port)",
+        "Content-Type": "application/json"
+    ]
+    let pickerBody = Data("{\"purpose\":\"watch\"}".utf8)
+    let unauthenticatedPicker = try request(
+        port: port,
+        method: "POST",
+        path: "/api/folder-picker",
+        headers: ["Origin": "http://127.0.0.1:\(port)", "Content-Type": "application/json"],
+        body: pickerBody
+    )
+    assertTrue(unauthenticatedPicker.status == 401, "folder picker requires bearer authentication")
+    let foreignPicker = try request(
+        port: port,
+        method: "POST",
+        path: "/api/folder-picker",
+        headers: ["Authorization": authorization, "Origin": "http://example.invalid", "Content-Type": "application/json"],
+        body: pickerBody
+    )
+    assertTrue(foreignPicker.status == 403, "folder picker rejects a foreign origin")
+    let malformedPicker = try request(
+        port: port,
+        method: "POST",
+        path: "/api/folder-picker",
+        headers: pickerHeaders,
+        body: Data("{\"purpose\":\"file\"}".utf8)
+    )
+    assertTrue(malformedPicker.status == 400, "folder picker rejects unsupported purposes")
+
+    let pickerStart = try request(
+        port: port,
+        method: "POST",
+        path: "/api/folder-picker",
+        headers: pickerHeaders,
+        body: pickerBody
+    )
+    assertTrue(pickerStart.status == 202, "folder picker starts without blocking the HTTP worker")
+    let pendingPicker = try decode(EditorFolderPickerResponse.self, pickerStart)
+    assertTrue(pendingPicker.status == "pending", "folder picker start returns a pending operation")
+    assertTrue(directoryPicker.purposes == [.watch], "folder picker receives the requested purpose")
+    let busyPicker = try request(
+        port: port,
+        method: "POST",
+        path: "/api/folder-picker",
+        headers: pickerHeaders,
+        body: Data("{\"purpose\":\"moveTo\"}".utf8)
+    )
+    assertTrue(busyPicker.status == 409, "only one native folder picker can be active")
+    let pendingStatus = try request(
+        port: port,
+        method: "GET",
+        path: "/api/folder-picker/\(pendingPicker.operationID)",
+        headers: ["Authorization": authorization]
+    )
+    assertTrue(try decode(EditorFolderPickerResponse.self, pendingStatus).status == "pending", "folder picker status can be polled")
+
+    directoryPicker.complete(path: "~/Documents/superwhisper")
+    let selectedStatus = try request(
+        port: port,
+        method: "GET",
+        path: "/api/folder-picker/\(pendingPicker.operationID)",
+        headers: ["Authorization": authorization]
+    )
+    let selectedPicker = try decode(EditorFolderPickerResponse.self, selectedStatus)
+    assertTrue(selectedPicker.status == "selected" && selectedPicker.path == "~/Documents/superwhisper", "selected folder path is returned without filesystem access")
+
+    let cancelledStart = try request(
+        port: port,
+        method: "POST",
+        path: "/api/folder-picker",
+        headers: pickerHeaders,
+        body: Data("{\"purpose\":\"moveTo\"}".utf8)
+    )
+    let cancelledPicker = try decode(EditorFolderPickerResponse.self, cancelledStart)
+    directoryPicker.complete(path: nil)
+    let cancelledStatus = try request(
+        port: port,
+        method: "GET",
+        path: "/api/folder-picker/\(cancelledPicker.operationID)",
+        headers: ["Authorization": authorization]
+    )
+    assertTrue(try decode(EditorFolderPickerResponse.self, cancelledStatus).status == "cancelled", "cancelling the native picker is not an error")
 
     let editRequest = try encoded(EditorEditRequest(
         expectedRevision: snapshot.revision,

@@ -255,7 +255,7 @@ h2 { margin-bottom: 4px; font-size: 15px; letter-spacing: -0.015em; }
 .defaults-screen .setting-label > label { min-width: 0; }
 .defaults-screen .setting-copy > p { max-inline-size: 54ch; }
 .setting-utility { position: absolute; top: 50%; right: 336px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 13rem; min-width: 0; min-block-size: 20px; transform: translateY(-50%); }
-.defaults-screen .setting-row:has(.nullable-control > input) .setting-utility { top: calc(50% + 21.5px); }
+.defaults-screen .setting-row:has(.nullable-control input) .setting-utility { top: calc(50% + 21.5px); }
 .setting-utility-state, .setting-utility-action { display: flex; align-items: center; min-width: 0; min-block-size: 20px; }
 .setting-utility-state, .setting-utility-action { justify-content: flex-end; }
 .setting-utility .field-state-wrap { justify-content: flex-start; margin-left: 0; }
@@ -273,11 +273,14 @@ select, input { height: 36px; padding: 0 10px; }
 textarea { padding: 11px 12px; resize: vertical; line-height: 1.55; }
 select:hover, input:hover, textarea:hover { border-color: var(--text-muted); }
 select { appearance: auto; }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
 
-.input-with-affordance, .input-with-unit { position: relative; display: flex; align-items: center; }
-.input-with-affordance input { padding-right: 32px; }
-.input-affordance { position: absolute; right: 10px; color: var(--text-muted); pointer-events: none; }
-.input-affordance svg { width: 14px; height: 14px; }
+.path-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 7px; width: 100%; }
+.path-control input { min-width: 0; }
+.path-choose-button { min-height: 36px; }
+.path-choose-button svg { width: 15px; height: 15px; }
+.path-picker-error { margin: 7px 0 0; color: var(--danger); font-size: 12px; line-height: 1.45; }
+.input-with-unit { position: relative; display: flex; align-items: center; }
 .input-with-unit input { padding-right: 66px; }
 .input-with-unit > span { position: absolute; right: 10px; color: var(--text-muted); font-size: 13px; pointer-events: none; }
 .field-note { display: block; margin-top: 5px; color: var(--text-muted); font-size: 13px; }
@@ -566,7 +569,7 @@ select { appearance: auto; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 @media (max-width: 1200px) {
-  .defaults-screen .setting-utility, .defaults-screen .setting-row:has(.nullable-control > input) .setting-utility { position: static; top: auto; right: auto; width: auto; flex: 0 0 13rem; transform: none; }
+  .defaults-screen .setting-utility, .defaults-screen .setting-row:has(.nullable-control input) .setting-utility { position: static; top: auto; right: auto; width: auto; flex: 0 0 13rem; transform: none; }
   .built-in-choice-row, .override-grid { grid-template-columns: 1fr; }
   .intro-meta { min-width: 0; }
   .screen-intro { flex-wrap: wrap; gap: 20px; }
@@ -606,7 +609,7 @@ select { appearance: auto; }
   .defaults-section-description { padding-inline: 15px; }
   .defaults-screen .field-list { padding-inline: 15px; }
   .defaults-screen .setting-row { grid-template-columns: 1fr; gap: 8px; align-items: start; }
-  .defaults-screen .setting-utility, .defaults-screen .setting-row:has(.nullable-control > input) .setting-utility { transform: none; }
+  .defaults-screen .setting-utility, .defaults-screen .setting-row:has(.nullable-control input) .setting-utility { transform: none; }
   .action-workspace { display: block; min-height: 0; }
   .action-list { position: static; height: auto; min-height: calc(100dvh - 60px); padding: 27px 15px 18px; border-right: 0; }
   .insert-editor { min-height: calc(100dvh - 59px); }
@@ -659,6 +662,8 @@ dialog.modal::backdrop { background: rgba(0, 0, 0, .48); }
 
 @media (max-width: 430px) {
   .topbar-tools { width: 100%; justify-content: space-between; }
+  .path-control { grid-template-columns: 1fr; }
+  .path-choose-button { width: 100%; }
   .payload-toolbar { flex-wrap: wrap; gap: 5px; }
   .payload-heading { align-items: flex-start; flex-direction: column; }
   .section-heading-link { flex: 1 1 auto; }

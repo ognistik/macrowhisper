@@ -199,4 +199,39 @@ describe('ApiStore', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     store.dispose()
   })
+
+  it('starts and polls the authenticated native folder picker', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(snapshotPayload()))
+      .mockResolvedValueOnce(jsonResponse({ operationID: 'picker-1', status: 'pending', path: null }, 202))
+      .mockResolvedValueOnce(jsonResponse({ operationID: 'picker-1', status: 'selected', path: '~/Documents/superwhisper' }))
+    const store = new ApiStore({ fetch: fetchMock, pollIntervalMs: 0 })
+    await store.start()
+
+    await expect(store.chooseDirectory('watch')).resolves.toBe('~/Documents/superwhisper')
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/folder-picker', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer stored-bearer',
+        'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify({ purpose: 'watch' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/folder-picker/picker-1', expect.objectContaining({
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer stored-bearer' }),
+    }))
+    store.dispose()
+  })
+
+  it('treats folder-picker cancellation as a normal empty selection', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(snapshotPayload()))
+      .mockResolvedValueOnce(jsonResponse({ operationID: 'picker-2', status: 'pending', path: null }, 202))
+      .mockResolvedValueOnce(jsonResponse({ operationID: 'picker-2', status: 'cancelled', path: null }))
+    const store = new ApiStore({ fetch: fetchMock, pollIntervalMs: 0 })
+    await store.start()
+    await expect(store.chooseDirectory('moveTo')).resolves.toBeNull()
+    store.dispose()
+  })
 })

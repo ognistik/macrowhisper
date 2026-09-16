@@ -1,6 +1,69 @@
 import Foundation
 import Dispatch
 import Darwin
+import AppKit
+
+enum EditorFolderPickerPurpose: String, Codable {
+    case watch
+    case moveTo
+}
+
+protocol EditorDirectoryPicking {
+    func chooseDirectory(
+        purpose: EditorFolderPickerPurpose,
+        completion: @escaping (Result<String?, Error>) -> Void
+    )
+}
+
+final class MacOSDirectoryPicker: EditorDirectoryPicking {
+    func chooseDirectory(
+        purpose: EditorFolderPickerPurpose,
+        completion: @escaping (Result<String?, Error>) -> Void
+    ) {
+        DispatchQueue.main.async {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = true
+            panel.prompt = "Choose"
+            switch purpose {
+            case .watch:
+                panel.title = "Choose Superwhisper Folder"
+                panel.message = "Choose the Superwhisper folder that contains recordings."
+            case .moveTo:
+                panel.title = "Choose Recording Destination"
+                panel.message = "Choose where Macrowhisper should move completed recordings."
+            }
+
+            let application = NSApplication.shared
+            if application.activationPolicy() == .prohibited {
+                _ = application.setActivationPolicy(.accessory)
+            }
+            if #available(macOS 14.0, *) {
+                NSRunningApplication.current.activate(options: [.activateAllWindows])
+            } else {
+                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            }
+            guard panel.runModal() == .OK, let url = panel.url else {
+                completion(.success(nil))
+                return
+            }
+            completion(.success(Self.configurationPath(for: url)))
+        }
+    }
+
+    private static func configurationPath(for url: URL) -> String {
+        let path = url.standardizedFileURL.path
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        if path == home { return "~" }
+        let homePrefix = home.hasSuffix("/") ? home : home + "/"
+        if path.hasPrefix(homePrefix) {
+            return "~/" + String(path.dropFirst(homePrefix.count))
+        }
+        return path
+    }
+}
 
 /// The resource root used by the installed editor.  The editor is deliberately
 /// resolved from the executable's Homebrew-style share directory or from the
@@ -55,14 +118,18 @@ final class EditorResourceResolver {
         // `#filePath` is an explicit repository source location.  This path
         // is used only for developer builds whose generated Vite output lives
         // at the documented repository `.build/editor` location.
-        let sourceFile = URL(fileURLWithPath: #filePath)
-        let repositoryRoot = sourceFile
+        roots.append(Self.developmentEditorRoot(sourceFilePath: #filePath))
+
+        self.init(roots: roots)
+    }
+
+    static func developmentEditorRoot(sourceFilePath: String) -> URL {
+        URL(fileURLWithPath: sourceFilePath)
+            .deletingLastPathComponent() // EditorServer.swift
             .deletingLastPathComponent() // Networking
             .deletingLastPathComponent() // macrowhisper
             .deletingLastPathComponent() // src
-        roots.append(repositoryRoot.appendingPathComponent(".build/editor", isDirectory: true))
-
-        self.init(roots: roots)
+            .appendingPathComponent(".build/editor", isDirectory: true)
     }
 
     func resource(for requestPath: String) -> Resource? {
@@ -162,12 +229,14 @@ final class EditorServer {
     static let requestTimeout: TimeInterval = 5
     static let bootstrapLifetime: TimeInterval = 30
     static let sessionLifetime: TimeInterval = 8 * 60 * 60
+    static let folderPickerLifetime: TimeInterval = 5 * 60
 
     private let configManager: ConfigurationManager
     private let resourceResolver: EditorResourceResolver
     private let preferredPort: UInt16
     private let bootstrapLifetime: TimeInterval
     private let sessionLifetime: TimeInterval
+    private let directoryPicker: EditorDirectoryPicking
     private let acceptQueue = DispatchQueue(label: "com.macrowhisper.editor.accept", qos: .utility)
     // A single bounded connection worker keeps request ordering predictable
     // for the revision-based editor contract and avoids unbounded work when a
@@ -183,19 +252,23 @@ final class EditorServer {
     private var boundPort: UInt16?
     private var bootstrapTokens: [String: Date] = [:]
     private var sessions: [String: Date] = [:]
+    private var folderPickerOperations: [String: FolderPickerOperation] = [:]
+    private var activeFolderPickerID: String?
 
     init(
         configManager: ConfigurationManager,
         resourceResolver: EditorResourceResolver = EditorResourceResolver(),
         preferredPort: UInt16 = EditorServer.defaultPort,
         bootstrapLifetime: TimeInterval = EditorServer.bootstrapLifetime,
-        sessionLifetime: TimeInterval = EditorServer.sessionLifetime
+        sessionLifetime: TimeInterval = EditorServer.sessionLifetime,
+        directoryPicker: EditorDirectoryPicking = MacOSDirectoryPicker()
     ) {
         self.configManager = configManager
         self.resourceResolver = resourceResolver
         self.preferredPort = preferredPort
         self.bootstrapLifetime = max(0.01, bootstrapLifetime)
         self.sessionLifetime = max(0.01, sessionLifetime)
+        self.directoryPicker = directoryPicker
     }
 
     var isRunning: Bool {
@@ -238,6 +311,8 @@ final class EditorServer {
         boundPort = listening.port
         bootstrapTokens.removeAll(keepingCapacity: false)
         sessions.removeAll(keepingCapacity: false)
+        folderPickerOperations.removeAll(keepingCapacity: false)
+        activeFolderPickerID = nil
         acceptSource = source
         running = true
         source.resume()
@@ -254,6 +329,8 @@ final class EditorServer {
             boundPort = nil
             bootstrapTokens.removeAll(keepingCapacity: false)
             sessions.removeAll(keepingCapacity: false)
+            folderPickerOperations.removeAll(keepingCapacity: false)
+            activeFolderPickerID = nil
             let source = acceptSource
             acceptSource = nil
             serverSocket = -1
@@ -300,6 +377,36 @@ final class EditorServer {
     private struct EditRequest: Codable {
         let expectedRevision: ConfigurationRevision
         let edits: [ConfigurationEdit]
+    }
+
+    private struct FolderPickerRequest: Codable {
+        let purpose: EditorFolderPickerPurpose
+    }
+
+    private struct FolderPickerPayload: Codable {
+        let operationID: String
+        let status: FolderPickerStatus
+        let path: String?
+        let message: String?
+    }
+
+    private enum FolderPickerStatus: String, Codable {
+        case pending
+        case selected
+        case cancelled
+        case failed
+    }
+
+    private struct FolderPickerOperation {
+        let id: String
+        var status: FolderPickerStatus
+        var path: String?
+        var message: String?
+        let createdAt: Date
+
+        var payload: FolderPickerPayload {
+            FolderPickerPayload(operationID: id, status: status, path: path, message: message)
+        }
     }
 
     private struct APIErrorPayload: Codable {
@@ -617,6 +724,10 @@ final class EditorServer {
     }
 
     private func handleAPI(_ request: HTTPRequest) -> HTTPResponse {
+        if request.path.hasPrefix("/api/folder-picker/") {
+            return handleFolderPickerStatus(request)
+        }
+
         switch request.path {
         case "/api/session":
             guard request.method == "POST" else {
@@ -692,8 +803,119 @@ final class EditorServer {
                 return HTTPResponse(status: status, reason: Self.reasonPhrase(for: status), body: data, contentType: "application/json; charset=utf-8")
             }
 
+        case "/api/folder-picker":
+            return handleFolderPickerStart(request)
+
         default:
             return makeAPIErrorResponse(status: 404, reason: "Not Found", code: "notFound", message: "Editor API endpoint was not found")
+        }
+    }
+
+    private func handleFolderPickerStart(_ request: HTTPRequest) -> HTTPResponse {
+        guard request.method == "POST" else {
+            return makeAPIErrorResponse(status: 405, reason: "Method Not Allowed", code: "methodNotAllowed", message: "Folder selection requires POST")
+        }
+        guard hasValidSession(request) else {
+            return makeAPIErrorResponse(status: 401, reason: "Unauthorized", code: "unauthorized", message: "A valid editor session is required")
+        }
+        guard mediaType(request.headers["content-type"]) == "application/json" else {
+            return makeAPIErrorResponse(status: 415, reason: "Unsupported Media Type", code: "contentType", message: "Folder selection requires application/json")
+        }
+        guard let origin = request.headers["origin"], origin == editorOrigin else {
+            return makeAPIErrorResponse(status: 403, reason: "Forbidden", code: "origin", message: "Folder selection requires the editor origin")
+        }
+
+        let decoded: FolderPickerRequest
+        do {
+            decoded = try JSONDecoder().decode(FolderPickerRequest.self, from: request.body)
+        } catch {
+            return makeAPIErrorResponse(status: 400, reason: "Bad Request", code: "malformedPicker", message: "Folder selection requires a supported purpose")
+        }
+
+        let operation: FolderPickerOperation? = stateLock.withLock {
+            pruneFolderPickerOperations(now: Date())
+            guard running, activeFolderPickerID == nil else { return nil }
+            let operation = FolderPickerOperation(
+                id: Self.randomToken(),
+                status: .pending,
+                path: nil,
+                message: nil,
+                createdAt: Date()
+            )
+            folderPickerOperations[operation.id] = operation
+            activeFolderPickerID = operation.id
+            return operation
+        }
+        guard let operation else {
+            return makeAPIErrorResponse(status: 409, reason: "Conflict", code: "pickerBusy", message: "Another folder picker is already open")
+        }
+
+        directoryPicker.chooseDirectory(purpose: decoded.purpose) { [weak self] result in
+            self?.completeFolderPicker(operationID: operation.id, result: result)
+        }
+
+        guard let data = try? Self.encodeJSON(operation.payload) else {
+            return makeAPIErrorResponse(status: 500, reason: "Internal Server Error", code: "encoding", message: "Folder selection response could not be encoded")
+        }
+        return HTTPResponse(status: 202, reason: "Accepted", body: data, contentType: "application/json; charset=utf-8")
+    }
+
+    private func handleFolderPickerStatus(_ request: HTTPRequest) -> HTTPResponse {
+        guard request.method == "GET" else {
+            return makeAPIErrorResponse(status: 405, reason: "Method Not Allowed", code: "methodNotAllowed", message: "Folder selection status requires GET")
+        }
+        guard hasValidSession(request) else {
+            return makeAPIErrorResponse(status: 401, reason: "Unauthorized", code: "unauthorized", message: "A valid editor session is required")
+        }
+        let operationID = String(request.path.dropFirst("/api/folder-picker/".count))
+        guard !operationID.isEmpty, !operationID.contains("/") else {
+            return makeAPIErrorResponse(status: 404, reason: "Not Found", code: "pickerNotFound", message: "Folder selection was not found")
+        }
+        let operation: FolderPickerOperation? = stateLock.withLock {
+            pruneFolderPickerOperations(now: Date())
+            return folderPickerOperations[operationID]
+        }
+        guard let operation else {
+            return makeAPIErrorResponse(status: 404, reason: "Not Found", code: "pickerNotFound", message: "Folder selection was not found or expired")
+        }
+        guard let data = try? Self.encodeJSON(operation.payload) else {
+            return makeAPIErrorResponse(status: 500, reason: "Internal Server Error", code: "encoding", message: "Folder selection status could not be encoded")
+        }
+        return HTTPResponse(status: 200, reason: "OK", body: data, contentType: "application/json; charset=utf-8")
+    }
+
+    private func completeFolderPicker(operationID: String, result: Result<String?, Error>) {
+        stateLock.withLock {
+            guard running, var operation = folderPickerOperations[operationID], operation.status == .pending else { return }
+            switch result {
+            case .success(let path):
+                if let path, !path.isEmpty {
+                    operation.status = .selected
+                    operation.path = path
+                } else {
+                    operation.status = .cancelled
+                }
+            case .failure:
+                operation.status = .failed
+                operation.message = "The macOS folder picker could not be opened. Try again, or type the path."
+            }
+            folderPickerOperations[operationID] = operation
+            if activeFolderPickerID == operationID { activeFolderPickerID = nil }
+        }
+    }
+
+    private func pruneFolderPickerOperations(now: Date) {
+        folderPickerOperations = folderPickerOperations.filter { id, operation in
+            if id == activeFolderPickerID { return true }
+            return now.timeIntervalSince(operation.createdAt) < Self.folderPickerLifetime
+        }
+        let excess = folderPickerOperations.count - 15
+        guard excess > 0 else { return }
+        let oldestCompleted = folderPickerOperations.values
+            .filter { $0.id != activeFolderPickerID }
+            .sorted { $0.createdAt < $1.createdAt }
+        for operation in oldestCompleted.prefix(excess) {
+            folderPickerOperations.removeValue(forKey: operation.id)
         }
     }
 

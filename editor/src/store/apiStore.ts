@@ -6,6 +6,7 @@ import type {
   Edit,
   EditRequest,
   EditorStore,
+  FolderPickerPurpose,
   InsertConfig,
   JsonValue,
   MutationResult,
@@ -601,6 +602,61 @@ export class ApiStore implements EditorStore {
       return Promise.reject(new EditorStoreError('validation', `This Insert is referenced by ${inbound.join(', ')}. Change those links before deleting it.`, ['inserts', name]))
     }
     return this.mutate(this.request([{ path: ['inserts', name], operation: 'remove' }]))
+  }
+
+  async chooseDirectory(purpose: FolderPickerPurpose): Promise<string | null> {
+    if (!this.sessionToken) throw new EditorStoreError('disconnected', 'The editor is not connected.')
+    let response: ResponseLike
+    try {
+      response = await this.fetchImpl(this.endpoint('/api/folder-picker'), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${this.sessionToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ purpose }),
+        cache: 'no-store',
+      }) as ResponseLike
+    } catch {
+      throw new EditorStoreError('disconnected', 'The local Macrowhisper folder picker could not be reached.')
+    }
+    if (!response.ok) throw await this.responseError(response)
+    const started = await responseBody(response)
+    if (!isRecord(started) || typeof started.operationID !== 'string' || started.operationID === '') {
+      throw new EditorStoreError('persistence', 'The folder picker response was malformed.')
+    }
+
+    const operationID = encodeURIComponent(started.operationID)
+    while (true) {
+      if (this.disposed) throw new EditorStoreError('disconnected', 'The editor was closed before folder selection finished.')
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      let statusResponse: ResponseLike
+      try {
+        statusResponse = await this.fetchImpl(this.endpoint(`/api/folder-picker/${operationID}`), {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${this.sessionToken ?? ''}`,
+          },
+          cache: 'no-store',
+        }) as ResponseLike
+      } catch {
+        throw new EditorStoreError('disconnected', 'The local Macrowhisper folder picker could not be reached.')
+      }
+      if (!statusResponse.ok) throw await this.responseError(statusResponse)
+      const status = await responseBody(statusResponse)
+      if (!isRecord(status) || typeof status.status !== 'string') {
+        throw new EditorStoreError('persistence', 'The folder picker status was malformed.')
+      }
+      if (status.status === 'pending') continue
+      if (status.status === 'cancelled') return null
+      if (status.status === 'selected' && typeof status.path === 'string' && status.path !== '') return status.path
+      if (status.status === 'failed') {
+        throw new EditorStoreError('persistence', typeof status.message === 'string' ? status.message : 'The macOS folder picker could not be opened.')
+      }
+      throw new EditorStoreError('persistence', 'The folder picker status was malformed.')
+    }
   }
 
   private async initialize(): Promise<ConfigSnapshot> {
