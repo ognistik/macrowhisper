@@ -461,6 +461,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .placeholder-group-title { padding: 6px 7px 5px; color: var(--text-muted); font-size: 11px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
 .placeholder-option-list { display: grid; gap: 0; }
 .placeholder-popover button { display: grid; min-height: 44px; align-content: center; gap: 1px; width: 100%; max-width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.placeholder-popover:not(.is-keyboard-navigating) button:hover { background: var(--surface-selected); }
 .placeholder-popover button.is-keyboard-active { background: var(--surface-selected); }
 .placeholder-popover button:focus-visible { outline: none; }
 .placeholder-popover strong { font-size: 13px; font-weight: 650; }

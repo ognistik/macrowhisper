@@ -2589,7 +2589,7 @@ function PlaceholderMenu({ onInsert, onKeyDown }: { onInsert: (expression: strin
   const [activeKey, setActiveKey] = useState<string | null>(null)
 
   return (
-    <div className="placeholder-popover" id="insert-placeholder-menu" role="menu" aria-label="Insert placeholder" tabIndex={-1} onKeyDown={onKeyDown} onPointerMove={() => setActiveKey(null)}>
+    <div className={`placeholder-popover${activeKey ? ' is-keyboard-navigating' : ''}`} id="insert-placeholder-menu" role="menu" aria-label="Insert placeholder" tabIndex={-1} onKeyDown={onKeyDown} onPointerMove={() => setActiveKey(null)}>
       <div className="placeholder-popover-heading"><strong>Insert placeholder</strong><span>Choose a value to insert.</span></div>
       <div className="placeholder-source-groups">
         {placeholderGroups.map((group) => {

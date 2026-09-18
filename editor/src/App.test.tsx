@@ -774,7 +774,7 @@ describe('configuration editor interactions', () => {
     expect(screen.queryByRole('menu', { name: 'Insert placeholder' })).not.toBeInTheDocument()
   })
 
-  it('keeps pointer movement visually neutral', async () => {
+  it('keeps pointer hover independent from intentional keyboard selection', async () => {
     const user = userEvent.setup()
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
@@ -790,9 +790,11 @@ describe('configuration editor interactions', () => {
     const activeItems = () => within(menu).getAllByRole('menuitem').filter((item) => item.classList.contains('is-keyboard-active'))
 
     expect(menu).toHaveFocus()
+    expect(menu).not.toHaveClass('is-keyboard-navigating')
     expect(activeItems()).toHaveLength(0)
     fireEvent.pointerMove(raw, { pointerType: 'mouse' })
     expect(raw).not.toHaveFocus()
+    expect(menu).not.toHaveClass('is-keyboard-navigating')
     expect(activeItems()).toHaveLength(0)
     fireEvent.pointerMove(languageModel, { pointerType: 'mouse' })
     expect(languageModel).not.toHaveFocus()
@@ -802,9 +804,11 @@ describe('configuration editor interactions', () => {
     await user.keyboard('{ArrowUp}')
     const lastItem = within(menu).getAllByRole('menuitem').at(-1) as HTMLButtonElement
     expect(lastItem).toHaveFocus()
+    expect(menu).toHaveClass('is-keyboard-navigating')
     expect(activeItems()).toEqual([lastItem])
 
     fireEvent.pointerMove(raw, { pointerType: 'mouse' })
+    expect(menu).not.toHaveClass('is-keyboard-navigating')
     expect(activeItems()).toHaveLength(0)
     expect(raw).not.toHaveFocus()
   })
