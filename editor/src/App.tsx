@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FocusEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import {
+  ArrowDownIcon,
   ArrowLeftIcon,
+  ArrowUpIcon,
   CheckIcon,
   ChevronDownIcon,
   CodeIcon,
@@ -264,23 +266,63 @@ const conditionFieldsByGroup: Record<ActionGroup, string[]> = {
   scriptsAS: ['restoreClipboard', 'restoreClipboardDelay', 'simEsc', 'nextAction', 'moveTo', 'action', 'actionDelay', 'scriptAsync', 'scriptWaitTimeout'],
 }
 
-const placeholders = [
-  { key: 'swResult', label: 'Result', hint: 'The processed Superwhisper result.' },
-  { key: 'result', label: 'Raw dictation', hint: 'The unprocessed dictation result.' },
-  { key: 'llmResult', label: 'Language-model result', hint: 'Only available when a language-model step produced a result.' },
-  { key: 'selectedText', label: 'Selected text', hint: 'Text selected when recording started.' },
-  { key: 'clipboardContext', label: 'Clipboard context', hint: 'Captured clipboard text and attachments.' },
-  { key: 'frontApp', label: 'Front app', hint: 'The app that was frontmost for this action.' },
-  { key: 'appContext', label: 'App context', hint: 'Accessible context from the front app.' },
-  { key: 'appVocabulary', label: 'App vocabulary', hint: 'Likely terms from the front app.' },
-  { key: 'actionResult', label: 'Action result', hint: 'Output from an earlier action in this chain.' },
+interface PlaceholderSource {
+  key: string
+  label: string
+  hint: string
+}
+
+const placeholderGroups: Array<{ label: string; items: PlaceholderSource[] }> = [
+  {
+    label: 'Results',
+    items: [
+      { key: 'swResult', label: 'Result', hint: 'Language-model result when available, otherwise raw dictation.' },
+      { key: 'result', label: 'Raw dictation', hint: 'The unprocessed Superwhisper result.' },
+      { key: 'llmResult', label: 'Language-model result', hint: 'Only when Superwhisper produced one.' },
+    ],
+  },
+  {
+    label: 'Captured context',
+    items: [
+      { key: 'selectedText', label: 'Selected text', hint: 'Text selected when recording started.' },
+      { key: 'clipboardContext', label: 'Clipboard context', hint: 'Clipboard content captured for this session.' },
+      { key: 'frontApp', label: 'Front app', hint: 'The app anchored to this action chain.' },
+      { key: 'frontAppUrl', label: 'Front app URL', hint: 'The active URL when the front app is a supported browser.' },
+      { key: 'appContext', label: 'App context', hint: 'Accessible context from the front app.' },
+      { key: 'appVocabulary', label: 'App vocabulary', hint: 'Likely terms gathered from the front app.' },
+    ],
+  },
+  {
+    label: 'Workflow',
+    items: [
+      { key: 'actionResult', label: 'Action result', hint: 'Output from an earlier synchronous action.' },
+      { key: 'folderName', label: 'Recording folder name', hint: 'Name of a completed recording folder.' },
+      { key: 'folderPath', label: 'Recording folder path', hint: 'Path to a completed recording folder.' },
+    ],
+  },
 ]
 
+const placeholders = placeholderGroups.flatMap((group) => group.items)
+
 const placeholderTransforms = [
-  { key: 'uppercase', label: 'Uppercase', hint: 'Convert the result to uppercase.' },
-  { key: 'lowercase', label: 'Lowercase', hint: 'Convert the result to lowercase.' },
-  { key: 'trim', label: 'Trim whitespace', hint: 'Remove leading and trailing whitespace.' },
-  { key: 'ensureSentence', label: 'Ensure sentence', hint: 'Normalize the result into a sentence.' },
+  { key: 'uppercase', label: 'UPPERCASE', group: 'Text case' },
+  { key: 'lowercase', label: 'lowercase', group: 'Text case' },
+  { key: 'uppercaseFirst', label: 'Uppercase first letter', group: 'Text case' },
+  { key: 'lowercaseFirst', label: 'Lowercase first letter', group: 'Text case' },
+  { key: 'trim', label: 'Trim whitespace', group: 'Text case' },
+  { key: 'ensureSentence', label: 'Ensure sentence', group: 'Text case' },
+  { key: 'camelCase', label: 'camelCase', group: 'Identifiers' },
+  { key: 'pascalCase', label: 'PascalCase', group: 'Identifiers' },
+  { key: 'snakeCase', label: 'snake_case', group: 'Identifiers' },
+  { key: 'kebabCase', label: 'kebab-case', group: 'Identifiers' },
+  { key: 'titleCase', label: 'Title case · automatic language', group: 'Titles' },
+  { key: 'titleCase:en', label: 'Title case · English', group: 'Titles' },
+  { key: 'titleCase:es', label: 'Title case · Spanish', group: 'Titles' },
+  { key: 'titleCase:fr', label: 'Title case · French', group: 'Titles' },
+  { key: 'titleCase:all', label: 'Title Case · every word', group: 'Titles' },
+  { key: 'altCase', label: 'aLtErNaTiNg case', group: 'Specialized' },
+  { key: 'altCase:upperFirst', label: 'AlTeRnAtInG case', group: 'Specialized' },
+  { key: 'randomCase', label: 'Random case', group: 'Specialized' },
 ]
 
 interface ReplacementStage {
@@ -297,6 +339,15 @@ interface EditablePlaceholder {
   format?: string
   transformName?: string
   regexReplacements: ReplacementStage[]
+}
+
+interface PlaceholderOccurrence {
+  index: number
+  start: number
+  end: number
+  raw: string
+  label: string
+  placeholder: EditablePlaceholder | null
 }
 
 const dateFormats = [
@@ -464,12 +515,9 @@ function parseEditablePlaceholder(value: string, segment: { start: number; end: 
     remaining = ''
   }
   if (remaining !== '') return null
-
-  const knownSource = placeholders.some((source) => source.key === key) || key === 'date'
-  const knownTransform = !transformName || placeholderTransforms.some((transform) => transform.key === transformName)
-  // A raw or newer syntax is intentionally not editable in the inspector. It
-  // remains available in the textarea so opening the helper never rewrites it.
-  if (!knownSource || !knownTransform || (key === 'date' && !format)) return null
+  // XML extraction is a separate runtime grammar. Keep it reviewable but raw
+  // so the dynamic-placeholder inspector never rewrites its tag syntax.
+  if (key === 'xml') return null
 
   return {
     start: segment.start,
@@ -483,13 +531,25 @@ function parseEditablePlaceholder(value: string, segment: { start: number; end: 
   }
 }
 
-function placeholderAtCaret(value: string, caret: number): EditablePlaceholder | null {
-  for (const segment of extractPlaceholderSegments(value)) {
-    if (caret < segment.start || caret > segment.end) continue
-    const parsed = parseEditablePlaceholder(value, segment)
-    if (parsed) return parsed
-  }
-  return null
+function placeholderLabel(placeholder: EditablePlaceholder | null): string {
+  if (!placeholder) return 'Raw placeholder'
+  if (placeholder.key === 'date') return 'Date'
+  return placeholders.find((source) => source.key === placeholder.key)?.label ?? placeholder.key
+}
+
+function placeholderOccurrences(value: string): PlaceholderOccurrence[] {
+  return extractPlaceholderSegments(value).map((segment, index) => {
+    const placeholder = parseEditablePlaceholder(value, segment)
+    const raw = value.slice(segment.start, segment.end)
+    return {
+      index,
+      start: segment.start,
+      end: segment.end,
+      raw,
+      label: placeholderLabel(placeholder),
+      placeholder,
+    }
+  })
 }
 
 function rawRegexBody(raw: string): string {
@@ -1038,6 +1098,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     : undefined
   const [snapshot, setSnapshot] = useState<ConfigSnapshot>(() => store.getSnapshot())
   const [screen, setScreen] = useState<Screen>('defaults')
+  const [railGroup, setRailGroup] = useState<ActionGroup | null>(null)
   const [selectedName, setSelectedName] = useState('dailyNotes')
   const [search, setSearch] = useState('')
   const [theme, setTheme] = useState<ThemeChoice>(() => {
@@ -1058,9 +1119,9 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   const [lifecycleStatus, setLifecycleStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
+  const [payloadRecovery, setPayloadRecovery] = useState<Record<string, string>>({})
   const [navPrompt, setNavPrompt] = useState<NavigationPrompt | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [mobileActionView, setMobileActionView] = useState<'list' | 'editor'>('list')
   const [isNarrow, setIsNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 780px)').matches)
   const [pendingCount, setPendingCount] = useState(0)
   const snapshotRef = useRef(snapshot)
@@ -1132,7 +1193,6 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   useEffect(() => {
     if (screen === 'inserts' && selectedName && !snapshot.inserts[selectedName]) {
       setSelectedName(Object.keys(snapshot.inserts)[0] ?? '')
-      setMobileActionView('list')
     }
     const currentScenario = fixtureStore?.getScenario?.()
     if (currentScenario && scenario !== currentScenario) setScenario(currentScenario)
@@ -1140,6 +1200,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
 
   const currentGroup = isActionGroup(screen) ? groupById.get(screen) : undefined
   const currentAction = isActionGroup(screen) && selectedName ? snapshot[screen][selectedName] : undefined
+  const browsedGroup = railGroup ? groupById.get(railGroup) : undefined
 
   const valueFor = useCallback((path: string[]): FieldValue => {
     const entry = draftsRef.current[pathKey(path)]
@@ -1423,9 +1484,10 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     setDrafts({})
     setLifecycleError('')
     setLifecycleStatus('idle')
+    setPayloadRecovery({})
     setScreen('defaults')
+    setRailGroup(null)
     setSelectedName(next === 'empty' ? '' : 'dailyNotes')
-    setMobileActionView('list')
     setMobileNavOpen(false)
   }, [fixtureStore])
 
@@ -1439,14 +1501,16 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
       return
     }
     setScreen(target.screen)
-    if (target.screen === 'inserts') {
-      const firstName = target.name ?? Object.keys(snapshotRef.current.inserts)[0] ?? ''
-      setSelectedName(firstName)
-      setRenameValue(firstName)
-      setMobileActionView(target.name || !isNarrow ? (firstName ? 'editor' : 'list') : 'list')
+    if (isActionGroup(target.screen)) {
+      const nextName = target.name ?? ''
+      setSelectedName(nextName)
+      if (target.screen === 'inserts') setRenameValue(nextName)
+      setRailGroup(target.screen)
+    } else {
+      setRailGroup(null)
     }
     setMobileNavOpen(false)
-  }, [applyScenario, isNarrow])
+  }, [applyScenario])
 
   const flushDrafts = useCallback(async (): Promise<boolean> => {
     const pending = Array.from(pendingMutationsRef.current.values())
@@ -1470,7 +1534,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }, [commitField])
 
   const requestNavigation = useCallback(async (target: NavigationPrompt) => {
-    if (!target.scenario && target.screen === screen && (target.name ?? '') === (screen === 'inserts' ? selectedName : '')) return
+    if (!target.scenario && target.screen === screen && (target.name ?? '') === (isActionGroup(screen) ? selectedName : '')) return
     if (screen === 'inserts' && renameValue.trim() !== selectedName) {
       const renamed = await renameInsert()
       if (!renamed) {
@@ -1497,7 +1561,15 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }
 
   const goToDefaults = () => void requestNavigation({ screen: 'defaults', label: 'Defaults' })
-  const goToGroup = (group: GroupDefinition) => void requestNavigation({ screen: group.id, label: group.label })
+  const browseGroup = (group: GroupDefinition) => {
+    setRailGroup(group.id)
+    setSearch('')
+  }
+
+  const showSectionNavigation = () => {
+    setRailGroup(null)
+    setSearch('')
+  }
 
   const discardAndNavigate = () => {
     if (!navPrompt) return
@@ -1515,6 +1587,8 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }
 
   const openCreate = () => {
+    setRailGroup('inserts')
+    if (isNarrow) setMobileNavOpen(true)
     setCreateOpen(true)
     setDuplicateOpen(false)
     setCreateName('')
@@ -1547,9 +1621,10 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
         setCreateName('')
         setLifecycleStatus('saved')
         setScreen('inserts')
+        setRailGroup('inserts')
         setSelectedName(createdName)
         setRenameValue(createdName)
-        setMobileActionView('editor')
+        setMobileNavOpen(false)
         return true
       } catch (error) {
         setLifecycleStatus('idle')
@@ -1579,6 +1654,14 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
         const result = await store.renameInsert(selectedName, clean)
         snapshotRef.current = result.snapshot
         setSnapshot(result.snapshot)
+        setPayloadRecovery((current) => {
+          if (!(selectedName in current)) return current
+          const retained = current[selectedName]
+          const next = { ...current }
+          delete next[selectedName]
+          next[clean] = retained
+          return next
+        })
         setSelectedName(clean)
         setRenameValue(clean)
         setLifecycleStatus('saved')
@@ -1606,12 +1689,18 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
         const result = await store.deleteInsert(selectedName)
         snapshotRef.current = result.snapshot
         setSnapshot(result.snapshot)
+        setPayloadRecovery((current) => {
+          if (!(selectedName in current)) return current
+          const next = { ...current }
+          delete next[selectedName]
+          return next
+        })
         const next = Object.keys(result.snapshot.inserts)[0] ?? ''
         setDeleteOpen(false)
         setSelectedName(next)
         setRenameValue(next)
+        setRailGroup('inserts')
         setLifecycleStatus('saved')
-        setMobileActionView(next ? 'editor' : 'list')
         if (!next) setScreen('inserts')
         return true
       } catch (error) {
@@ -1663,27 +1752,50 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
           <button type="button" className="icon-button close-mobile" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)}><Cross2Icon /></button>
         </div>
 
-        <nav className="sidebar-nav" aria-label="Configuration sections">
-          <div className="nav-label">Workspace</div>
-          <button type="button" className={screen === 'defaults' ? 'nav-item is-active' : 'nav-item'} aria-current={screen === 'defaults' ? 'page' : undefined} onClick={goToDefaults}>
-            <GearIcon aria-hidden="true" /><span>Defaults</span>
-          </button>
-          <div className="nav-label nav-label-spaced">Actions</div>
-          {groups.map((group) => {
-            const count = Object.keys(snapshot[group.id]).length
-            return (
-              <button
-                type="button"
-                key={group.id}
-                className={screen === group.id ? 'nav-item is-active' : 'nav-item'}
-                aria-current={screen === group.id ? 'page' : undefined}
-                onClick={() => goToGroup(group)}
-              >
-                {group.icon}<span>{group.label}</span><span className="nav-count">{count}</span>
-              </button>
-            )
-          })}
-        </nav>
+        {browsedGroup ? (
+          <ActionList
+            group={browsedGroup}
+            snapshot={snapshot}
+            selectedName={screen === browsedGroup.id ? selectedName : ''}
+            search={search}
+            setSearch={setSearch}
+            onBack={showSectionNavigation}
+            onSelect={(name) => void handleSelectAction(browsedGroup.id, name)}
+            onCreate={openCreate}
+            createOpen={createOpen}
+            duplicateOpen={duplicateOpen}
+            createName={createName}
+            createPayload={createPayload}
+            setCreateName={setCreateName}
+            setCreatePayload={setCreatePayload}
+            onSubmitCreate={() => void createInsert(duplicateOpen)}
+            onCancelCreate={() => { setCreateOpen(false); setDuplicateOpen(false); setLifecycleError('') }}
+            lifecycleError={lifecycleError}
+            lifecycleStatus={lifecycleStatus}
+          />
+        ) : (
+          <nav className="sidebar-nav" aria-label="Configuration sections">
+            <div className="nav-label">Workspace</div>
+            <button type="button" className={screen === 'defaults' ? 'nav-item is-active' : 'nav-item'} aria-current={screen === 'defaults' ? 'page' : undefined} onClick={goToDefaults}>
+              <GearIcon aria-hidden="true" /><span>Defaults</span>
+            </button>
+            <div className="nav-label nav-label-spaced">Actions</div>
+            {groups.map((group) => {
+              const count = Object.keys(snapshot[group.id]).length
+              return (
+                <button
+                  type="button"
+                  key={group.id}
+                  className={screen === group.id ? 'nav-item is-active' : 'nav-item'}
+                  aria-current={screen === group.id ? 'page' : undefined}
+                  onClick={() => browseGroup(group)}
+                >
+                  {group.icon}<span>{group.label}</span><span className="nav-count">{count}</span>
+                </button>
+              )
+            })}
+          </nav>
+        )}
 
         <div className="sidebar-bottom">
           <EditorStatusControl snapshot={snapshot} pendingCount={pendingCount} hasSaveError={hasSaveError} theme={theme} onThemeChange={setTheme} revealConfiguration={revealConfiguration} />
@@ -1694,7 +1806,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
       <main className="main-panel">
         <header className="topbar">
           <button ref={mobileMenuRef} type="button" className="mobile-menu-button" aria-expanded={mobileNavOpen} aria-controls="configuration-navigation" onClick={() => setMobileNavOpen(true)}><GearIcon aria-hidden="true" /> Menu</button>
-          <div className="breadcrumb"><span>Macrowhisper</span><span className="breadcrumb-separator">/</span><span>{screen === 'defaults' ? 'Defaults' : currentGroup?.label}</span>{currentAction && <><span className="breadcrumb-separator">/</span><strong title={selectedName}>{actionDisplayName(selectedName, currentAction)}</strong></>}</div>
+          <div className="breadcrumb"><span>Macrowhisper</span><span className="breadcrumb-separator">/</span><span>{screen === 'defaults' ? 'Defaults' : currentGroup?.label}</span>{currentAction && <><span className="breadcrumb-separator">/</span><strong title={selectedName}>{selectedName}</strong></>}</div>
           <div className="topbar-tools">
             {fixtureStore && <label className="scenario-picker">Preview
               <select aria-label="Preview scenario" value={scenario} onChange={(event) => handleScenario(event.target.value as StoreScenario)}>
@@ -1713,55 +1825,43 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
         {screen === 'defaults' ? (
           <DefaultsScreen snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={Boolean(fixtureStore)} chooseDirectory={chooseDirectory} />
         ) : screen === 'inserts' ? (
-          <div className={`action-workspace mobile-${mobileActionView}`}>
-            {(!isNarrow || mobileActionView === 'list') && <ActionList
+          currentAction ? (
+            <InsertEditor
+              key={selectedName}
               snapshot={snapshot}
               selectedName={selectedName}
-              search={search}
-              setSearch={setSearch}
-              onSelect={(name) => void handleSelectAction('inserts', name)}
-              onCreate={openCreate}
-              createOpen={createOpen}
-              duplicateOpen={duplicateOpen}
-              createName={createName}
-              createPayload={createPayload}
-              setCreateName={setCreateName}
-              setCreatePayload={setCreatePayload}
-              onSubmitCreate={() => void createInsert(duplicateOpen)}
-              onCancelCreate={() => { setCreateOpen(false); setDuplicateOpen(false); setLifecycleError('') }}
+              action={currentAction}
+              drafts={drafts}
+              valueFor={valueFor}
+              setDraftValue={setDraftValue}
+              commitField={commitField}
+              revertField={revertField}
+              retryField={retryField}
+              resyncField={resyncField}
+              renameValue={renameValue}
+              setRenameValue={setRenameValue}
+              onRename={renameInsert}
+              onDuplicate={() => { setRailGroup('inserts'); setDuplicateOpen(true); setCreateOpen(false); setCreateName(`${selectedName} copy`); setLifecycleError(''); if (isNarrow) setMobileNavOpen(true) }}
+              onDelete={() => setDeleteOpen(true)}
+              onBack={() => { setRailGroup('inserts'); setMobileNavOpen(true) }}
               lifecycleError={lifecycleError}
               lifecycleStatus={lifecycleStatus}
-            />}
-            {(!isNarrow || mobileActionView === 'editor') && (currentAction ? (
-              <InsertEditor
-                key={selectedName}
-                snapshot={snapshot}
-                selectedName={selectedName}
-                action={currentAction}
-                drafts={drafts}
-                valueFor={valueFor}
-                setDraftValue={setDraftValue}
-                commitField={commitField}
-                revertField={revertField}
-                retryField={retryField}
-                resyncField={resyncField}
-                renameValue={renameValue}
-                setRenameValue={setRenameValue}
-                onRename={() => void renameInsert()}
-                onDuplicate={() => { setDuplicateOpen(true); setCreateOpen(false); setCreateName(`${selectedName} copy`); setLifecycleError('') }}
-                onDelete={() => setDeleteOpen(true)}
-                onBack={() => setMobileActionView('list')}
-                lifecycleError={lifecycleError}
-                lifecycleStatus={lifecycleStatus}
-                folderPickerPreview={Boolean(fixtureStore)}
-                chooseDirectory={chooseDirectory}
-              />
-            ) : (
-              <EmptyState onCreate={openCreate} />
-            ))}
-          </div>
+              recoveredPayload={payloadRecovery[selectedName]}
+              onRetainPayload={(text) => setPayloadRecovery((current) => ({ ...current, [selectedName]: text }))}
+              onClearRetainedPayload={() => setPayloadRecovery((current) => {
+                if (!(selectedName in current)) return current
+                const next = { ...current }
+                delete next[selectedName]
+                return next
+              })}
+              folderPickerPreview={Boolean(fixtureStore)}
+              chooseDirectory={chooseDirectory}
+            />
+          ) : (
+            <EmptyState onCreate={openCreate} />
+          )
         ) : (
-          <UnsupportedActionGroup group={currentGroup!} snapshot={snapshot} fixtureBacked={Boolean(fixtureStore)} />
+          <UnsupportedActionGroup group={currentGroup!} selectedName={selectedName} snapshot={snapshot} fixtureBacked={Boolean(fixtureStore)} />
         )}
       </main>
 
@@ -2049,10 +2149,12 @@ function BuiltInPill({ id }: { id: string }) {
 }
 
 interface ActionListProps {
+  group: GroupDefinition
   snapshot: ConfigSnapshot
   selectedName: string
   search: string
   setSearch: (value: string) => void
+  onBack: () => void
   onSelect: (name: string) => void
   onCreate: () => void
   createOpen: boolean
@@ -2067,22 +2169,40 @@ interface ActionListProps {
   lifecycleStatus: 'idle' | 'saving' | 'saved'
 }
 
-function ActionList({ snapshot, selectedName, search, setSearch, onSelect, onCreate, createOpen, duplicateOpen, createName, createPayload, setCreateName, setCreatePayload, onSubmitCreate, onCancelCreate, lifecycleError, lifecycleStatus }: ActionListProps) {
-  const names = Object.keys(snapshot.inserts).filter((name) => name.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
+function ActionList({ group, snapshot, selectedName, search, setSearch, onBack, onSelect, onCreate, createOpen, duplicateOpen, createName, createPayload, setCreateName, setCreatePayload, onSubmitCreate, onCancelCreate, lifecycleError, lifecycleStatus }: ActionListProps) {
+  const actions = snapshot[group.id]
+  const names = Object.keys(actions).filter((name) => name.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
+  const supportsLifecycle = group.id === 'inserts'
+  const onListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+    if (options.length === 0) return
+    event.preventDefault()
+    const index = options.indexOf(document.activeElement as HTMLButtonElement)
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? options.length - 1
+        : index < 0
+          ? 0
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length
+    options[nextIndex]?.focus()
+  }
   return (
-    <aside className="action-list" aria-label="Insert actions">
-      <div className="action-list-heading"><div><h1>Inserts</h1></div><span className="section-count">{Object.keys(snapshot.inserts).length}</span></div>
-      <p className="list-description">Text actions for pasting or typing into the focused app.</p>
-      <div className="action-list-tools"><label className="search-field"><MagnifyingGlassIcon aria-hidden="true" /><span className="sr-only">Search Inserts</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search actions" /></label><div className="list-action-buttons"><button type="button" className="primary-button compact" onClick={onCreate}><PlusIcon aria-hidden="true" /> New Insert</button></div></div>
-      {(createOpen || duplicateOpen) && <div className="create-panel"><strong className="create-panel-title">{duplicateOpen ? 'Duplicate Insert' : 'New Insert'}</strong><label>Name<input autoFocus value={createName} onChange={(event) => setCreateName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmitCreate() }} placeholder="e.g. meetingNotes" /></label>{!duplicateOpen && <label>Payload<textarea value={createPayload} onChange={(event) => setCreatePayload(event.target.value)} rows={3} /></label>}<div className="panel-actions"><button type="button" className="quiet-button" onClick={onCancelCreate}>Cancel</button><button type="button" className="primary-button compact" onClick={onSubmitCreate} disabled={lifecycleStatus === 'saving'}>{lifecycleStatus === 'saving' ? 'Creating…' : duplicateOpen ? 'Duplicate' : 'Create Insert'}</button></div>{lifecycleError && <div className="panel-error"><ExclamationTriangleIcon aria-hidden="true" />{lifecycleError}</div>}</div>}
-      <div className="action-items" role="listbox" aria-label="Available Inserts">
+    <nav className="action-list" aria-label={`${group.shortLabel} actions`}>
+      <button type="button" className="context-back-button" onClick={onBack}><ArrowLeftIcon aria-hidden="true" /> All sections</button>
+      <div className="action-list-heading"><div><h1>{group.label}</h1></div><span className="section-count">{Object.keys(actions).length}</span></div>
+      <p className="list-description">{group.description}</p>
+      <div className="action-list-tools"><label className="search-field"><MagnifyingGlassIcon aria-hidden="true" /><span className="sr-only">Search {group.label}</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search actions" /></label>{supportsLifecycle && <div className="list-action-buttons"><button type="button" className="primary-button compact" onClick={onCreate}><PlusIcon aria-hidden="true" /> New Insert</button></div>}</div>
+      {supportsLifecycle && (createOpen || duplicateOpen) && <div className="create-panel"><strong className="create-panel-title">{duplicateOpen ? 'Duplicate Insert' : 'New Insert'}</strong><label>Name<input autoFocus value={createName} onChange={(event) => setCreateName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmitCreate() }} placeholder="e.g. meetingNotes" /></label>{!duplicateOpen && <label>Payload<textarea value={createPayload} onChange={(event) => setCreatePayload(event.target.value)} rows={3} /></label>}<div className="panel-actions"><button type="button" className="quiet-button" onClick={onCancelCreate}>Cancel</button><button type="button" className="primary-button compact" onClick={onSubmitCreate} disabled={lifecycleStatus === 'saving'}>{lifecycleStatus === 'saving' ? 'Creating…' : duplicateOpen ? 'Duplicate' : 'Create Insert'}</button></div>{lifecycleError && <div className="panel-error" role="alert"><ExclamationTriangleIcon aria-hidden="true" />{lifecycleError}</div>}</div>}
+      <div className="action-items" role="listbox" aria-label={`Available ${group.label}`} onKeyDown={onListKeyDown}>
         {names.map((name) => {
-          const action = snapshot.inserts[name]
-          return <button type="button" role="option" aria-selected={name === selectedName} className={name === selectedName ? 'action-item is-selected' : 'action-item'} key={name} onClick={() => onSelect(name)}><span className="action-item-icon">{action.icon || '·'}</span><span className="action-item-copy"><strong title={name}>{actionDisplayName(name, action)}</strong><small>{actionDisplayDetail(name, action)}</small></span></button>
+          const action = actions[name]
+          return <button type="button" role="option" aria-selected={name === selectedName} className={name === selectedName ? 'action-item is-selected' : 'action-item'} key={name} onClick={() => onSelect(name)}><span className="action-item-icon">{action.icon || group.icon}</span><span className="action-item-copy"><strong title={name}>{actionDisplayName(name, action)}</strong><small>{actionDisplayDetail(name, action)}</small></span></button>
         })}
-        {names.length === 0 && <div className="list-empty"><MagnifyingGlassIcon aria-hidden="true" /><span>{search ? 'No matching Inserts' : 'No Inserts yet'}</span>{!search && <button type="button" className="text-button" onClick={onCreate}>Create one</button>}</div>}
+        {names.length === 0 && <div className="list-empty"><MagnifyingGlassIcon aria-hidden="true" /><span>{search ? `No matching ${group.label}` : `No ${group.label} yet`}</span>{supportsLifecycle && !search && <button type="button" className="text-button" onClick={onCreate}>Create one</button>}</div>}
       </div>
-    </aside>
+    </nav>
   )
 }
 
@@ -2099,17 +2219,20 @@ interface InsertEditorProps {
   resyncField: (path: string[]) => void
   renameValue: string
   setRenameValue: (value: string) => void
-  onRename: () => void
+  onRename: () => Promise<boolean>
   onDuplicate: () => void
   onDelete: () => void
   onBack: () => void
   lifecycleError: string
   lifecycleStatus: 'idle' | 'saving' | 'saved'
+  recoveredPayload?: string
+  onRetainPayload: (text: string) => void
+  onClearRetainedPayload: () => void
   folderPickerPreview: boolean
   chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>
 }
 
-function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDraftValue, commitField, revertField, retryField, resyncField, renameValue, setRenameValue, onRename, onDuplicate, onDelete, onBack, lifecycleError, lifecycleStatus, folderPickerPreview, chooseDirectory }: InsertEditorProps) {
+function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDraftValue, commitField, revertField, retryField, resyncField, renameValue, setRenameValue, onRename, onDuplicate, onDelete, onBack, lifecycleError, lifecycleStatus, recoveredPayload, onRetainPayload, onClearRetainedPayload, folderPickerPreview, chooseDirectory }: InsertEditorProps) {
   const actionPath = (field: string) => ['inserts', selectedName, field]
   const payloadPath = actionPath('action')
   const payloadEntry = drafts[pathKey(payloadPath)]
@@ -2117,13 +2240,16 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const payloadMode = payload === '.autoPaste' ? 'autoPaste' : payload === '.none' ? 'none' : 'text'
   const source = sourceForAction(selectedName, { ...action, action: payload })
   const [placeholderOpen, setPlaceholderOpen] = useState(false)
-  const [activePlaceholder, setActivePlaceholder] = useState<EditablePlaceholder | null>(null)
+  const [placeholderReviewOpen, setPlaceholderReviewOpen] = useState(false)
+  const [selectedPlaceholderIndex, setSelectedPlaceholderIndex] = useState<number | null>(null)
+  const [inspectedPlaceholder, setInspectedPlaceholder] = useState<EditablePlaceholder | null>(null)
   const [pendingOverrides, setPendingOverrides] = useState<string[]>([])
   const [pendingConditions, setPendingConditions] = useState<string[]>([])
   const [conditionAdvanced, setConditionAdvanced] = useState(false)
   const [conditionOpen, setConditionOpen] = useState(source === 'invalid')
   const [insertionOpen, setInsertionOpen] = useState(false)
   const [chainingOpen, setChainingOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const composingRef = useRef(false)
   const deferredBlurRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -2133,14 +2259,28 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const conditionRaw = displayValue(valueFor(conditionPath))
   const conditionValues = parseCondition(conditionRaw)
   const conditionAnalysis = analyzeCondition(conditionRaw)
+  const occurrences = useMemo(() => placeholderOccurrences(payload), [payload])
+  const activeOccurrence = selectedPlaceholderIndex === null ? null : occurrences[selectedPlaceholderIndex] ?? null
 
   const rememberSelection = () => {
     const element = textareaRef.current
     if (element) {
       selectionRef.current = { start: element.selectionStart, end: element.selectionEnd }
-      setActivePlaceholder(placeholderAtCaret(displayValue(valueFor(payloadPath)), element.selectionStart))
     }
   }
+
+  useEffect(() => {
+    if (selectedPlaceholderIndex !== null && selectedPlaceholderIndex >= occurrences.length) {
+      setSelectedPlaceholderIndex(null)
+      setInspectedPlaceholder(null)
+    }
+  }, [occurrences.length, selectedPlaceholderIndex])
+
+  useEffect(() => {
+    setSelectedPlaceholderIndex(null)
+    setInspectedPlaceholder(null)
+    setPlaceholderReviewOpen(false)
+  }, [selectedName])
 
   useEffect(() => {
     if (!placeholderOpen) return
@@ -2184,14 +2324,18 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
       const caret = safeStart + insertion.length
       element.setSelectionRange(caret, caret)
       selectionRef.current = { start: caret, end: caret }
-      setActivePlaceholder(placeholderAtCaret(inserted ? element.value : next, caret))
+      const nextValue = inserted ? element.value : next
+      const insertedIndex = placeholderOccurrences(nextValue).findIndex((occurrence) => occurrence.start === safeStart)
+      setPlaceholderReviewOpen(true)
+      setSelectedPlaceholderIndex(insertedIndex >= 0 ? insertedIndex : null)
+      setInspectedPlaceholder(insertedIndex >= 0 ? placeholderOccurrences(nextValue)[insertedIndex]?.placeholder ?? null : null)
     })
   }
 
   const updatePlaceholder = (next: EditablePlaceholder) => {
     const currentPayload = displayValue(valueFor(payloadPath))
     const prefix = next.prefixType ? `${next.prefixType}:` : ''
-    const format = next.key === 'date' ? `:${next.format || 'short'}` : ''
+    const format = next.format ? `:${next.format}` : next.key === 'date' ? ':short' : ''
     const transform = next.transformName ? `::${next.transformName}` : ''
     const replacements = next.regexReplacements
       .map((stage) => `||${regexBuilderPart(stage.find)}||${regexBuilderPart(stage.replace)}`)
@@ -2200,11 +2344,24 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     const updatedPayload = `${currentPayload.slice(0, next.start)}${raw}${currentPayload.slice(next.end)}`
     const updated = { ...next, end: next.start + raw.length, raw }
     setDraftValue(payloadPath, updatedPayload)
-    setActivePlaceholder(updated)
+    setInspectedPlaceholder(updated)
     requestAnimationFrame(() => {
-      const caret = updated.end - 2
-      textareaRef.current?.setSelectionRange(caret, caret)
-      selectionRef.current = { start: caret, end: caret }
+      textareaRef.current?.setSelectionRange(updated.start, updated.end)
+      selectionRef.current = { start: updated.start, end: updated.end }
+    })
+  }
+
+  const selectPlaceholder = (index: number) => {
+    const occurrence = occurrences[index]
+    if (!occurrence) return
+    setSelectedPlaceholderIndex(index)
+    setInspectedPlaceholder(occurrence.placeholder)
+    requestAnimationFrame(() => {
+      const element = textareaRef.current
+      if (!element) return
+      element.focus()
+      element.setSelectionRange(occurrence.start, occurrence.end)
+      selectionRef.current = { start: occurrence.start, end: occurrence.end }
     })
   }
 
@@ -2236,10 +2393,30 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     if (placeholderOpen) boundaryRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
   }, [placeholderOpen])
 
-  const setActionChoice = (next: 'autoPaste' | 'none' | 'text') => {
-    if (next === 'autoPaste') void commitField(payloadPath, '.autoPaste')
-    else if (next === 'none') void commitField(payloadPath, '.none')
-    else if (payloadMode !== 'text') void commitField(payloadPath, '{{swResult}}')
+  const setActionChoice = async (next: 'autoPaste' | 'none' | 'text') => {
+    if (next === payloadMode) return
+    if (payloadMode === 'text' && next !== 'text' && payload.length > 0) onRetainPayload(payload)
+    if (next === 'autoPaste') await commitField(payloadPath, '.autoPaste')
+    else if (next === 'none') await commitField(payloadPath, '.none')
+    else {
+      const restored = recoveredPayload ?? ''
+      const saved = await commitField(payloadPath, restored)
+      if (saved && recoveredPayload !== undefined) onClearRetainedPayload()
+    }
+  }
+
+  useEffect(() => {
+    if (payloadMode === 'text' && recoveredPayload !== undefined) onClearRetainedPayload()
+  }, [payloadMode, recoveredPayload, onClearRetainedPayload])
+
+  const cancelRename = () => {
+    setRenameValue(selectedName)
+    setRenaming(false)
+  }
+
+  const saveRename = async () => {
+    const saved = await onRename()
+    if (saved) setRenaming(false)
   }
 
   const setConditionMode = (field: string, mode: 'always' | 'inside' | 'outside') => {
@@ -2263,43 +2440,111 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const configuredConditions = conditionFieldsByGroup.inserts.filter((field) => conditionValues[field])
   const visibleConditions = [...configuredConditions, ...pendingConditions.filter((field) => !configuredConditions.includes(field))]
   const availableConditions = conditionFieldsByGroup.inserts.filter((field) => !visibleConditions.includes(field))
+  const triggerKinds = [
+    ['triggerVoice', 'voice phrase', 'voice phrases'],
+    ['triggerApps', 'front app', 'front apps'],
+    ['triggerModes', 'Superwhisper mode', 'Superwhisper modes'],
+    ['triggerUrls', 'browser URL', 'browser URLs'],
+  ] as const
+  const triggerParts = triggerKinds.flatMap(([field, singular, plural]) => {
+    const raw = displayValue(valueFor(actionPath(field)))
+    if (!raw) return []
+    const count = isStructuredTriggerExpression(raw, field) ? parseTriggerTokens(raw, field).length : 1
+    return [`${count} ${count === 1 ? singular : plural}`]
+  })
+  const joinSummaryParts = (parts: string[]) => parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
+  const effectiveTriggerLogic = displayValue(valueFor(actionPath('triggerLogic'))) || displayValue(effectiveDefault(snapshot, 'triggerLogic')) || 'or'
+  const triggerSummary = triggerParts.length === 0
+    ? 'No triggers; available as a fallback or chain step'
+    : `Triggered by ${joinSummaryParts(triggerParts)}${triggerParts.length > 1 ? ` (${effectiveTriggerLogic === 'and' ? 'all types must match' : 'any type can match'})` : ''}`
+  const payloadSummary = payloadMode === 'autoPaste' ? 'Uses built-in Auto-paste' : payloadMode === 'none' ? 'Performs no payload' : 'Inserts custom text'
+  const insertionSummary = payloadMode === 'text'
+    ? (overrideCount === 0 ? 'Uses Defaults' : `${overrideCount} insertion override${overrideCount === 1 ? '' : 's'}`)
+    : 'Uses built-in insertion behavior'
+  const conditionsSummary = payloadMode === 'text'
+    ? conditionHasIssue
+      ? 'Input conditions need review'
+      : conditionRaw
+        ? `${Object.keys(conditionValues).length} input condition${Object.keys(conditionValues).length === 1 ? '' : 's'}`
+        : 'No input conditions'
+    : 'Uses built-in input conditions'
+  const nextActionValue = valueFor(actionPath('nextAction'))
+  const inheritedNextAction = displayValue(effectiveDefault(snapshot, 'nextAction'))
+  const resolvedNextAction = nextActionValue === null || nextActionValue === undefined ? inheritedNextAction : displayValue(nextActionValue)
+  const nextActionRecord = groups.flatMap((group) => Object.entries(snapshot[group.id])).find(([name]) => name === resolvedNextAction)?.[1]
+  const nextActionLabel = resolvedNextAction ? actionDisplayName(resolvedNextAction, nextActionRecord) : ''
+  const nextSummary = nextActionValue === null || nextActionValue === undefined
+    ? resolvedNextAction
+      ? `Uses Defaults next step (${nextActionLabel}) when first in a chain`
+      : 'Stops after this action'
+    : resolvedNextAction
+      ? `Continues to ${nextActionLabel}`
+      : 'Stops after this action'
+  const effectiveBehavior = `${triggerSummary} · ${payloadSummary} · ${insertionSummary} · ${conditionsSummary} · ${nextSummary}`
+  const insertionDisclosureMeta = payloadMode === 'text'
+    ? `${overrideCount} override${overrideCount === 1 ? '' : 's'}${overrideCount === 0 ? ' · Using Defaults' : ''}`
+    : `Built-in active${overrideCount > 0 ? ` · ${overrideCount} stored override${overrideCount === 1 ? '' : 's'}` : ''}`
+  const conditionDisclosureMeta = payloadMode === 'text'
+    ? conditionSummary
+    : `Built-in active${conditionRaw ? ' · Stored rules retained' : ''}`
 
   return (
     <section className="insert-editor">
-      <div className="editor-header">
-        <button type="button" className="back-button mobile-action-back" onClick={onBack}><ArrowLeftIcon aria-hidden="true" /> Inserts</button>
-        <div className="editor-header-actions"><SourcePill source={source} /><button type="button" className="quiet-button" onClick={onDuplicate}><CopyIcon aria-hidden="true" /> Duplicate</button><button type="button" className="quiet-button danger-button" onClick={onDelete} disabled={payload === '.autoPaste'} title={payload === '.autoPaste' ? 'The .autoPaste built-in cannot be deleted' : undefined}><TrashIcon aria-hidden="true" /> Delete</button></div>
-      </div>
       <div className="editor-scroll">
-        <div className="editor-title-row"><div><h1 title={selectedName}>{actionDisplayName(selectedName, action)}</h1><p className="screen-description">{groupById.get('inserts')?.description}</p></div></div>
+        <button type="button" className="back-button mobile-action-back" onClick={onBack}><ArrowLeftIcon aria-hidden="true" /> Inserts</button>
 
-        {source === 'invalid' && <div className="field-alert"><ExclamationTriangleIcon aria-hidden="true" /><div><strong>This action has invalid configuration.</strong><span>Fix the highlighted fields before saving another change. Existing text is preserved so you can repair it deliberately.</span></div></div>}
-        {source === 'template' && <div className="template-callout"><div className="template-icon"><RocketIcon aria-hidden="true" /></div><div><strong>{payloadMode === 'autoPaste' ? 'Auto-paste template' : 'Do nothing template'}</strong><span>{payloadMode === 'autoPaste' ? 'Macrowhisper’s built-in paste behavior supplies the payload and insertion details at runtime.' : 'This action intentionally performs no payload operation. Its triggers and chain settings can still apply.'}</span></div></div>}
+        <section className="action-overview-card" aria-labelledby="insert-editor-title">
+          <div className="action-overview-heading">
+            <div className="action-overview-identity">
+              <div className="action-title-line">
+                {renaming ? <><h1 id="insert-editor-title" className="sr-only">{selectedName}</h1><div className="action-title-editor"><label className="sr-only" htmlFor="insert-name">Action name</label><input id="insert-name" autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveRename() } else if (event.key === 'Escape') { event.preventDefault(); cancelRename() } }} /><button type="button" className="primary-button compact" onClick={() => void saveRename()} disabled={lifecycleStatus === 'saving' || !renameValue.trim()}>Save name</button><button type="button" className="quiet-button compact" onClick={cancelRename}>Cancel</button></div></> : <><h1 id="insert-editor-title" title={selectedName}>{selectedName}</h1><button type="button" className="quiet-button compact rename-action-button" onClick={() => setRenaming(true)}><Pencil1Icon aria-hidden="true" /> Rename</button></>}
+                <SourcePill source={source} />
+              </div>
+              <p className="screen-description">{groupById.get('inserts')?.description}</p>
+              <FieldLifecycle status={lifecycleStatus} />
+            </div>
+            <div className="action-overview-actions"><button type="button" className="quiet-button" onClick={onDuplicate}><CopyIcon aria-hidden="true" /> Duplicate</button><button type="button" className="quiet-button danger-button" onClick={onDelete} disabled={payload === '.autoPaste'} aria-label={payload === '.autoPaste' ? 'Delete unavailable: built-in auto-paste cannot be deleted' : 'Delete'} title={payload === '.autoPaste' ? 'The built-in auto-paste action cannot be deleted' : undefined}><TrashIcon aria-hidden="true" /> Delete</button></div>
+          </div>
+          {lifecycleError && <div className="inline-field-error" role="alert"><ExclamationTriangleIcon aria-hidden="true" />{lifecycleError}</div>}
+          <div className="effective-summary" aria-label="Effective behavior"><strong>Effective behavior</strong><p>{effectiveBehavior}</p></div>
+        </section>
 
-        <div className="editor-section identity-section"><div className="section-heading"><div><h2>Identity</h2><p>Names are unique across Inserts, URLs, Shortcuts, Shell, and AppleScript.</p></div></div><div className="rename-row"><label htmlFor="insert-name">Action name</label><div className="rename-control"><input id="insert-name" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onRename() }} onBlur={() => { if (renameValue.trim() !== selectedName) onRename() }} /><button type="button" className="quiet-button" onClick={onRename} disabled={lifecycleStatus === 'saving' || renameValue.trim() === selectedName}><Pencil1Icon aria-hidden="true" /> Rename</button><FieldLifecycle status={lifecycleStatus} /></div></div>{lifecycleError && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />{lifecycleError}</div>}</div>
+        {source === 'invalid' && <div className="field-alert" role="alert"><ExclamationTriangleIcon aria-hidden="true" /><div><strong>This action has invalid configuration.</strong><span>Fix the highlighted fields before saving another change. Existing text is preserved so you can repair it deliberately.</span></div></div>}
 
-        <div className="editor-section payload-section">
-          <div className="section-heading payload-heading">
+        <section className="editor-section payload-section insert-card">
+          <div className="insert-card-heading payload-heading">
             <div><h2>Payload</h2><p>Choose a built-in mode or write Custom text. Placeholder helpers only appear for Custom text.</p></div>
             <a className="section-heading-link" href="https://github.com/ognistik/macrowhisper/blob/main/docs/placeholders-and-context.md" target="_blank" rel="noreferrer">Placeholder syntax reference <UpdateIcon aria-hidden="true" /></a>
           </div>
-          <div className="payload-boundary" ref={boundaryRef} onBlur={onPayloadBlur}>
+          <div className="payload-mode-row">
+            <div><label htmlFor="payload-mode">What should this Insert do?</label><p>The mode controls the payload Macrowhisper sends to the focused app.</p></div>
+            <select id="payload-mode" aria-label="Payload mode" value={payloadMode} onChange={(event) => void setActionChoice(event.target.value as 'autoPaste' | 'none' | 'text')}>
+              <option value="autoPaste">Auto-paste dictation</option>
+              <option value="none">Do nothing</option>
+              <option value="text">Insert custom text</option>
+            </select>
+          </div>
+          {payloadMode === 'text' ? <div className="payload-boundary" ref={boundaryRef} onBlur={onPayloadBlur}>
             <div className="payload-toolbar">
-              <div className="mode-label">{payloadMode === 'text' ? 'Custom text' : payloadMode === 'autoPaste' ? 'Auto-paste' : 'Do nothing'}</div>
-              <div className="placeholder-menu"><button type="button" className="toolbar-button" aria-haspopup="menu" aria-expanded={placeholderOpen} disabled={payloadMode !== 'text'} title={payloadMode === 'text' ? undefined : 'Choose Custom text to insert a placeholder'} onMouseDown={(event) => event.preventDefault()} onClick={() => { rememberSelection(); setPlaceholderOpen((open) => !open) }}><PlusIcon aria-hidden="true" /> Insert placeholder <ChevronDownIcon aria-hidden="true" /></button>{placeholderOpen && <PlaceholderMenu onInsert={insertExpression} onKeyDown={onPlaceholderKey} />}</div>
+              <span>Custom text</span>
+              <div className="placeholder-menu"><button type="button" className="toolbar-button" aria-haspopup="menu" aria-expanded={placeholderOpen} onMouseDown={(event) => event.preventDefault()} onClick={() => { rememberSelection(); setPlaceholderOpen((open) => !open) }}><PlusIcon aria-hidden="true" /> Insert placeholder <ChevronDownIcon aria-hidden="true" /></button>{placeholderOpen && <PlaceholderMenu onInsert={insertExpression} onKeyDown={onPlaceholderKey} />}</div>
             </div>
-            <div className="built-in-choice-row" role="radiogroup" aria-label="Payload mode"><ChoiceCard selected={payloadMode === 'autoPaste'} value=".autoPaste" label="Auto-paste" description="Use the built-in paste flow." onClick={() => setActionChoice('autoPaste')} /><ChoiceCard selected={payloadMode === 'none'} value=".none" displayValue="No payload" label="Do nothing" description="Keep triggers and chain settings." onClick={() => setActionChoice('none')} /><ChoiceCard selected={payloadMode === 'text'} value="text" label="Custom text" description="Edit the payload below." onClick={() => setActionChoice('text')} /></div>
-            {payloadMode === 'text' && <><textarea ref={textareaRef} value={payload} aria-label="Insert payload" aria-describedby={payloadEntry?.error ? fieldErrorId(payloadPath) : undefined} rows={8} onChange={(event) => { setDraftValue(payloadPath, event.target.value); setActivePlaceholder(placeholderAtCaret(event.target.value, event.target.selectionStart)) }} onSelect={rememberSelection} onKeyUp={rememberSelection} onFocus={rememberSelection} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={(event) => {
+            <textarea ref={textareaRef} value={payload} aria-label="Insert payload" aria-describedby={payloadEntry?.error ? fieldErrorId(payloadPath) : undefined} rows={8} onChange={(event) => { setDraftValue(payloadPath, event.target.value); setSelectedPlaceholderIndex(null); setInspectedPlaceholder(null) }} onSelect={rememberSelection} onKeyUp={rememberSelection} onFocus={rememberSelection} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={(event) => {
           composingRef.current = false
           if (deferredBlurRef.current) {
             deferredBlurRef.current = false
             void commitField(payloadPath, event.currentTarget.value)
           }
-        }} placeholder="Type the text to insert…" />{activePlaceholder && <PlaceholderInspector placeholder={activePlaceholder} onChange={updatePlaceholder} />}<div className="payload-footer"><span>{payload.length} characters</span><FieldState entry={payloadEntry} onRevert={() => revertField(payloadPath)} onRetry={() => retryField(payloadPath)} onResync={() => resyncField(payloadPath)} errorId={fieldErrorId(payloadPath)} /></div></>}
-          </div>
-        </div>
+        }} placeholder="Type the text to insert…" />
+            <PlaceholderReview occurrences={occurrences} open={placeholderReviewOpen} selectedIndex={selectedPlaceholderIndex} onToggle={() => setPlaceholderReviewOpen((open) => !open)} onSelect={selectPlaceholder} />
+            {placeholderReviewOpen && activeOccurrence && (inspectedPlaceholder
+              ? <PlaceholderInspector placeholder={inspectedPlaceholder} onChange={updatePlaceholder} />
+              : <RawPlaceholderInspector occurrence={activeOccurrence} />)}
+            <div className="payload-footer"><span>{payload.length} characters</span><FieldState entry={payloadEntry} onRevert={() => revertField(payloadPath)} onRetry={() => retryField(payloadPath)} onResync={() => resyncField(payloadPath)} errorId={fieldErrorId(payloadPath)} /></div>
+          </div> : <div className="payload-template-summary"><div><strong>{payloadMode === 'autoPaste' ? 'Auto-paste dictation' : 'Do nothing'}</strong><span>{payloadMode === 'autoPaste' ? 'Macrowhisper uses its protected built-in paste flow and insertion behavior. This action cannot be deleted.' : 'This Insert performs no payload operation. Its triggers and chain settings can still apply.'}</span></div>{recoveredPayload !== undefined && <div className="payload-recovery" role="status"><div><strong>Custom text retained</strong><span>{recoveredPayload.length} character{recoveredPayload.length === 1 ? '' : 's'} kept for this editing session.</span></div><button type="button" className="quiet-button" onClick={() => void setActionChoice('text')}>Restore custom text</button></div>}</div>}
+        </section>
 
-        <div className="editor-section"><Disclosure title="Insertion behavior" subtitle="Overrides inherited Defaults for this Insert." meta={`${overrideCount} override${overrideCount === 1 ? '' : 's'}${overrideCount === 0 ? ' · Using Defaults' : ''}`} open={insertionOpen} onToggle={setInsertionOpen}>
+        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Insertion behavior" subtitle="Overrides inherited Defaults for this Insert." meta={insertionDisclosureMeta} open={insertionOpen} onToggle={setInsertionOpen} variant="defaults">
           {visibleOverrides.length === 0 && <div className="section-empty"><strong>Using Defaults</strong><span>This Insert has no insertion overrides.</span></div>}
           <div className="configured-list">{visibleOverrides.map((field) => {
             const configured = configuredOverrides.includes(field)
@@ -2309,7 +2554,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           <div className="template-note"><MinusCircledIcon aria-hidden="true" /> Removing an override restores Use Defaults. Empty strings remain explicit values.</div>
         </Disclosure></div>
 
-        <div className="editor-section"><Disclosure title="Conditions" subtitle="Apply supported settings inside or outside text fields." meta={conditionSummary} open={conditionOpen} onToggle={setConditionOpen}>
+        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Conditions" subtitle="Apply supported settings inside or outside text fields." meta={conditionDisclosureMeta} open={conditionOpen} onToggle={setConditionOpen} variant="defaults">
           <div className="condition-intro">Add a rule only when a setting should behave differently inside or outside a text field.</div>
           {conditionHasIssue && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />This saved expression contains {conditionAnalysis.malformed ? 'an invalid token' : conditionAnalysis.repeated.length > 0 ? `repeated token${conditionAnalysis.repeated.length === 1 ? '' : 's'}` : 'a token this editor cannot represent'}. It stays intact until you deliberately edit Advanced raw mode.</div>}
           <fieldset className="template-field" disabled={payloadMode !== 'text' || conditionHasIssue || conditionAdvanced}>{payloadMode !== 'text' && <p className="template-note">The built-in mode supplies its own conditions. Your stored expression is retained for Custom text.</p>}{conditionHasIssue && !conditionAdvanced && <p className="template-note">Structured controls are paused until you enable Edit raw expression.</p>}{visibleConditions.length === 0 && !conditionHasIssue && <div className="section-empty"><strong>Always</strong><span>No conditional behavior is configured.</span></div>}<div className="condition-list">{visibleConditions.map((field) => <div className="condition-row" key={field}><div><strong>{field === 'action' ? 'Payload' : actionMeta[field]?.label ?? field}</strong><span>{field === 'action' ? 'Text or built-in action value' : 'Choose where this rule applies'}</span></div><select aria-label={`Condition for ${field}`} value={conditionValues[field] ?? ''} onChange={(event) => setConditionMode(field, event.target.value as 'inside' | 'outside')}><option value="" disabled>Choose…</option><option value="inside">Only in a text field</option><option value="outside">Only outside text fields</option></select><button type="button" className="icon-button" aria-label={`Remove condition for ${field}`} onClick={() => setConditionMode(field, 'always')}><Cross2Icon aria-hidden="true" /></button></div>)}</div>{availableConditions.length > 0 && !conditionHasIssue && <label className="add-setting-control"><span className="sr-only">Add condition</span><PlusIcon aria-hidden="true" /><select aria-label="Add condition" value="" onChange={(event) => { const field = event.target.value; if (field) setPendingConditions((current) => [...current, field]) }}><option value="">Add condition…</option>{availableConditions.map((field) => <option key={field} value={field}>{field === 'action' ? 'Payload' : actionMeta[field]?.label ?? field}</option>)}</select></label>}</fieldset>
@@ -2318,7 +2563,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
 
         <TriggerEditor action={action} selectedName={selectedName} actionPath={actionPath} drafts={drafts} valueFor={valueFor} setDraftValue={setDraftValue} commitIfChanged={commitIfChanged} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />
 
-        <div className="editor-section"><Disclosure title="Chaining" subtitle="Continue to another action after this step." meta={valueFor(actionPath('nextAction')) ? 'Linked' : 'No next action'} open={chainingOpen} onToggle={setChainingOpen}><div className="chain-field"><label htmlFor="next-action">Next action</label><p>The Defaults next action applies only to the root step. Select an action from any group.</p><ActionPicker id="next-action" label="Next action" describedBy={drafts[pathKey(actionPath('nextAction'))]?.error ? fieldErrorId(actionPath('nextAction')) : undefined} value={valueFor(actionPath('nextAction')) === null || valueFor(actionPath('nextAction')) === undefined ? NULL_CHOICE : valueFor(actionPath('nextAction')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('nextAction')))} options={[
+        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Chaining" subtitle="Continue to another action after this step." meta={valueFor(actionPath('nextAction')) ? 'Linked' : 'No next action'} open={chainingOpen} onToggle={setChainingOpen} variant="defaults"><div className="chain-field"><label htmlFor="next-action">Next action</label><p>The Defaults next action applies only to the root step. Select an action from any group.</p><ActionPicker id="next-action" label="Next action" describedBy={drafts[pathKey(actionPath('nextAction'))]?.error ? fieldErrorId(actionPath('nextAction')) : undefined} value={valueFor(actionPath('nextAction')) === null || valueFor(actionPath('nextAction')) === undefined ? NULL_CHOICE : valueFor(actionPath('nextAction')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('nextAction')))} options={[
           { value: NULL_CHOICE, label: 'Use Defaults next action', detail: 'Only for the first step', group: 'Defaults', keywords: 'inherit root' },
           { value: EMPTY_CHOICE, label: 'Stop chain', detail: 'Do not continue to another action', group: 'Chain behavior', keywords: 'none stop' },
           ...actionOptions(snapshot, ['inserts', selectedName]),
@@ -2332,10 +2577,42 @@ function PlaceholderMenu({ onInsert, onKeyDown }: { onInsert: (expression: strin
   const [dateFormat, setDateFormat] = useState('short')
   return (
     <div className="placeholder-popover" role="menu" aria-label="Insert placeholder" onKeyDown={onKeyDown}>
-      <div className="placeholder-group"><span className="placeholder-group-title">Sources</span>{placeholders.map((item) => <button type="button" role="menuitem" key={item.key} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${item.key}}}`)}><span className="placeholder-chip">{'{{'}{item.key}{'}}'}</span><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>)}</div>
-      <div className="placeholder-group date-placeholder"><span className="placeholder-group-title">Date</span><label>Date format<select aria-label="Date format" value={dateFormat} onChange={(event) => setDateFormat(event.target.value)}>{dateFormats.map((format) => <option key={format.value} value={format.value}>{format.label}</option>)}</select></label><button type="button" role="menuitem" onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{date:${dateFormat}}}`)}><span className="placeholder-chip">{'{{date:'}{dateFormat}{'}}'}</span><span><strong>Insert date</strong><small>Choose the date format before inserting.</small></span></button></div>
+      <div className="placeholder-popover-heading"><strong>Insert a value</strong><span>You can transform or replace it after insertion.</span></div>
+      <div className="placeholder-source-groups">
+        {placeholderGroups.map((group) => <div className="placeholder-group" key={group.label}><span className="placeholder-group-title">{group.label}</span><div className="placeholder-option-grid">{group.items.map((item) => <button type="button" role="menuitem" key={item.key} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${item.key}}}`)}><span><strong>{item.label}</strong><small>{item.hint}</small></span><span className="placeholder-chip">{'{{'}{item.key}{'}}'}</span></button>)}</div></div>)}
+        <div className="placeholder-group date-placeholder"><span className="placeholder-group-title">Date and time</span><div className="date-placeholder-controls"><label>Format<select aria-label="Date format" value={dateFormat} onChange={(event) => setDateFormat(event.target.value)}>{dateFormats.map((format) => <option key={format.value} value={format.value}>{format.label}</option>)}</select></label><button type="button" role="menuitem" onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{date:${dateFormat}}}`)}><span><strong>Insert date</strong><small>Uses the selected display format.</small></span><span className="placeholder-chip">{'{{date:'}{dateFormat}{'}}'}</span></button></div></div>
+      </div>
     </div>
   )
+}
+
+function PlaceholderReview({ occurrences, open, selectedIndex, onToggle, onSelect }: { occurrences: PlaceholderOccurrence[]; open: boolean; selectedIndex: number | null; onToggle: () => void; onSelect: (index: number) => void }) {
+  const count = occurrences.length
+  const onListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+    const current = options.indexOf(document.activeElement as HTMLButtonElement)
+    event.preventDefault()
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length
+    options[next]?.focus()
+  }
+  return <section className="placeholder-review" aria-label="Detected placeholders">
+    <button type="button" className="placeholder-review-toggle" aria-expanded={open} aria-controls="placeholder-occurrence-list" onClick={onToggle} disabled={count === 0}>
+      <CodeIcon aria-hidden="true" />
+      <span><strong>{count === 0 ? 'No placeholders found' : `${count} placeholder${count === 1 ? '' : 's'} found`}</strong><small>{count === 0 ? 'Type double curly brackets or use Insert placeholder.' : open ? 'Choose an occurrence to inspect it.' : 'Review sources, transforms, and replacements.'}</small></span>
+      {count > 0 && <ChevronDownIcon aria-hidden="true" />}
+    </button>
+    {open && count > 0 && <div id="placeholder-occurrence-list" className="placeholder-occurrence-list" role="listbox" aria-label="Placeholder occurrences" onKeyDown={onListKeyDown}>
+      {occurrences.map((occurrence) => <button type="button" role="option" aria-selected={selectedIndex === occurrence.index} className={selectedIndex === occurrence.index ? 'is-selected' : ''} key={`${occurrence.start}-${occurrence.raw}`} onClick={() => onSelect(occurrence.index)}><span className="occurrence-number">{occurrence.index + 1}</span><span className="occurrence-copy"><strong>{occurrence.label}</strong><code>{occurrence.raw}</code></span><span className="occurrence-meta">{occurrence.placeholder ? occurrence.placeholder.regexReplacements.length > 0 ? `${occurrence.placeholder.regexReplacements.length} replacement${occurrence.placeholder.regexReplacements.length === 1 ? '' : 's'}` : occurrence.placeholder.transformName ? 'Transformed' : 'Plain' : 'Raw syntax'}</span></button>)}
+    </div>}
+  </section>
+}
+
+function RawPlaceholderInspector({ occurrence }: { occurrence: PlaceholderOccurrence }) {
+  return <section className="placeholder-inspector raw-placeholder-inspector" aria-label="Edit placeholder">
+    <div className="placeholder-inspector-heading"><div><strong>Raw placeholder</strong><span>This occurrence uses syntax the visual inspector cannot safely rewrite.</span></div><code>{occurrence.raw}</code></div>
+    <p>Edit it directly in Custom text. Its exact syntax remains untouched when you review other placeholders.</p>
+  </section>
 }
 
 function regexBuilderPart(value: string): string {
@@ -2357,19 +2634,45 @@ function regexBuilderPart(value: string): string {
   return encoded
 }
 
+function regexPatternError(pattern: string): string | null {
+  if (!pattern) return 'Add a find pattern before this replacement can run.'
+  try {
+    new RegExp(pattern)
+    return null
+  } catch {
+    return 'Check this pattern. The browser could not parse it as a regular expression.'
+  }
+}
+
 function PlaceholderInspector({ placeholder, onChange }: { placeholder: EditablePlaceholder; onChange: (placeholder: EditablePlaceholder) => void }) {
   const updateStage = (index: number, next: ReplacementStage) => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.map((stage, stageIndex) => stageIndex === index ? next : stage) })
+  const moveStage = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= placeholder.regexReplacements.length) return
+    const stages = [...placeholder.regexReplacements]
+    ;[stages[index], stages[target]] = [stages[target], stages[index]]
+    onChange({ ...placeholder, regexReplacements: stages })
+  }
+  const knownSource = placeholders.some((source) => source.key === placeholder.key) || placeholder.key === 'date'
+  const knownTransform = !placeholder.transformName || placeholderTransforms.some((transform) => transform.key === placeholder.transformName)
+  const indexedSource = ['actionResult', 'folderName', 'folderPath'].includes(placeholder.key)
   return <section className="placeholder-inspector" aria-label="Edit placeholder">
-    <div className="placeholder-inspector-heading"><div><strong>Edit placeholder</strong><span>Changes update this placeholder in the payload.</span></div><code>{placeholder.raw}</code></div>
+    <div className="placeholder-inspector-heading"><div><strong>Occurrence inspector</strong><span>Changes apply only to the selected occurrence.</span></div><code>{placeholder.raw}</code></div>
     <div className="placeholder-inspector-grid">
-      <label>Source<select aria-label="Placeholder source" value={placeholder.key} onChange={(event) => onChange({ ...placeholder, key: event.target.value, format: event.target.value === 'date' ? placeholder.format || 'short' : undefined })}>{placeholders.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}<option value="date">Date</option></select></label>
-      <label>Transform<select aria-label="Placeholder transform" value={placeholder.transformName ?? ''} onChange={(event) => onChange({ ...placeholder, transformName: event.target.value || undefined })}><option value="">No transform</option>{placeholderTransforms.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
-      {placeholder.key === 'date' && <label className="date-format-field">Date format<input aria-label="Placeholder date format" value={placeholder.format ?? 'short'} onChange={(event) => onChange({ ...placeholder, format: event.target.value })} /></label>}
+      {knownSource ? <label>Source<select aria-label="Placeholder source" value={placeholder.key} onChange={(event) => { const key = event.target.value; onChange({ ...placeholder, key, format: key === 'date' ? 'short' : ['actionResult', 'folderName', 'folderPath'].includes(key) ? placeholder.format : undefined }) }}>{placeholderGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}<optgroup label="Date and time"><option value="date">Date</option></optgroup></select></label> : <div className="custom-placeholder-source"><span>Custom source</span><code>{placeholder.key}</code><small>Metadata key or path preserved exactly.</small></div>}
+      <label>Transform<select aria-label="Placeholder transform" value={placeholder.transformName ?? ''} onChange={(event) => onChange({ ...placeholder, transformName: event.target.value || undefined })}><option value="">No transform</option>{!knownTransform && placeholder.transformName && <option value={placeholder.transformName}>Custom · {placeholder.transformName}</option>}{['Text case', 'Identifiers', 'Titles', 'Specialized'].map((group) => <optgroup label={group} key={group}>{placeholderTransforms.filter((item) => item.group === group).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}</select></label>
+      {placeholder.key === 'date' && <label className="date-format-field">Date format<select aria-label="Placeholder date format" value={placeholder.format ?? 'short'} onChange={(event) => onChange({ ...placeholder, format: event.target.value })}>{!dateFormats.some((format) => format.value === placeholder.format) && placeholder.format && <option value={placeholder.format}>Custom · {placeholder.format}</option>}{dateFormats.map((format) => <option key={format.value} value={format.value}>{format.label}</option>)}</select></label>}
+      {indexedSource && <label className="placeholder-argument-field">Source index<input aria-label="Placeholder index" inputMode="numeric" value={placeholder.format ?? ''} onChange={(event) => onChange({ ...placeholder, format: event.target.value || undefined })} placeholder="Latest" /><small>Optional, zero-based. Leave empty for the current value.</small></label>}
+      {!knownSource && placeholder.format !== undefined && <label className="placeholder-argument-field">Argument<input aria-label="Placeholder argument" value={placeholder.format} onChange={(event) => onChange({ ...placeholder, format: event.target.value || undefined })} /><small>Preserved after the custom source name.</small></label>}
     </div>
-    <div className="replacement-editor"><div className="replacement-editor-heading"><div><strong>Regex replacements</strong><span>{placeholder.regexReplacements.length === 0 ? 'No replacements' : `${placeholder.regexReplacements.length} stage${placeholder.regexReplacements.length === 1 ? '' : 's'}`}</span></div><button type="button" className="text-button" onClick={() => onChange({ ...placeholder, regexReplacements: [...placeholder.regexReplacements, { find: '', replace: '' }] })}><PlusIcon aria-hidden="true" /> Add replacement</button></div>
-      {placeholder.regexReplacements.map((stage, index) => <div className="replacement-inline-row" key={index}><strong>Stage {index + 1}</strong><label>Find<input aria-label={`Find pattern ${index + 1}`} value={stage.find} onChange={(event) => updateStage(index, { ...stage, find: event.target.value })} placeholder="e.g. \\.$" /></label><label>Replace with<textarea aria-label={`Replacement text ${index + 1}`} value={stage.replace} onChange={(event) => updateStage(index, { ...stage, replace: event.target.value })} rows={2} placeholder="Leave empty to remove" /></label><button type="button" className="icon-button" aria-label={`Remove replacement ${index + 1}`} onClick={() => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.filter((_, stageIndex) => stageIndex !== index) })}><Cross2Icon aria-hidden="true" /></button></div>)}
+    <div className="replacement-editor"><div className="replacement-editor-heading"><div><strong>Regex replacements</strong><span>{placeholder.regexReplacements.length === 0 ? 'No replacements' : `${placeholder.regexReplacements.length} stage${placeholder.regexReplacements.length === 1 ? '' : 's'} · applied top to bottom`}</span></div><button type="button" className="text-button" onClick={() => onChange({ ...placeholder, regexReplacements: [...placeholder.regexReplacements, { find: '', replace: '' }] })}><PlusIcon aria-hidden="true" /> Add replacement</button></div>
+      {placeholder.regexReplacements.length === 0 && <div className="replacement-empty"><span>Use replacements for cleanup that a single transform cannot handle.</span><small>Capture text with parentheses, reuse it with <code>{'${1}'}</code>, or transform a capture with <code>{'${1::uppercase}'}</code>.</small></div>}
+      {placeholder.regexReplacements.map((stage, index) => {
+        const patternError = regexPatternError(stage.find)
+        return <div className="replacement-stage" key={index}><div className="replacement-stage-heading"><strong>Replacement {index + 1}</strong><div><button type="button" className="icon-button" aria-label={`Move replacement ${index + 1} up`} disabled={index === 0} onClick={() => moveStage(index, -1)}><ArrowUpIcon aria-hidden="true" /></button><button type="button" className="icon-button" aria-label={`Move replacement ${index + 1} down`} disabled={index === placeholder.regexReplacements.length - 1} onClick={() => moveStage(index, 1)}><ArrowDownIcon aria-hidden="true" /></button><button type="button" className="icon-button" aria-label={`Remove replacement ${index + 1}`} onClick={() => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.filter((_, stageIndex) => stageIndex !== index) })}><Cross2Icon aria-hidden="true" /></button></div></div><div className="replacement-stage-fields"><label>Find pattern<textarea aria-label={`Find pattern ${index + 1}`} aria-invalid={Boolean(patternError)} value={stage.find} onChange={(event) => updateStage(index, { ...stage, find: event.target.value })} rows={3} placeholder="e.g. \\s+$" />{patternError && <small className="regex-validation" role="status">{patternError}</small>}</label><label>Replace with<textarea aria-label={`Replacement text ${index + 1}`} value={stage.replace} onChange={(event) => updateStage(index, { ...stage, replace: event.target.value })} rows={3} placeholder="Leave empty to remove matches" /><small>Capture groups: <code>{'${1}'}</code> · transformed capture: <code>{'${1::titleCase}'}</code></small></label></div></div>
+      })}
     </div>
-    <div className="generated-expression"><span>Generated syntax</span><code>{placeholder.raw}</code></div>
+    <details className="raw-syntax-preview"><summary>Raw syntax</summary><code>{placeholder.raw}</code></details>
   </section>
 }
 
@@ -2435,7 +2738,7 @@ function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, set
     const path = actionPath(field)
     return <FieldState entry={drafts[pathKey(path)]} onRevert={() => revertField(path)} onRetry={() => retryField(path)} onResync={() => resyncField(path)} errorId={fieldErrorId(path)} />
   }
-  return <div className="editor-section"><Disclosure title="Triggers" subtitle="Match a phrase, app, mode, or URL." meta={summary} open={open} onToggle={setOpen}>
+  return <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Triggers" subtitle="Match a phrase, app, mode, or URL." meta={summary} open={open} onToggle={setOpen} variant="defaults">
     <p className="trigger-priority"><strong>Matching priority</strong> Voice phrase → Superwhisper mode → browser URL → front app. Multiple configured fields follow Trigger logic below.</p>
     {visibleFields.length === 0 && <div className="section-empty"><strong>No triggers</strong><span>This Insert is available as a fallback or chain step.</span></div>}
     <div className="trigger-grid">{visibleFields.map((field) => {
@@ -2468,21 +2771,6 @@ function FieldLifecycle({ status }: { status: 'idle' | 'saving' | 'saved' }) {
   return <span className={`field-state field-state-${status === 'saving' ? 'saving' : 'saved'}`}>{status === 'saving' ? (previewMode ? 'Updating preview…' : 'Saving…') : <><CheckIcon aria-hidden="true" /> {previewMode ? 'Updated in preview' : 'Saved'}</>}</span>
 }
 
-function ChoiceCard({ selected, value, displayValue: visibleValue = value, label, description, onClick }: { selected: boolean; value: string; displayValue?: string; label: string; description: string; onClick: () => void }) {
-  return <button type="button" role="radio" className={selected ? 'choice-card is-selected' : 'choice-card'} aria-checked={selected} tabIndex={selected ? 0 : -1} onClick={onClick} onKeyDown={(event) => {
-    if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-    const group = event.currentTarget.parentElement
-    const options = group ? Array.from(group.querySelectorAll<HTMLButtonElement>('[role="radio"]')) : []
-    const index = options.indexOf(event.currentTarget)
-    if (index < 0 || options.length === 0) return
-    const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : event.key === 'Home' ? -index : options.length - 1 - index
-    event.preventDefault()
-    const next = options[(index + direction + options.length) % options.length]
-    next?.click()
-    next?.focus()
-  }}><span className="choice-radio" aria-hidden="true">{selected && <CheckIcon />}</span><span><strong>{label}</strong><small>{description}</small></span><code>{visibleValue}</code></button>
-}
-
 function OverrideField({ field, path, snapshot, value, entry, meta, onChoice, onText, onBlur, onRevert, onRetry, onResync, folderPickerPreview, chooseDirectory }: { field: string; path: string[]; snapshot: ConfigSnapshot; value: FieldValue; entry?: DraftEntry; meta: { label: string; description: string }; onChoice: (value: FieldValue) => void; onText: (value: string) => void; onBlur: (value: string) => void; onRevert: () => void; onRetry: () => void; onResync: () => void; folderPickerPreview: boolean; chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null> }) {
   const state = <FieldState entry={entry} onRevert={onRevert} onRetry={onRetry} onResync={onResync} errorId={fieldErrorId(path)} />
   const inputId = path.join('-')
@@ -2509,11 +2797,13 @@ function Disclosure({ title, subtitle, meta, open, onToggle, children, variant =
   return <details className={`disclosure ${variant === 'defaults' ? 'defaults-disclosure' : ''}`} open={open} onToggle={(event) => onToggle((event.currentTarget as HTMLDetailsElement).open)}><summary><span className="disclosure-heading"><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</span><span className="disclosure-summary-meta">{meta}</span><ChevronDownIcon aria-hidden="true" /></summary><div className="disclosure-body">{children}</div></details>
 }
 
-function UnsupportedActionGroup({ group, snapshot, fixtureBacked }: { group: GroupDefinition; snapshot: ConfigSnapshot; fixtureBacked: boolean }) {
+function UnsupportedActionGroup({ group, selectedName, snapshot, fixtureBacked }: { group: GroupDefinition; selectedName: string; snapshot: ConfigSnapshot; fixtureBacked: boolean }) {
   const count = Object.keys(snapshot[group.id]).length
+  const selectedAction = selectedName ? snapshot[group.id][selectedName] : undefined
   const groupName = group.label === 'URLs' ? 'URL' : group.label
   const noun = `${groupName} ${count === 1 ? 'action' : 'actions'}`
-  return <div className="screen-content unsupported-screen"><div className="screen-intro"><div><h1>{group.label}</h1><p className="screen-description">{group.description}</p></div><span className="coming-badge">{fixtureBacked ? 'Fixture scope' : 'Read-only for now'}</span></div><div className="unsupported-panel"><div className="unsupported-mark">{group.icon}</div><h2>{group.label} editing is next</h2><p>{fixtureBacked ? `The fixture includes ${count} ${noun} so cross-action links and names can be reviewed from Defaults and Insert controls.` : `This connected snapshot includes ${count} ${noun}. Cross-action links and names can be reviewed from Defaults and Insert controls while type-specific editing is prepared.`} Type-specific editors will reuse this transaction boundary.</p><div className="unsupported-grid"><div><strong>Already covered</strong><span>Names are included in fallback and next-action pickers.</span></div><div><strong>Preserved semantics</strong><span>{fixtureBacked ? 'Unsupported fields remain in the fixture payload and are not rewritten.' : 'Unsupported fields remain in the server snapshot and are not rewritten.'}</span></div></div></div></div>
+  const title = selectedAction ? actionDisplayName(selectedName, selectedAction) : group.label
+  return <div className="screen-content unsupported-screen"><div className="screen-intro"><div><h1>{title}</h1><p className="screen-description">{selectedAction ? `${group.shortLabel} action · ${group.description}` : group.description}</p></div><span className="coming-badge">{fixtureBacked ? 'Fixture scope' : 'Read-only for now'}</span></div><div className="unsupported-panel"><div className="unsupported-mark">{group.icon}</div><h2>{group.label} editing is next</h2><p>{fixtureBacked ? `The fixture includes ${count} ${noun} so cross-action links and names can be reviewed from Defaults and Insert controls.` : `This connected snapshot includes ${count} ${noun}. Cross-action links and names can be reviewed from Defaults and Insert controls while type-specific editing is prepared.`} Type-specific editors will reuse this transaction boundary.</p><div className="unsupported-grid"><div><strong>Selected action</strong><span>{selectedAction ? selectedName : 'Choose an action from the navigation rail.'}</span></div><div><strong>Preserved semantics</strong><span>{fixtureBacked ? 'Unsupported fields remain in the fixture payload and are not rewritten.' : 'Unsupported fields remain in the server snapshot and are not rewritten.'}</span></div></div></div></div>
 }
 
 function useModalBehavior(dialogRef: React.RefObject<HTMLElement | null>, initialRef: React.RefObject<HTMLElement | null>, onClose: () => void) {

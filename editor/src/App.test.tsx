@@ -124,26 +124,54 @@ describe('configuration editor interactions', () => {
     expect(moveRecording.querySelector('optgroup[label="Built-in value"] + hr + optgroup[label="Explicit values"]')).toBeInTheDocument()
   })
 
-  it('opens the populated Insert editor and exposes only valid trigger logic choices', async () => {
+  it('browses Inserts without replacing Defaults, then opens a concrete Insert', async () => {
     const user = userEvent.setup()
     renderWithStore()
 
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
 
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     const firstInsert = within(actionList).getByRole('option', { name: /autoPaste/ })
-    expect(firstInsert).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('heading', { name: 'autoPaste' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'No Inserts yet' })).not.toBeInTheDocument()
+    const dailyNotes = within(actionList).getByRole('option', { name: /dailyNotes/ })
+    expect(firstInsert).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('heading', { name: 'Defaults' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'autoPaste' })).not.toBeInTheDocument()
 
-    expect(screen.queryByRole('combobox', { name: 'Trigger logic' })).not.toBeInTheDocument()
-    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    firstInsert.focus()
+    await user.keyboard('{ArrowDown}')
+    expect(dailyNotes).toHaveFocus()
+    expect(screen.getByRole('heading', { name: 'Defaults' })).toBeInTheDocument()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('heading', { name: 'dailyNotes' })).toBeInTheDocument()
     const logic = screen.getByRole('combobox', { name: 'Trigger logic' })
     expect(within(logic).getByRole('option', { name: 'Use Defaults (Any OR)' })).toBeInTheDocument()
     expect(within(logic).getByRole('option', { name: 'Any (OR)' })).toBeInTheDocument()
     expect(within(logic).getByRole('option', { name: 'All (AND)' })).toBeInTheDocument()
     expect(within(logic).queryByRole('option', { name: /explicit empty/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps the open editor while browsing another action group', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+
+    const sections = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(sections).getByRole('button', { name: /^Inserts/ }))
+    const inserts = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(inserts).getByRole('option', { name: /dailyNotes/ }))
+    expect(screen.getByRole('heading', { name: 'dailyNotes' })).toBeInTheDocument()
+
+    await user.click(within(inserts).getByRole('button', { name: 'All sections' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Configuration sections' })).getByRole('button', { name: /^URLs/ }))
+    const urls = screen.getByRole('navigation', { name: 'URL actions' })
+    expect(within(urls).getByRole('option', { name: /search/ })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('heading', { name: 'dailyNotes' })).toBeInTheDocument()
+
+    await user.click(within(urls).getByRole('option', { name: /search/ }))
+    expect(screen.getByRole('heading', { name: 'search' })).toBeInTheDocument()
+    await user.click(within(urls).getByRole('button', { name: 'All sections' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Configuration sections' })).getByRole('button', { name: 'Defaults' }))
+    expect(screen.getByRole('heading', { name: 'Defaults' })).toBeInTheDocument()
   })
 
   it('treats an empty Inserts group as a healthy starting state', async () => {
@@ -155,8 +183,11 @@ describe('configuration editor interactions', () => {
     expect(screen.queryByText('Configuration file is empty')).not.toBeInTheDocument()
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
 
-    expect(screen.getByRole('heading', { name: 'No Inserts yet' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Create Insert' })).toBeEnabled()
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    expect(within(actionList).getByText('No Inserts yet')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Defaults' })).toBeInTheDocument()
+    await user.click(within(actionList).getByRole('button', { name: 'New Insert' }))
+    expect(within(actionList).getByRole('button', { name: 'Create Insert' })).toBeEnabled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -357,7 +388,7 @@ describe('configuration editor interactions', () => {
     const store = renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
     await user.click(screen.getByText('Chaining', { selector: 'strong' }))
 
@@ -439,12 +470,14 @@ describe('configuration editor interactions', () => {
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     expect(within(actionList).queryByRole('button', { name: 'Duplicate' })).not.toBeInTheDocument()
     await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
 
     await user.click(screen.getByText('Insertion behavior', { selector: 'strong' }))
-    expect(screen.getByText('Using Defaults')).toBeInTheDocument()
+    const insertion = screen.getByText('Insertion behavior', { selector: 'strong' }).closest('details')
+    expect(insertion).not.toBeNull()
+    expect(within(insertion!).getByText('Using Defaults')).toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: 'Simulate Escape' })).not.toBeInTheDocument()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Add override' }), 'simEsc')
     expect(screen.getByRole('combobox', { name: 'Simulate Escape' })).toBeInTheDocument()
@@ -455,10 +488,12 @@ describe('configuration editor interactions', () => {
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /autoPaste/ }))
 
-    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+    const deleteButton = screen.getByRole('button', { name: /Delete unavailable/ })
     expect(deleteButton).toBeDisabled()
-    expect(screen.getByRole('radio', { name: /Do nothing/ })).toBeInTheDocument()
+    expect(within(screen.getByRole('combobox', { name: 'Payload mode' })).getByRole('option', { name: 'Do nothing' })).toBeInTheDocument()
     expect(screen.queryByText('Prototype mode')).not.toBeInTheDocument()
   })
 
@@ -468,19 +503,40 @@ describe('configuration editor interactions', () => {
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
 
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     const skipOutside = within(actionList).getByRole('option', { name: /Do nothing/ })
     expect(skipOutside).toHaveTextContent('Do nothing')
     expect(skipOutside).toHaveTextContent('skipOutside')
     await user.click(skipOutside)
 
-    expect(screen.getByRole('heading', { name: 'Do nothing', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'skipOutside', level: 1 })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Rename' }))
     expect(screen.getByRole('textbox', { name: 'Action name' })).toHaveValue('skipOutside')
     expect(store.getSnapshot().inserts.skipOutside.action).toBe('.none')
     expect(screen.queryByText('.none')).not.toBeInTheDocument()
   })
 
-  it('exposes payload and appearance choices as keyboard-operable radio groups', async () => {
+  it('renames an Insert inline and keeps the canonical action identity in sync', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    await user.click(screen.getByRole('button', { name: 'Rename' }))
+    const name = screen.getByRole('textbox', { name: 'Action name' })
+    await user.clear(name)
+    await user.type(name, 'conciseReply')
+    await user.click(screen.getByRole('button', { name: 'Save name' }))
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'conciseReply', level: 1 })).toBeInTheDocument())
+    expect(store.getSnapshot().inserts.conciseReply).toBeDefined()
+    expect(store.getSnapshot().inserts.quickReply).toBeUndefined()
+    expect(within(actionList).getByRole('option', { name: /conciseReply/ })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('keeps appearance choices keyboard-operable and presents one payload mode control', async () => {
     const user = userEvent.setup()
     renderWithStore()
 
@@ -497,29 +553,92 @@ describe('configuration editor interactions', () => {
 
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const payloadModes = screen.getByRole('radiogroup', { name: 'Payload mode' })
-    const customText = within(payloadModes).getByRole('radio', { name: /Custom text/ })
-    const doNothing = within(payloadModes).getByRole('radio', { name: /Do nothing/ })
-    expect(within(payloadModes).getByRole('radio', { name: /Auto-paste/ })).toHaveAttribute('aria-checked', 'true')
-    await user.click(customText)
-    expect(customText).toHaveAttribute('aria-checked', 'true')
-    customText.focus()
-    await user.keyboard('{ArrowLeft}')
-    expect(doNothing).toHaveAttribute('aria-checked', 'true')
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /autoPaste/ }))
+    const payloadMode = screen.getByRole('combobox', { name: 'Payload mode' })
+    expect(payloadMode).toHaveValue('autoPaste')
+    await user.selectOptions(payloadMode, 'text')
+    await waitFor(() => expect(payloadMode).toHaveValue('text'))
+    expect(screen.getByRole('textbox', { name: 'Insert payload' })).toHaveValue('')
+    await user.selectOptions(payloadMode, 'none')
+    await waitFor(() => expect(payloadMode).toHaveValue('none'))
   })
 
-  it('keeps placeholder insertion focused on sources and opens customization at the caret', async () => {
+  it('retains and restores exact custom text when a built-in payload mode replaces it', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore('populated', 35)
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const exactText = 'First line\n\n{{swResult::ensureSentence}}'
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' })
+    fireEvent.change(payload, { target: { value: exactText, selectionStart: exactText.length } })
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Payload mode' }), 'none')
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe('.none'))
+    expect(screen.getByText('Custom text retained')).toBeInTheDocument()
+
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+    await user.click(screen.getByRole('button', { name: 'Restore custom text' }))
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe(exactText))
+    expect(screen.getByRole('textbox', { name: 'Insert payload' })).toHaveValue(exactText)
+  })
+
+  it('retains whitespace-only custom text exactly when changing payload modes', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const whitespace = ' \n  '
+    fireEvent.change(screen.getByRole('textbox', { name: 'Insert payload' }), { target: { value: whitespace, selectionStart: whitespace.length } })
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Payload mode' }), 'autoPaste')
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe('.autoPaste'))
+    await user.click(screen.getByRole('button', { name: 'Restore custom text' }))
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe(whitespace))
+    expect(screen.getByRole('textbox', { name: 'Insert payload' })).toHaveValue(whitespace)
+  })
+
+  it('summarizes triggers, payload, conditions, insertion, and chaining without simulation', async () => {
     const user = userEvent.setup()
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const summary = screen.getByLabelText('Effective behavior')
+    expect(summary).toHaveTextContent('Triggered by 2 voice phrases, 3 front apps and 1 browser URL (all types must match)')
+    expect(summary).toHaveTextContent('Inserts custom text')
+    expect(summary).toHaveTextContent('input conditions')
+    expect(summary).toHaveTextContent('Stops after this action')
+
+    await user.click(within(actionList).getByRole('option', { name: /Do nothing/ }))
+    const builtInSummary = screen.getByLabelText('Effective behavior')
+    expect(builtInSummary).toHaveTextContent('Triggered by 2 voice phrases')
+    expect(builtInSummary).toHaveTextContent('Performs no payload')
+    expect(builtInSummary).toHaveTextContent('Uses built-in input conditions')
+  })
+
+  it('keeps placeholder insertion organized and opens customization deliberately', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
     const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
     expect(within(menu).getByRole('menuitem', { name: /Raw dictation/ })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: /Language-model result/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /^Language-model result/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Front app URL/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Recording folder path/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Action result/ })).toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: /Uppercase/ })).not.toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: /regex replacement/i })).not.toBeInTheDocument()
     expect(within(menu).getByRole('combobox', { name: 'Date format' })).toBeInTheDocument()
@@ -530,9 +649,12 @@ describe('configuration editor interactions', () => {
     payload.focus()
     payload.setSelectionRange(placeholderStart + 2, placeholderStart + 2)
     fireEvent.select(payload)
-
+    expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
     expect(screen.getByRole('region', { name: 'Edit placeholder' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Placeholder transform' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Title case · French' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Placeholder syntax reference' })).toBeInTheDocument()
   })
 
@@ -541,20 +663,17 @@ describe('configuration editor interactions', () => {
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
-    const placeholderStart = payload.value.indexOf('{{swResult}}')
-    payload.focus()
-    payload.setSelectionRange(placeholderStart + 2, placeholderStart + 2)
-    fireEvent.select(payload)
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
     await user.click(screen.getByRole('button', { name: /Add replacement/ }))
     await user.type(screen.getByRole('textbox', { name: 'Find pattern 1' }), '||')
     await user.type(screen.getByRole('textbox', { name: 'Replacement text 1' }), '||')
 
     const expression = '{{swResult||\\|\\|||\\|\\|}}'
-    expect(screen.getByText('Generated syntax').parentElement?.querySelector('code')).toHaveTextContent(expression)
     expect(payload.value).toContain(expression)
   })
 
@@ -563,21 +682,82 @@ describe('configuration editor interactions', () => {
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
-    const placeholderStart = payload.value.indexOf('{{swResult}}')
-    payload.focus()
-    payload.setSelectionRange(placeholderStart + 2, placeholderStart + 2)
-    fireEvent.select(payload)
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
     await user.click(screen.getByRole('button', { name: /Add replacement/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'middle' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'line 1\nline 2' } })
 
     const expression = '{{swResult||middle||line 1\nline 2}}'
-    expect(screen.getByText('Generated syntax').parentElement?.querySelector('code')?.textContent).toBe(expression)
     expect(payload.value).toContain(expression)
+  })
+
+  it('lists repeated and custom placeholders as independent occurrences without caret-driven expansion', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    fireEvent.change(payload, { target: { value: 'A {{swResult}} B {{swResult}} C {{custom.path::titleCase}} D {{xml:answer}}' } })
+    expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /4 placeholders found/ }))
+    const list = screen.getByRole('listbox', { name: 'Placeholder occurrences' })
+    const resultOccurrences = within(list).getAllByRole('option', { name: /Result/ })
+    expect(resultOccurrences).toHaveLength(2)
+    await user.click(resultOccurrences[1])
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'uppercase')
+    expect(payload.value).toBe('A {{swResult}} B {{swResult::uppercase}} C {{custom.path::titleCase}} D {{xml:answer}}')
+
+    await user.click(within(list).getByRole('option', { name: /custom\.path/ }))
+    expect(screen.getByText('Metadata key or path preserved exactly.')).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'lowercase')
+    expect(payload.value).toContain('{{custom.path::lowercase}}')
+    expect(payload.value).toContain('{{xml:answer}}')
+
+    await user.click(within(list).getByRole('option', { name: /Raw placeholder/ }))
+    expect(screen.getByText(/visual inspector cannot safely rewrite/)).toBeInTheDocument()
+  })
+
+  it('preserves indexed action results while editing transforms', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    fireEvent.change(payload, { target: { value: '{{actionResult:1}}' } })
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Action result/ }))
+    expect(screen.getByRole('textbox', { name: 'Placeholder index' })).toHaveValue('1')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'titleCase:fr')
+    expect(payload).toHaveValue('{{actionResult:1::titleCase:fr}}')
+  })
+
+  it('reorders multiline regex stages without separating patterns from replacements', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    fireEvent.change(payload, { target: { value: '{{swResult||one||1||two||2}}' } })
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
+    expect(screen.getByRole('textbox', { name: 'Find pattern 1' }).tagName).toBe('TEXTAREA')
+    await user.click(screen.getByRole('button', { name: 'Move replacement 2 up' }))
+    expect(payload).toHaveValue('{{swResult||two||2||one||1}}')
   })
 
   it('does not flag recognized raw trigger modes, but requires opt-in for incompatible syntax', async () => {
@@ -585,7 +765,7 @@ describe('configuration editor interactions', () => {
     const store = renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     act(() => {
@@ -615,7 +795,7 @@ describe('configuration editor interactions', () => {
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
@@ -624,7 +804,7 @@ describe('configuration editor interactions', () => {
     payload.setSelectionRange(0, 0)
     await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
     const placeholderMenu = screen.getByRole('menu', { name: 'Insert placeholder' })
-    await user.click(within(placeholderMenu).getByRole('menuitem', { name: /^\{\{swResult\}\}/ }))
+    await user.click(within(placeholderMenu).getByRole('menuitem', { name: /^Result .*\{\{swResult\}\}/ }))
 
     expect(payload).toHaveValue('{{swResult}}' + original)
     expect(payload).toHaveFocus()
@@ -640,7 +820,7 @@ describe('configuration editor interactions', () => {
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
@@ -653,7 +833,7 @@ describe('configuration editor interactions', () => {
     expect(screen.getByRole('button', { name: 'Delete' })).toHaveFocus()
   })
 
-  it('makes the mobile navigation modal and returns focus to its menu button', async () => {
+  it('uses the mobile navigation as a sequential action browser', async () => {
     installMediaQuery(true)
     const user = userEvent.setup()
     renderWithStore()
@@ -663,6 +843,15 @@ describe('configuration editor interactions', () => {
     const sidebar = screen.getByRole('dialog', { name: 'Configuration navigation' })
     expect(sidebar).toHaveAttribute('aria-modal', 'true')
     expect(sidebar).not.toHaveAttribute('aria-hidden', 'true')
+    await user.click(within(sidebar).getByRole('button', { name: /^Inserts/ }))
+    const actionList = within(sidebar).getByRole('navigation', { name: 'Insert actions' })
+    expect(screen.getByRole('heading', { name: 'Defaults' })).toBeInTheDocument()
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    expect(screen.queryByRole('dialog', { name: 'Configuration navigation' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'dailyNotes' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Inserts' }))
+    expect(screen.getByRole('dialog', { name: 'Configuration navigation' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'Configuration navigation' })).not.toBeInTheDocument()
     expect(menu).toHaveFocus()
@@ -867,7 +1056,7 @@ describe('configuration editor interactions', () => {
     const store = renderWithStore('conflict')
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
-    const actionList = screen.getByRole('complementary', { name: 'Insert actions' })
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' })

@@ -171,11 +171,21 @@ override restores **Use Defaults**; removing a condition restores **Always**.
 Unsupported or ambiguous raw condition and trigger expressions remain available
 for deliberate raw editing and are never silently simplified.
 
-The placeholder menu inserts sources at the caret; Date offers its format as
-part of insertion. Put the caret in a recognized placeholder to edit that
-placeholder's source, transform, and ordered regex replacements in the inline
-inspector below the payload. The raw payload remains canonical and available
-for syntax the inspector cannot represent. The editor never expands
+The placeholder menu inserts categorized result, captured-context, workflow,
+recording-folder, and Date sources at the saved caret. Date offers its format
+as part of insertion. Beneath the payload, a stable review row reports every
+complete placeholder occurrence without reacting to caret movement. Expand the
+row and choose one occurrence to inspect it; repeated placeholders are edited
+independently.
+
+The occurrence inspector exposes the runtime's supported transforms and
+ordered regex replacements. Replacement patterns and values accept multiple
+lines, stages can be reordered, and capture groups may be reused or transformed
+with the syntax documented in [Placeholders and context](placeholders-and-context.md).
+Custom metadata keys and dot paths keep their names while using the same
+transform and replacement controls. XML or otherwise unsupported syntax stays
+visible as an exact raw occurrence and is never rewritten by the visual
+inspector. The raw payload remains canonical, and the editor never expands
 placeholders against private live app or clipboard context.
 
 ## Changes made elsewhere and invalid files
