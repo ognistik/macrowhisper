@@ -66,6 +66,7 @@ Behavior:
 - if the tag exists, Macrowhisper inserts the content
 - if the tag is empty or missing, the placeholder becomes empty
 - extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized when applicable
+- XML extraction currently accepts only the exact forms above; `::transform` and `||regex||replacement` suffixes are not supported for XML placeholders
 
 ### Metadata keys and paths
 
@@ -89,6 +90,9 @@ About `{{segments}}`:
 - time-like values such as `duration`, `languageModelProcessingTime`, and `processingTime` are shown in a human-readable format like `350ms`, `1.2s`, or `2m 5s`
 
 If a placeholder key does not exist, it becomes an empty string.
+
+Valid metadata keys and dot paths use the same `::transform` and
+`||regex||replacement` pipeline as built-in placeholders.
 
 ### Placeholder transforms with `::`
 

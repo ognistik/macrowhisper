@@ -661,6 +661,11 @@ describe('configuration editor interactions', () => {
     const occurrence = within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i })
     await user.click(occurrence)
     expect(screen.getByRole('region', { name: 'Edit placeholder' })).toBeInTheDocument()
+    const source = screen.getByRole('combobox', { name: 'Placeholder source' })
+    expect(within(source).getAllByRole('option')).toHaveLength(16)
+    for (const label of ['Result', 'Raw dictation', 'Language-model result', 'Selected text', 'Clipboard context', 'Front app', 'Front app URL', 'App context', 'App vocabulary', 'Action result', 'Recording folder name', 'Recording folder path', 'Short date', 'Long date', 'ISO date', 'Date and time']) {
+      expect(within(source).getByRole('option', { name: label })).toBeInTheDocument()
+    }
     expect(screen.getByRole('combobox', { name: 'Placeholder transform' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Title case · French' })).toBeInTheDocument()
     expect(screen.queryByText('Raw syntax', { selector: 'summary' })).not.toBeInTheDocument()
@@ -669,6 +674,28 @@ describe('configuration editor interactions', () => {
     expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
     expect(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).toBeInTheDocument()
     expect(occurrence).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('uses the direct Insert menu date choices in the occurrence source selector', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i }))
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder source' }), 'date:yyyy-MM-dd')
+    expect(payload.value).toContain('{{date:yyyy-MM-dd}}')
+    expect(screen.getByRole('combobox', { name: 'Placeholder source' })).toHaveValue('date:yyyy-MM-dd')
+    expect(screen.queryByRole('combobox', { name: 'Placeholder date format' })).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder source' }), 'frontApp')
+    expect(payload.value).toContain('{{frontApp}}')
+    expect(payload.value).not.toContain('yyyy-MM-dd')
   })
 
   it('keeps placeholder review and Insert settings to one open panel', async () => {
@@ -897,12 +924,21 @@ describe('configuration editor interactions', () => {
 
     await user.click(within(list).getByRole('option', { name: /custom\.path/ }))
     expect(screen.getByText('Metadata key or path preserved exactly.')).toBeInTheDocument()
+    const customSource = screen.getByRole('combobox', { name: 'Placeholder source' })
+    expect(customSource).toHaveValue('__custom__')
+    expect(within(customSource).getByRole('option', { name: 'Custom · custom.path' })).toBeInTheDocument()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'lowercase')
     expect(payload.value).toContain('{{custom.path::lowercase}}')
     expect(payload.value).toContain('{{xml:answer}}')
 
+    await user.click(screen.getByRole('button', { name: 'Add replacement' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'path' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'value' } })
+    expect(payload.value).toContain('{{custom.path::lowercase||path||value}}')
+
     await user.click(within(list).getByRole('option', { name: /Raw placeholder/ }))
-    expect(screen.getByText(/visual inspector cannot safely rewrite/)).toBeInTheDocument()
+    expect(screen.getByText('XML placeholder')).toBeInTheDocument()
+    expect(screen.getByText(/without transform or regex suffixes/)).toBeInTheDocument()
   })
 
   it('preserves indexed action results while editing transforms', async () => {

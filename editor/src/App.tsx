@@ -356,6 +356,7 @@ const dateFormats = [
   { value: 'yyyy-MM-dd', label: 'ISO date', hint: 'Year, month, and day.' },
   { value: 'yyyy-MM-dd HH:mm', label: 'Date and time', hint: 'Date plus 24-hour time.' },
 ]
+const CUSTOM_PLACEHOLDER_SOURCE = '__custom__'
 
 const triggerFields = ['triggerVoice', 'triggerApps', 'triggerModes', 'triggerUrls']
 const triggerLabels: Record<string, { label: string; description: string; placeholder: string }> = {
@@ -2633,9 +2634,10 @@ function PlaceholderReview({ occurrences, open, selectedIndex, onToggle, onSelec
 }
 
 function RawPlaceholderInspector({ occurrence }: { occurrence: PlaceholderOccurrence }) {
+  const xmlPlaceholder = /^\{\{(?:(?:json|raw):)?xml:/.test(occurrence.raw)
   return <section className="placeholder-inspector raw-placeholder-inspector" aria-label="Edit placeholder">
-    <div className="placeholder-inspector-heading"><div><strong>Raw placeholder</strong><span>This occurrence uses syntax the visual inspector cannot safely rewrite.</span></div><code>{occurrence.raw}</code></div>
-    <p>Edit it directly in Custom text. Its exact syntax remains untouched when you review other placeholders.</p>
+    <div className="placeholder-inspector-heading"><div><strong>{xmlPlaceholder ? 'XML placeholder' : 'Raw placeholder'}</strong><span>{xmlPlaceholder ? 'XML extraction uses a separate, exact runtime syntax.' : 'This occurrence uses syntax the visual inspector cannot safely rewrite.'}</span></div><code>{occurrence.raw}</code></div>
+    <p>{xmlPlaceholder ? 'Macrowhisper currently supports XML tags without transform or regex suffixes. This occurrence stays read-only so its exact extraction syntax is never rewritten.' : 'Edit it directly in Custom text. Its exact syntax remains untouched when you review other placeholders.'}</p>
   </section>
 }
 
@@ -2679,17 +2681,28 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
     ;[stages[index], stages[target]] = [stages[target], stages[index]]
     onChange({ ...placeholder, regexReplacements: stages })
   }
-  const knownSource = placeholders.some((source) => source.key === placeholder.key) || placeholder.key === 'date'
+  const builtInSource = placeholders.some((source) => source.key === placeholder.key)
+  const customSource = !builtInSource && placeholder.key !== 'date'
   const knownTransform = !placeholder.transformName || placeholderTransforms.some((transform) => transform.key === placeholder.transformName)
   const indexedSource = ['actionResult', 'folderName', 'folderPath'].includes(placeholder.key)
+  const sourceValue = placeholder.key === 'date' ? `date:${placeholder.format ?? 'short'}` : customSource ? CUSTOM_PLACEHOLDER_SOURCE : placeholder.key
+  const currentDateFormat = placeholder.key === 'date' ? placeholder.format ?? 'short' : null
+  const setSource = (value: string) => {
+    if (value === CUSTOM_PLACEHOLDER_SOURCE) return
+    if (value.startsWith('date:')) {
+      onChange({ ...placeholder, key: 'date', format: value.slice('date:'.length) || 'short' })
+      return
+    }
+    const preserveIndex = value === placeholder.key && ['actionResult', 'folderName', 'folderPath'].includes(value)
+    onChange({ ...placeholder, key: value, format: preserveIndex ? placeholder.format : undefined })
+  }
   return <section className="placeholder-inspector" aria-label="Edit placeholder">
     <div className="placeholder-inspector-heading"><div><strong>Occurrence inspector</strong><span>Changes apply only to the selected occurrence.</span></div><code>{placeholder.raw}</code></div>
     <div className="placeholder-inspector-grid">
-      {knownSource ? <label>Source<select aria-label="Placeholder source" value={placeholder.key} onChange={(event) => { const key = event.target.value; onChange({ ...placeholder, key, format: key === 'date' ? 'short' : ['actionResult', 'folderName', 'folderPath'].includes(key) ? placeholder.format : undefined }) }}>{placeholderGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}<optgroup label="Date and time"><option value="date">Date</option></optgroup></select></label> : <div className="custom-placeholder-source"><span>Custom source</span><code>{placeholder.key}</code><small>Metadata key or path preserved exactly.</small></div>}
+      <label>Source<select aria-label="Placeholder source" value={sourceValue} onChange={(event) => setSource(event.target.value)}>{placeholderGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}<optgroup label="Date and time">{currentDateFormat && !dateFormats.some((format) => format.value === currentDateFormat) && <option value={`date:${currentDateFormat}`}>Custom date · {currentDateFormat}</option>}{dateFormats.map((format) => <option key={format.value} value={`date:${format.value}`}>{format.label}</option>)}</optgroup>{customSource && <optgroup label="Custom metadata"><option value={CUSTOM_PLACEHOLDER_SOURCE}>Custom · {placeholder.key}</option></optgroup>}</select>{customSource && <small>Metadata key or path preserved exactly.</small>}</label>
       <label>Transform<select aria-label="Placeholder transform" value={placeholder.transformName ?? ''} onChange={(event) => onChange({ ...placeholder, transformName: event.target.value || undefined })}><option value="">No transform</option>{!knownTransform && placeholder.transformName && <option value={placeholder.transformName}>Custom · {placeholder.transformName}</option>}{['Text case', 'Identifiers', 'Titles', 'Specialized'].map((group) => <optgroup label={group} key={group}>{placeholderTransforms.filter((item) => item.group === group).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}</select></label>
-      {placeholder.key === 'date' && <label className="date-format-field">Date format<select aria-label="Placeholder date format" value={placeholder.format ?? 'short'} onChange={(event) => onChange({ ...placeholder, format: event.target.value })}>{!dateFormats.some((format) => format.value === placeholder.format) && placeholder.format && <option value={placeholder.format}>Custom · {placeholder.format}</option>}{dateFormats.map((format) => <option key={format.value} value={format.value}>{format.label}</option>)}</select></label>}
       {indexedSource && <label className="placeholder-argument-field">Source index<input aria-label="Placeholder index" inputMode="numeric" value={placeholder.format ?? ''} onChange={(event) => onChange({ ...placeholder, format: event.target.value || undefined })} placeholder="Latest" /><small>Optional, zero-based. Leave empty for the current value.</small></label>}
-      {!knownSource && placeholder.format !== undefined && <label className="placeholder-argument-field">Argument<input aria-label="Placeholder argument" value={placeholder.format} onChange={(event) => onChange({ ...placeholder, format: event.target.value || undefined })} /><small>Preserved after the custom source name.</small></label>}
+      {customSource && placeholder.format !== undefined && <label className="placeholder-argument-field">Argument<input aria-label="Placeholder argument" value={placeholder.format} onChange={(event) => onChange({ ...placeholder, format: event.target.value || undefined })} /><small>Preserved after the custom source name.</small></label>}
     </div>
     <div className="replacement-editor"><div className="replacement-editor-heading"><div><strong>Regex replacements</strong><span>{placeholder.regexReplacements.length === 0 ? 'No replacements' : `${placeholder.regexReplacements.length} stage${placeholder.regexReplacements.length === 1 ? '' : 's'} · applied top to bottom`}</span></div><button type="button" className="text-button" onClick={() => onChange({ ...placeholder, regexReplacements: [...placeholder.regexReplacements, { find: '', replace: '' }] })}><PlusIcon aria-hidden="true" /> Add replacement</button></div>
       {placeholder.regexReplacements.length === 0 && <div className="replacement-empty"><span>Use replacements for cleanup that a single transform cannot handle.</span><small>Capture text with parentheses, reuse it with <code>{'${1}'}</code>, or transform a capture with <code>{'${1::uppercase}'}</code>.</small></div>}

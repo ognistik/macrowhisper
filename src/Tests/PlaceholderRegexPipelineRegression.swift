@@ -358,6 +358,17 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let result38 = processDynamicPlaceholders(action: action38, metaJson: meta38, actionType: .insert).text
         assertEqual(result38, "API and SDK", "capture transform names are case-insensitive")
 
+        let action39 = "{{promptContext.systemContext.language::uppercase||ENGLISH||Spanish}}"
+        let meta39: [String: Any] = [
+            "promptContext": [
+                "systemContext": [
+                    "language": "English"
+                ]
+            ]
+        ]
+        let result39 = processDynamicPlaceholders(action: action39, metaJson: meta39, actionType: .insert).text
+        assertEqual(result39, "Spanish", "custom metadata paths use transforms and regex replacements")
+
         stubSelectedText = ""
         stubAppContext = ""
         stubAppVocabulary = ""

@@ -177,9 +177,11 @@ for deliberate raw editing and are never silently simplified.
 The placeholder menu presents categorized result, captured-context, workflow,
 recording-folder, and Date sources as compact full-width rows. Each row keeps
 the value name and its purpose together in a clear hierarchy without repeating
-raw placeholder syntax; common Date formats remain direct choices. Pointer
-hover and keyboard focus provide equivalent feedback, and either click or
-keyboard activation inserts the focused value. Beneath the payload, a stable review row reports every
+raw placeholder syntax; common Date formats remain direct choices. The menu
+opens without preselecting a value. Pointer movement stays visually neutral;
+keyboard navigation adds a quiet selection state only after an arrow, Home, or
+End key. Either click or keyboard activation inserts the chosen value. Beneath
+the payload, a stable review row reports every
 complete placeholder occurrence without reacting to caret movement. Inserting
 a placeholder updates the count but leaves review collapsed. Expand the row and
 choose one occurrence to inspect it; repeated placeholders are edited
@@ -198,11 +200,15 @@ Return. Insert execution retains Macrowhisper's existing compatibility behavior,
 described in [Placeholders and context](placeholders-and-context.md); a literal
 backslash-plus-`n` output remains ambiguous until the runtime adopts a versioned,
 context-aware escape model.
-Custom metadata keys and dot paths keep their names while using the same
-transform and replacement controls. XML or otherwise unsupported syntax stays
-visible as an exact raw occurrence and is never rewritten by the visual
-inspector. The raw payload remains canonical, and the editor never expands
-placeholders against private live app or clipboard context.
+The inspector source selector uses the same built-in and direct Date choices as
+the insertion menu. Custom metadata keys and dot paths appear as a preserved
+Custom source while using the same transform and replacement controls. XML is
+handled by a separate exact runtime matcher that currently supports tag
+extraction but not transform or replacement suffixes, so XML and otherwise
+unsupported syntax stay visible as exact raw occurrences and are never
+rewritten by the visual inspector. The raw payload remains canonical, and the
+editor never expands placeholders against private live app or clipboard
+context.
 
 ## Changes made elsewhere and invalid files
 
