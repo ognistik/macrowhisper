@@ -634,6 +634,7 @@ describe('configuration editor interactions', () => {
 
     await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
     const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
+    expect(menu).toHaveTextContent('Choose a value to insert.')
     expect(within(menu).getByRole('menuitem', { name: /Raw dictation/ })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: /^Language-model result/ })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: /Front app URL/ })).toBeInTheDocument()
@@ -641,7 +642,13 @@ describe('configuration editor interactions', () => {
     expect(within(menu).getByRole('menuitem', { name: /Action result/ })).toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: /Uppercase/ })).not.toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: /regex replacement/i })).not.toBeInTheDocument()
-    expect(within(menu).getByRole('combobox', { name: 'Date format' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Result' })).toHaveAccessibleDescription('Language-model result when available, otherwise raw dictation.')
+    expect(within(menu).getByRole('menuitem', { name: /Short date/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Long date/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /ISO date/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Date and time/ })).toBeInTheDocument()
+    expect(menu).not.toHaveTextContent('{{')
+    expect(within(menu).queryByRole('combobox')).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
@@ -651,11 +658,92 @@ describe('configuration editor interactions', () => {
     fireEvent.select(payload)
     expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
-    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
+    const occurrence = within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i })
+    await user.click(occurrence)
     expect(screen.getByRole('region', { name: 'Edit placeholder' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Placeholder transform' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Title case · French' })).toBeInTheDocument()
+    expect(screen.queryByText('Raw syntax', { selector: 'summary' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Placeholder syntax reference' })).toBeInTheDocument()
+    await user.click(occurrence)
+    expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
+    expect(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).toBeInTheDocument()
+    expect(occurrence).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('keeps placeholder review and Insert settings to one open panel', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const review = screen.getByRole('button', { name: /1 placeholder found/ })
+    const detailsFor = (label: string) => screen.getByText(label, { selector: 'strong' }).closest('details') as HTMLDetailsElement
+
+    await user.click(review)
+    expect(review).toHaveAttribute('aria-expanded', 'true')
+
+    for (const label of ['Insertion behavior', 'Conditions', 'Triggers', 'Chaining']) {
+      await user.click(screen.getByText(label, { selector: 'strong' }))
+      expect(detailsFor(label)).toHaveAttribute('open')
+      expect(review).toHaveAttribute('aria-expanded', 'false')
+      for (const other of ['Insertion behavior', 'Conditions', 'Triggers', 'Chaining'].filter((item) => item !== label)) {
+        expect(detailsFor(other)).not.toHaveAttribute('open')
+      }
+    }
+
+    await user.click(review)
+    expect(review).toHaveAttribute('aria-expanded', 'true')
+    expect(detailsFor('Chaining')).not.toHaveAttribute('open')
+    await user.click(review)
+    expect(review).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('supports keyboard-only placeholder discovery and insertion', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' })
+    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
+    const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
+    const result = within(menu).getByRole('menuitem', { name: 'Result' })
+    const raw = within(menu).getByRole('menuitem', { name: 'Raw dictation' })
+
+    expect(result).toHaveFocus()
+    expect(result).toHaveAccessibleDescription('Language-model result when available, otherwise raw dictation.')
+    await user.keyboard('{ArrowDown}')
+    expect(raw).toHaveFocus()
+    expect(raw).toHaveAccessibleDescription('The unprocessed Superwhisper result.')
+    await user.keyboard('{Enter}')
+
+    expect((payload as HTMLTextAreaElement).value).toContain('{{result}}')
+    expect(payload).toHaveFocus()
+    expect(screen.queryByRole('menu', { name: 'Insert placeholder' })).not.toBeInTheDocument()
+  })
+
+  it('collapses placeholder review after inserting from the palette', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const review = screen.getByRole('button', { name: /1 placeholder found/ })
+    await user.click(review)
+    expect(review).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
+    await user.click(within(screen.getByRole('menu', { name: 'Insert placeholder' })).getByRole('menuitem', { name: 'Result' }))
+
+    expect(screen.getByRole('button', { name: /2 placeholders found/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('listbox', { name: 'Placeholder occurrences' })).not.toBeInTheDocument()
   })
 
   it('encodes literal double pipes in regex replacement stages for parser round-trips', async () => {
@@ -668,7 +756,7 @@ describe('configuration editor interactions', () => {
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
     await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
-    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i }))
     await user.click(screen.getByRole('button', { name: /Add replacement/ }))
     await user.type(screen.getByRole('textbox', { name: 'Find pattern 1' }), '||')
     await user.type(screen.getByRole('textbox', { name: 'Replacement text 1' }), '||')
@@ -687,13 +775,49 @@ describe('configuration editor interactions', () => {
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
     await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
-    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i }))
     await user.click(screen.getByRole('button', { name: /Add replacement/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'middle' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'line 1\nline 2' } })
 
     const expression = '{{swResult||middle||line 1\nline 2}}'
     expect(payload.value).toContain(expression)
+  })
+
+  it('preserves typed and existing backslash-newline spellings without visual normalization', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    const legacySingleSlash = '{{swResult||middle||\\n}}'
+    fireEvent.change(payload, { target: { value: legacySingleSlash } })
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i }))
+
+    const replacement = screen.getByRole('textbox', { name: 'Replacement text 1' })
+    expect(replacement).toHaveValue('\\n')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'center' } })
+    expect(payload).toHaveValue('{{swResult||center||\\n}}')
+
+    await user.clear(replacement)
+    await user.type(replacement, 'before\\nafter')
+    expect(replacement).toHaveValue('before\\nafter')
+    expect(payload).toHaveValue('{{swResult||center||before\\nafter}}')
+
+    const legacyDoubleSlash = '{{swResult||middle||\\\\n}}'
+    fireEvent.change(payload, { target: { value: legacyDoubleSlash } })
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i }))
+    const doubleSlashReplacement = screen.getByRole('textbox', { name: 'Replacement text 1' })
+    expect(doubleSlashReplacement).toHaveValue('\\\\n')
+    expect(payload).toHaveValue(legacyDoubleSlash)
+
+    fireEvent.change(doubleSlashReplacement, { target: { value: 'before\\\\nafter' } })
+    expect(doubleSlashReplacement).toHaveValue('before\\\\nafter')
+    expect(payload).toHaveValue('{{swResult||middle||before\\\\nafter}}')
   })
 
   it('lists repeated and custom placeholders as independent occurrences without caret-driven expansion', async () => {
@@ -710,7 +834,7 @@ describe('configuration editor interactions', () => {
 
     await user.click(screen.getByRole('button', { name: /4 placeholders found/ }))
     const list = screen.getByRole('listbox', { name: 'Placeholder occurrences' })
-    const resultOccurrences = within(list).getAllByRole('option', { name: /Result/ })
+    const resultOccurrences = within(list).getAllByRole('option', { name: /Result/i })
     expect(resultOccurrences).toHaveLength(2)
     await user.click(resultOccurrences[1])
     await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'uppercase')
@@ -754,7 +878,7 @@ describe('configuration editor interactions', () => {
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
     fireEvent.change(payload, { target: { value: '{{swResult||one||1||two||2}}' } })
     await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
-    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i }))
     expect(screen.getByRole('textbox', { name: 'Find pattern 1' }).tagName).toBe('TEXTAREA')
     await user.click(screen.getByRole('button', { name: 'Move replacement 2 up' }))
     expect(payload).toHaveValue('{{swResult||two||2||one||1}}')
@@ -804,10 +928,13 @@ describe('configuration editor interactions', () => {
     payload.setSelectionRange(0, 0)
     await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
     const placeholderMenu = screen.getByRole('menu', { name: 'Insert placeholder' })
-    await user.click(within(placeholderMenu).getByRole('menuitem', { name: /^Result .*\{\{swResult\}\}/ }))
+    await user.click(within(placeholderMenu).getByRole('menuitem', { name: 'Result' }))
 
     expect(payload).toHaveValue('{{swResult}}' + original)
     expect(payload).toHaveFocus()
+    expect(screen.getByRole('button', { name: /2 placeholders found/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('listbox', { name: 'Placeholder occurrences' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
     // Moving to another editor section commits once, after the toolbar menu
     // has finished, instead of saving the pre-insertion value on blur.
     await user.click(screen.getByRole('heading', { name: 'Payload' }))

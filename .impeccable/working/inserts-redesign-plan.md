@@ -60,9 +60,14 @@ legible, while advanced sections remain findable without dominating the page.
 
 ## Checkpoint 3 — placeholder workspace
 
-Status: implemented for user review. Placeholder detection is continuous and
-caret-independent; every complete occurrence is listed, while custom metadata
-paths remain structured and unsupported XML/raw syntax remains untouched.
+Status: implemented for user review, with the versioned runtime newline model
+still open as a separate compatibility checkpoint. Placeholder detection is
+continuous and caret-independent; every complete occurrence is listed, while
+custom metadata paths remain structured and unsupported XML/raw syntax remains
+untouched. The current pass keeps review collapsed after insertion, offers Date
+formats as direct choices, coordinates review with the four action disclosures,
+uses compact name-purpose rows with equivalent pointer and keyboard feedback,
+and preserves typed replacement text without editor-side normalization.
 
 - Detect placeholder occurrences continuously without opening an editor from
   caret movement.
@@ -71,7 +76,34 @@ paths remain structured and unsupported XML/raw syntax remains untouched.
 - Highlight the selected occurrence in the payload and preserve unsupported raw
   syntax without rewriting it.
 - Redesign ordered regex stages as full-width multiline editors with validation,
-  reordering, removal, and raw syntax behind disclosure.
+  quiet symbolic reordering/removal actions and capture guidance.
+
+### Placeholder palette refinement requirement
+
+- Keep each placeholder's concise purpose visibly associated with its title.
+  Essential descriptions must not move into a footer that appears only after
+  hover, focus, or selection; a footer may supplement a row, but it cannot be
+  the only place needed to understand that row.
+- Pointer and keyboard users must each be able to discover, compare, and insert
+  placeholders from beginning to end without switching input methods. Pointer
+  hover and keyboard focus/arrow navigation should expose equivalent states,
+  while click, Enter, and Space provide equivalent activation.
+- Add an unmistakable but quiet hover state and an equally clear focus state.
+  Neither state may depend on color so subtle that it disappears in dark mode.
+- Revisit popover width, row hierarchy, description measure, group rhythm, and
+  inherited/duplicate styles together. The goal is a compact chooser with clear
+  name-description hierarchy, not a wide reference table or a hover-dependent
+  master-detail browser.
+
+### Replacement newline compatibility requirement
+
+- Do not silently rewrite typed backslash sequences into visible Returns while
+  the user is editing. Preserve existing and newly typed replacement text until
+  a complete, versioned escape model can distinguish line breaks from literal
+  backslashes without changing existing Insert output.
+- Treat the runtime's current global backslash-newline conversion and any future
+  context-aware placeholder grammar as a separate compatibility checkpoint;
+  editor-only normalization is not considered the final solution.
 
 Success gate: payload layout remains stable while typing and every occurrence,
 including repeated sources with different transforms, is independently editable.

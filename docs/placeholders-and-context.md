@@ -296,6 +296,21 @@ Mix raw and transformed captures:
 - capture transforms are optional
 - standard replacement syntax such as `${1}` and `$1` still works
 
+### Replacement line breaks
+
+Insert actions normalize line breaks before placeholder expansion. An actual
+line-feed character, a literal `\n`, and a literal `\\n` inside a replacement
+all produce a line break during Insert execution. JSON escaping can make the
+same values appear with additional backslashes in `macrowhisper.json`.
+
+The web editor preserves Return, `\n`, and `\\n` exactly as they appear in the
+replacement field. It does not silently turn typed backslash sequences into
+visible Returns when the field changes. The current Insert runtime still treats
+all three forms as line breaks for compatibility, which means a literal
+backslash-plus-`n` replacement cannot yet be expressed unambiguously. That
+distinction requires a future versioned, context-aware escape model rather than
+an editor-only rewrite.
+
 ### Prompt template for AI help
 
 If you want ChatGPT, Claude, Gemini, or another AI to help you write a Macrowhisper placeholder regex, use this template:

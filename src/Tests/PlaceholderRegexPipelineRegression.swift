@@ -94,6 +94,21 @@ private func runPlaceholderRegexPipelineRegressionTests() {
             "actual replacement newlines survive placeholder parsing"
         )
 
+        let insertNewlineJSONCases = [
+            ("JSON newline escape", #"{"action":"{{swResult||middle||\n}}"}"#),
+            ("JSON escaped backslash-n", #"{"action":"{{swResult||middle||\\n}}"}"#),
+            ("JSON double escaped backslash-n", #"{"action":"{{swResult||middle||\\\\n}}"}"#),
+        ]
+        for (label, json) in insertNewlineJSONCases {
+            let object = try! JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: String]
+            let result = processAllPlaceholders(
+                action: object["action"]!,
+                metaJson: replacementNewlineMeta,
+                actionType: .insert
+            ).text
+            assertEqual(result, "left\nright", "\(label) remains an Insert replacement line break")
+        }
+
         let action6 = "{{swResult::titleCase:fr}}"
         let meta6: [String: Any] = ["llmResult": "le seigneur des anneaux et l'amour perdu"]
         let result6 = processDynamicPlaceholders(action: action6, metaJson: meta6, actionType: .insert).text

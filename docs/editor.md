@@ -165,23 +165,39 @@ Insert names are unique across all five action groups. Rename updates inbound
 blocked while Defaults or another action still points at the Insert.
 
 Collapsed action sections summarize the behavior that is actually configured.
-Opening Insertion behavior, Conditions, or Triggers shows configured entries
-first and offers an explicit Add control for another exception. Removing an
-override restores **Use Defaults**; removing a condition restores **Always**.
+Placeholder review, Insertion behavior, Conditions, Triggers, and Chaining form
+one coordinated disclosure set: opening one closes the previously open section,
+and choosing another action resets the set. Opening a settings section shows
+configured entries first and offers an explicit Add control for another
+exception. Removing an override restores **Use Defaults**; removing a condition
+restores **Always**.
 Unsupported or ambiguous raw condition and trigger expressions remain available
 for deliberate raw editing and are never silently simplified.
 
-The placeholder menu inserts categorized result, captured-context, workflow,
-recording-folder, and Date sources at the saved caret. Date offers its format
-as part of insertion. Beneath the payload, a stable review row reports every
-complete placeholder occurrence without reacting to caret movement. Expand the
-row and choose one occurrence to inspect it; repeated placeholders are edited
-independently.
+The placeholder menu presents categorized result, captured-context, workflow,
+recording-folder, and Date sources as compact full-width rows. Each row keeps
+the value name and its purpose together in a clear hierarchy without repeating
+raw placeholder syntax; common Date formats remain direct choices. Pointer
+hover and keyboard focus provide equivalent feedback, and either click or
+keyboard activation inserts the focused value. Beneath the payload, a stable review row reports every
+complete placeholder occurrence without reacting to caret movement. Inserting
+a placeholder updates the count but leaves review collapsed. Expand the row and
+choose one occurrence to inspect it; repeated placeholders are edited
+independently. Choose the selected occurrence again to close its inspector while
+leaving the occurrence list visible.
 
 The occurrence inspector exposes the runtime's supported transforms and
 ordered regex replacements. Replacement patterns and values accept multiple
-lines, stages can be reordered, and capture groups may be reused or transformed
-with the syntax documented in [Placeholders and context](placeholders-and-context.md).
+lines, stages can be reordered with compact symbolic controls, and capture
+groups may be reused or transformed with the syntax documented in
+[Placeholders and context](placeholders-and-context.md).
+The replacement editor preserves actual Returns and typed backslash sequences
+exactly as entered. Merely opening the inspector, editing another field, or
+editing the replacement itself does not normalize `\n` or `\\n` into a visible
+Return. Insert execution retains Macrowhisper's existing compatibility behavior,
+described in [Placeholders and context](placeholders-and-context.md); a literal
+backslash-plus-`n` output remains ambiguous until the runtime adopts a versioned,
+context-aware escape model.
 Custom metadata keys and dot paths keep their names while using the same
 transform and replacement controls. XML or otherwise unsupported syntax stays
 visible as an exact raw occurrence and is never rewritten by the visual

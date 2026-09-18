@@ -351,10 +351,10 @@ interface PlaceholderOccurrence {
 }
 
 const dateFormats = [
-  { value: 'short', label: 'Short date' },
-  { value: 'long', label: 'Long date' },
-  { value: 'yyyy-MM-dd', label: 'YYYY-MM-DD' },
-  { value: 'yyyy-MM-dd HH:mm', label: 'Date and time' },
+  { value: 'short', label: 'Short date', hint: 'Locale-aware compact date.' },
+  { value: 'long', label: 'Long date', hint: 'Locale-aware written date.' },
+  { value: 'yyyy-MM-dd', label: 'ISO date', hint: 'Year, month, and day.' },
+  { value: 'yyyy-MM-dd HH:mm', label: 'Date and time', hint: 'Date plus 24-hour time.' },
 ]
 
 const triggerFields = ['triggerVoice', 'triggerApps', 'triggerModes', 'triggerUrls']
@@ -2240,21 +2240,19 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const payloadMode = payload === '.autoPaste' ? 'autoPaste' : payload === '.none' ? 'none' : 'text'
   const source = sourceForAction(selectedName, { ...action, action: payload })
   const [placeholderOpen, setPlaceholderOpen] = useState(false)
-  const [placeholderReviewOpen, setPlaceholderReviewOpen] = useState(false)
+  const [openDisclosure, setOpenDisclosure] = useState<'placeholders' | 'insertion' | 'conditions' | 'triggers' | 'chaining' | null>(source === 'invalid' ? 'conditions' : null)
   const [selectedPlaceholderIndex, setSelectedPlaceholderIndex] = useState<number | null>(null)
   const [inspectedPlaceholder, setInspectedPlaceholder] = useState<EditablePlaceholder | null>(null)
   const [pendingOverrides, setPendingOverrides] = useState<string[]>([])
   const [pendingConditions, setPendingConditions] = useState<string[]>([])
   const [conditionAdvanced, setConditionAdvanced] = useState(false)
-  const [conditionOpen, setConditionOpen] = useState(source === 'invalid')
-  const [insertionOpen, setInsertionOpen] = useState(false)
-  const [chainingOpen, setChainingOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const composingRef = useRef(false)
   const deferredBlurRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const selectionRef = useRef({ start: payload.length, end: payload.length })
   const boundaryRef = useRef<HTMLDivElement>(null)
+  const selectedActionRef = useRef(selectedName)
   const conditionPath = actionPath('inputCondition')
   const conditionRaw = displayValue(valueFor(conditionPath))
   const conditionValues = parseCondition(conditionRaw)
@@ -2277,10 +2275,17 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   }, [occurrences.length, selectedPlaceholderIndex])
 
   useEffect(() => {
+    if (selectedActionRef.current === selectedName) return
+    selectedActionRef.current = selectedName
     setSelectedPlaceholderIndex(null)
     setInspectedPlaceholder(null)
-    setPlaceholderReviewOpen(false)
-  }, [selectedName])
+    setPlaceholderOpen(false)
+    setOpenDisclosure(source === 'invalid' ? 'conditions' : null)
+  }, [selectedName, source])
+
+  const setDisclosureOpen = (disclosure: 'placeholders' | 'insertion' | 'conditions' | 'triggers' | 'chaining', open: boolean) => {
+    setOpenDisclosure((current) => open ? disclosure : current === disclosure ? null : current)
+  }
 
   useEffect(() => {
     if (!placeholderOpen) return
@@ -2318,17 +2323,15 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     const inserted = typeof document.execCommand === 'function' && document.execCommand('insertText', false, insertion)
     setDraftValue(payloadPath, inserted ? element.value : next)
     setPlaceholderOpen(false)
+    setOpenDisclosure((current) => current === 'placeholders' ? null : current)
     requestAnimationFrame(() => {
       if (!element) return
       element.focus()
       const caret = safeStart + insertion.length
       element.setSelectionRange(caret, caret)
       selectionRef.current = { start: caret, end: caret }
-      const nextValue = inserted ? element.value : next
-      const insertedIndex = placeholderOccurrences(nextValue).findIndex((occurrence) => occurrence.start === safeStart)
-      setPlaceholderReviewOpen(true)
-      setSelectedPlaceholderIndex(insertedIndex >= 0 ? insertedIndex : null)
-      setInspectedPlaceholder(insertedIndex >= 0 ? placeholderOccurrences(nextValue)[insertedIndex]?.placeholder ?? null : null)
+      setSelectedPlaceholderIndex(null)
+      setInspectedPlaceholder(null)
     })
   }
 
@@ -2352,6 +2355,11 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   }
 
   const selectPlaceholder = (index: number) => {
+    if (selectedPlaceholderIndex === index) {
+      setSelectedPlaceholderIndex(null)
+      setInspectedPlaceholder(null)
+      return
+    }
     const occurrence = occurrences[index]
     if (!occurrence) return
     setSelectedPlaceholderIndex(index)
@@ -2527,7 +2535,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           {payloadMode === 'text' ? <div className="payload-boundary" ref={boundaryRef} onBlur={onPayloadBlur}>
             <div className="payload-toolbar">
               <span>Custom text</span>
-              <div className="placeholder-menu"><button type="button" className="toolbar-button" aria-haspopup="menu" aria-expanded={placeholderOpen} onMouseDown={(event) => event.preventDefault()} onClick={() => { rememberSelection(); setPlaceholderOpen((open) => !open) }}><PlusIcon aria-hidden="true" /> Insert placeholder <ChevronDownIcon aria-hidden="true" /></button>{placeholderOpen && <PlaceholderMenu onInsert={insertExpression} onKeyDown={onPlaceholderKey} />}</div>
+              <div className="placeholder-menu"><button type="button" className="toolbar-button" aria-haspopup="menu" aria-expanded={placeholderOpen} aria-controls="insert-placeholder-menu" onMouseDown={(event) => event.preventDefault()} onClick={() => { rememberSelection(); setPlaceholderOpen((open) => !open) }}><PlusIcon aria-hidden="true" /> Insert placeholder <ChevronDownIcon aria-hidden="true" /></button>{placeholderOpen && <PlaceholderMenu onInsert={insertExpression} onKeyDown={onPlaceholderKey} />}</div>
             </div>
             <textarea ref={textareaRef} value={payload} aria-label="Insert payload" aria-describedby={payloadEntry?.error ? fieldErrorId(payloadPath) : undefined} rows={8} onChange={(event) => { setDraftValue(payloadPath, event.target.value); setSelectedPlaceholderIndex(null); setInspectedPlaceholder(null) }} onSelect={rememberSelection} onKeyUp={rememberSelection} onFocus={rememberSelection} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={(event) => {
           composingRef.current = false
@@ -2536,15 +2544,15 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
             void commitField(payloadPath, event.currentTarget.value)
           }
         }} placeholder="Type the text to insert…" />
-            <PlaceholderReview occurrences={occurrences} open={placeholderReviewOpen} selectedIndex={selectedPlaceholderIndex} onToggle={() => setPlaceholderReviewOpen((open) => !open)} onSelect={selectPlaceholder} />
-            {placeholderReviewOpen && activeOccurrence && (inspectedPlaceholder
+            <PlaceholderReview occurrences={occurrences} open={openDisclosure === 'placeholders'} selectedIndex={selectedPlaceholderIndex} onToggle={(open) => setDisclosureOpen('placeholders', open)} onSelect={selectPlaceholder} />
+            {openDisclosure === 'placeholders' && activeOccurrence && (inspectedPlaceholder
               ? <PlaceholderInspector placeholder={inspectedPlaceholder} onChange={updatePlaceholder} />
               : <RawPlaceholderInspector occurrence={activeOccurrence} />)}
             <div className="payload-footer"><span>{payload.length} characters</span><FieldState entry={payloadEntry} onRevert={() => revertField(payloadPath)} onRetry={() => retryField(payloadPath)} onResync={() => resyncField(payloadPath)} errorId={fieldErrorId(payloadPath)} /></div>
           </div> : <div className="payload-template-summary"><div><strong>{payloadMode === 'autoPaste' ? 'Auto-paste dictation' : 'Do nothing'}</strong><span>{payloadMode === 'autoPaste' ? 'Macrowhisper uses its protected built-in paste flow and insertion behavior. This action cannot be deleted.' : 'This Insert performs no payload operation. Its triggers and chain settings can still apply.'}</span></div>{recoveredPayload !== undefined && <div className="payload-recovery" role="status"><div><strong>Custom text retained</strong><span>{recoveredPayload.length} character{recoveredPayload.length === 1 ? '' : 's'} kept for this editing session.</span></div><button type="button" className="quiet-button" onClick={() => void setActionChoice('text')}>Restore custom text</button></div>}</div>}
         </section>
 
-        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Insertion behavior" subtitle="Overrides inherited Defaults for this Insert." meta={insertionDisclosureMeta} open={insertionOpen} onToggle={setInsertionOpen} variant="defaults">
+        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Insertion behavior" subtitle="Overrides inherited Defaults for this Insert." meta={insertionDisclosureMeta} open={openDisclosure === 'insertion'} onToggle={(open) => setDisclosureOpen('insertion', open)} variant="defaults">
           {visibleOverrides.length === 0 && <div className="section-empty"><strong>Using Defaults</strong><span>This Insert has no insertion overrides.</span></div>}
           <div className="configured-list">{visibleOverrides.map((field) => {
             const configured = configuredOverrides.includes(field)
@@ -2554,16 +2562,16 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           <div className="template-note"><MinusCircledIcon aria-hidden="true" /> Removing an override restores Use Defaults. Empty strings remain explicit values.</div>
         </Disclosure></div>
 
-        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Conditions" subtitle="Apply supported settings inside or outside text fields." meta={conditionDisclosureMeta} open={conditionOpen} onToggle={setConditionOpen} variant="defaults">
+        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Conditions" subtitle="Apply supported settings inside or outside text fields." meta={conditionDisclosureMeta} open={openDisclosure === 'conditions'} onToggle={(open) => setDisclosureOpen('conditions', open)} variant="defaults">
           <div className="condition-intro">Add a rule only when a setting should behave differently inside or outside a text field.</div>
           {conditionHasIssue && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />This saved expression contains {conditionAnalysis.malformed ? 'an invalid token' : conditionAnalysis.repeated.length > 0 ? `repeated token${conditionAnalysis.repeated.length === 1 ? '' : 's'}` : 'a token this editor cannot represent'}. It stays intact until you deliberately edit Advanced raw mode.</div>}
           <fieldset className="template-field" disabled={payloadMode !== 'text' || conditionHasIssue || conditionAdvanced}>{payloadMode !== 'text' && <p className="template-note">The built-in mode supplies its own conditions. Your stored expression is retained for Custom text.</p>}{conditionHasIssue && !conditionAdvanced && <p className="template-note">Structured controls are paused until you enable Edit raw expression.</p>}{visibleConditions.length === 0 && !conditionHasIssue && <div className="section-empty"><strong>Always</strong><span>No conditional behavior is configured.</span></div>}<div className="condition-list">{visibleConditions.map((field) => <div className="condition-row" key={field}><div><strong>{field === 'action' ? 'Payload' : actionMeta[field]?.label ?? field}</strong><span>{field === 'action' ? 'Text or built-in action value' : 'Choose where this rule applies'}</span></div><select aria-label={`Condition for ${field}`} value={conditionValues[field] ?? ''} onChange={(event) => setConditionMode(field, event.target.value as 'inside' | 'outside')}><option value="" disabled>Choose…</option><option value="inside">Only in a text field</option><option value="outside">Only outside text fields</option></select><button type="button" className="icon-button" aria-label={`Remove condition for ${field}`} onClick={() => setConditionMode(field, 'always')}><Cross2Icon aria-hidden="true" /></button></div>)}</div>{availableConditions.length > 0 && !conditionHasIssue && <label className="add-setting-control"><span className="sr-only">Add condition</span><PlusIcon aria-hidden="true" /><select aria-label="Add condition" value="" onChange={(event) => { const field = event.target.value; if (field) setPendingConditions((current) => [...current, field]) }}><option value="">Add condition…</option>{availableConditions.map((field) => <option key={field} value={field}>{field === 'action' ? 'Payload' : actionMeta[field]?.label ?? field}</option>)}</select></label>}</fieldset>
           <div className="generated-expression"><span>Generated expression</span><code>{conditionRaw || 'Always'}</code></div><label className="advanced-toggle"><input type="checkbox" checked={conditionAdvanced} onChange={(event) => setConditionAdvanced(event.target.checked)} /> Edit raw expression</label><div className="raw-expression"><input aria-label="Advanced input condition" readOnly={!conditionAdvanced} value={conditionRaw} aria-describedby={drafts[pathKey(conditionPath)]?.error ? fieldErrorId(conditionPath) : undefined} onChange={(event) => { if (conditionAdvanced) setDraftValue(conditionPath, event.target.value) }} onBlur={(event) => { if (conditionAdvanced) commitIfChanged(conditionPath, event.target.value) }} /><span>{conditionAdvanced ? 'Raw mode is deliberate; existing text is preserved until you edit it.' : 'Read-only preview. Enable Edit raw expression only for syntax this builder cannot represent.'}</span><FieldState entry={drafts[pathKey(conditionPath)]} onRevert={() => revertField(conditionPath)} onRetry={() => retryField(conditionPath)} onResync={() => resyncField(conditionPath)} errorId={fieldErrorId(conditionPath)} /></div>
         </Disclosure></div>
 
-        <TriggerEditor action={action} selectedName={selectedName} actionPath={actionPath} drafts={drafts} valueFor={valueFor} setDraftValue={setDraftValue} commitIfChanged={commitIfChanged} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} />
+        <TriggerEditor action={action} selectedName={selectedName} actionPath={actionPath} drafts={drafts} valueFor={valueFor} setDraftValue={setDraftValue} commitIfChanged={commitIfChanged} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} open={openDisclosure === 'triggers'} onToggle={(open) => setDisclosureOpen('triggers', open)} />
 
-        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Chaining" subtitle="Continue to another action after this step." meta={valueFor(actionPath('nextAction')) ? 'Linked' : 'No next action'} open={chainingOpen} onToggle={setChainingOpen} variant="defaults"><div className="chain-field"><label htmlFor="next-action">Next action</label><p>The Defaults next action applies only to the root step. Select an action from any group.</p><ActionPicker id="next-action" label="Next action" describedBy={drafts[pathKey(actionPath('nextAction'))]?.error ? fieldErrorId(actionPath('nextAction')) : undefined} value={valueFor(actionPath('nextAction')) === null || valueFor(actionPath('nextAction')) === undefined ? NULL_CHOICE : valueFor(actionPath('nextAction')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('nextAction')))} options={[
+        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Chaining" subtitle="Continue to another action after this step." meta={valueFor(actionPath('nextAction')) ? 'Linked' : 'No next action'} open={openDisclosure === 'chaining'} onToggle={(open) => setDisclosureOpen('chaining', open)} variant="defaults"><div className="chain-field"><label htmlFor="next-action">Next action</label><p>The Defaults next action applies only to the root step. Select an action from any group.</p><ActionPicker id="next-action" label="Next action" describedBy={drafts[pathKey(actionPath('nextAction'))]?.error ? fieldErrorId(actionPath('nextAction')) : undefined} value={valueFor(actionPath('nextAction')) === null || valueFor(actionPath('nextAction')) === undefined ? NULL_CHOICE : valueFor(actionPath('nextAction')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('nextAction')))} options={[
           { value: NULL_CHOICE, label: 'Use Defaults next action', detail: 'Only for the first step', group: 'Defaults', keywords: 'inherit root' },
           { value: EMPTY_CHOICE, label: 'Stop chain', detail: 'Do not continue to another action', group: 'Chain behavior', keywords: 'none stop' },
           ...actionOptions(snapshot, ['inserts', selectedName]),
@@ -2574,19 +2582,28 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
 }
 
 function PlaceholderMenu({ onInsert, onKeyDown }: { onInsert: (expression: string) => void; onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void }) {
-  const [dateFormat, setDateFormat] = useState('short')
   return (
-    <div className="placeholder-popover" role="menu" aria-label="Insert placeholder" onKeyDown={onKeyDown}>
-      <div className="placeholder-popover-heading"><strong>Insert a value</strong><span>You can transform or replace it after insertion.</span></div>
+    <div className="placeholder-popover" id="insert-placeholder-menu" role="menu" aria-label="Insert placeholder" onKeyDown={onKeyDown}>
+      <div className="placeholder-popover-heading"><strong>Insert placeholder</strong><span>Choose a value to insert.</span></div>
       <div className="placeholder-source-groups">
-        {placeholderGroups.map((group) => <div className="placeholder-group" key={group.label}><span className="placeholder-group-title">{group.label}</span><div className="placeholder-option-grid">{group.items.map((item) => <button type="button" role="menuitem" key={item.key} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${item.key}}}`)}><span><strong>{item.label}</strong><small>{item.hint}</small></span><span className="placeholder-chip">{'{{'}{item.key}{'}}'}</span></button>)}</div></div>)}
-        <div className="placeholder-group date-placeholder"><span className="placeholder-group-title">Date and time</span><div className="date-placeholder-controls"><label>Format<select aria-label="Date format" value={dateFormat} onChange={(event) => setDateFormat(event.target.value)}>{dateFormats.map((format) => <option key={format.value} value={format.value}>{format.label}</option>)}</select></label><button type="button" role="menuitem" onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{date:${dateFormat}}}`)}><span><strong>Insert date</strong><small>Uses the selected display format.</small></span><span className="placeholder-chip">{'{{date:'}{dateFormat}{'}}'}</span></button></div></div>
+        {placeholderGroups.map((group) => {
+          const groupId = `placeholder-group-${group.label.toLowerCase().replaceAll(' ', '-')}`
+          return <div className="placeholder-group" role="group" aria-labelledby={groupId} key={group.label}><span className="placeholder-group-title" id={groupId}>{group.label}</span><div className="placeholder-option-list">{group.items.map((item) => {
+            const labelId = `placeholder-${item.key}-label`
+            const hintId = `placeholder-${item.key}-hint`
+            return <button type="button" role="menuitem" aria-labelledby={labelId} aria-describedby={hintId} key={item.key} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${item.key}}}`)}><strong id={labelId}>{item.label}</strong><small id={hintId}>{item.hint}</small></button>
+          })}</div></div>
+        })}
+        <div className="placeholder-group date-placeholder" role="group" aria-labelledby="placeholder-group-date"><span className="placeholder-group-title" id="placeholder-group-date">Date and time</span><div className="placeholder-option-list">{dateFormats.map((format) => {
+          const id = format.value.replaceAll(/[^a-zA-Z0-9]+/g, '-')
+          return <button type="button" role="menuitem" aria-labelledby={`placeholder-date-${id}-label`} aria-describedby={`placeholder-date-${id}-hint`} key={format.value} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{date:${format.value}}}`)}><strong id={`placeholder-date-${id}-label`}>{format.label}</strong><small id={`placeholder-date-${id}-hint`}>{format.hint}</small></button>
+        })}</div></div>
       </div>
     </div>
   )
 }
 
-function PlaceholderReview({ occurrences, open, selectedIndex, onToggle, onSelect }: { occurrences: PlaceholderOccurrence[]; open: boolean; selectedIndex: number | null; onToggle: () => void; onSelect: (index: number) => void }) {
+function PlaceholderReview({ occurrences, open, selectedIndex, onToggle, onSelect }: { occurrences: PlaceholderOccurrence[]; open: boolean; selectedIndex: number | null; onToggle: (open: boolean) => void; onSelect: (index: number) => void }) {
   const count = occurrences.length
   const onListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
@@ -2597,7 +2614,7 @@ function PlaceholderReview({ occurrences, open, selectedIndex, onToggle, onSelec
     options[next]?.focus()
   }
   return <section className="placeholder-review" aria-label="Detected placeholders">
-    <button type="button" className="placeholder-review-toggle" aria-expanded={open} aria-controls="placeholder-occurrence-list" onClick={onToggle} disabled={count === 0}>
+    <button type="button" className="placeholder-review-toggle" aria-expanded={open} aria-controls="placeholder-occurrence-list" onClick={() => onToggle(!open)} disabled={count === 0}>
       <CodeIcon aria-hidden="true" />
       <span><strong>{count === 0 ? 'No placeholders found' : `${count} placeholder${count === 1 ? '' : 's'} found`}</strong><small>{count === 0 ? 'Type double curly brackets or use Insert placeholder.' : open ? 'Choose an occurrence to inspect it.' : 'Review sources, transforms, and replacements.'}</small></span>
       {count > 0 && <ChevronDownIcon aria-hidden="true" />}
@@ -2616,11 +2633,10 @@ function RawPlaceholderInspector({ occurrence }: { occurrence: PlaceholderOccurr
 }
 
 function regexBuilderPart(value: string): string {
-  const normalized = value
   let encoded = ''
-  for (let index = 0; index < normalized.length; index += 1) {
-    const character = normalized[index]
-    if (character === '|' && normalized[index + 1] === '|') {
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (character === '|' && value[index + 1] === '|') {
       let precedingSlashes = 0
       for (let slashIndex = encoded.length - 1; slashIndex >= 0 && encoded[slashIndex] === '\\'; slashIndex -= 1) precedingSlashes += 1
       if (precedingSlashes % 2 === 0) {
@@ -2631,6 +2647,9 @@ function regexBuilderPart(value: string): string {
     }
     encoded += character
   }
+  let trailingSlashes = 0
+  for (let index = encoded.length - 1; index >= 0 && encoded[index] === '\\'; index -= 1) trailingSlashes += 1
+  if (trailingSlashes % 2 === 1) encoded += '\\'
   return encoded
 }
 
@@ -2640,7 +2659,7 @@ function regexPatternError(pattern: string): string | null {
     new RegExp(pattern)
     return null
   } catch {
-    return 'Check this pattern. The browser could not parse it as a regular expression.'
+    return 'Browser check could not parse this pattern. Macrowhisper uses Apple regular expressions, so review it before saving.'
   }
 }
 
@@ -2669,10 +2688,9 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
       {placeholder.regexReplacements.length === 0 && <div className="replacement-empty"><span>Use replacements for cleanup that a single transform cannot handle.</span><small>Capture text with parentheses, reuse it with <code>{'${1}'}</code>, or transform a capture with <code>{'${1::uppercase}'}</code>.</small></div>}
       {placeholder.regexReplacements.map((stage, index) => {
         const patternError = regexPatternError(stage.find)
-        return <div className="replacement-stage" key={index}><div className="replacement-stage-heading"><strong>Replacement {index + 1}</strong><div><button type="button" className="icon-button" aria-label={`Move replacement ${index + 1} up`} disabled={index === 0} onClick={() => moveStage(index, -1)}><ArrowUpIcon aria-hidden="true" /></button><button type="button" className="icon-button" aria-label={`Move replacement ${index + 1} down`} disabled={index === placeholder.regexReplacements.length - 1} onClick={() => moveStage(index, 1)}><ArrowDownIcon aria-hidden="true" /></button><button type="button" className="icon-button" aria-label={`Remove replacement ${index + 1}`} onClick={() => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.filter((_, stageIndex) => stageIndex !== index) })}><Cross2Icon aria-hidden="true" /></button></div></div><div className="replacement-stage-fields"><label>Find pattern<textarea aria-label={`Find pattern ${index + 1}`} aria-invalid={Boolean(patternError)} value={stage.find} onChange={(event) => updateStage(index, { ...stage, find: event.target.value })} rows={3} placeholder="e.g. \\s+$" />{patternError && <small className="regex-validation" role="status">{patternError}</small>}</label><label>Replace with<textarea aria-label={`Replacement text ${index + 1}`} value={stage.replace} onChange={(event) => updateStage(index, { ...stage, replace: event.target.value })} rows={3} placeholder="Leave empty to remove matches" /><small>Capture groups: <code>{'${1}'}</code> · transformed capture: <code>{'${1::titleCase}'}</code></small></label></div></div>
+        return <div className="replacement-stage" key={index}><div className="replacement-stage-heading"><strong>Replacement {index + 1}</strong><div><button type="button" className="stage-icon-action" aria-label={`Move replacement ${index + 1} up`} disabled={index === 0} onClick={() => moveStage(index, -1)}><ArrowUpIcon aria-hidden="true" /></button><button type="button" className="stage-icon-action" aria-label={`Move replacement ${index + 1} down`} disabled={index === placeholder.regexReplacements.length - 1} onClick={() => moveStage(index, 1)}><ArrowDownIcon aria-hidden="true" /></button><button type="button" className="stage-icon-action stage-icon-remove" aria-label={`Remove replacement ${index + 1}`} onClick={() => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.filter((_, stageIndex) => stageIndex !== index) })}><Cross2Icon aria-hidden="true" /></button></div></div><div className="replacement-stage-fields"><label>Find pattern<textarea aria-label={`Find pattern ${index + 1}`} aria-invalid={Boolean(patternError)} value={stage.find} onChange={(event) => updateStage(index, { ...stage, find: event.target.value })} rows={3} placeholder="e.g. \\s+$" />{patternError && <small className="regex-validation" role="status">{patternError}</small>}</label><label>Replace with<textarea aria-label={`Replacement text ${index + 1}`} value={stage.replace} onChange={(event) => updateStage(index, { ...stage, replace: event.target.value })} rows={3} placeholder="Leave empty to remove matches" /><small>Capture groups: <code>{'${1}'}</code> · transformed capture: <code>{'${1::titleCase}'}</code></small></label></div></div>
       })}
     </div>
-    <details className="raw-syntax-preview"><summary>Raw syntax</summary><code>{placeholder.raw}</code></details>
   </section>
 }
 
@@ -2692,10 +2710,11 @@ interface TriggerEditorProps {
   revertField: (path: string[]) => void
   retryField: (path: string[]) => void
   resyncField: (path: string[]) => void
+  open: boolean
+  onToggle: (open: boolean) => void
 }
 
-function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, setDraftValue, commitIfChanged, commitField, revertField, retryField, resyncField }: TriggerEditorProps) {
-  const [open, setOpen] = useState(false)
+function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, setDraftValue, commitIfChanged, commitField, revertField, retryField, resyncField, open, onToggle }: TriggerEditorProps) {
   const [pendingFields, setPendingFields] = useState<string[]>([])
   const [voiceMode, setVoiceMode] = useState<'prefix' | 'regex' | 'advanced'>(() => {
     const raw = displayValue(action.triggerVoice)
@@ -2738,7 +2757,7 @@ function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, set
     const path = actionPath(field)
     return <FieldState entry={drafts[pathKey(path)]} onRevert={() => revertField(path)} onRetry={() => retryField(path)} onResync={() => resyncField(path)} errorId={fieldErrorId(path)} />
   }
-  return <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Triggers" subtitle="Match a phrase, app, mode, or URL." meta={summary} open={open} onToggle={setOpen} variant="defaults">
+  return <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Triggers" subtitle="Match a phrase, app, mode, or URL." meta={summary} open={open} onToggle={onToggle} variant="defaults">
     <p className="trigger-priority"><strong>Matching priority</strong> Voice phrase → Superwhisper mode → browser URL → front app. Multiple configured fields follow Trigger logic below.</p>
     {visibleFields.length === 0 && <div className="section-empty"><strong>No triggers</strong><span>This Insert is available as a fallback or chain step.</span></div>}
     <div className="trigger-grid">{visibleFields.map((field) => {
