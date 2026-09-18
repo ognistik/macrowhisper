@@ -493,9 +493,11 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .placeholder-inspector-heading span, .replacement-editor-heading span { color: var(--text-muted); font-size: 13px; }
 .placeholder-inspector-heading code { max-width: 48%; overflow-wrap: anywhere; color: var(--text-soft); font-size: 12px; text-align: right; }
 .placeholder-inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.placeholder-inspector-grid label, .replacement-stage-fields label { display: grid; gap: 5px; color: var(--text-soft); font-size: 13px; font-weight: 650; }
+.placeholder-inspector-grid label, .placeholder-fixed-source, .replacement-stage-fields label { display: grid; gap: 5px; color: var(--text-soft); font-size: 13px; font-weight: 650; }
 .placeholder-inspector-grid label small, .replacement-stage-fields label small { color: var(--text-muted); font-size: 11px; font-weight: 400; line-height: 1.4; }
 .placeholder-inspector-grid .placeholder-argument-field { grid-column: 1 / -1; }
+.placeholder-fixed-source code { display: flex; align-items: center; min-height: 36px; padding: 0 10px; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 400; }
+.placeholder-index-validation { color: var(--danger) !important; }
 .replacement-editor { display: grid; gap: 10px; padding-top: 3px; }
 .replacement-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .replacement-editor-heading .text-button { display: inline-flex; align-items: center; gap: 5px; text-decoration: none; }

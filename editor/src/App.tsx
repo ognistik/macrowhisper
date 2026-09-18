@@ -356,7 +356,6 @@ const dateFormats = [
   { value: 'yyyy-MM-dd', label: 'ISO date', hint: 'Year, month, and day.' },
   { value: 'yyyy-MM-dd HH:mm', label: 'Date and time', hint: 'Date plus 24-hour time.' },
 ]
-const CUSTOM_PLACEHOLDER_SOURCE = '__custom__'
 
 const triggerFields = ['triggerVoice', 'triggerApps', 'triggerModes', 'triggerUrls']
 const triggerLabels: Record<string, { label: string; description: string; placeholder: string }> = {
@@ -2672,6 +2671,42 @@ function regexPatternError(pattern: string): string | null {
   }
 }
 
+function PlaceholderIndexField({ placeholder, onChange }: { placeholder: EditablePlaceholder; onChange: (placeholder: EditablePlaceholder) => void }) {
+  const sourceValue = placeholder.format ?? ''
+  const [draftValue, setDraftValue] = useState(sourceValue)
+  const fieldIdentity = `${placeholder.start}-${placeholder.key}`
+  const errorId = `placeholder-index-error-${placeholder.start}`
+  const hintId = `placeholder-index-hint-${placeholder.start}`
+
+  useEffect(() => {
+    setDraftValue(sourceValue)
+  }, [fieldIdentity, sourceValue])
+
+  const invalid = draftValue !== '' && !/^\d+$/.test(draftValue)
+
+  return <label className="placeholder-argument-field">Source index
+    <input
+      aria-label="Placeholder index"
+      aria-invalid={invalid || undefined}
+      aria-describedby={invalid ? errorId : hintId}
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={draftValue}
+      onChange={(event) => {
+        const nextValue = event.target.value
+        setDraftValue(nextValue)
+        if (nextValue === '' || /^\d+$/.test(nextValue)) {
+          onChange({ ...placeholder, format: nextValue || undefined })
+        }
+      }}
+      placeholder="Latest"
+    />
+    {invalid
+      ? <small className="placeholder-index-validation" id={errorId} role="status">Use digits only (0 or greater). The placeholder stays unchanged until this is valid.</small>
+      : <small id={hintId}>Optional, zero-based. Leave empty for the current value.</small>}
+  </label>
+}
+
 function PlaceholderInspector({ placeholder, onChange }: { placeholder: EditablePlaceholder; onChange: (placeholder: EditablePlaceholder) => void }) {
   const updateStage = (index: number, next: ReplacementStage) => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.map((stage, stageIndex) => stageIndex === index ? next : stage) })
   const moveStage = (index: number, direction: -1 | 1) => {
@@ -2685,10 +2720,9 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
   const customSource = !builtInSource && placeholder.key !== 'date'
   const knownTransform = !placeholder.transformName || placeholderTransforms.some((transform) => transform.key === placeholder.transformName)
   const indexedSource = ['actionResult', 'folderName', 'folderPath'].includes(placeholder.key)
-  const sourceValue = placeholder.key === 'date' ? `date:${placeholder.format ?? 'short'}` : customSource ? CUSTOM_PLACEHOLDER_SOURCE : placeholder.key
+  const sourceValue = placeholder.key === 'date' ? `date:${placeholder.format ?? 'short'}` : placeholder.key
   const currentDateFormat = placeholder.key === 'date' ? placeholder.format ?? 'short' : null
   const setSource = (value: string) => {
-    if (value === CUSTOM_PLACEHOLDER_SOURCE) return
     if (value.startsWith('date:')) {
       onChange({ ...placeholder, key: 'date', format: value.slice('date:'.length) || 'short' })
       return
@@ -2699,9 +2733,11 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
   return <section className="placeholder-inspector" aria-label="Edit placeholder">
     <div className="placeholder-inspector-heading"><div><strong>Occurrence inspector</strong><span>Changes apply only to the selected occurrence.</span></div><code>{placeholder.raw}</code></div>
     <div className="placeholder-inspector-grid">
-      <label>Source<select aria-label="Placeholder source" value={sourceValue} onChange={(event) => setSource(event.target.value)}>{placeholderGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}<optgroup label="Date and time">{currentDateFormat && !dateFormats.some((format) => format.value === currentDateFormat) && <option value={`date:${currentDateFormat}`}>Custom date · {currentDateFormat}</option>}{dateFormats.map((format) => <option key={format.value} value={`date:${format.value}`}>{format.label}</option>)}</optgroup>{customSource && <optgroup label="Custom metadata"><option value={CUSTOM_PLACEHOLDER_SOURCE}>Custom · {placeholder.key}</option></optgroup>}</select>{customSource && <small>Metadata key or path preserved exactly.</small>}</label>
+      {customSource
+        ? <div className="placeholder-fixed-source"><span>Source</span><code>{placeholder.key}</code></div>
+        : <label>Source<select aria-label="Placeholder source" value={sourceValue} onChange={(event) => setSource(event.target.value)}>{placeholderGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}<optgroup label="Date and time">{currentDateFormat && !dateFormats.some((format) => format.value === currentDateFormat) && <option value={`date:${currentDateFormat}`}>Custom date · {currentDateFormat}</option>}{dateFormats.map((format) => <option key={format.value} value={`date:${format.value}`}>{format.label}</option>)}</optgroup></select></label>}
       <label>Transform<select aria-label="Placeholder transform" value={placeholder.transformName ?? ''} onChange={(event) => onChange({ ...placeholder, transformName: event.target.value || undefined })}><option value="">No transform</option>{!knownTransform && placeholder.transformName && <option value={placeholder.transformName}>Custom · {placeholder.transformName}</option>}{['Text case', 'Identifiers', 'Titles', 'Specialized'].map((group) => <optgroup label={group} key={group}>{placeholderTransforms.filter((item) => item.group === group).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}</select></label>
-      {indexedSource && <label className="placeholder-argument-field">Source index<input aria-label="Placeholder index" inputMode="numeric" value={placeholder.format ?? ''} onChange={(event) => onChange({ ...placeholder, format: event.target.value || undefined })} placeholder="Latest" /><small>Optional, zero-based. Leave empty for the current value.</small></label>}
+      {indexedSource && <PlaceholderIndexField placeholder={placeholder} onChange={onChange} />}
       {customSource && placeholder.format !== undefined && <label className="placeholder-argument-field">Argument<input aria-label="Placeholder argument" value={placeholder.format} onChange={(event) => onChange({ ...placeholder, format: event.target.value || undefined })} /><small>Preserved after the custom source name.</small></label>}
     </div>
     <div className="replacement-editor"><div className="replacement-editor-heading"><div><strong>Regex replacements</strong><span>{placeholder.regexReplacements.length === 0 ? 'No replacements' : `${placeholder.regexReplacements.length} stage${placeholder.regexReplacements.length === 1 ? '' : 's'} · applied top to bottom`}</span></div><button type="button" className="text-button" onClick={() => onChange({ ...placeholder, regexReplacements: [...placeholder.regexReplacements, { find: '', replace: '' }] })}><PlusIcon aria-hidden="true" /> Add replacement</button></div>

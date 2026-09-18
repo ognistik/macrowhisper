@@ -911,7 +911,7 @@ describe('configuration editor interactions', () => {
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
-    fireEvent.change(payload, { target: { value: 'A {{swResult}} B {{swResult}} C {{custom.path::titleCase}} D {{xml:answer}}' } })
+    fireEvent.change(payload, { target: { value: 'A {{swResult}} B {{json:swResult}} C {{raw:custom.path::titleCase}} D {{xml:answer}}' } })
     expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /4 placeholders found/ }))
@@ -920,21 +920,20 @@ describe('configuration editor interactions', () => {
     expect(resultOccurrences).toHaveLength(2)
     await user.click(resultOccurrences[1])
     await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'uppercase')
-    expect(payload.value).toBe('A {{swResult}} B {{swResult::uppercase}} C {{custom.path::titleCase}} D {{xml:answer}}')
+    expect(payload.value).toBe('A {{swResult}} B {{json:swResult::uppercase}} C {{raw:custom.path::titleCase}} D {{xml:answer}}')
 
     await user.click(within(list).getByRole('option', { name: /custom\.path/ }))
-    expect(screen.getByText('Metadata key or path preserved exactly.')).toBeInTheDocument()
-    const customSource = screen.getByRole('combobox', { name: 'Placeholder source' })
-    expect(customSource).toHaveValue('__custom__')
-    expect(within(customSource).getByRole('option', { name: 'Custom · custom.path' })).toBeInTheDocument()
+    expect(screen.queryByText('Metadata key or path preserved exactly.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Placeholder source' })).not.toBeInTheDocument()
+    expect(screen.getByText('custom.path', { selector: '.placeholder-fixed-source code' })).toBeInTheDocument()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'lowercase')
-    expect(payload.value).toContain('{{custom.path::lowercase}}')
+    expect(payload.value).toContain('{{raw:custom.path::lowercase}}')
     expect(payload.value).toContain('{{xml:answer}}')
 
     await user.click(screen.getByRole('button', { name: 'Add replacement' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'path' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'value' } })
-    expect(payload.value).toContain('{{custom.path::lowercase||path||value}}')
+    expect(payload.value).toContain('{{raw:custom.path::lowercase||path||value}}')
 
     await user.click(within(list).getByRole('option', { name: /Raw placeholder/ }))
     expect(screen.getByText('XML placeholder')).toBeInTheDocument()
@@ -956,6 +955,49 @@ describe('configuration editor interactions', () => {
     expect(screen.getByRole('textbox', { name: 'Placeholder index' })).toHaveValue('1')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'titleCase:fr')
     expect(payload).toHaveValue('{{actionResult:1::titleCase:fr}}')
+  })
+
+  it('validates indexed sources without rewriting invalid drafts or direct configuration', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    fireEvent.change(payload, { target: { value: '{{folderPath:2::lowercase||/Users||~}}' } })
+    await user.click(screen.getByRole('button', { name: /1 placeholder found/ }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Recording folder path/ }))
+
+    const index = screen.getByRole('textbox', { name: 'Placeholder index' })
+    expect(index).toHaveValue('2')
+    expect(screen.getByRole('combobox', { name: 'Placeholder transform' })).toHaveValue('lowercase')
+    expect(screen.getByRole('textbox', { name: 'Find pattern 1' })).toHaveValue('/Users')
+
+    fireEvent.change(index, { target: { value: 'two' } })
+    expect(index).toHaveValue('two')
+    expect(index).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText(/Use digits only/)).toBeInTheDocument()
+    expect(payload).toHaveValue('{{folderPath:2::lowercase||/Users||~}}')
+
+    fireEvent.change(index, { target: { value: '3' } })
+    expect(index).toHaveValue('3')
+    expect(index).not.toHaveAttribute('aria-invalid')
+    expect(payload).toHaveValue('{{folderPath:3::lowercase||/Users||~}}')
+
+    fireEvent.change(index, { target: { value: '' } })
+    expect(payload).toHaveValue('{{folderPath::lowercase||/Users||~}}')
+
+    fireEvent.change(payload, { target: { value: '{{folderName:invalid}}' } })
+    await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Recording folder name/ }))
+    const invalidSavedIndex = screen.getByRole('textbox', { name: 'Placeholder index' })
+    expect(invalidSavedIndex).toHaveValue('invalid')
+    expect(invalidSavedIndex).toHaveAttribute('aria-invalid', 'true')
+    expect(payload).toHaveValue('{{folderName:invalid}}')
+
+    fireEvent.change(invalidSavedIndex, { target: { value: '1' } })
+    expect(payload).toHaveValue('{{folderName:1}}')
   })
 
   it('reorders multiline regex stages without separating patterns from replacements', async () => {
