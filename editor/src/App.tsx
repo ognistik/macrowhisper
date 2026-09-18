@@ -2392,13 +2392,17 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     const index = items.indexOf(document.activeElement as HTMLButtonElement)
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
-      const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+      const next = event.key === 'Home' || (index < 0 && event.key === 'ArrowDown')
+        ? 0
+        : event.key === 'End' || (index < 0 && event.key === 'ArrowUp')
+          ? items.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
       items[next]?.focus()
     }
   }
 
   useEffect(() => {
-    if (placeholderOpen) boundaryRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    if (placeholderOpen) boundaryRef.current?.querySelector<HTMLElement>('[role="menu"]')?.focus({ preventScroll: true })
   }, [placeholderOpen])
 
   const setActionChoice = async (next: 'autoPaste' | 'none' | 'text') => {
@@ -2582,18 +2586,10 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
 }
 
 function PlaceholderMenu({ onInsert, onKeyDown }: { onInsert: (expression: string) => void; onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void }) {
-  const [activeKey, setActiveKey] = useState(placeholderGroups[0]?.items[0]?.key ?? '')
-  const activate = (key: string, element: HTMLButtonElement) => {
-    setActiveKey(key)
-    if (document.activeElement !== element) element.focus({ preventScroll: true })
-  }
-  const followPointer = (key: string, event: React.PointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === 'touch') return
-    activate(key, event.currentTarget)
-  }
+  const [activeKey, setActiveKey] = useState<string | null>(null)
 
   return (
-    <div className="placeholder-popover" id="insert-placeholder-menu" role="menu" aria-label="Insert placeholder" onKeyDown={onKeyDown}>
+    <div className="placeholder-popover" id="insert-placeholder-menu" role="menu" aria-label="Insert placeholder" tabIndex={-1} onKeyDown={onKeyDown} onPointerMove={() => setActiveKey(null)}>
       <div className="placeholder-popover-heading"><strong>Insert placeholder</strong><span>Choose a value to insert.</span></div>
       <div className="placeholder-source-groups">
         {placeholderGroups.map((group) => {
@@ -2601,13 +2597,13 @@ function PlaceholderMenu({ onInsert, onKeyDown }: { onInsert: (expression: strin
           return <div className="placeholder-group" role="group" aria-labelledby={groupId} key={group.label}><span className="placeholder-group-title" id={groupId}>{group.label}</span><div className="placeholder-option-list">{group.items.map((item) => {
             const labelId = `placeholder-${item.key}-label`
             const hintId = `placeholder-${item.key}-hint`
-            return <button type="button" role="menuitem" aria-labelledby={labelId} aria-describedby={hintId} className={activeKey === item.key ? 'is-active' : undefined} tabIndex={activeKey === item.key ? 0 : -1} key={item.key} onFocus={() => setActiveKey(item.key)} onPointerEnter={(event) => followPointer(item.key, event)} onPointerMove={(event) => followPointer(item.key, event)} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${item.key}}}`)}><strong id={labelId}>{item.label}</strong><small id={hintId}>{item.hint}</small></button>
+            return <button type="button" role="menuitem" aria-labelledby={labelId} aria-describedby={hintId} className={activeKey === item.key ? 'is-keyboard-active' : undefined} tabIndex={activeKey === item.key ? 0 : -1} key={item.key} onFocus={() => setActiveKey(item.key)} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${item.key}}}`)}><strong id={labelId}>{item.label}</strong><small id={hintId}>{item.hint}</small></button>
           })}</div></div>
         })}
         <div className="placeholder-group date-placeholder" role="group" aria-labelledby="placeholder-group-date"><span className="placeholder-group-title" id="placeholder-group-date">Date and time</span><div className="placeholder-option-list">{dateFormats.map((format) => {
           const id = format.value.replaceAll(/[^a-zA-Z0-9]+/g, '-')
           const key = `date:${format.value}`
-          return <button type="button" role="menuitem" aria-labelledby={`placeholder-date-${id}-label`} aria-describedby={`placeholder-date-${id}-hint`} className={activeKey === key ? 'is-active' : undefined} tabIndex={activeKey === key ? 0 : -1} key={format.value} onFocus={() => setActiveKey(key)} onPointerEnter={(event) => followPointer(key, event)} onPointerMove={(event) => followPointer(key, event)} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${key}}}`)}><strong id={`placeholder-date-${id}-label`}>{format.label}</strong><small id={`placeholder-date-${id}-hint`}>{format.hint}</small></button>
+          return <button type="button" role="menuitem" aria-labelledby={`placeholder-date-${id}-label`} aria-describedby={`placeholder-date-${id}-hint`} className={activeKey === key ? 'is-keyboard-active' : undefined} tabIndex={activeKey === key ? 0 : -1} key={format.value} onFocus={() => setActiveKey(key)} onMouseDown={(event) => event.preventDefault()} onClick={() => onInsert(`{{${key}}}`)}><strong id={`placeholder-date-${id}-label`}>{format.label}</strong><small id={`placeholder-date-${id}-hint`}>{format.hint}</small></button>
         })}</div></div>
       </div>
     </div>
