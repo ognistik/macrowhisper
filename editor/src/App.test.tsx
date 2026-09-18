@@ -727,6 +727,29 @@ describe('configuration editor interactions', () => {
     expect(screen.queryByRole('menu', { name: 'Insert placeholder' })).not.toBeInTheDocument()
   })
 
+  it('moves the active placeholder with rapid pointer navigation', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    await user.click(screen.getByRole('button', { name: /Insert placeholder/ }))
+    const menu = screen.getByRole('menu', { name: 'Insert placeholder' })
+    const result = within(menu).getByRole('menuitem', { name: 'Result' })
+    const raw = within(menu).getByRole('menuitem', { name: 'Raw dictation' })
+    const languageModel = within(menu).getByRole('menuitem', { name: 'Language-model result' })
+
+    expect(result).toHaveFocus()
+    fireEvent.pointerMove(raw, { pointerType: 'mouse' })
+    expect(raw).toHaveFocus()
+    fireEvent.pointerMove(languageModel, { pointerType: 'mouse' })
+    expect(languageModel).toHaveFocus()
+    await user.keyboard('{ArrowDown}')
+    expect(within(menu).getByRole('menuitem', { name: 'Selected text' })).toHaveFocus()
+  })
+
   it('collapses placeholder review after inserting from the palette', async () => {
     const user = userEvent.setup()
     renderWithStore()
