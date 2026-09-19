@@ -468,12 +468,12 @@ export const insertSchema = {
   "action": {
     "type": "string",
     "title": "Insert Action Content",
-    "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). Use '.autoPaste' for smart paste behavior. Empty string skips insertion while other lifecycle settings can still apply. '.none' also clears inputCondition and disables ESC simulation and clipboard restoration; it does not disable other settings such as simReturn or nextAction.",
+    "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). In configVersion 3 Macrowhisper Insert syntax, \\n means a line break and \\\\n means a literal backslash followed by n; JSON source escapes those backslashes once more. Use '.autoPaste' for smart paste behavior. Empty string skips insertion while other lifecycle settings can still apply. '.none' also clears inputCondition and disables ESC simulation and clipboard restoration; it does not disable other settings such as simReturn or nextAction.",
     "examples": [
       "{{swResult}}",
       "{{result}}",
       "{{appVocabulary}}",
-      "{{date:short}}\nDictation: {{result}}",
+      "{{date:short}}\\nDictation: {{result}}",
       ".autoPaste",
       ".none",
       ""

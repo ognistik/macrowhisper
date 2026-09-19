@@ -216,7 +216,7 @@ private func runEditorServerRegression() throws {
     try write(
         """
         {
-          "configVersion": 2,
+          "configVersion": 3,
           "defaults": { "watch": "/tmp/macrowhisper-editor-server-watch" },
           "inserts": { "paste": { "action": ".autoPaste" } }
         }
@@ -292,6 +292,112 @@ private func runEditorServerRegression() throws {
     assertTrue(snapshotResponse.status == 200, "authenticated snapshot succeeds")
     let snapshot = try decode(ConfigurationSnapshot.self, snapshotResponse)
     assertTrue(snapshot.diskIsValid, "snapshot carries valid disk state")
+
+    // Exercise the explicit migration route against a separate legacy file so
+    // the rest of this regression can continue to cover ordinary v3 edits.
+    let legacyConfigPath = root.appendingPathComponent("legacy-config.json")
+    try write(
+        """
+        {
+          "configVersion": 2,
+          "defaults": {
+            "watch": "/tmp/macrowhisper-editor-server-legacy-watch",
+            "autoUpdateConfig": false
+          },
+          "inserts": { "paste": { "action": ".autoPaste" } }
+        }
+        """,
+        to: legacyConfigPath
+    )
+    let legacyManager = ConfigurationManager(configPath: legacyConfigPath.path)
+    let legacyServer = EditorServer(
+        configManager: legacyManager,
+        resourceResolver: EditorResourceResolver(roots: [resourceRoot]),
+        preferredPort: 0
+    )
+    try legacyServer.start()
+    defer { legacyServer.stop() }
+    guard let legacyPort = legacyServer.port,
+          let legacyBootstrapJSON = legacyServer.issueBootstrapPayloadJSON(),
+          let legacyBootstrapData = legacyBootstrapJSON.data(using: .utf8) else {
+        throw NSError(domain: "EditorServerRegression", code: 14)
+    }
+    let legacyBootstrap = try JSONDecoder().decode(EditorBootstrapResponse.self, from: legacyBootstrapData)
+    guard let legacyBootstrapToken = bootstrapToken(from: legacyBootstrap.bootstrapURL) else {
+        throw NSError(domain: "EditorServerRegression", code: 15)
+    }
+    let legacySessionResponse = try request(
+        port: legacyPort,
+        method: "POST",
+        path: "/api/session",
+        headers: ["X-Macrowhisper-Bootstrap": legacyBootstrapToken]
+    )
+    assertTrue(legacySessionResponse.status == 200, "legacy server creates an authenticated session")
+    let legacySession = try decode(EditorSessionResponse.self, legacySessionResponse)
+    let legacyAuthorization = "Bearer \(legacySession.sessionToken)"
+    let legacyOrigin = "http://127.0.0.1:\(legacyPort)"
+    let legacyUpdateHeaders = [
+        "Authorization": legacyAuthorization,
+        "Origin": legacyOrigin,
+        "Content-Type": "application/json"
+    ]
+
+    let legacyMethodResponse = try request(
+        port: legacyPort,
+        method: "GET",
+        path: "/api/config/update",
+        headers: legacyUpdateHeaders
+    )
+    assertTrue(legacyMethodResponse.status == 405, "configuration update requires POST")
+    let legacyUnauthenticated = try request(
+        port: legacyPort,
+        method: "POST",
+        path: "/api/config/update",
+        headers: ["Origin": legacyOrigin, "Content-Type": "application/json"]
+    )
+    assertTrue(legacyUnauthenticated.status == 401, "configuration update requires bearer authentication")
+    let legacyForeignOrigin = try request(
+        port: legacyPort,
+        method: "POST",
+        path: "/api/config/update",
+        headers: ["Authorization": legacyAuthorization, "Origin": "http://example.invalid", "Content-Type": "application/json"]
+    )
+    assertTrue(legacyForeignOrigin.status == 403, "configuration update rejects a foreign origin")
+    let legacyMissingContentType = try request(
+        port: legacyPort,
+        method: "POST",
+        path: "/api/config/update",
+        headers: ["Authorization": legacyAuthorization, "Origin": legacyOrigin]
+    )
+    assertTrue(legacyMissingContentType.status == 415, "configuration update requires JSON content type")
+    let legacyBodyResponse = try request(
+        port: legacyPort,
+        method: "POST",
+        path: "/api/config/update",
+        headers: legacyUpdateHeaders,
+        body: Data("{}".utf8)
+    )
+    assertTrue(legacyBodyResponse.status == 400, "configuration update rejects a request body")
+    let legacyMissingOrigin = try request(
+        port: legacyPort,
+        method: "POST",
+        path: "/api/config/update",
+        headers: ["Authorization": legacyAuthorization, "Content-Type": "application/json"]
+    )
+    assertTrue(legacyMissingOrigin.status == 403, "configuration update requires the editor origin")
+
+    let legacyUpdateResponse = try request(
+        port: legacyPort,
+        method: "POST",
+        path: "/api/config/update",
+        headers: legacyUpdateHeaders
+    )
+    assertTrue(legacyUpdateResponse.status == 200, "authenticated same-origin update migrates the legacy configuration")
+    let migratedLegacy = try decode(ConfigurationSnapshot.self, legacyUpdateResponse)
+    assertTrue(migratedLegacy.config.configVersion == AppConfiguration.currentConfigVersion, "update response reports the current configuration version")
+    assertTrue(!migratedLegacy.isLegacyOnDisk, "update response reports a writable nonlegacy snapshot")
+    assertTrue(!migratedLegacy.config.defaults.autoUpdateConfig, "explicit update preserves autoUpdateConfig false")
+    assertTrue(FileManager.default.fileExists(atPath: legacyConfigPath.path + ".backup.pre-v3"), "editor migration keeps a pre-v3 backup")
 
     let revealHeaders = [
         "Authorization": authorization,

@@ -27,7 +27,7 @@ private func makeTemporaryRoot() throws -> URL {
 
 private let validConfigurationJSON = """
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "defaults": {
     "watch": "/tmp/macrowhisper-transaction-watch",
     "activeAction": "autoPaste"
@@ -290,7 +290,7 @@ private func runConfigurationTransactionRegressionTests() throws {
     let unknownPath = root.appendingPathComponent("unknown.json")
     try write("""
     {
-      "configVersion": 2,
+      "configVersion": 3,
       "defaults": { "watch": "/tmp/unknown-watch", "activeAction": "autoPaste", "openWith": "wrong-section" },
       "inserts": { "autoPaste": { "action": "Text" } }
     }
@@ -321,7 +321,7 @@ private func runConfigurationTransactionRegressionTests() throws {
     let duplicatePath = root.appendingPathComponent("duplicate.json")
     try write("""
     {
-      "configVersion": 2,
+      "configVersion": 3,
       "defaults": { "watch": "/tmp/duplicate-watch", "activeAction": "same" },
       "inserts": { "same": { "action": "Insert" } },
       "urls": { "same": { "action": "https://example.invalid" } }
@@ -342,7 +342,7 @@ private func runConfigurationTransactionRegressionTests() throws {
     let cyclePath = root.appendingPathComponent("cycle.json")
     try write("""
     {
-      "configVersion": 2,
+      "configVersion": 3,
       "defaults": { "watch": "/tmp/cycle-watch", "activeAction": "first" },
       "inserts": {
         "first": { "action": "First", "nextAction": "second" },
@@ -407,7 +407,7 @@ private func runConfigurationTransactionRegressionTests() throws {
     assertEqual(rejectionCode(emptyResult), .invalidDiskState, "empty disk rejects edits")
 
     let futurePath = root.appendingPathComponent("future.json")
-    let futureJSON = validConfigurationJSON.replacingOccurrences(of: "\"configVersion\": 2", with: "\"configVersion\": 999")
+    let futureJSON = validConfigurationJSON.replacingOccurrences(of: "\"configVersion\": 3", with: "\"configVersion\": 999")
     try write(futureJSON, to: futurePath)
     let futureManager = ConfigurationManager(configPath: futurePath.path)
     let futureBytesBefore = try Data(contentsOf: futurePath)
@@ -427,7 +427,7 @@ private func runConfigurationTransactionRegressionTests() throws {
     let nullContainerPath = root.appendingPathComponent("null-containers.json")
     try write("""
     {
-      "configVersion": 2,
+      "configVersion": 3,
       "defaults": null,
       "inserts": { "autoPaste": { "action": "Null container" } },
       "urls": null,
@@ -461,17 +461,94 @@ private func runConfigurationTransactionRegressionTests() throws {
     let legacyManager = ConfigurationManager(configPath: legacyPath.path)
     let legacySnapshot = legacyManager.configurationSnapshot()
     assertTrue(legacySnapshot.isLegacyOnDisk, "legacy disk is identified separately from runtime fallback")
-    assertEqual(testNotifications.count, legacyNotificationCountBeforeStartup + 1, "legacy startup emits an outdated-config notification")
-    assertEqual(testNotifications.last?.title, "Macrowhisper - Outdated Config", "legacy startup notification has the stable title")
+    assertEqual(testNotifications.count, legacyNotificationCountBeforeStartup, "configuration manager startup stays notification-free for legacy disk")
     let legacyEditResult = legacyManager.applyConfigurationEdits(
         [ConfigurationEdit(path: ["defaults", "muteNotifications"], operation: .set, value: .boolean(true))],
         expectedRevision: legacySnapshot.revision
     )
     assertEqual(rejectionCode(legacyEditResult), .legacyConfiguration, "editor write to legacy disk is rejected")
     assertTrue(legacyManager.updateConfiguration(), "explicit update command migrates legacy configuration")
-    assertTrue(FileManager.default.fileExists(atPath: legacyPath.path + ".backup.pre-v2"), "legacy migration keeps a pre-migration backup")
+    assertTrue(FileManager.default.fileExists(atPath: legacyPath.path + ".backup.pre-v3"), "legacy migration keeps a pre-migration backup")
     assertTrue(FileManager.default.fileExists(atPath: legacyPath.path + ".macrowhisper-backup"), "transaction keeps the latest write snapshot")
     assertEqual(try readConfig(at: legacyPath).configVersion, AppConfiguration.currentConfigVersion, "legacy migration writes current version")
+
+    // v1 and v2 are normalized in memory even when automatic persistence is
+    // disabled.  v2 -> v3 canonicalizes raw control newlines, while the
+    // legacy escaped token remains the same v3 syntax.
+    let v1Path = root.appendingPathComponent("legacy-v1-escapes.json")
+    try write(#"""
+    {
+      "defaults": {
+        "watch": "/tmp/legacy-v1-watch",
+        "activeAction": "autoPaste",
+        "autoUpdateConfig": false
+      },
+      "inserts": {
+        "autoPaste": { "action": "v1\\nnext" }
+      }
+    }
+    """#, to: v1Path)
+    let v1Manager = ConfigurationManager(configPath: v1Path.path)
+    assertEqual(
+        v1Manager.config.inserts["autoPaste"]?.action,
+        "v1\\nnext",
+        "v1 in-memory normalization retains the newline token"
+    )
+    assertTrue(v1Manager.hasLegacyConfigOnDisk, "v1 remains legacy on disk when auto-update is disabled")
+    assertTrue(v1Manager.updateConfiguration(), "v1 update migrates through v2 to v3")
+    let v1Migrated = try readConfig(at: v1Path)
+    assertEqual(v1Migrated.configVersion, 3, "v1 migration lands on v3")
+    assertEqual(v1Migrated.inserts["autoPaste"]?.action, "v1\\nnext", "v1 migration writes canonical Insert syntax")
+
+    let v2Path = root.appendingPathComponent("legacy-v2-escapes.json")
+    try write(#"""
+    {
+      "configVersion": 2,
+      "defaults": {
+        "watch": "/tmp/legacy-v2-watch",
+        "activeAction": "autoPaste",
+        "autoUpdateConfig": false
+      },
+      "inserts": {
+        "autoPaste": { "action": "v2\nnext" },
+        "literal": { "action": "left\\\\nright" }
+      }
+    }
+    """#, to: v2Path)
+    let v2Manager = ConfigurationManager(configPath: v2Path.path)
+    assertEqual(
+        v2Manager.config.inserts["autoPaste"]?.action,
+        "v2\\nnext",
+        "v2 raw control newline is canonicalized in memory"
+    )
+    assertEqual(
+        v2Manager.config.inserts["literal"]?.action,
+        "left\\\\\\nright",
+        "v2 legacy escaped backslash+n preserves observed runtime semantics"
+    )
+    assertTrue(v2Manager.hasLegacyConfigOnDisk, "v2 remains legacy on disk when auto-update is disabled")
+    assertTrue(v2Manager.updateConfiguration(), "v2 update migrates to v3")
+    let v2Migrated = try readConfig(at: v2Path)
+    assertEqual(v2Migrated.configVersion, 3, "v2 migration lands on v3")
+    assertEqual(v2Migrated.inserts["autoPaste"]?.action, "v2\\nnext", "v2 migration writes canonical raw newline syntax")
+    assertEqual(v2Migrated.inserts["literal"]?.action, "left\\\\\\nright", "v2 migration preserves escaped newline behavior")
+
+    let v3RawPath = root.appendingPathComponent("v3-raw-newline.json")
+    try write("""
+    {
+      "configVersion": 3,
+      "defaults": { "watch": "/tmp/v3-raw-watch", "activeAction": "autoPaste" },
+      "inserts": { "autoPaste": { "action": "before\\nafter" } }
+    }
+    """, to: v3RawPath)
+    let v3RawManager = ConfigurationManager(configPath: v3RawPath.path)
+    try v3RawManager.mutateConfiguration { candidate in
+        candidate.inserts["autoPaste"]?.action = "before\nafter"
+    }
+    let v3RawMigrated = try readConfig(at: v3RawPath)
+    assertEqual(v3RawMigrated.inserts["autoPaste"]?.action, "before\\nafter", "v3 writes canonical syntax for raw control newlines")
+    let v3RawBytes = String(decoding: try Data(contentsOf: v3RawPath), as: UTF8.self)
+    assertTrue(v3RawBytes.contains(#""action" : "before\\nafter""#) || v3RawBytes.contains(#""action": "before\\nafter""#), "v3 JSON writes a double escaped newline token")
 
     let activeSwitchPath = root.appendingPathComponent("active-before-switch.json")
     let legacySwitchPath = root.appendingPathComponent("legacy-switch-target.json")
@@ -485,8 +562,8 @@ private func runConfigurationTransactionRegressionTests() throws {
     let activeSwitchBytesBefore = try Data(contentsOf: activeSwitchPath)
     let switchManager = ConfigurationManager(configPath: activeSwitchPath.path)
     assertTrue(switchManager.switchConfigPath(to: legacySwitchPath.path), "path switch migrates a legacy target")
-    assertTrue(FileManager.default.fileExists(atPath: legacySwitchPath.path + ".backup.pre-v2"), "path switch keeps the target pre-migration backup")
-    assertTrue(!FileManager.default.fileExists(atPath: activeSwitchPath.path + ".backup.pre-v2"), "path switch does not back up the previous active file")
+    assertTrue(FileManager.default.fileExists(atPath: legacySwitchPath.path + ".backup.pre-v3"), "path switch keeps the target pre-migration backup")
+    assertTrue(!FileManager.default.fileExists(atPath: activeSwitchPath.path + ".backup.pre-v3"), "path switch does not back up the previous active file")
     assertEqual(try Data(contentsOf: activeSwitchPath), activeSwitchBytesBefore, "path switch leaves the previous active file untouched")
     assertEqual(try readConfig(at: legacySwitchPath).configVersion, AppConfiguration.currentConfigVersion, "path switch writes the migrated target version")
 
@@ -504,7 +581,7 @@ private func runConfigurationTransactionRegressionTests() throws {
     ConfigChangeWatcher.triggerLatest()
     _ = legacyWatcherManager.configurationSnapshot()
     pumpMainQueue()
-    assertEqual(testNotifications.count, legacyWatcherNotificationCount + 1, "external legacy watcher edit emits an outdated-config notification")
+    assertEqual(testNotifications.count, legacyWatcherNotificationCount, "external legacy watcher edit stays notification-free")
 
     let targetPath = root.appendingPathComponent("target/config.json")
     try FileManager.default.createDirectory(at: targetPath.deletingLastPathComponent(), withIntermediateDirectories: true)

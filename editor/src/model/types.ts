@@ -114,6 +114,8 @@ export interface ConfigSnapshot {
     status: 'connected' | 'fallback' | 'disconnected' | 'loading'
     message: string
   }
+  /** True when the daemon is serving a v1/v2 file in compatibility mode. */
+  isLegacy?: boolean
   /** Fields retained from the source configuration but not editable here. */
   readOnly?: ReadOnlyField[]
 }
@@ -148,6 +150,8 @@ export interface EditorStore {
   chooseDirectory?(purpose: FolderPickerPurpose): Promise<string | null>
   /** Reveal the manager-selected configuration file without accepting a browser-provided path. */
   revealConfiguration?(): Promise<void>
+  /** Explicitly migrate a legacy configuration, then return the fresh snapshot. */
+  updateConfiguration?(): Promise<ConfigSnapshot>
 
   getScenario?(): StoreScenario
   setScenario?(scenario: StoreScenario): void

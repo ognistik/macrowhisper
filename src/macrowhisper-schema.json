@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
-  "description": "Configuration schema for Macrowhisper. In configVersion 2, action-level null means inherit defaults and empty string means explicit empty value (for supported string fields), and ESC simulation is controlled by simEsc (true simulates ESC). At defaults level, nullable scalar fields can use null to fall back to built-in Macrowhisper defaults.",
+  "description": "Configuration schema for Macrowhisper. In configVersion 3, action-level null means inherit defaults and empty string means explicit empty value (for supported string fields), ESC simulation is controlled by simEsc (true simulates ESC), and Insert escape sequences are represented independently from JSON escaping. At defaults level, nullable scalar fields can use null to fall back to built-in Macrowhisper defaults.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -11,9 +11,9 @@
     },
     "configVersion": {
       "type": "integer",
-      "description": "Configuration semantics version. Version 1 is legacy behavior. Version 2 uses explicit empty semantics (null inherits defaults, empty string is explicit) and simEsc-based ESC control.",
-      "enum": [1, 2],
-      "default": 2
+      "description": "Configuration semantics version. Version 1 is legacy behavior. Version 2 introduced explicit empty semantics and simEsc-based ESC control. Version 3 makes Insert escaping unambiguous: Macrowhisper \\n means a line break and \\\\n means a literal backslash followed by n (written as \\\\n and \\\\\\\\n respectively in JSON source).",
+      "enum": [1, 2, 3],
+      "default": 3
     },
     "defaults": {
       "type": "object",
@@ -355,12 +355,12 @@
             "action": {
               "type": "string",
               "title": "Insert Action Content",
-              "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). Use '.autoPaste' for smart paste behavior. Empty string skips insertion while other lifecycle settings can still apply. '.none' also clears inputCondition and disables ESC simulation and clipboard restoration; it does not disable other settings such as simReturn or nextAction.",
+              "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). In configVersion 3 Macrowhisper Insert syntax, \\n means a line break and \\\\n means a literal backslash followed by n; JSON source escapes those backslashes once more. Use '.autoPaste' for smart paste behavior. Empty string skips insertion while other lifecycle settings can still apply. '.none' also clears inputCondition and disables ESC simulation and clipboard restoration; it does not disable other settings such as simReturn or nextAction.",
               "examples": [
                 "{{swResult}}",
                 "{{result}}",
                 "{{appVocabulary}}",
-                "{{date:short}}\nDictation: {{result}}",
+                "{{date:short}}\\nDictation: {{result}}",
                 ".autoPaste",
                 ".none",
                 ""

@@ -90,7 +90,12 @@ conflicts, invalid files, and the complete scope.
 
 ## Configuration
 
-`configVersion: 2` is the current configuration format. In action overrides, `null` usually inherits the value from `defaults`, while `""` means an intentional empty value. The generated `$schema` reference is managed automatically when a local schema is available.
+`configVersion: 3` is the current configuration format. It keeps version 2's
+inheritance rules and makes Insert escaping unambiguous: Macrowhisper syntax
+uses `\n` for a line break and `\\n` for the literal characters `\n`. Because the
+configuration is JSON, those same values appear in the file as `\\n` and
+`\\\\n`. The generated `$schema` reference is managed automatically when a local
+schema is available.
 
 To use a different configuration location, pass a file or directory. A directory receives the default filename `macrowhisper.json`:
 
@@ -102,7 +107,9 @@ macrowhisper --get-config
 macrowhisper --reset-config
 ```
 
-After editing, validate the file. `--update-config` applies current schema and formatting changes while preserving your settings:
+After editing, validate the file. `--update-config` migrates older files through
+each configuration version and applies current schema and formatting changes
+while preserving your settings:
 
 ```bash
 macrowhisper --validate-config
@@ -113,7 +120,7 @@ This small configuration makes ordinary dictation paste into the current text fi
 
 ```json
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "defaults": {
     "watch": "~/superwhisper",
     "activeAction": "pasteResult"

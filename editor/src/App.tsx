@@ -429,6 +429,83 @@ function splitAtFirstUnescapedDelimiter(value: string, delimiters: string[]): { 
   return { head: value, tail: '' }
 }
 
+/**
+ * The v3 editor presents replacement helpers as text a person can edit:
+ * Macrowhisper's canonical `\n` spelling is shown as an actual Return, while
+ * a canonical `\\n` spelling remains visibly escaped as `\\n`. Keeping that
+ * doubled spelling in the textarea means an unrelated edit cannot turn a
+ * literal backslash+n into a Return on the next change event.
+ */
+function parseMacrowhisperReplacement(value: string): string {
+  let parsed = ''
+  let index = 0
+  while (index < value.length) {
+    if (value[index] !== '\\') {
+      parsed += value[index]
+      index += 1
+      continue
+    }
+
+    const runStart = index
+    while (index < value.length && value[index] === '\\') index += 1
+    const slashCount = index - runStart
+    if (index < value.length && value[index] === 'n') {
+      if (slashCount % 2 === 1) {
+        // Preserve any literal slash pairs in front of the newline while
+        // presenting the odd token itself as an actual Return.
+        parsed += '\\'.repeat(slashCount - 1)
+        parsed += '\n'
+      } else {
+        // Even runs are already the stable, visibly escaped spelling for a
+        // literal backslash+n in the helper field.
+        parsed += '\\'.repeat(slashCount) + 'n'
+      }
+      index += 1
+    } else {
+      parsed += '\\'.repeat(slashCount)
+    }
+  }
+  return parsed.replace(/\r\n?/g, '\n')
+}
+
+/** Serialize the replacement helper back to canonical Macrowhisper syntax. */
+function serializeMacrowhisperReplacement(value: string): string {
+  const normalized = value.replace(/\r\n?/g, '\n')
+  let serialized = ''
+  let index = 0
+  while (index < normalized.length) {
+    if (normalized[index] !== '\\') {
+      serialized += normalized[index] === '\n' ? '\\n' : normalized[index]
+      index += 1
+      continue
+    }
+
+    const runStart = index
+    while (index < normalized.length && normalized[index] === '\\') index += 1
+    const slashCount = index - runStart
+    if (index >= normalized.length) {
+      serialized += '\\'.repeat(slashCount)
+      continue
+    }
+
+    if (normalized[index] === '\n') {
+      // Helper text doubles literal slashes before a Return; add the odd
+      // newline marker when converting back to canonical wire syntax.
+      serialized += '\\'.repeat(slashCount + 1) + 'n'
+      index += 1
+    } else if (normalized[index] === 'n') {
+      // Even slash runs are already the canonical literal backslash+n form.
+      // An odd run can only exist in programmatic state; normalize it to the
+      // same visible escaped spelling rather than creating a newline token.
+      serialized += '\\'.repeat(slashCount % 2 === 0 ? slashCount : slashCount + 1) + 'n'
+      index += 1
+    } else {
+      serialized += '\\'.repeat(slashCount)
+    }
+  }
+  return serialized
+}
+
 function parsePlaceholderTail(value: string, allowFormat: boolean, requireTransformName = false): { format?: string; transformName?: string; regexReplacements: ReplacementStage[] } | null {
   let remaining = value
   let format: string | undefined
@@ -456,7 +533,7 @@ function parsePlaceholderTail(value: string, allowFormat: boolean, requireTransf
     const parts = splitByUnescapedDoublePipe(remaining.slice(2))
     if (parts.length % 2 !== 0) return null
     for (let index = 0; index < parts.length; index += 2) {
-      regexReplacements.push({ find: parts[index], replace: parts[index + 1] })
+      regexReplacements.push({ find: parts[index], replace: parseMacrowhisperReplacement(parts[index + 1]) })
     }
     remaining = ''
   }
@@ -734,6 +811,10 @@ function isActionGroup(value: Screen): value is ActionGroup {
   return value !== 'defaults'
 }
 
+function isLegacySnapshot(snapshot: ConfigSnapshot): boolean {
+  return snapshot.isLegacy === true || Boolean(snapshot.readOnly?.some((field) => field.path.length === 0))
+}
+
 function actionOptions(snapshot: ConfigSnapshot, currentPath?: string[]): SelectOption[] {
   const options: SelectOption[] = []
   const names = getAllActionNames(snapshot)
@@ -860,6 +941,7 @@ function EditorStatusControl({
   snapshot,
   pendingCount,
   hasSaveError,
+  updateRequired,
   theme,
   onThemeChange,
   revealConfiguration,
@@ -867,6 +949,7 @@ function EditorStatusControl({
   snapshot: ConfigSnapshot
   pendingCount: number
   hasSaveError: boolean
+  updateRequired: boolean
   theme: ThemeChoice
   onThemeChange: (theme: ThemeChoice) => void
   revealConfiguration?: () => Promise<void>
@@ -881,7 +964,9 @@ function EditorStatusControl({
   const [revealing, setRevealing] = useState(false)
 
   const runtimeStatus = snapshot.runtime.status
-  const status = runtimeStatus === 'disconnected'
+  const status = updateRequired
+    ? { label: 'Update required', tone: 'update-required' }
+    : runtimeStatus === 'disconnected'
     ? { label: 'Disconnected', tone: 'disconnected' }
     : runtimeStatus === 'fallback'
       ? { label: 'Runtime fallback', tone: 'fallback' }
@@ -894,9 +979,11 @@ function EditorStatusControl({
             : previewMode
               ? { label: 'Preview mode', tone: 'preview' }
               : { label: 'Connected', tone: 'connected' }
-  const showStatusDetails = previewMode || runtimeStatus !== 'connected' || hasSaveError
+  const showStatusDetails = previewMode || updateRequired || runtimeStatus !== 'connected' || hasSaveError
   const showDiagnostics = runtimeStatus === 'disconnected' || runtimeStatus === 'fallback' || hasSaveError
-  const statusMessage = hasSaveError
+  const statusMessage = updateRequired
+    ? 'This v1/v2 configuration is running in compatibility mode. Update it to version 3 before editing.'
+    : hasSaveError
     ? previewMode
       ? 'The latest change could not update the preview. Review the highlighted field and try again.'
       : 'The latest change could not be saved. Review the highlighted field and try again.'
@@ -1125,6 +1212,9 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   const revealConfiguration = store.revealConfiguration
     ? () => store.revealConfiguration!()
     : undefined
+  const updateConfiguration = store.updateConfiguration
+    ? () => store.updateConfiguration!()
+    : undefined
   const [snapshot, setSnapshot] = useState<ConfigSnapshot>(() => store.getSnapshot())
   const [screen, setScreen] = useState<Screen>('defaults')
   const [railGroup, setRailGroup] = useState<ActionGroup | null>(null)
@@ -1146,6 +1236,8 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   const [createPayload, setCreatePayload] = useState('{{swResult}}')
   const [lifecycleError, setLifecycleError] = useState('')
   const [lifecycleStatus, setLifecycleStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [migrationStatus, setMigrationStatus] = useState<'idle' | 'updating' | 'updated' | 'error'>('idle')
+  const [migrationError, setMigrationError] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [payloadRecovery, setPayloadRecovery] = useState<Record<string, string>>({})
@@ -1230,6 +1322,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   const currentGroup = isActionGroup(screen) ? groupById.get(screen) : undefined
   const currentAction = isActionGroup(screen) && selectedName ? snapshot[screen][selectedName] : undefined
   const browsedGroup = railGroup ? groupById.get(railGroup) : undefined
+  const updateRequired = isLegacySnapshot(snapshot)
 
   const valueFor = useCallback((path: string[]): FieldValue => {
     const entry = draftsRef.current[pathKey(path)]
@@ -1296,6 +1389,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }, [updateDrafts])
 
   const commitField = useCallback(async (path: string[], rawValue: FieldValue): Promise<boolean> => {
+    if (isLegacySnapshot(snapshotRef.current)) return false
     const key = pathKey(path)
     let value = rawValue
     const field = path[path.length - 1]
@@ -1524,6 +1618,28 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     fixtureStore?.reconnect()
   }
 
+  const runConfigurationUpdate = async () => {
+    if (!updateConfiguration || migrationStatus === 'updating') return false
+    setMigrationStatus('updating')
+    setMigrationError('')
+    try {
+      const next = await updateConfiguration()
+      snapshotRef.current = next
+      setSnapshot(next)
+      if (isLegacySnapshot(next)) {
+        throw new Error('The configuration still requires migration. Try the update again or run macrowhisper --update-config.')
+      }
+      draftsRef.current = {}
+      setDrafts({})
+      setMigrationStatus('updated')
+      return true
+    } catch (error) {
+      setMigrationStatus('error')
+      setMigrationError(error instanceof Error ? error.message : 'The configuration could not be updated to version 3.')
+      return false
+    }
+  }
+
   const navigate = useCallback((target: NavigationPrompt) => {
     if (target.scenario) {
       applyScenario(target.scenario)
@@ -1616,6 +1732,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }
 
   const openCreate = () => {
+    if (isLegacySnapshot(snapshotRef.current)) return
     setRailGroup('inserts')
     if (isNarrow) setMobileNavOpen(true)
     setCreateOpen(true)
@@ -1626,6 +1743,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }
 
   const createInsert = async (duplicate: boolean) => {
+    if (isLegacySnapshot(snapshotRef.current)) return false
     if (lifecycleStatus === 'saving' || lifecyclePromiseRef.current) return false
     setLifecycleError('')
     if (!createName.trim()) {
@@ -1670,6 +1788,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }
 
   const renameInsert = async (): Promise<boolean> => {
+    if (isLegacySnapshot(snapshotRef.current)) return false
     if (lifecycleStatus === 'saving' || lifecyclePromiseRef.current) return false
     const clean = renameValue.trim()
     if (!clean || clean === selectedName) {
@@ -1710,6 +1829,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
   }
 
   const deleteInsert = async () => {
+    if (isLegacySnapshot(snapshotRef.current)) return false
     if (lifecycleStatus === 'saving' || lifecyclePromiseRef.current) return false
     setLifecycleError('')
     setLifecycleStatus('saving')
@@ -1801,6 +1921,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
             onCancelCreate={() => { setCreateOpen(false); setDuplicateOpen(false); setLifecycleError('') }}
             lifecycleError={lifecycleError}
             lifecycleStatus={lifecycleStatus}
+            readOnly={updateRequired}
           />
         ) : (
           <nav className="sidebar-nav" aria-label="Configuration sections">
@@ -1827,7 +1948,7 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
         )}
 
         <div className="sidebar-bottom">
-          <EditorStatusControl snapshot={snapshot} pendingCount={pendingCount} hasSaveError={hasSaveError} theme={theme} onThemeChange={setTheme} revealConfiguration={revealConfiguration} />
+          <EditorStatusControl snapshot={snapshot} pendingCount={pendingCount} hasSaveError={hasSaveError} updateRequired={updateRequired} theme={theme} onThemeChange={setTheme} revealConfiguration={revealConfiguration} />
           {fixtureStore && snapshot.runtime.status === 'disconnected' && <button type="button" className="quiet-button compact connection-action" onClick={reconnectFixture}>Reconnect fixture</button>}
         </div>
       </aside>
@@ -1848,50 +1969,54 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
 
         {fixtureStore && <div className="prototype-notice" role="note"><span className="status-dot status-preview" aria-hidden="true" /><div><strong>Preview mode</strong><span>Changes are temporary in this browser tab. They do not write macrowhisper.json, and reloading resets them.</span></div></div>}
 
+        {updateRequired && <LegacyMigrationBanner snapshot={snapshot} status={migrationStatus} error={migrationError} canUpdate={Boolean(updateConfiguration)} onUpdate={() => void runConfigurationUpdate()} />}
         {snapshot.disk.status !== 'valid' && <DiskBanner snapshot={snapshot} />}
         {snapshot.runtime.status === 'disconnected' && <div className="inline-banner warning"><ExclamationTriangleIcon aria-hidden="true" /><div><strong>Working offline</strong><span>{fixtureStore ? 'Drafts stay in this tab until the fixture adapter reconnects. Retry after choosing a connected scenario.' : 'Open a fresh editor link with macrowhisper --editor to reconnect. Unsaved drafts remain in this tab.'}</span></div></div>}
 
-        {screen === 'defaults' ? (
-          <DefaultsScreen snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={Boolean(fixtureStore)} chooseDirectory={chooseDirectory} />
-        ) : screen === 'inserts' ? (
-          currentAction ? (
-            <InsertEditor
-              key={selectedName}
-              snapshot={snapshot}
-              selectedName={selectedName}
-              action={currentAction}
-              drafts={drafts}
-              valueFor={valueFor}
-              setDraftValue={setDraftValue}
-              commitField={commitField}
-              revertField={revertField}
-              retryField={retryField}
-              resyncField={resyncField}
-              renameValue={renameValue}
-              setRenameValue={setRenameValue}
-              onRename={renameInsert}
-              onDuplicate={() => { setRailGroup('inserts'); setDuplicateOpen(true); setCreateOpen(false); setCreateName(`${selectedName} copy`); setLifecycleError(''); if (isNarrow) setMobileNavOpen(true) }}
-              onDelete={() => setDeleteOpen(true)}
-              onBack={() => { setRailGroup('inserts'); setMobileNavOpen(true) }}
-              lifecycleError={lifecycleError}
-              lifecycleStatus={lifecycleStatus}
-              recoveredPayload={payloadRecovery[selectedName]}
-              onRetainPayload={(text) => setPayloadRecovery((current) => ({ ...current, [selectedName]: text }))}
-              onClearRetainedPayload={() => setPayloadRecovery((current) => {
-                if (!(selectedName in current)) return current
-                const next = { ...current }
-                delete next[selectedName]
-                return next
-              })}
-              folderPickerPreview={Boolean(fixtureStore)}
-              chooseDirectory={chooseDirectory}
-            />
+        <fieldset disabled={updateRequired} className="workspace-editing-disabled" aria-label={updateRequired ? 'Configuration editing disabled until migration' : undefined}>
+          {screen === 'defaults' ? (
+            <DefaultsScreen snapshot={snapshot} valueFor={valueFor} drafts={drafts} textHandlers={textHandlers} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} folderPickerPreview={Boolean(fixtureStore)} chooseDirectory={chooseDirectory} />
+          ) : screen === 'inserts' ? (
+            currentAction ? (
+              <InsertEditor
+                key={selectedName}
+                snapshot={snapshot}
+                selectedName={selectedName}
+                action={currentAction}
+                drafts={drafts}
+                valueFor={valueFor}
+                setDraftValue={setDraftValue}
+                commitField={commitField}
+                revertField={revertField}
+                retryField={retryField}
+                resyncField={resyncField}
+                renameValue={renameValue}
+                setRenameValue={setRenameValue}
+                onRename={renameInsert}
+                onDuplicate={() => { setRailGroup('inserts'); setDuplicateOpen(true); setCreateOpen(false); setCreateName(`${selectedName} copy`); setLifecycleError(''); if (isNarrow) setMobileNavOpen(true) }}
+                onDelete={() => setDeleteOpen(true)}
+                onBack={() => { setRailGroup('inserts'); setMobileNavOpen(true) }}
+                lifecycleError={lifecycleError}
+                lifecycleStatus={lifecycleStatus}
+                editingBlocked={updateRequired}
+                recoveredPayload={payloadRecovery[selectedName]}
+                onRetainPayload={(text) => setPayloadRecovery((current) => ({ ...current, [selectedName]: text }))}
+                onClearRetainedPayload={() => setPayloadRecovery((current) => {
+                  if (!(selectedName in current)) return current
+                  const next = { ...current }
+                  delete next[selectedName]
+                  return next
+                })}
+                folderPickerPreview={Boolean(fixtureStore)}
+                chooseDirectory={chooseDirectory}
+              />
+            ) : (
+              <EmptyState onCreate={openCreate} />
+            )
           ) : (
-            <EmptyState onCreate={openCreate} />
-          )
-        ) : (
-          <UnsupportedActionGroup group={currentGroup!} selectedName={selectedName} snapshot={snapshot} fixtureBacked={Boolean(fixtureStore)} />
-        )}
+            <UnsupportedActionGroup group={currentGroup!} selectedName={selectedName} snapshot={snapshot} fixtureBacked={Boolean(fixtureStore)} />
+          )}
+        </fieldset>
       </main>
 
       {isNarrow && mobileNavOpen && <button type="button" className="mobile-nav-backdrop" tabIndex={-1} aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
@@ -1901,6 +2026,35 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     </div>
     </PreviewModeContext.Provider>
   )
+}
+
+function LegacyMigrationBanner({ snapshot, status, error, canUpdate, onUpdate }: { snapshot: ConfigSnapshot; status: 'idle' | 'updating' | 'updated' | 'error'; error: string; canUpdate: boolean; onUpdate: () => void }) {
+  const [copyFeedback, setCopyFeedback] = useState('')
+  const command = 'macrowhisper --update-config'
+  const copyCommand = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.')
+      await navigator.clipboard.writeText(command)
+      setCopyFeedback('Update command copied.')
+    } catch (copyError) {
+      setCopyFeedback(copyError instanceof Error ? copyError.message : 'The update command could not be copied.')
+    }
+  }
+  const updating = status === 'updating'
+  return <section className="inline-banner legacy-migration-banner" role="alert" aria-labelledby="legacy-migration-title" aria-describedby="legacy-migration-description">
+    <ExclamationTriangleIcon aria-hidden="true" />
+    <div className="legacy-migration-copy">
+      <h2 id="legacy-migration-title">Update required before editing</h2>
+      <p id="legacy-migration-description">This v1/v2 configuration is running in compatibility mode, so the editor is read-only. Update it to version 3 to use the workspace. Macrowhisper creates a backup beside <code>{snapshot.path.split('/').filter(Boolean).pop() || 'your configuration file'}</code> before migrating, and this explicit update does not change the automatic update setting.</p>
+      {error && <span className="legacy-migration-error" role="status">{error}</span>}
+      <div className="legacy-migration-actions">
+        <button type="button" className="primary-button compact" onClick={onUpdate} disabled={!canUpdate || updating}>{updating ? 'Updating to version 3…' : 'Update to version 3'}</button>
+        <button type="button" className="quiet-button compact" onClick={() => void copyCommand()} disabled={updating}><CopyIcon aria-hidden="true" /> Copy update command</button>
+      </div>
+      {status === 'error' && <span className="legacy-migration-help">You can also run <code>{command}</code> in Terminal, then return here to refresh.</span>}
+      {copyFeedback && <span className="legacy-migration-feedback" role="status">{copyFeedback}</span>}
+    </div>
+  </section>
 }
 
 function DiskBanner({ snapshot }: { snapshot: ConfigSnapshot }) {
@@ -2196,9 +2350,10 @@ interface ActionListProps {
   onCancelCreate: () => void
   lifecycleError: string
   lifecycleStatus: 'idle' | 'saving' | 'saved'
+  readOnly?: boolean
 }
 
-function ActionList({ group, snapshot, selectedName, search, setSearch, onBack, onSelect, onCreate, createOpen, duplicateOpen, createName, createPayload, setCreateName, setCreatePayload, onSubmitCreate, onCancelCreate, lifecycleError, lifecycleStatus }: ActionListProps) {
+function ActionList({ group, snapshot, selectedName, search, setSearch, onBack, onSelect, onCreate, createOpen, duplicateOpen, createName, createPayload, setCreateName, setCreatePayload, onSubmitCreate, onCancelCreate, lifecycleError, lifecycleStatus, readOnly = false }: ActionListProps) {
   const actions = snapshot[group.id]
   const names = Object.keys(actions).filter((name) => name.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const supportsLifecycle = group.id === 'inserts'
@@ -2222,14 +2377,14 @@ function ActionList({ group, snapshot, selectedName, search, setSearch, onBack, 
       <button type="button" className="context-back-button" onClick={onBack}><ArrowLeftIcon aria-hidden="true" /> All sections</button>
       <div className="action-list-heading"><div><h1>{group.label}</h1></div><span className="section-count">{Object.keys(actions).length}</span></div>
       <p className="list-description">{group.description}</p>
-      <div className="action-list-tools"><label className="search-field"><MagnifyingGlassIcon aria-hidden="true" /><span className="sr-only">Search {group.label}</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search actions" /></label>{supportsLifecycle && <div className="list-action-buttons"><button type="button" className="primary-button compact" onClick={onCreate}><PlusIcon aria-hidden="true" /> New Insert</button></div>}</div>
-      {supportsLifecycle && (createOpen || duplicateOpen) && <div className="create-panel"><strong className="create-panel-title">{duplicateOpen ? 'Duplicate Insert' : 'New Insert'}</strong><label>Name<input autoFocus value={createName} onChange={(event) => setCreateName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmitCreate() }} placeholder="e.g. meetingNotes" /></label>{!duplicateOpen && <label>Payload<textarea value={createPayload} onChange={(event) => setCreatePayload(event.target.value)} rows={3} /></label>}<div className="panel-actions"><button type="button" className="quiet-button" onClick={onCancelCreate}>Cancel</button><button type="button" className="primary-button compact" onClick={onSubmitCreate} disabled={lifecycleStatus === 'saving'}>{lifecycleStatus === 'saving' ? 'Creating…' : duplicateOpen ? 'Duplicate' : 'Create Insert'}</button></div>{lifecycleError && <div className="panel-error" role="alert"><ExclamationTriangleIcon aria-hidden="true" />{lifecycleError}</div>}</div>}
+      <div className="action-list-tools"><label className="search-field"><MagnifyingGlassIcon aria-hidden="true" /><span className="sr-only">Search {group.label}</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search actions" /></label>{supportsLifecycle && <div className="list-action-buttons"><button type="button" className="primary-button compact" onClick={onCreate} disabled={readOnly}><PlusIcon aria-hidden="true" /> New Insert</button></div>}</div>
+      {supportsLifecycle && (createOpen || duplicateOpen) && <div className="create-panel"><strong className="create-panel-title">{duplicateOpen ? 'Duplicate Insert' : 'New Insert'}</strong><label>Name<input autoFocus value={createName} onChange={(event) => setCreateName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmitCreate() }} placeholder="e.g. meetingNotes" disabled={readOnly} /></label>{!duplicateOpen && <label>Payload<textarea value={createPayload} onChange={(event) => setCreatePayload(event.target.value)} rows={3} disabled={readOnly} /></label>}<div className="panel-actions"><button type="button" className="quiet-button" onClick={onCancelCreate}>Cancel</button><button type="button" className="primary-button compact" onClick={onSubmitCreate} disabled={readOnly || lifecycleStatus === 'saving'}>{lifecycleStatus === 'saving' ? 'Creating…' : duplicateOpen ? 'Duplicate' : 'Create Insert'}</button></div>{lifecycleError && <div className="panel-error" role="alert"><ExclamationTriangleIcon aria-hidden="true" />{lifecycleError}</div>}</div>}
       <div className="action-items" role="listbox" aria-label={`Available ${group.label}`} onKeyDown={onListKeyDown}>
         {names.map((name) => {
           const action = actions[name]
           return <button type="button" role="option" aria-selected={name === selectedName} className={name === selectedName ? 'action-item is-selected' : 'action-item'} key={name} onClick={() => onSelect(name)}><span className="action-item-icon">{action.icon || group.icon}</span><span className="action-item-copy"><strong title={name}>{actionDisplayName(name, action)}</strong><small>{actionDisplayDetail(name, action)}</small></span></button>
         })}
-        {names.length === 0 && <div className="list-empty"><MagnifyingGlassIcon aria-hidden="true" /><span>{search ? `No matching ${group.label}` : `No ${group.label} yet`}</span>{supportsLifecycle && !search && <button type="button" className="text-button" onClick={onCreate}>Create one</button>}</div>}
+        {names.length === 0 && <div className="list-empty"><MagnifyingGlassIcon aria-hidden="true" /><span>{search ? `No matching ${group.label}` : `No ${group.label} yet`}</span>{supportsLifecycle && !search && <button type="button" className="text-button" onClick={onCreate} disabled={readOnly}>Create one</button>}</div>}
       </div>
     </nav>
   )
@@ -2254,6 +2409,7 @@ interface InsertEditorProps {
   onBack: () => void
   lifecycleError: string
   lifecycleStatus: 'idle' | 'saving' | 'saved'
+  editingBlocked?: boolean
   recoveredPayload?: string
   onRetainPayload: (text: string) => void
   onClearRetainedPayload: () => void
@@ -2261,7 +2417,7 @@ interface InsertEditorProps {
   chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>
 }
 
-function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDraftValue, commitField, revertField, retryField, resyncField, renameValue, setRenameValue, onRename, onDuplicate, onDelete, onBack, lifecycleError, lifecycleStatus, recoveredPayload, onRetainPayload, onClearRetainedPayload, folderPickerPreview, chooseDirectory }: InsertEditorProps) {
+function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDraftValue, commitField, revertField, retryField, resyncField, renameValue, setRenameValue, onRename, onDuplicate, onDelete, onBack, lifecycleError, lifecycleStatus, editingBlocked = false, recoveredPayload, onRetainPayload, onClearRetainedPayload, folderPickerPreview, chooseDirectory }: InsertEditorProps) {
   const actionPath = (field: string) => ['inserts', selectedName, field]
   const payloadPath = actionPath('action')
   const payloadEntry = drafts[pathKey(payloadPath)]
@@ -2371,7 +2527,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     const format = next.xmlTag !== undefined ? '' : next.format ? `:${next.format}` : next.key === 'date' ? ':short' : ''
     const transform = next.transformName ? `::${next.transformName}` : ''
     const replacements = next.regexReplacements
-      .map((stage) => `||${regexBuilderPart(stage.find)}||${regexBuilderPart(stage.replace)}`)
+      .map((stage) => `||${regexBuilderPart(stage.find)}||${regexBuilderPart(serializeMacrowhisperReplacement(stage.replace))}`)
       .join('')
     const raw = `{{${prefix}${source}${format}${transform}${replacements}}}`
     const updatedPayload = `${currentPayload.slice(0, next.start)}${raw}${currentPayload.slice(next.end)}`
@@ -2539,13 +2695,13 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           <div className="action-overview-heading">
             <div className="action-overview-identity">
               <div className="action-title-line">
-                {renaming ? <><h1 id="insert-editor-title" className="sr-only">{selectedName}</h1><div className="action-title-editor"><label className="sr-only" htmlFor="insert-name">Action name</label><input id="insert-name" autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveRename() } else if (event.key === 'Escape') { event.preventDefault(); cancelRename() } }} /><button type="button" className="primary-button compact" onClick={() => void saveRename()} disabled={lifecycleStatus === 'saving' || !renameValue.trim()}>Save name</button><button type="button" className="quiet-button compact" onClick={cancelRename}>Cancel</button></div></> : <><h1 id="insert-editor-title" title={selectedName}>{selectedName}</h1><button type="button" className="quiet-button compact rename-action-button" onClick={() => setRenaming(true)}><Pencil1Icon aria-hidden="true" /> Rename</button></>}
+                {renaming ? <><h1 id="insert-editor-title" className="sr-only">{selectedName}</h1><div className="action-title-editor"><label className="sr-only" htmlFor="insert-name">Action name</label><input id="insert-name" autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveRename() } else if (event.key === 'Escape') { event.preventDefault(); cancelRename() } }} disabled={editingBlocked} /><button type="button" className="primary-button compact" onClick={() => void saveRename()} disabled={editingBlocked || lifecycleStatus === 'saving' || !renameValue.trim()}>Save name</button><button type="button" className="quiet-button compact" onClick={cancelRename}>Cancel</button></div></> : <><h1 id="insert-editor-title" title={selectedName}>{selectedName}</h1><button type="button" className="quiet-button compact rename-action-button" onClick={() => setRenaming(true)} disabled={editingBlocked}><Pencil1Icon aria-hidden="true" /> Rename</button></>}
                 <SourcePill source={source} />
               </div>
               <p className="screen-description">{groupById.get('inserts')?.description}</p>
               <FieldLifecycle status={lifecycleStatus} />
             </div>
-            <div className="action-overview-actions"><button type="button" className="quiet-button" onClick={onDuplicate}><CopyIcon aria-hidden="true" /> Duplicate</button><button type="button" className="quiet-button danger-button" onClick={onDelete} disabled={payload === '.autoPaste'} aria-label={payload === '.autoPaste' ? 'Delete unavailable: built-in auto-paste cannot be deleted' : 'Delete'} title={payload === '.autoPaste' ? 'The built-in auto-paste action cannot be deleted' : undefined}><TrashIcon aria-hidden="true" /> Delete</button></div>
+            <div className="action-overview-actions"><button type="button" className="quiet-button" onClick={onDuplicate} disabled={editingBlocked}><CopyIcon aria-hidden="true" /> Duplicate</button><button type="button" className="quiet-button danger-button" onClick={onDelete} disabled={editingBlocked || payload === '.autoPaste'} aria-label={payload === '.autoPaste' ? 'Delete unavailable: built-in auto-paste cannot be deleted' : 'Delete'} title={payload === '.autoPaste' ? 'The built-in auto-paste action cannot be deleted' : undefined}><TrashIcon aria-hidden="true" /> Delete</button></div>
           </div>
           {lifecycleError && <div className="inline-field-error" role="alert"><ExclamationTriangleIcon aria-hidden="true" />{lifecycleError}</div>}
           <div className="effective-summary" aria-label="Effective behavior"><strong>Effective behavior</strong><p>{effectiveBehavior}</p></div>
@@ -2776,7 +2932,7 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
       {placeholder.regexReplacements.length === 0 && <div className="replacement-empty"><span>Use replacements for cleanup that a single transform cannot handle.</span><small>Capture text with parentheses, reuse it with <code>{'${1}'}</code>, or transform a capture with <code>{'${1::uppercase}'}</code>.</small></div>}
       {placeholder.regexReplacements.map((stage, index) => {
         const patternError = regexPatternError(stage.find)
-        return <div className="replacement-stage" key={index}><div className="replacement-stage-heading"><strong>Replacement {index + 1}</strong><div><button type="button" className="stage-icon-action" aria-label={`Move replacement ${index + 1} up`} disabled={index === 0} onClick={() => moveStage(index, -1)}><ArrowUpIcon aria-hidden="true" /></button><button type="button" className="stage-icon-action" aria-label={`Move replacement ${index + 1} down`} disabled={index === placeholder.regexReplacements.length - 1} onClick={() => moveStage(index, 1)}><ArrowDownIcon aria-hidden="true" /></button><button type="button" className="stage-icon-action stage-icon-remove" aria-label={`Remove replacement ${index + 1}`} onClick={() => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.filter((_, stageIndex) => stageIndex !== index) })}><Cross2Icon aria-hidden="true" /></button></div></div><div className="replacement-stage-fields"><label>Find pattern<textarea aria-label={`Find pattern ${index + 1}`} aria-invalid={Boolean(patternError)} value={stage.find} onChange={(event) => updateStage(index, { ...stage, find: event.target.value })} rows={3} placeholder="e.g. \\s+$" />{patternError && <small className="regex-validation" role="status">{patternError}</small>}</label><label>Replace with<textarea aria-label={`Replacement text ${index + 1}`} value={stage.replace} onChange={(event) => updateStage(index, { ...stage, replace: event.target.value })} rows={3} placeholder="Leave empty to remove matches" /><small>Capture groups: <code>{'${1}'}</code> · transformed capture: <code>{'${1::titleCase}'}</code></small></label></div></div>
+        return <div className="replacement-stage" key={index}><div className="replacement-stage-heading"><strong>Replacement {index + 1}</strong><div><button type="button" className="stage-icon-action" aria-label={`Move replacement ${index + 1} up`} disabled={index === 0} onClick={() => moveStage(index, -1)}><ArrowUpIcon aria-hidden="true" /></button><button type="button" className="stage-icon-action" aria-label={`Move replacement ${index + 1} down`} disabled={index === placeholder.regexReplacements.length - 1} onClick={() => moveStage(index, 1)}><ArrowDownIcon aria-hidden="true" /></button><button type="button" className="stage-icon-action stage-icon-remove" aria-label={`Remove replacement ${index + 1}`} onClick={() => onChange({ ...placeholder, regexReplacements: placeholder.regexReplacements.filter((_, stageIndex) => stageIndex !== index) })}><Cross2Icon aria-hidden="true" /></button></div></div><div className="replacement-stage-fields"><label>Find pattern<textarea aria-label={`Find pattern ${index + 1}`} aria-invalid={Boolean(patternError)} value={stage.find} onChange={(event) => updateStage(index, { ...stage, find: event.target.value })} rows={3} placeholder="e.g. \\s+$" />{patternError && <small className="regex-validation" role="status">{patternError}</small>}</label><label>Replace with<textarea aria-label={`Replacement text ${index + 1}`} value={stage.replace} onChange={(event) => updateStage(index, { ...stage, replace: parseMacrowhisperReplacement(event.target.value) })} rows={3} placeholder="Leave empty to remove matches" /><small>Type <code>{'\\n'}</code> for a line break. Type <code>{'\\\\n'}</code> for a literal backslash+n. Capture groups: <code>{'${1}'}</code> · transformed capture: <code>{'${1::titleCase}'}</code></small></label></div></div>
       })}
     </div>
   </section>

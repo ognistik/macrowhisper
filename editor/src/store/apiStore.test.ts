@@ -8,7 +8,7 @@ const revision: Revision = { generation: 'daemon-1', version: 3, fingerprint: 'd
 function snapshotPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     config: {
-      configVersion: 2,
+      configVersion: 3,
       defaults: {
         watch: '~/superwhisper',
         actionDelay: 0,
@@ -99,7 +99,7 @@ describe('ApiStore', () => {
       headers: expect.objectContaining({ Authorization: 'Bearer stored-bearer' }),
     }))
     expect(snapshot.path).toBe('/tmp/macrowhisper.json')
-    expect(snapshot.schemaVersion).toBe(2)
+    expect(snapshot.schemaVersion).toBe(3)
     expect(snapshot.defaults.actionDelay).toBe(0)
     expect(snapshot.defaults.history).toBeNull()
     expect(snapshot.defaults.simEsc).toBe(false)
@@ -107,6 +107,7 @@ describe('ApiStore', () => {
     expect(snapshot.disk.status).toBe('invalid')
     expect(snapshot.disk.message).toBe('bad value')
     expect(snapshot.runtime.status).toBe('fallback')
+    expect(snapshot.isLegacy).toBe(true)
     expect(snapshot.readOnly).toEqual([{ path: [], reason: expect.stringContaining('legacy') }])
     store.dispose()
   })
@@ -217,6 +218,47 @@ describe('ApiStore', () => {
       }),
     }))
     expect(fetchMock.mock.calls[1][1]).not.toHaveProperty('body')
+    store.dispose()
+  })
+
+  it('runs the explicit legacy migration endpoint and accepts its refreshed snapshot', async () => {
+    const migrated = snapshotPayload({
+      config: {
+        ...snapshotPayload().config as Record<string, unknown>,
+        configVersion: 3,
+      },
+      isLegacyOnDisk: false,
+      revision: { ...revision, version: 4, fingerprint: 'disk-4' },
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(snapshotPayload({ isLegacyOnDisk: true })))
+      .mockResolvedValueOnce(jsonResponse(migrated))
+    const store = new ApiStore({ fetch: fetchMock, pollIntervalMs: 0 })
+    await store.start()
+
+    await expect(store.updateConfiguration?.()).resolves.toMatchObject({ schemaVersion: 3, isLegacy: false })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/config/update', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer stored-bearer',
+        'Content-Type': 'application/json',
+      }),
+    }))
+    expect(fetchMock.mock.calls[1][1]).not.toHaveProperty('body')
+    expect(store.getSnapshot().isLegacy).toBe(false)
+    store.dispose()
+  })
+
+  it('keeps a legacy snapshot read-only when the explicit migration fails', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(snapshotPayload({ isLegacyOnDisk: true })))
+      .mockResolvedValueOnce(jsonResponse({ code: 'updateFailed', message: 'Migration failed.' }, 500))
+    const store = new ApiStore({ fetch: fetchMock, pollIntervalMs: 0 })
+    await store.start()
+
+    await expect(store.updateConfiguration?.()).rejects.toMatchObject({ code: 'persistence', message: 'Migration failed.' })
+    expect(store.getSnapshot().isLegacy).toBe(true)
+    expect(store.getSnapshot().readOnly).toEqual([{ path: [], reason: expect.stringContaining('legacy') }])
     store.dispose()
   })
 

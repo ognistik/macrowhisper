@@ -167,9 +167,6 @@ class ConfigurationManager {
             }
         } else {
             applyInitialDiskState(initialState)
-            if initialState.isLegacy {
-                notifyOutdatedConfiguration()
-            }
             if !initialState.syntaxIsValid {
                 showJsonErrorNotification(decodingPath: initialState.semanticIssues.first?.path)
             } else if !initialState.semanticIssues.isEmpty {
@@ -794,7 +791,6 @@ class ConfigurationManager {
         )
         acceptedDiskIsValid = state.isDiskValid
         acceptedDiskIssues = issuesForDiskState(state)
-        let wasLegacy = hasLegacyConfigOnDisk
         hasLegacyConfigOnDisk = state.isLegacy
         pendingInternalWrite = nil
 
@@ -809,9 +805,6 @@ class ConfigurationManager {
         }
 
         guard notifyExternalChange else { return state }
-        if state.isLegacy && !wasLegacy {
-            notifyOutdatedConfiguration()
-        }
         let reason = state.isRuntimeUsable && !state.isFuture
             ? "configFileChanged"
             : "configValidationFallback"
@@ -935,22 +928,11 @@ class ConfigurationManager {
         UserDefaultsManager.shared.setConfigPath(normalizedPath)
         setupFileWatcherLocked()
 
-        if hasLegacyConfigOnDisk {
-            notifyOutdatedConfiguration()
-        }
-
         DispatchQueue.main.async { [weak self] in
             self?.onConfigChanged?("configPathChanged")
         }
         logInfo("Switched active configuration path from \(oldPath) to: \(normalizedPath)")
         return true
-    }
-
-    private func notifyOutdatedConfiguration() {
-        notify(
-            title: "Macrowhisper - Outdated Config",
-            message: "You are running an outdated config. Run --update-config to migrate."
-        )
     }
 
     /// Trusted in-process callers (CLI and watcher recovery) use the closure
@@ -1417,6 +1399,16 @@ class ConfigurationManager {
         var configuration = candidate
         if let schemaReference = SchemaManager.getSchemaReference(), configuration.schema != schemaReference {
             configuration.schema = schemaReference
+        }
+
+        // v3 stores Insert newline tokens as the two-character sequence
+        // backslash+n.  Canonicalize raw control newlines at the persistence
+        // boundary so editor, CLI, and watcher writes all produce identical
+        // JSON regardless of which caller supplied the candidate model.
+        for name in configuration.inserts.keys {
+            guard var insert = configuration.inserts[name] else { continue }
+            insert.action = canonicalizeMacrowhisperInsertAction(insert.action)
+            configuration.inserts[name] = insert
         }
 
         let encoder = JSONEncoder()
@@ -2883,6 +2875,14 @@ class ConfigurationManager {
 
         if (config.configVersion ?? 1) < 2 {
             changed = migrateConfigurationToV2(&config) || changed
+            config.configVersion = 2
+            changed = true
+        }
+
+        if (config.configVersion ?? 1) < 3 {
+            changed = migrateConfigurationToV3(&config) || changed
+            config.configVersion = 3
+            changed = true
         }
 
         if config.configVersion != AppConfiguration.currentConfigVersion {
@@ -2897,13 +2897,52 @@ class ConfigurationManager {
         return Self.applyV2Normalization(&config)
     }
 
+    private func migrateConfigurationToV3(_ config: inout AppConfiguration) -> Bool {
+        var changed = false
+        for name in config.inserts.keys {
+            guard var insert = config.inserts[name] else { continue }
+            let canonical = canonicalizeLegacyMacrowhisperInsertAction(insert.action)
+            if canonical != insert.action {
+                insert.action = canonical
+                config.inserts[name] = insert
+                changed = true
+            }
+        }
+        return changed
+    }
+
     private static func normalizeConfigurationForRuntime(_ config: inout AppConfiguration) {
         _ = normalizeEscInputConditionTokens(&config)
-        guard (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion else {
-            return
+        var version = config.configVersion ?? 1
+        if version < 2 {
+            _ = applyV2Normalization(&config)
+            version = 2
         }
-        _ = applyV2Normalization(&config)
-        config.configVersion = AppConfiguration.currentConfigVersion
+        if version < 3 {
+            _ = migrateLegacyInsertActionsForRuntime(&config)
+            version = 3
+        }
+        if (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion {
+            config.configVersion = AppConfiguration.currentConfigVersion
+        }
+    }
+
+    /// Legacy files remain executable when automatic disk migration is
+    /// disabled.  Normalize their Insert payloads in memory using the same
+    /// sequential v1/v2 -> v3 conversion as an explicit update, without
+    /// changing the bytes on disk.
+    private static func migrateLegacyInsertActionsForRuntime(_ config: inout AppConfiguration) -> Bool {
+        var changed = false
+        for name in config.inserts.keys {
+            guard var insert = config.inserts[name] else { continue }
+            let canonical = canonicalizeLegacyMacrowhisperInsertAction(insert.action)
+            if canonical != insert.action {
+                insert.action = canonical
+                config.inserts[name] = insert
+                changed = true
+            }
+        }
+        return changed
     }
 
     private static func applyV2Normalization(_ config: inout AppConfiguration) -> Bool {

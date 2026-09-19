@@ -1,5 +1,125 @@
 import Foundation
 
+/// Decodes the v3 Insert action escape syntax at runtime.
+///
+/// A single (odd) backslash before `n` is Macrowhisper's newline token.  An
+/// even run preserves its paired backslashes, so `\\n` in the decoded action
+/// remains a literal backslash followed by `n`.  Keeping this parser outside
+/// of JSON decoding is important: JSON escaping and Macrowhisper escaping are
+/// two separate layers.
+func decodeMacrowhisperInsertEscapes(_ value: String) -> String {
+    let characters = Array(value)
+    var result = String()
+    result.reserveCapacity(value.count)
+
+    var index = 0
+    while index < characters.count {
+        guard characters[index] == "\\" else {
+            result.append(characters[index])
+            index += 1
+            continue
+        }
+
+        var slashCount = 0
+        while index < characters.count, characters[index] == "\\" {
+            slashCount += 1
+            index += 1
+        }
+
+        guard index < characters.count, characters[index] == "n" else {
+            result.append(String(repeating: "\\", count: slashCount))
+            continue
+        }
+
+        result.append(String(repeating: "\\", count: slashCount / 2))
+        if slashCount.isMultiple(of: 2) {
+            result.append("n")
+        } else {
+            result.append("\n")
+        }
+        index += 1
+    }
+
+    return result
+}
+
+/// Converts raw control newlines in an Insert action to the canonical v3
+/// token.  Existing backslash runs are deliberately left untouched; this is
+/// a persistence-layer operation, not runtime escape decoding.
+func canonicalizeMacrowhisperInsertAction(_ value: String) -> String {
+    var result = String()
+    result.reserveCapacity(value.count)
+
+    let characters = Array(value)
+    var index = 0
+    while index < characters.count {
+        if characters[index] == "\r" {
+            if index + 1 < characters.count, characters[index + 1] == "\n" {
+                index += 1
+            }
+            result += "\\n"
+        } else if characters[index] == "\n" {
+            result += "\\n"
+        } else {
+            result.append(characters[index])
+        }
+        index += 1
+    }
+    return result
+}
+
+/// Converts a legacy v1/v2 action to the v3 representation while preserving
+/// the historical runtime behavior.  Legacy runtime code replaced every
+/// `\\n` token with a line feed, including the final token in an even run.
+/// Expanding each legacy run to the equivalent odd v3 run keeps that behavior
+/// for configurations that opt out of automatic on-disk migration.
+func canonicalizeLegacyMacrowhisperInsertAction(_ value: String) -> String {
+    let characters = Array(value)
+    var result = String()
+    result.reserveCapacity(value.count)
+
+    var index = 0
+    while index < characters.count {
+        if characters[index] == "\r" {
+            if index + 1 < characters.count, characters[index + 1] == "\n" {
+                index += 1
+            }
+            result += "\\n"
+            index += 1
+            continue
+        }
+        if characters[index] == "\n" {
+            result += "\\n"
+            index += 1
+            continue
+        }
+        guard characters[index] == "\\" else {
+            result.append(characters[index])
+            index += 1
+            continue
+        }
+
+        var slashCount = 0
+        while index < characters.count, characters[index] == "\\" {
+            slashCount += 1
+            index += 1
+        }
+        guard index < characters.count, characters[index] == "n" else {
+            result.append(String(repeating: "\\", count: slashCount))
+            continue
+        }
+
+        // The old replacement removed one slash for every `\\n` token.  A
+        // v3 run of 2n-1 slashes produces n-1 literal slashes plus a line
+        // feed under odd/even decoding.
+        result.append(String(repeating: "\\", count: max(1, slashCount * 2 - 1)))
+        result.append("n")
+        index += 1
+    }
+
+    return result
+}
+
 protocol ClipboardStackingConfigurable {
     var clipboardStacking: Bool? { get }
 }
@@ -32,8 +152,11 @@ struct AppConfiguration: Codable {
     // Configuration semantics version
     // v1: legacy empty-string fallback behavior for some action-level string fields
     // v2: explicit empty-string semantics (null=inherits, ""=explicit empty)
+    // v3: Insert action newline escape semantics.
+    // An odd run before the letter n is an LF token; an even run leaves a
+    // literal backslash followed by n.
     var configVersion: Int?
-    static let currentConfigVersion = 2
+    static let currentConfigVersion = 3
 
     /// Whether continuous clipboard monitoring needs to retain binary payloads
     /// for at least one potentially selected root action.
@@ -477,7 +600,9 @@ struct AppConfiguration: Codable {
         // Custom encoding to preserve null values and ensure trigger fields are always present
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(action, forKey: .action)
+            // Keep direct JSONEncoder callers on the same canonical wire
+            // representation as ConfigurationManager persistence.
+            try container.encode(canonicalizeMacrowhisperInsertAction(action), forKey: .action)
             try container.encode(icon, forKey: .icon)
             try container.encode(moveTo, forKey: .moveTo)
             try container.encode(simEsc, forKey: .simEsc)

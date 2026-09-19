@@ -358,7 +358,7 @@ catalog. These examples highlight context sources relevant to runtime work.
 - `{{selectedText}}` - Gets selected text with action-type escaping
 - `{{json:selectedText}}` - Gets selected text with JSON escaping
 - `{{raw:selectedText}}` - Gets selected text with no escaping
-- `{{selectedText||\\n||newline}}` - Gets selected text and replaces newlines
+- `{{selectedText||\n||newline}}` - Gets selected text and replaces newlines
 - `{{clipboardContext}}` - Selected or stacked text from eligible clipboard operations during recording
 - `{{appContext}}` - Structured app context (app name, window, URL, input content)
 - `{{appVocabulary}}` - Comma-separated app vocabulary terms (names, nouns, identifiers)

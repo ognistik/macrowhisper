@@ -13,7 +13,7 @@ document's location.
 ### Core Functionality
 - **Recording watcher pipeline**: monitors Superwhisper recordings, validates `meta.json`, and handles burst/cancel/recovery scenarios
 - **Unified action system**: insert, URL, shortcut, shell, and AppleScript actions share chaining, triggering, placeholder expansion, and clipboard semantics
-- **Config version 2 semantics**: `null` means inherit defaults, `""` means explicitly empty, and reserved templates like `.none`, `.autoPaste`, and `.run` have dedicated runtime behavior
+- **Config version 3 semantics**: version 2 inheritance and explicit-empty rules remain, while Insert escapes are decoded independently from JSON serialization; reserved templates like `.none`, `.autoPaste`, and `.run` retain dedicated runtime behavior
 - **Clipboard/session coordination**: captures selected text and clipboard context early, freezes context for execution, and avoids Superwhisper sync contamination; optional attachment handoff remains separate from the string placeholder and original-clipboard snapshot
 - **CLI/runtime parity**: socket-backed commands reuse the same action resolution rules as the live watcher
 - **JSON schema + config validation**: local schema management, semantic validation, and auto-migration/update support
@@ -27,7 +27,7 @@ src/
 ├── macrowhisper/
 │   ├── main.swift                        # Entry point, CLI parsing, daemon/bootstrap, watcher lifecycle
 │   ├── Config/
-│   │   ├── AppConfiguration.swift        # Codable config model, action definitions, configVersion 2
+│   │   ├── AppConfiguration.swift        # Codable config model, action definitions, configVersion 3
 │   │   ├── ConfigurationManager.swift    # Loading, validation, migration, live reload, transactions
 │   │   └── ConfigurationTransaction.swift # Structured edits, revisions, snapshots, stable errors
 │   ├── History/
@@ -117,7 +117,7 @@ Release and installation packaging move that same resource tree into
 ### 2. Configuration System
 
 #### [src/macrowhisper/Config/AppConfiguration.swift](../../src/macrowhisper/Config/AppConfiguration.swift)
-- Defines the full config model and sets `currentConfigVersion = 2`
+- Defines the full config model and sets `currentConfigVersion = 3`
 - Centralizes defaults and normalized persistence behavior for root defaults and all action types
 - Provides `clipboardAttachments` (default `false`) with nullable action overrides; the effective root setting applies to the full chain and enables native handoff independently of string-placeholder use
 - All action types support `nextAction`, `inputCondition`, trigger fields, and per-action clipboard timing settings
@@ -130,7 +130,7 @@ Release and installation packaging move that same resource tree into
 #### [src/macrowhisper/Config/ConfigurationManager.swift](../../src/macrowhisper/Config/ConfigurationManager.swift)
 - Loads config from explicit path, saved path, or default path
 - Performs semantic validation, not just JSON decoding
-- Auto-migrates legacy naming/semantics to config version 2 when allowed
+- Migrates version 1 → 2 → 3 sequentially when allowed, including canonical placeholder escapes for version 3
 - Preserves schema references and normalizes persisted config values
 - Reports detailed validation issues for `--validate-config`
 - Owns serialized configuration transactions used by CLI edits and the connected editor
@@ -274,9 +274,11 @@ Release and installation packaging move that same resource tree into
 
 ---
 
-## Config Version 2 Notes
+## Config Version 3 Notes
 
-- `configVersion: 2` is the current semantic baseline
+- `configVersion: 3` is the current semantic baseline
+- placeholder syntax uses `\n` for a line break and `\\n` for a literal `\n`; JSON source escapes each of those backslashes once more
+- version 1 and 2 files are normalized in memory for runtime compatibility; automatic or explicit persistence creates the pre-v3 backup and writes the canonical form
 - `null` means inherit from defaults or built-in behavior
 - `""` means intentionally empty
 - `.none` is reserved for action-template semantics, not for fields like `icon` or `moveTo`

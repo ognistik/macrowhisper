@@ -1216,7 +1216,11 @@ private func finalizeXMLPlaceholderValue(
         )
     }
     if !expression.regexReplacements.isEmpty {
-        value = applyRegexReplacements(to: value, replacements: expression.regexReplacements)
+        value = applyRegexReplacements(
+            to: value,
+            replacements: expression.regexReplacements,
+            preserveLiteralBackslashN: actionType == .insert
+        )
     }
 
     if let actionType {
@@ -1327,11 +1331,14 @@ func processDynamicPlaceholders(
     action: String,
     metaJson: [String: Any],
     actionType: ActionType,
-    extractedXMLTags: [String: String] = [:]
+    extractedXMLTags: [String: String] = [:],
+    decodeInsertEscapes: Bool = true
 ) -> PlaceholderProcessingResult {
-    var result = action
+    var result = actionType == .insert && decodeInsertEscapes
+        ? decodeMacrowhisperInsertEscapes(action)
+        : action
     var resolvedFolderPathCache: [Int: String?] = [:]
-    let placeholderSegments = extractPlaceholderSegments(from: action)
+    let placeholderSegments = extractPlaceholderSegments(from: result)
 
     for placeholderSegment in placeholderSegments.reversed() {
             let fullMatchRange = placeholderSegment.fullRange
@@ -1373,7 +1380,11 @@ func processDynamicPlaceholders(
                 }
 
                 if !regexReplacements.isEmpty {
-                    value = applyRegexReplacements(to: value, replacements: regexReplacements)
+                    value = applyRegexReplacements(
+                        to: value,
+                        replacements: regexReplacements,
+                        preserveLiteralBackslashN: actionType == .insert
+                    )
                 }
 
                 return applyFinalEscaping(value: value, prefixType: prefixType, actionType: actionType)
@@ -1800,12 +1811,48 @@ private func resolveCaptureTransformTemplateForMatch(
     return resolvedTemplate
 }
 
+/// Foundation's replacement-template parser consumes a single backslash
+/// before arbitrary characters.  Protect the literal backslash+n produced by
+/// v3's even-run decoder before handing a template to Foundation.
+private func foundationReplacementTemplate(_ value: String) -> String {
+    let characters = Array(value)
+    var result = String()
+    result.reserveCapacity(value.count)
+
+    var index = 0
+    while index < characters.count {
+        guard characters[index] == "\\" else {
+            result.append(characters[index])
+            index += 1
+            continue
+        }
+
+        var slashCount = 0
+        while index < characters.count, characters[index] == "\\" {
+            slashCount += 1
+            index += 1
+        }
+        if index < characters.count, characters[index] == "n" {
+            result.append(String(repeating: "\\", count: slashCount * 2))
+            result.append("n")
+            index += 1
+        } else {
+            result.append(String(repeating: "\\", count: slashCount))
+        }
+    }
+    return result
+}
+
 /// Applies multiple regex replacements to a string in sequence
 /// - Parameters:
 ///   - input: The input string to perform replacements on
 ///   - replacements: Array of tuples containing regex pattern and replacement string
 /// - Returns: The string with all regex replacements applied
-func applyRegexReplacements(to input: String, replacements: [(regex: String, replacement: String)]) -> String {
+func applyRegexReplacements(
+    to input: String,
+    replacements: [(regex: String, replacement: String)],
+    preserveLiteralBackslashN: Bool = false
+) -> String {
     var result = input
     var changedRules = 0
     
@@ -1816,6 +1863,9 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
             let regex = try NSRegularExpression(pattern: regexPattern, options: [])
             let beforeReplace = result
             let normalizedReplacementTemplate = normalizeBraceCaptureReferences(in: replacement)
+            let foundationTemplate = preserveLiteralBackslashN
+                ? foundationReplacementTemplate(normalizedReplacementTemplate)
+                : normalizedReplacementTemplate
 
             if replacementTemplateHasCaptureTransforms(normalizedReplacementTemplate) {
                 let matches = regex.matches(in: result, options: [], range: NSRange(result.startIndex..., in: result))
@@ -1824,7 +1874,7 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
                     for match in matches.reversed() {
                         guard let matchRange = Range(match.range, in: updated) else { continue }
                         let resolvedTemplate = resolveCaptureTransformTemplateForMatch(
-                            replacementTemplate: normalizedReplacementTemplate,
+                            replacementTemplate: foundationTemplate,
                             match: match,
                             source: updated,
                             regexPattern: regexPattern
@@ -1845,7 +1895,7 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
                     in: result,
                     options: [],
                     range: range,
-                    withTemplate: normalizedReplacementTemplate
+                    withTemplate: foundationTemplate
                 )
             }
 
@@ -1883,20 +1933,19 @@ func applyRegexReplacements(to input: String, replacements: [(regex: String, rep
 /// This ensures XML placeholders work consistently across all action types (Insert, URL, Shortcut, Shell, AppleScript)
 func processAllPlaceholders(action: String, metaJson: [String: Any], actionType: ActionType) -> PlaceholderProcessingResult {
     logDebug("[UnifiedPlaceholders] Processing placeholders for \(actionType) action")
-    var result = action
+    // Insert actions have a Macrowhisper escape layer in addition to JSON.
+    // Decode only the action template, never metadata values, so a literal
+    // backslash+n returned by a placeholder remains literal content.
+    var result = actionType == .insert
+        ? decodeMacrowhisperInsertEscapes(action)
+        : action
     var updatedMetaJson = metaJson
     var extractedXMLTags: [String: String] = [:]
-    
-    // Apply newline conversion for Insert actions only
-    // This allows users to type \n in their action templates while preserving literal \n in placeholder content
-    if actionType == .insert {
-        result = result.replacingOccurrences(of: "\\n", with: "\n")
-    }
     
     // First, process XML placeholders if llmResult or result is available
     if let llmResult = metaJson["llmResult"] as? String, !llmResult.isEmpty {
         // logDebug("[UnifiedPlaceholders] Original llmResult: '\(llmResult)'")
-        let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: llmResult)
+        let (cleaned, tags) = processXmlPlaceholders(action: result, llmResult: llmResult)
         // logDebug("[UnifiedPlaceholders] Cleaned llmResult: '\(cleaned)'")
         if redactedLogsEnabled {
             logDebug("[UnifiedPlaceholders] Extracted tags: [REDACTED count=\(tags.count)]")
@@ -1907,7 +1956,7 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
         extractedXMLTags = tags
     } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
         // logDebug("[UnifiedPlaceholders] Original result: '\(regularResult)'")
-        let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
+        let (cleaned, tags) = processXmlPlaceholders(action: result, llmResult: regularResult)
         if redactedLogsEnabled {
             logDebug("[UnifiedPlaceholders] Extracted tags: [REDACTED count=\(tags.count)]")
         } else {
@@ -1924,7 +1973,8 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
         action: result,
         metaJson: updatedMetaJson,
         actionType: actionType,
-        extractedXMLTags: extractedXMLTags
+        extractedXMLTags: extractedXMLTags,
+        decodeInsertEscapes: false
     )
     result = dynamicResult.text
     

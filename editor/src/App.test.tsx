@@ -445,6 +445,66 @@ describe('configuration editor interactions', () => {
     await waitFor(() => expect(screen.getAllByText('Saved').length).toBeGreaterThan(0))
   })
 
+  it('blocks legacy editing behind an accessible v3 migration banner', async () => {
+    const user = userEvent.setup()
+    const live = liveLikeStore()
+    const current = live.getSnapshot()
+    const migrated = { ...current, schemaVersion: 3, isLegacy: false, readOnly: undefined }
+    const updateConfiguration = vi.fn().mockResolvedValue(migrated)
+    const legacy = {
+      ...live,
+      getSnapshot: () => ({
+        ...current,
+        isLegacy: true,
+        readOnly: [{ path: [], reason: 'This legacy configuration must be migrated before it can be edited here.' }],
+      }),
+      updateConfiguration,
+    } as EditorStore
+    render(<App store={legacy} />)
+
+    const banner = screen.getByRole('alert', { name: 'Update required before editing' })
+    expect(banner).toHaveTextContent('compatibility mode')
+    expect(banner).toHaveTextContent('backup')
+    expect(banner).toHaveTextContent('version 3')
+    expect(screen.getByRole('button', { name: 'Update required' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Update to version 3' })).toBeEnabled()
+    await user.click(within(screen.getByRole('navigation', { name: 'Configuration sections' })).getByRole('button', { name: /^Inserts/ }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Insert actions' })).getByRole('option', { name: /dailyNotes/ }))
+    expect(screen.getByRole('button', { name: 'Rename' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Update to version 3' }))
+    await waitFor(() => expect(updateConfiguration).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('alert', { name: 'Update required before editing' })).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Connected' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled()
+  })
+
+  it('keeps legacy editing blocked and explains a failed explicit migration', async () => {
+    const user = userEvent.setup()
+    const live = liveLikeStore()
+    const current = live.getSnapshot()
+    const updateConfiguration = vi.fn().mockRejectedValue(new Error('Migration failed.'))
+    const legacy = {
+      ...live,
+      getSnapshot: () => ({
+        ...current,
+        isLegacy: true,
+        readOnly: [{ path: [], reason: 'This legacy configuration must be migrated before it can be edited here.' }],
+      }),
+      updateConfiguration,
+    } as EditorStore
+    render(<App store={legacy} />)
+
+    await user.click(within(screen.getByRole('navigation', { name: 'Configuration sections' })).getByRole('button', { name: /^Inserts/ }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Insert actions' })).getByRole('option', { name: /dailyNotes/ }))
+    expect(screen.getByRole('button', { name: 'Rename' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Update to version 3' }))
+    await waitFor(() => expect(updateConfiguration).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Migration failed.')).toBeInTheDocument()
+    expect(screen.getByRole('alert', { name: 'Update required before editing' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename' })).toBeDisabled()
+  })
+
   it('reveals status context and diagnostics only when the editor needs attention', async () => {
     const user = userEvent.setup()
     renderWithStore('invalid')
@@ -851,7 +911,7 @@ describe('configuration editor interactions', () => {
     expect(payload.value).toContain(expression)
   })
 
-  it('preserves actual newlines in regex replacement stages for parser round-trips', async () => {
+  it('serializes actual Returns in regex replacement helpers as Macrowhisper newline tokens', async () => {
     const user = userEvent.setup()
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
@@ -866,11 +926,11 @@ describe('configuration editor interactions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'middle' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'line 1\nline 2' } })
 
-    const expression = '{{swResult||middle||line 1\nline 2}}'
+    const expression = '{{swResult||middle||line 1\\nline 2}}'
     expect(payload.value).toContain(expression)
   })
 
-  it('preserves typed and existing backslash-newline spellings without visual normalization', async () => {
+  it('shows canonical newline tokens as Returns and preserves literal backslash+n spellings', async () => {
     const user = userEvent.setup()
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
@@ -885,13 +945,13 @@ describe('configuration editor interactions', () => {
     await user.click(within(screen.getByRole('listbox', { name: 'Placeholder occurrences' })).getByRole('option', { name: /Result/i }))
 
     const replacement = screen.getByRole('textbox', { name: 'Replacement text 1' })
-    expect(replacement).toHaveValue('\\n')
+    expect(replacement).toHaveValue('\n')
     fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'center' } })
     expect(payload).toHaveValue('{{swResult||center||\\n}}')
 
     await user.clear(replacement)
     await user.type(replacement, 'before\\nafter')
-    expect(replacement).toHaveValue('before\\nafter')
+    expect(replacement).toHaveValue('before\nafter')
     expect(payload).toHaveValue('{{swResult||center||before\\nafter}}')
 
     const legacyDoubleSlash = '{{swResult||middle||\\\\n}}'
@@ -904,6 +964,18 @@ describe('configuration editor interactions', () => {
     fireEvent.change(doubleSlashReplacement, { target: { value: 'before\\\\nafter' } })
     expect(doubleSlashReplacement).toHaveValue('before\\\\nafter')
     expect(payload).toHaveValue('{{swResult||middle||before\\\\nafter}}')
+
+    // An unrelated edit must not reinterpret the visible escaped literal.
+    await user.type(doubleSlashReplacement, ' tail')
+    expect(doubleSlashReplacement).toHaveValue('before\\\\nafter tail')
+    expect(payload).toHaveValue('{{swResult||middle||before\\\\nafter tail}}')
+
+    // A literal slash immediately before a Return is displayed as a doubled
+    // slash and needs the odd v3 run (`\\\\\\n`) on the wire.
+    const slashAndReturn = 'before' + '\\\\' + '\n' + 'after'
+    fireEvent.change(doubleSlashReplacement, { target: { value: slashAndReturn } })
+    expect(doubleSlashReplacement).toHaveValue(slashAndReturn)
+    expect(payload).toHaveValue('{{swResult||middle||before\\\\\\n' + 'after}}')
   })
 
   it('edits XML placeholders while preserving prefixes, repeated occurrences, and malformed syntax', async () => {

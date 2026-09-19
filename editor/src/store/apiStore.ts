@@ -229,6 +229,7 @@ export function mapConfigurationSnapshot(payload: unknown): ConfigSnapshot {
     scriptsAS: mapActionGroup(config, 'scriptsAS'),
     disk: { status: diskStatus, ...(diskMessage ? { message: diskMessage } : {}) },
     runtime: { status: runtimeStatus, message: runtimeMessage },
+    isLegacy: payload.isLegacyOnDisk,
   }
   const readOnly = readOnlyForLegacy(payload.isLegacyOnDisk)
   if (readOnly) snapshot.readOnly = readOnly
@@ -371,6 +372,7 @@ const errorCodeMap: Record<string, 'validation' | 'stale' | 'persistence' | 'dis
   resourceMismatch: 'stale',
   invalidDiskState: 'validation',
   legacyConfiguration: 'validation',
+  updateFailed: 'persistence',
   persistenceFailed: 'persistence',
   encodingFailed: 'persistence',
 }
@@ -685,6 +687,47 @@ export class ApiStore implements EditorStore {
     if (!isRecord(payload) || payload.success !== true) {
       throw new EditorStoreError('persistence', 'The reveal response was malformed.')
     }
+  }
+
+  /**
+   * Run the daemon-owned, explicit configuration migration. The endpoint is
+   * intentionally separate from normal edits so the browser cannot turn a
+   * read-only legacy snapshot into an implicit write, and so this action is
+   * available even when defaults.autoUpdateConfig is false.
+   */
+  async updateConfiguration(): Promise<ConfigSnapshot> {
+    await this.start()
+    if (!this.sessionToken) throw new EditorStoreError('disconnected', 'The editor is not connected.')
+    let response: ResponseLike
+    try {
+      response = await this.fetchImpl(this.endpoint('/api/config/update'), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${this.sessionToken}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      }) as ResponseLike
+    } catch {
+      throw new EditorStoreError('disconnected', 'Macrowhisper could not be reached to update the configuration.')
+    }
+    if (!response.ok) throw await this.responseError(response)
+
+    // The current daemon returns the refreshed snapshot directly. Accept a
+    // small success acknowledgement as well so an older daemon can perform a
+    // second authenticated read after the migration.
+    const body = await responseBody(response)
+    if (isRecord(body) && isRecord(body.config)) {
+      try {
+        const snapshot = mapConfigurationSnapshot(body)
+        if (!this.disposed) this.publishSnapshot(snapshot)
+        return snapshot
+      } catch (error) {
+        throw new EditorStoreError('persistence', error instanceof Error ? error.message : 'The updated configuration response was malformed.')
+      }
+    }
+    return this.fetchSnapshot(true)
   }
 
   private async initialize(): Promise<ConfigSnapshot> {

@@ -3,6 +3,32 @@ import Cocoa
 
 // Minimal stubs for compiling Placeholders.swift in isolation for regression tests.
 
+func decodeMacrowhisperInsertEscapes(_ value: String) -> String {
+    let characters = Array(value)
+    var result = String()
+    var index = 0
+    while index < characters.count {
+        guard characters[index] == "\\" else {
+            result.append(characters[index])
+            index += 1
+            continue
+        }
+        var slashCount = 0
+        while index < characters.count, characters[index] == "\\" {
+            slashCount += 1
+            index += 1
+        }
+        guard index < characters.count, characters[index] == "n" else {
+            result.append(String(repeating: "\\", count: slashCount))
+            continue
+        }
+        result.append(String(repeating: "\\", count: slashCount / 2))
+        result.append(slashCount.isMultiple(of: 2) ? "n" : "\n")
+        index += 1
+    }
+    return result
+}
+
 enum ActionType {
     case insert
     case url

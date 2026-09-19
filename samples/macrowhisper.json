@@ -1,6 +1,6 @@
 {
   "$schema" : "file:///opt/homebrew/share/macrowhisper/macrowhisper-schema.json",
-  "configVersion" : 2,
+  "configVersion" : 3,
   "defaults" : {
     "actionDelay" : 0.02,
     "activeAction" : "autoPaste",
@@ -54,7 +54,7 @@
       "triggerVoice" : null
     },
     "pasteChat" : {
-      "action" : "## USER\n{{result}}\n\n## AI\n{{swResult}}\n\n---\n",
+      "action" : "## USER\\n{{result}}\\n\\n## AI\\n{{swResult}}\\n\\n---\\n",
       "actionDelay" : null,
       "icon" : "⇄",
       "inputCondition" : null,

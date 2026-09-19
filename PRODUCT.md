@@ -32,7 +32,7 @@ Users configure Defaults first, then actions grouped as Inserts, URLs, Shortcuts
 
 ## Capabilities and Constraints
 
-- The version 2 JSON configuration remains the canonical source of truth; manual editing remains supported.
+- The version 3 JSON configuration remains the canonical source of truth; manual editing remains supported. JSON serialization and Macrowhisper Insert escaping are separate layers, so the editor can show semantic values without making manual JSON behavior surprising.
 - The editor must preserve the runtime's existing configuration semantics, including action-level inheritance through `null`, intentional empty values, built-in values such as `.autoPaste` and `.none`, globally unique action names, trigger expressions, input conditions, and `nextAction` chains.
 - The editor must distinguish clean server values, local drafts, saving, accepted changes, validation failures, transport failures, stale revisions, external edits, invalid disk state, and disconnected state. It must never report a failed or fixture-only write as saved to the real configuration.
 - Discrete choices save immediately. Text and numeric text controls save when their editing boundary is left. There is no global Save button and no timer-based text autosave.

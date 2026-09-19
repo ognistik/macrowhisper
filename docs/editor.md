@@ -193,13 +193,13 @@ ordered regex replacements. Replacement patterns and values accept multiple
 lines, stages can be reordered with compact symbolic controls, and capture
 groups may be reused or transformed with the syntax documented in
 [Placeholders and context](placeholders-and-context.md).
-The replacement editor preserves actual Returns and typed backslash sequences
-exactly as entered. Merely opening the inspector, editing another field, or
-editing the replacement itself does not normalize `\n` or `\\n` into a visible
-Return. Insert execution retains Macrowhisper's existing compatibility behavior,
-described in [Placeholders and context](placeholders-and-context.md); a literal
-backslash-plus-`n` output remains ambiguous until the runtime adopts a versioned,
-context-aware escape model.
+The replacement helper edits semantic values rather than JSON serialization.
+An actual Return stays visible as a line break. Typing `\n` also means a line
+break, while `\\n` means the literal characters `\n`. The surrounding Custom
+text shows the canonical inline placeholder form, so the first value appears
+there as `\n` and does not make the placeholder expand vertically. When the
+configuration is saved, JSON adds its own escaping automatically; users never
+need to type JSON's extra backslashes into the helper.
 The inspector source selector uses the same built-in and direct Date choices as
 the insertion menu. Custom metadata keys, dot paths, and XML tags appear as
 fixed source identities: changing the source remains a deliberate raw-text
@@ -222,7 +222,7 @@ or reapply the draft. A revision detects ordinary concurrent changes, but it is
 not a filesystem compare-and-swap against a process that writes during the
 final read/replace window.
 
-An invalid, empty, legacy, future-version, or otherwise unsupported file is
+An invalid, empty, future-version, or otherwise unsupported file is
 reported separately from the runtime configuration. The daemon may continue
 using its in-memory fallback, but opening the editor never turns that fallback
 into an automatic replacement of the broken file. The editor shows the disk
@@ -234,9 +234,16 @@ macrowhisper --validate-config
 macrowhisper --update-config
 ```
 
-Legacy configurations remain read-only in the editor until they have been
-migrated. A failed disk write likewise keeps the draft and reports a retryable
-error. Changing the selected configuration path with `--set-config` or
+Version 1 and 2 configurations also remain read-only in the editor. The sidebar
+status changes to **Update required**, and a persistent explanation offers
+**Update to version 3**, **Copy update command**, and the existing configuration
+path controls. The update is explicit even when `autoUpdateConfig` is `false`:
+it migrates that file once without enabling future automatic updates, refreshes
+the snapshot, and unlocks editing. The same operation is available as
+`macrowhisper --update-config`.
+
+A failed disk write likewise keeps the draft and reports a retryable error.
+Changing the selected configuration path with `--set-config` or
 `--reset-config` starts a new configuration generation; refresh the editor
 before applying a draft from the previous path.
 

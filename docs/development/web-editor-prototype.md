@@ -191,7 +191,7 @@ snapshot mitigates this boundary but does not eliminate it.
 The latest pre-write snapshot is retained beside the resolved JSON target as
 `<filename>.macrowhisper-backup`; each successful backup replaces that one
 owned recovery file. Explicit legacy migration also retains its existing
-`.backup.pre-v2` snapshot. Saving preserves payload strings and numeric
+versioned migration snapshots such as `.backup.pre-v3`. Saving preserves payload strings and numeric
 precision rather than applying numeric formatting expressions to JSON text.
 
 Run the transaction regression independently of your service:

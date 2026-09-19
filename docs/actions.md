@@ -67,7 +67,7 @@ How to interpret those fields:
 "icon": ""
 ```
 
-An empty `icon` explicitly disables the icon for this action. `.none` is an action value, not a current version 2 icon value.
+An empty `icon` explicitly disables the icon for this action. `.none` is an action value, not a current configuration icon value.
 
 ```json
 "moveTo": ".delete"
@@ -118,7 +118,7 @@ Examples:
 
 ```json
 "emailDraft": {
-  "action": "Hi,\n\n{{swResult}}\n\nThanks,",
+  "action": "Hi,\\n\\n{{swResult}}\\n\\nThanks,",
   "simReturn": false,
   "actionDelay": 0,
   "triggerModes": "email"

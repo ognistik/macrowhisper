@@ -46,6 +46,15 @@ class GlobalStateManager {
         get { queue.sync { _disableNotifications } }
         set { queue.async(flags: .barrier) { self._disableNotifications = newValue } }
     }
+
+    /// Applies startup notification policy synchronously.  The daemon may
+    /// decide whether to show its one startup-only migration notice before
+    /// asynchronous state updates have drained.
+    func setNotificationsDisabledSynchronously(_ value: Bool) {
+        queue.sync(flags: .barrier) {
+            _disableNotifications = value
+        }
+    }
     
     var autoReturnEnabled: Bool {
         get { queue.sync { _autoReturnEnabled } }
@@ -1909,6 +1918,12 @@ if verboseLogging {
 configManager = ConfigurationManager(configPath: configPath)
 globalConfigManager = configManager
 
+// Apply muteNotifications before any startup migration notice.  Configuration
+// managers are intentionally notification-free; only the daemon's genuine
+// startup path may announce a legacy file.
+var config = configManager.config
+globalState.setNotificationsDisabledSynchronously(config.defaults.muteNotifications)
+
 // Automatically update configuration file on startup to apply any schema changes
 // Respect user preference defaults.autoUpdateConfig (defaults to true)
 let shouldAutoUpdateConfig = configManager.config.defaults.autoUpdateConfig
@@ -1918,6 +1933,12 @@ if shouldAutoUpdateConfig {
         logInfo("Configuration file automatically updated with latest schema and formatting")
     } else {
         logDebug("Configuration file update skipped - no changes needed or file had errors")
+        if configManager.hasLegacyConfigOnDisk {
+            notify(
+                title: "Macrowhisper - Outdated Config",
+                message: "Automatic config migration failed. Run --update-config to migrate."
+            )
+        }
     }
 } else {
     logDebug("Startup auto configuration update disabled by defaults.autoUpdateConfig = false")
@@ -1932,9 +1953,9 @@ if shouldAutoUpdateConfig {
 historyManager = HistoryManager(configManager: configManager)
 
 // Read values from config first and update thread-safe state
-var config = configManager.config
+config = configManager.config
 globalState.disableUpdates = config.defaults.disableUpdateCheck
-globalState.disableNotifications = config.defaults.muteNotifications
+globalState.setNotificationsDisabledSynchronously(config.defaults.muteNotifications)
 redactedLogsEnabled = verboseLogging ? false : config.defaults.redactedLogs
 
 // Repair a broken legacy/custom watch path before taking the final startup path.

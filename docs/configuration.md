@@ -11,7 +11,7 @@ This section is the best place to start if you want to customize behavior.
 ```json
 {
   "$schema": "file:///path/to/macrowhisper-schema.json",
-  "configVersion": 2,
+  "configVersion": 3,
   "defaults": {},
   "inserts": {},
   "urls": {},
@@ -59,7 +59,7 @@ Use this mental model:
 - `defaults` = your normal behavior
 - action-level values = exceptions for one specific action
 
-In `configVersion: 2`:
+In `configVersion: 2` and later:
 
 - action-level `null` usually means "inherit from `defaults`"
 - `""` usually means "intentionally empty"
@@ -174,11 +174,35 @@ If you want to go back to a built-in root default later, set that defaults value
 
 Versioning notes:
 
-- `configVersion: 2` is the current format
-- if `configVersion` is missing, Macrowhisper treats it as legacy behavior
-- with `autoUpdateConfig: true`, startup can rewrite the config to keep it current
+- `configVersion: 3` is the current format
+- if `configVersion` is missing, Macrowhisper treats it as version 1 behavior
+- with `autoUpdateConfig: true`, startup migrates older files one version at a time and writes the current format; the version 3 migration creates a one-time `<filename>.backup.pre-v3` copy first
+- with `autoUpdateConfig: false`, an older file continues to run through the compatibility layer but stays unchanged on disk; the web editor is read-only until you choose its **Update to version 3** action or run `macrowhisper --update-config`
+- when notifications are enabled, a genuinely new background-service process reminds you about an older manually managed configuration; live reloads, config-path changes, watcher resets, editor commands, and ordinary action commands do not show that reminder
 - legacy files may use `noUpdates`, `noNoti`, `noEsc`, and `pressReturn`; Macrowhisper reads these aliases and maps them to the current setting names
-- legacy configurations are normalized to version 2 in memory; in a current version 2 file, use `""` for an explicit empty `icon` or `moveTo` value because `.none` is reserved for action templates
+- version 2 introduced explicit empty values: use `""` for an explicit empty `icon` or `moveTo` value because `.none` is reserved for action templates
+
+### Insert escaping in version 3
+
+There are two separate layers when an Insert action is stored in the JSON
+configuration:
+
+| Meaning | Macrowhisper Insert syntax | JSON source |
+| --- | --- | --- |
+| Line break | `\n` | `\\n` |
+| Literal backslash followed by `n` | `\\n` | `\\\\n` |
+| Regex word boundary | `\b` | `\\b` |
+
+This is ordinary JSON behavior followed by Macrowhisper Insert parsing.
+For example, JSON `"\b"` is valid but decodes to the backspace control character;
+it is not a regex word boundary. Write `"\\b"` in JSON when the regex engine
+needs `\b`.
+
+The version 3 migration canonicalizes newline spellings throughout Insert action
+text, including placeholder regex arguments. This matches the scope of the old
+Insert compatibility behavior while making its result explicit. After migration,
+a single Macrowhisper `\n` means a line break and doubled `\\n` is how you
+request the literal characters `\n`.
 
 ---
 

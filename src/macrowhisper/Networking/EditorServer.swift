@@ -834,6 +834,9 @@ final class EditorServer {
         case "/api/config/reveal":
             return handleConfigurationReveal(request)
 
+        case "/api/config/update":
+            return handleConfigurationUpdate(request)
+
         case "/api/folder-picker":
             return handleFolderPickerStart(request)
 
@@ -875,6 +878,43 @@ final class EditorServer {
         let payload = ConfigurationRevealPayload(success: true)
         guard let data = try? Self.encodeJSON(payload) else {
             return makeAPIErrorResponse(status: 500, reason: "Internal Server Error", code: "encoding", message: "Configuration reveal response could not be encoded")
+        }
+        return HTTPResponse(status: 200, reason: "OK", body: data, contentType: "application/json; charset=utf-8")
+    }
+
+    private func handleConfigurationUpdate(_ request: HTTPRequest) -> HTTPResponse {
+        guard request.method == "POST" else {
+            return makeAPIErrorResponse(status: 405, reason: "Method Not Allowed", code: "methodNotAllowed", message: "Configuration updates require POST")
+        }
+        guard hasValidSession(request) else {
+            return makeAPIErrorResponse(status: 401, reason: "Unauthorized", code: "unauthorized", message: "A valid editor session is required")
+        }
+        guard mediaType(request.headers["content-type"]) == "application/json" else {
+            return makeAPIErrorResponse(status: 415, reason: "Unsupported Media Type", code: "contentType", message: "Configuration updates require application/json")
+        }
+        guard request.body.isEmpty else {
+            return makeAPIErrorResponse(status: 400, reason: "Bad Request", code: "bodyNotAllowed", message: "Configuration update requests must not include a body")
+        }
+        guard let origin = request.headers["origin"], origin == editorOrigin else {
+            return makeAPIErrorResponse(status: 403, reason: "Forbidden", code: "origin", message: "Configuration updates require the editor origin")
+        }
+
+        // This is deliberately the same explicit update path used by the
+        // command-line `--update-config` command. It creates the manager's
+        // pre-migration backup and applies the versioned migration without
+        // changing defaults.autoUpdateConfig.
+        guard configManager.updateConfiguration() else {
+            return makeAPIErrorResponse(
+                status: 500,
+                reason: "Internal Server Error",
+                code: "updateFailed",
+                message: "The configuration could not be updated to the current version"
+            )
+        }
+
+        let snapshot = configManager.configurationSnapshot()
+        guard let data = try? Self.encodeJSON(snapshot) else {
+            return makeAPIErrorResponse(status: 500, reason: "Internal Server Error", code: "encoding", message: "Updated configuration snapshot could not be encoded")
         }
         return HTTPResponse(status: 200, reason: "OK", body: data, contentType: "application/json; charset=utf-8")
     }

@@ -78,8 +78,20 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         ).text
         assertEqual(
             escapedReplacementNewlineResult,
-            "leftnright",
-            "backslash-n in replacement text remains a literal n"
+            "left\nright",
+            "odd backslash-n in replacement text becomes a line break"
+        )
+
+        let literalReplacementBackslashN = #"{{swResult||middle||\\n}}"#
+        let literalReplacementBackslashNResult = processDynamicPlaceholders(
+            action: literalReplacementBackslashN,
+            metaJson: replacementNewlineMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            literalReplacementBackslashNResult,
+            #"left\nright"#,
+            "even backslash-n in replacement text remains a literal backslash+n"
         )
 
         let actualReplacementNewline = "{{swResult||middle||\n}}"
@@ -95,19 +107,33 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         )
 
         let insertNewlineJSONCases = [
-            ("JSON newline escape", #"{"action":"{{swResult||middle||\n}}"}"#),
-            ("JSON escaped backslash-n", #"{"action":"{{swResult||middle||\\n}}"}"#),
-            ("JSON double escaped backslash-n", #"{"action":"{{swResult||middle||\\\\n}}"}"#),
+            ("JSON newline escape", #"{"action":"{{swResult||middle||\n}}"}"#, "left\nright"),
+            ("JSON escaped backslash-n", #"{"action":"{{swResult||middle||\\n}}"}"#, "left\nright"),
+            ("JSON double escaped backslash-n", #"{"action":"{{swResult||middle||\\\\n}}"}"#, #"left\nright"#),
         ]
-        for (label, json) in insertNewlineJSONCases {
+        for (label, json, expected) in insertNewlineJSONCases {
             let object = try! JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: String]
             let result = processAllPlaceholders(
                 action: object["action"]!,
                 metaJson: replacementNewlineMeta,
                 actionType: .insert
             ).text
-            assertEqual(result, "left\nright", "\(label) remains an Insert replacement line break")
+            assertEqual(result, expected, "\(label) follows v3 Insert escape semantics")
         }
+
+        let topLevelNewline = processAllPlaceholders(
+            action: #"before\nafter"#,
+            metaJson: [:],
+            actionType: .insert
+        ).text
+        assertEqual(topLevelNewline, "before\nafter", "v3 Insert newline token decodes outside placeholders")
+
+        let topLevelLiteralBackslashN = processAllPlaceholders(
+            action: #"before\\nafter"#,
+            metaJson: [:],
+            actionType: .insert
+        ).text
+        assertEqual(topLevelLiteralBackslashN, #"before\nafter"#, "v3 Insert literal backslash+n survives outside placeholders")
 
         let action6 = "{{swResult::titleCase:fr}}"
         let meta6: [String: Any] = ["llmResult": "le seigneur des anneaux et l'amour perdu"]

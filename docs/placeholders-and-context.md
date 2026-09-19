@@ -12,7 +12,7 @@ This is one of the most powerful parts of Macrowhisper.
 
 For each action payload, Macrowhisper processes values in this order:
 
-1. Insert actions only: turn literal `\n` into real line breaks.
+1. Parse placeholder structure and decode its versioned argument escapes.
 2. Extract requested XML tag content and remove those blocks from the selected Superwhisper result.
 3. Resolve each placeholder value, then apply its transform and ordered regex replacements.
 4. Apply escaping rules based on action type.
@@ -284,19 +284,19 @@ Remove a trailing period:
 Replace line breaks with HTML `<br>`:
 
 ```text
-{{swResult||\\n||<br>}}
+{{swResult||\n||<br>}}
 ```
 
 Uppercase only an acronym capture:
 
 ```text
-{{swResult||\\b(api|sdk)\\b||${1::uppercase}}}
+{{swResult||\b(api|sdk)\b||${1::uppercase}}}
 ```
 
 Mix raw and transformed captures:
 
 ```text
-{{swResult||(foo)\\s+(bar)||${1} ${2::titleCase}}}
+{{swResult||(foo)\s+(bar)||${1} ${2::titleCase}}}
 ```
 
 ### Behavior details
@@ -307,20 +307,32 @@ Mix raw and transformed captures:
 - capture transforms are optional
 - standard replacement syntax such as `${1}` and `$1` still works
 
-### Replacement line breaks
+### Escapes and replacement line breaks
 
-Insert actions normalize line breaks before placeholder expansion. An actual
-line-feed character, a literal `\n`, and a literal `\\n` inside a replacement
-all produce a line break during Insert execution. JSON escaping can make the
-same values appear with additional backslashes in `macrowhisper.json`.
+Configuration version 3 gives Insert action text one canonical escape language.
+In the action, `\n` means a line break and `\\n` means the literal characters
+`\n`. The same rule therefore applies inside placeholder arguments. Other regex
+escapes keep their normal meaning: `\b` is a regex word boundary, while `\\b`
+passes a literal backslash and `b` to the regex engine.
 
-The web editor preserves Return, `\n`, and `\\n` exactly as they appear in the
-replacement field. It does not silently turn typed backslash sequences into
-visible Returns when the field changes. The current Insert runtime still treats
-all three forms as line breaks for compatibility, which means a literal
-backslash-plus-`n` replacement cannot yet be expressed unambiguously. That
-distinction requires a future versioned, context-aware escape model rather than
-an editor-only rewrite.
+JSON is a separate serialization layer. A backslash that must reach the
+placeholder parser is itself escaped in JSON:
+
+| Meaning | Placeholder text | JSON source |
+| --- | --- | --- |
+| Line break | `\n` | `\\n` |
+| Literal `\n` | `\\n` | `\\\\n` |
+| Regex word boundary | `\b` | `\\b` |
+
+The web editor hides the JSON layer. In a replacement helper, pressing Return
+stores a real semantic line break. Typing `\n` there produces the same value,
+while typing `\\n` requests a literal `\n`. The surrounding Custom text remains
+inline and displays the canonical placeholder spelling, so a semantic line
+break appears there as `\n` rather than expanding the placeholder vertically.
+
+Version 1 and 2 files retain their historical behavior through the compatibility
+loader. Migrating to version 3 rewrites ambiguous Insert newline spellings to
+their canonical form while preserving what those actions produced before.
 
 ### Prompt template for AI help
 
@@ -337,7 +349,7 @@ Output requirements (strict):
 5) Do NOT use JavaScript regex literals like /pattern/gi.
 6) If case-insensitive matching is needed, use inline options in pattern (for example (?i), (?-i), (?m), (?s)).
 7) Assume replacements are already global; do not add g flags.
-8) Escape backslashes correctly for Macrowhisper placeholder text (example: \\b, \\s, \\n).
+8) Use Macrowhisper placeholder escapes directly (example: \b, \s, \n). When placing the result in JSON, escape each backslash once more.
 9) Capture references in replacement can use $1 or ${1}.
 10) If capture transforms are useful, use this syntax in replacement:
     ${N::transformName}
