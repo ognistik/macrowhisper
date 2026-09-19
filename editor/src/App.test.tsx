@@ -569,6 +569,80 @@ describe('configuration editor interactions', () => {
     await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.simEsc).toBe(true))
   })
 
+  it('keeps new overrides at the bottom until the section closes, then restores alphabetical order', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    const actionOverrides = screen.getByText('Action overrides', { selector: 'strong' })
+    await user.click(actionOverrides)
+    const insertion = actionOverrides.closest('details')
+    expect(insertion).not.toBeNull()
+
+    const addOverride = within(insertion!).getByRole('combobox', { name: 'Add override' })
+    const menuLabels = within(addOverride).getAllByRole('option').slice(1).map((option) => option.textContent)
+    expect(menuLabels).toEqual([
+      'Action delay',
+      'Clipboard attachments',
+      'Clipboard restore delay',
+      'Icon',
+      'Move recording',
+      'Press Return after insert',
+      'Restore clipboard',
+      'Simulate Escape',
+      'Smart casing',
+      'Smart punctuation',
+      'Smart spacing',
+      'Stack clipboard context',
+      'Type instead of paste',
+    ])
+
+    const visibleLabels = () => Array.from(insertion!.querySelectorAll('.override-label label')).map((label) => label.textContent)
+    await user.selectOptions(addOverride, 'simEsc')
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Simulate Escape' }), 'off')
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'actionDelay')
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Action delay mode' }), 'custom')
+    await waitFor(() => expect(visibleLabels()).toEqual(['Simulate Escape', 'Action delay']))
+
+    await user.click(actionOverrides)
+    await user.click(actionOverrides)
+    await waitFor(() => expect(visibleLabels()).toEqual(['Action delay', 'Simulate Escape']))
+
+    const actionDelay = within(insertion!).getByRole('textbox', { name: 'Action delay' })
+    await user.clear(actionDelay)
+    await user.type(actionDelay, '0.2')
+    await user.tab()
+    await waitFor(() => expect(visibleLabels()).toEqual(['Action delay', 'Simulate Escape']))
+  })
+
+  it('does not persist an override row until the user chooses a value', async () => {
+    const user = userEvent.setup()
+    const store = new FixtureStore('populated', { writeDelayMs: 0 })
+    const mounted = render(<App store={store} />)
+    const openDailyNotesOverrides = async () => {
+      const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+      await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+      const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+      await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+      const actionOverrides = screen.getByText('Action overrides', { selector: 'strong' })
+      await user.click(actionOverrides)
+      return actionOverrides.closest('details') as HTMLDetailsElement
+    }
+
+    let insertion = await openDailyNotesOverrides()
+    await user.selectOptions(within(insertion).getByRole('combobox', { name: 'Add override' }), 'clipboardAttachments')
+    expect(within(insertion).getByRole('combobox', { name: 'Clipboard attachments' })).toHaveValue('pending')
+    expect(store.getSnapshot().inserts.dailyNotes.clipboardAttachments).toBeNull()
+
+    mounted.unmount()
+    render(<App store={store} />)
+    insertion = await openDailyNotesOverrides()
+    expect(within(insertion).queryByRole('combobox', { name: 'Clipboard attachments' })).not.toBeInTheDocument()
+    expect(store.getSnapshot().inserts.dailyNotes.clipboardAttachments).toBeNull()
+  })
+
   it('keeps custom icon controls together in an insertion override row', async () => {
     const user = userEvent.setup()
     renderWithStore()

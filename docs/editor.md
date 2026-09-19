@@ -179,6 +179,13 @@ inherited icon or recording destination is custom, choosing **Custom** starts
 from that inherited value so it can be pinned unchanged or edited. Numeric
 overrides similarly open an editable **Custom** field prefilled from Defaults,
 whether the user chooses the displayed current value or **Custom** directly.
+The Add override menu and established override rows use the same alphabetical
+label order. A newly configured row remains at the bottom while Action
+overrides stays open, keeping the control the user just added in place; closing
+the section or leaving the action returns saved rows to alphabetical order. An
+override that has only been added to the editor and has not received a value is
+local editing state: it is not written to the configuration and disappears
+after navigation or reload.
 Removing an override resumes inheritance from **Defaults**; removing a condition
 restores **Always**.
 Unsupported or ambiguous raw condition and trigger expressions remain available

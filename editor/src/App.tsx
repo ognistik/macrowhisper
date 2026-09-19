@@ -83,7 +83,8 @@ const groups: GroupDefinition[] = [
   { id: 'scriptsAS', label: 'AppleScript', shortLabel: 'AppleScript', icon: <RocketIcon />, description: 'Run AppleScript source.' },
 ]
 
-export const overrideFields = ['icon', 'moveTo', 'simEsc', 'simKeypress', 'smartCasing', 'smartPunctuation', 'smartSpacing', 'actionDelay', 'simReturn', 'restoreClipboard', 'restoreClipboardDelay', 'clipboardStacking', 'clipboardAttachments']
+// Canonical Action override order, alphabetized by the labels users see.
+export const overrideFields = ['actionDelay', 'clipboardAttachments', 'restoreClipboardDelay', 'icon', 'moveTo', 'simReturn', 'restoreClipboard', 'simEsc', 'smartCasing', 'smartPunctuation', 'smartSpacing', 'clipboardStacking', 'simKeypress']
 
 const groupById = new Map(groups.map((group) => [group.id, group]))
 
@@ -2510,6 +2511,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const [selectedPlaceholderIndex, setSelectedPlaceholderIndex] = useState<number | null>(null)
   const [inspectedPlaceholder, setInspectedPlaceholder] = useState<EditablePlaceholder | null>(null)
   const [pendingOverrides, setPendingOverrides] = useState<string[]>([])
+  const [recentConfiguredOverrides, setRecentConfiguredOverrides] = useState<string[]>([])
   const [pendingConditions, setPendingConditions] = useState<string[]>([])
   const [conditionAdvanced, setConditionAdvanced] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -2552,6 +2554,10 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const setDisclosureOpen = (disclosure: 'placeholders' | 'insertion' | 'conditions' | 'triggers' | 'chaining', open: boolean) => {
     setOpenDisclosure((current) => open ? disclosure : current === disclosure ? null : current)
   }
+
+  useEffect(() => {
+    if (openDisclosure !== 'insertion') setRecentConfiguredOverrides([])
+  }, [openDisclosure])
 
   useEffect(() => {
     if (!placeholderOpen) return
@@ -2714,7 +2720,11 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     : 'Always'
   const overrideCount = overrideFields.filter((field) => valueFor(actionPath(field)) !== null && valueFor(actionPath(field)) !== undefined).length
   const configuredOverrides = overrideFields.filter((field) => field in actionMeta && valueFor(actionPath(field)) !== null && valueFor(actionPath(field)) !== undefined)
-  const visibleOverrides = [...configuredOverrides, ...pendingOverrides.filter((field) => !configuredOverrides.includes(field))]
+  const visibleOverrides = [
+    ...configuredOverrides.filter((field) => !recentConfiguredOverrides.includes(field)),
+    ...recentConfiguredOverrides.filter((field) => configuredOverrides.includes(field)),
+    ...pendingOverrides.filter((field) => !configuredOverrides.includes(field)),
+  ]
   const availableOverrides = overrideFields.filter((field) => field in actionMeta && !visibleOverrides.includes(field))
   const configuredConditions = conditionFieldsByGroup.inserts.filter((field) => conditionValues[field])
   const visibleConditions = [...configuredConditions, ...pendingConditions.filter((field) => !configuredConditions.includes(field))]
@@ -2831,8 +2841,12 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
             const disabled = payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard')
             const disabledNote = disabled ? `${payloadMode === 'autoPaste' ? 'Template: Off outside text fields; Defaults inside text fields.' : 'Template: Off.'} Stored override is retained.` : undefined
             const removeLabel = configured ? `Remove ${actionMeta[field].label} override` : `Cancel adding ${actionMeta[field].label} override`
-            const utility = <button type="button" className="remove-configured" aria-label={removeLabel} onClick={() => { setPendingOverrides((current) => current.filter((item) => item !== field)); if (configured) void commitField(actionPath(field), null) }}><Cross2Icon aria-hidden="true" /></button>
-            return <div className="configured-item" key={field}><OverrideField field={field} path={actionPath(field)} value={valueFor(actionPath(field))} inheritedValue={effectiveDefault(snapshot, field)} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} pending={!configured} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) setPendingOverrides((current) => current.filter((item) => item !== field)) }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); setPendingOverrides((current) => current.filter((item) => item !== field)) }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} disabled={disabled} disabledNote={disabledNote} utility={utility} /></div>
+            const retainAtBottom = () => {
+              setPendingOverrides((current) => current.filter((item) => item !== field))
+              if (!configured) setRecentConfiguredOverrides((current) => current.includes(field) ? current : [...current, field])
+            }
+            const utility = <button type="button" className="remove-configured" aria-label={removeLabel} onClick={() => { setPendingOverrides((current) => current.filter((item) => item !== field)); setRecentConfiguredOverrides((current) => current.filter((item) => item !== field)); if (configured) void commitField(actionPath(field), null) }}><Cross2Icon aria-hidden="true" /></button>
+            return <div className="configured-item" key={field}><OverrideField field={field} path={actionPath(field)} value={valueFor(actionPath(field))} inheritedValue={effectiveDefault(snapshot, field)} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} pending={!configured} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) retainAtBottom() }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); retainAtBottom() }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} disabled={disabled} disabledNote={disabledNote} utility={utility} /></div>
           })}</div>
           {visibleOverrides.length > 0 && addOverrideControl && <div className="insertion-footer">{addOverrideControl}</div>}
         </Disclosure></div>
