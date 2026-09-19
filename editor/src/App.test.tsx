@@ -926,6 +926,7 @@ describe('configuration editor interactions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'middle' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'line 1\nline 2' } })
 
+    expect(screen.getByText(/Press Return for a new line/)).toHaveTextContent('Use ${1} for a capture group, or ${1::titleCase} to transform it.')
     const expression = '{{swResult||middle||line 1\\nline 2}}'
     expect(payload.value).toContain(expression)
   })
