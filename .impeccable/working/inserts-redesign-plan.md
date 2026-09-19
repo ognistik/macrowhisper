@@ -60,14 +60,15 @@ legible, while advanced sections remain findable without dominating the page.
 
 ## Checkpoint 3 — placeholder workspace
 
-Status: implemented for user review, with the versioned runtime newline model
-still open as a separate compatibility checkpoint. Placeholder detection is
+Status: implemented for user review together with the configuration-v3 newline
+model. Placeholder detection is
 continuous and caret-independent; every complete occurrence is listed, while
 custom metadata paths remain structured and unsupported XML/raw syntax remains
 untouched. The current pass keeps review collapsed after insertion, offers Date
 formats as direct choices, coordinates review with the four action disclosures,
 uses compact name-purpose rows with equivalent pointer and keyboard feedback,
-and preserves typed replacement text without editor-side normalization.
+and edits replacement helpers as semantic values while preserving canonical
+placeholder syntax in the surrounding Custom text.
 
 - Detect placeholder occurrences continuously without opening an editor from
   caret movement.
@@ -97,13 +98,25 @@ and preserves typed replacement text without editor-side normalization.
 
 ### Replacement newline compatibility requirement
 
-- Do not silently rewrite typed backslash sequences into visible Returns while
-  the user is editing. Preserve existing and newly typed replacement text until
-  a complete, versioned escape model can distinguish line breaks from literal
-  backslashes without changing existing Insert output.
-- Treat the runtime's current global backslash-newline conversion and any future
-  context-aware placeholder grammar as a separate compatibility checkpoint;
-  editor-only normalization is not considered the final solution.
+- Configuration version 3 is the canonical escape model: `\n` means a line
+  break and `\\n` means a literal backslash followed by `n`; JSON serialization
+  adds its own escaping independently.
+- Replacement helpers show semantic values. Return and typed `\n` produce a
+  line break, while typed `\\n` produces literal `\n`.
+
+### Custom text presentation requirement
+
+- Ordinary Insert text is a rendered writing surface: canonical newline tokens
+  appear as real lines and Returns save back to canonical `\n` tokens.
+- Complete `{{...}}` placeholders remain inline and show canonical escapes so a
+  replacement argument cannot unexpectedly expand the whole expression.
+- A Return typed inside a complete placeholder must remain under the caret while
+  the user is editing. Normalize it to `\n` only on blur/save, then return the
+  placeholder to its inline presentation.
+- Treat an incomplete placeholder as ordinary text until its closing braces are
+  present. Keep `\\n` as the stable visible spelling for literal `\n`.
+- Perform transformations only at parsed structural boundaries; never run a
+  global replacement across the payload.
 
 Success gate: payload layout remains stable while typing and every occurrence,
 including repeated sources with different transforms, is independently editable.
@@ -122,3 +135,20 @@ including repeated sources with different transforms, is independently editable.
 Success gate: the finished Inserts experience is visually continuous with
 Defaults, retains the complete configuration model, and materially improves the
 baseline critique without introducing navigation or round-trip regressions.
+
+## Future checkpoint — Shell and AppleScript source editors
+
+- Reuse the shared action-editor shell for inheritance, triggers, conditions,
+  and chaining, but give Shell and AppleScript type-specific multiline code
+  editors rather than the Insert writing presentation.
+- Show JSON-decoded source exactly: real program lines remain real lines, while
+  script escapes such as `\n`, quotes, regexes, and backslashes remain code.
+  Never apply Insert newline decoding to static Shell or AppleScript source.
+- Keep JSON serialization behind the backend boundary. Preserve empty strings,
+  `.none`, raw/custom payloads, and static source without normalization; only
+  resolved placeholder values receive the runtime action-type escaping defined
+  in [Actions](../../docs/actions.md) and
+  [Placeholders and context](../../docs/placeholders-and-context.md).
+- Do not execute or preview scripts in the editor. Before these editors become
+  writable, add round-trip coverage for quotes, backslashes, real newlines,
+  `\n` versus `\\n`, regex escapes, and templates containing JSON.

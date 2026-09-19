@@ -196,10 +196,16 @@ groups may be reused or transformed with the syntax documented in
 The replacement helper edits semantic values rather than JSON serialization.
 An actual Return stays visible as a line break. Typing `\n` also means a line
 break, while `\\n` means the literal characters `\n`. The surrounding Custom
-text shows the canonical inline placeholder form, so the first value appears
-there as `\n` and does not make the placeholder expand vertically. When the
-configuration is saved, JSON adds its own escaping automatically; users never
-need to type JSON's extra backslashes into the helper.
+text uses a hybrid presentation: ordinary action text shows semantic line
+breaks as real lines, while every complete `{{...}}` placeholder stays inline
+and shows its canonical `\n` spelling. If you press Return while hand-writing a
+complete placeholder, the editor leaves it under the caret until editing ends,
+then saves it as `\n` and collapses that placeholder back to one line. An
+unfinished placeholder remains ordinary multiline text until its closing
+braces are present. In ordinary text, `\\n` remains the visible spelling for a
+literal backslash followed by `n`. When the configuration is saved, JSON adds
+its own escaping automatically; users never need to type JSON's extra
+backslashes into the editor.
 The inspector source selector uses the same built-in and direct Date choices as
 the insertion menu. Custom metadata keys, dot paths, and XML tags appear as
 fixed source identities: changing the source remains a deliberate raw-text

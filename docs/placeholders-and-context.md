@@ -327,8 +327,15 @@ placeholder parser is itself escaped in JSON:
 The web editor hides the JSON layer. In a replacement helper, pressing Return
 stores a real semantic line break. Typing `\n` there produces the same value,
 while typing `\\n` requests a literal `\n`. The surrounding Custom text remains
-inline and displays the canonical placeholder spelling, so a semantic line
-break appears there as `\n` rather than expanding the placeholder vertically.
+visually multiline for ordinary action text, but each complete placeholder
+displays its canonical inline spelling. A semantic line break outside a
+placeholder is therefore shown as a real line break; the same value in a
+placeholder argument is shown as `\n`. A Return typed while hand-writing a
+complete placeholder stays visible during that edit and is normalized to `\n`
+when the field commits. Incomplete placeholder text is treated as ordinary
+multiline text until it has closing braces. In ordinary Custom text, `\\n`
+remains the unambiguous visible spelling for a literal backslash followed by
+`n`.
 
 Version 1 and 2 files retain their historical behavior through the compatibility
 loader. Migrating to version 3 rewrites ambiguous Insert newline spellings to

@@ -506,6 +506,42 @@ function serializeMacrowhisperReplacement(value: string): string {
   return serialized
 }
 
+/**
+ * Present an Insert action as editable text without expanding the syntax inside
+ * complete placeholders. Ordinary text is semantic in this surface, so its
+ * newline tokens become Returns. Placeholder arguments stay canonical and
+ * inline so their delimiters and replacement stages remain legible.
+ */
+function presentMacrowhisperInsertPayload(value: string): string {
+  let presented = ''
+  let cursor = 0
+  for (const segment of extractPlaceholderSegments(value)) {
+    presented += parseMacrowhisperReplacement(value.slice(cursor, segment.start))
+    presented += value.slice(segment.start, segment.end)
+    cursor = segment.end
+  }
+  presented += parseMacrowhisperReplacement(value.slice(cursor))
+  return presented
+}
+
+/**
+ * Convert the Insert editor's hybrid presentation back to canonical v3 text.
+ * Returns in ordinary text become `\n`. A Return typed inside a complete
+ * placeholder is normalized only at this commit boundary, never under the
+ * user's caret while they are composing the expression.
+ */
+function serializeMacrowhisperInsertPayload(value: string): string {
+  let serialized = ''
+  let cursor = 0
+  for (const segment of extractPlaceholderSegments(value)) {
+    serialized += serializeMacrowhisperReplacement(value.slice(cursor, segment.start))
+    serialized += value.slice(segment.start, segment.end).replace(/\r\n?|\n/g, '\\n')
+    cursor = segment.end
+  }
+  serialized += serializeMacrowhisperReplacement(value.slice(cursor))
+  return serialized
+}
+
 function parsePlaceholderTail(value: string, allowFormat: boolean, requireTransformName = false): { format?: string; transformName?: string; regexReplacements: ReplacementStage[] } | null {
   let remaining = value
   let format: string | undefined
@@ -2421,9 +2457,12 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const actionPath = (field: string) => ['inserts', selectedName, field]
   const payloadPath = actionPath('action')
   const payloadEntry = drafts[pathKey(payloadPath)]
-  const payload = displayValue(valueFor(payloadPath))
-  const payloadMode = payload === '.autoPaste' ? 'autoPaste' : payload === '.none' ? 'none' : 'text'
-  const source = sourceForAction(selectedName, { ...action, action: payload })
+  const storedPayload = displayValue(valueFor(payloadPath))
+  // Dirty drafts are already in the textarea's presentation form. Saving and
+  // error states hold canonical text, as does the configuration snapshot.
+  const payload = payloadEntry?.status === 'dirty' ? storedPayload : presentMacrowhisperInsertPayload(storedPayload)
+  const payloadMode = storedPayload === '.autoPaste' ? 'autoPaste' : storedPayload === '.none' ? 'none' : 'text'
+  const source = sourceForAction(selectedName, { ...action, action: storedPayload })
   const [placeholderOpen, setPlaceholderOpen] = useState(false)
   const [openDisclosure, setOpenDisclosure] = useState<'placeholders' | 'insertion' | 'conditions' | 'triggers' | 'chaining' | null>(source === 'invalid' ? 'conditions' : null)
   const [selectedPlaceholderIndex, setSelectedPlaceholderIndex] = useState<number | null>(null)
@@ -2495,7 +2534,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const insertExpression = (insertion: string) => {
     const element = textareaRef.current
     const { start, end } = selectionRef.current
-    const currentPayload = displayValue(valueFor(payloadPath))
+    const currentPayload = payload
     const safeStart = Math.min(start, currentPayload.length)
     const safeEnd = Math.min(Math.max(end, safeStart), currentPayload.length)
     const next = `${currentPayload.slice(0, safeStart)}${insertion}${currentPayload.slice(safeEnd)}`
@@ -2521,7 +2560,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   }
 
   const updatePlaceholder = (next: EditablePlaceholder) => {
-    const currentPayload = displayValue(valueFor(payloadPath))
+    const currentPayload = payload
     const prefix = next.prefixType ? `${next.prefixType}:` : ''
     const source = next.xmlTag !== undefined ? `xml:${next.xmlTag}` : next.key
     const format = next.xmlTag !== undefined ? '' : next.format ? `:${next.format}` : next.key === 'date' ? ':short' : ''
@@ -2570,7 +2609,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     if (composingRef.current) { deferredBlurRef.current = true; return }
     setPlaceholderOpen(false)
     const entry = drafts[pathKey(payloadPath)]
-    if (entry?.status === 'dirty') commitIfChanged(payloadPath, valueFor(payloadPath))
+    if (entry?.status === 'dirty') void commitField(payloadPath, serializeMacrowhisperInsertPayload(displayValue(entry.value)))
   }
 
   const onPlaceholderKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -2598,7 +2637,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     else if (next === 'none') await commitField(payloadPath, '.none')
     else {
       const restored = recoveredPayload ?? ''
-      const saved = await commitField(payloadPath, restored)
+      const saved = await commitField(payloadPath, serializeMacrowhisperInsertPayload(restored))
       if (saved && recoveredPayload !== undefined) onClearRetainedPayload()
     }
   }
@@ -2731,7 +2770,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           composingRef.current = false
           if (deferredBlurRef.current) {
             deferredBlurRef.current = false
-            void commitField(payloadPath, event.currentTarget.value)
+            void commitField(payloadPath, serializeMacrowhisperInsertPayload(event.currentTarget.value))
           }
         }} placeholder="Type the text to insert…" />
             <PlaceholderReview occurrences={occurrences} open={openDisclosure === 'placeholders'} selectedIndex={selectedPlaceholderIndex} onToggle={(open) => setDisclosureOpen('placeholders', open)} onSelect={selectPlaceholder} />

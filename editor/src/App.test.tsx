@@ -642,7 +642,7 @@ describe('configuration editor interactions', () => {
     await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
     await user.click(screen.getByRole('button', { name: 'Restore custom text' }))
-    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe(exactText))
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe('First line\\n\\n{{swResult::ensureSentence}}'))
     expect(screen.getByRole('textbox', { name: 'Insert payload' })).toHaveValue(exactText)
   })
 
@@ -659,7 +659,7 @@ describe('configuration editor interactions', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Payload mode' }), 'autoPaste')
     await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe('.autoPaste'))
     await user.click(screen.getByRole('button', { name: 'Restore custom text' }))
-    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe(whitespace))
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe(' \\n  '))
     expect(screen.getByRole('textbox', { name: 'Insert payload' })).toHaveValue(whitespace)
   })
 
@@ -976,6 +976,61 @@ describe('configuration editor interactions', () => {
     fireEvent.change(doubleSlashReplacement, { target: { value: slashAndReturn } })
     expect(doubleSlashReplacement).toHaveValue(slashAndReturn)
     expect(payload).toHaveValue('{{swResult||middle||before\\\\\\n' + 'after}}')
+  })
+
+  it('renders ordinary Insert text as multiline while keeping complete placeholders inline', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    const canonical = 'Capture this:\\n\\n{{swResult||middle||New\\nLine}}\\nLiteral \\\\n'
+    act(() => {
+      store.simulateExternalChange({ path: ['inserts', 'quickReply', 'action'], operation: 'set', value: canonical })
+    })
+
+    await waitFor(() => expect(payload).toHaveValue('Capture this:\n\n{{swResult||middle||New\\nLine}}\nLiteral \\\\n'))
+    expect(screen.getByRole('button', { name: /1 placeholder found/ })).toBeInTheDocument()
+  })
+
+  it('normalizes a Return inside a complete placeholder only when the payload commits', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    const editingValue = 'Before\n{{swResult||middle||New\nLine}}\nAfter'
+    fireEvent.change(payload, { target: { value: editingValue } })
+
+    // Do not replace text under the caret while the user is still composing.
+    expect(payload).toHaveValue(editingValue)
+    fireEvent.blur(payload)
+
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe('Before\\n{{swResult||middle||New\\nLine}}\\nAfter'))
+    expect(payload).toHaveValue('Before\n{{swResult||middle||New\\nLine}}\nAfter')
+  })
+
+  it('keeps an incomplete hand-written placeholder visually multiline after save', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+
+    const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
+    const incomplete = 'Before\n{{swResult||middle||New\nLine'
+    fireEvent.change(payload, { target: { value: incomplete } })
+    fireEvent.blur(payload)
+
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.action).toBe('Before\\n{{swResult||middle||New\\nLine'))
+    expect(payload).toHaveValue(incomplete)
   })
 
   it('edits XML placeholders while preserving prefixes, repeated occurrences, and malformed syntax', async () => {

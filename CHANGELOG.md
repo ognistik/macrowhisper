@@ -6,6 +6,7 @@
 * XML placeholders now support the same transforms and ordered regex replacements as other text placeholders, including `raw:` and `json:` forms. Extracted XML is removed consistently from both `llmResult` and `result` before `{{swResult}}` is resolved, and the editor can configure the new XML pipeline directly.
 * **Configuration version 3 makes Insert escaping predictable.** Macrowhisper Insert text uses `\n` for a line break and `\\n` for a literal backslash followed by `n`; their JSON spellings are `\\n` and `\\\\n`. Existing version 1 and 2 files migrate sequentially when automatic updates are enabled, with a pre-v3 backup before the file is rewritten.
 * The configuration editor keeps older files read-only and offers an explicit update to version 3. Users who manage updates manually are reminded when the background service starts; normal CLI actions and live reloads do not interrupt work with that notification.
+* The Insert editor now shows ordinary custom text with real line breaks while keeping complete placeholders inline. Returns typed inside a placeholder are normalized to `\n` when the edit is saved, without rewriting text under the cursor.
 
 ---
 ## [v2.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.2.0) - 2026/09/04
