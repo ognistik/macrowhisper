@@ -277,20 +277,19 @@ h2 { margin-bottom: 4px; font-size: 15px; letter-spacing: -0.015em; }
 
 .defaults-section-description { max-width: 65ch; margin: 0; padding: 1px 20px 8px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
 
-.setting-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(146px, 42%); align-items: center; gap: 22px; min-height: 76px; padding: 13px 0; border-bottom: 1px solid var(--border); }
+.setting-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(146px, 42%); grid-template-areas: "copy utility control"; align-items: center; gap: 22px; min-height: 76px; padding: 13px 0; border-bottom: 1px solid var(--border); }
 
-.setting-copy { min-width: 0; }
+.setting-copy { grid-area: copy; min-width: 0; }
 .setting-label, .override-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .setting-label label, .override-label label { color: var(--text); font-size: 14px; font-weight: 650; }
 .setting-copy p, .override-field p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.4; }
-.setting-control { min-width: 0; }
+.setting-control { grid-area: control; min-width: 0; }
 
-.defaults-screen .setting-row { position: relative; grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); gap: 34px; min-height: 84px; padding-block: 15px; border-bottom: 0; }
+.defaults-screen .setting-row { grid-template-columns: minmax(0, 1fr) max-content minmax(280px, 320px); gap: 16px; min-height: 84px; padding-block: 15px; border-bottom: 0; }
 .defaults-screen .setting-label { align-items: flex-start; flex-wrap: nowrap; min-block-size: 20px; gap: 8px 12px; }
 .defaults-screen .setting-label > label { min-width: 0; }
 .defaults-screen .setting-copy > p { max-inline-size: 54ch; }
-.setting-utility { position: absolute; top: 50%; right: 336px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 13rem; min-width: 0; min-block-size: 20px; transform: translateY(-50%); }
-.defaults-screen .setting-row:has(.nullable-control input) .setting-utility { top: calc(50% + 21.5px); }
+.setting-utility { grid-area: utility; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; min-block-size: 20px; }
 .setting-utility-state, .setting-utility-action { display: flex; align-items: center; min-width: 0; min-block-size: 20px; }
 .setting-utility-state, .setting-utility-action { justify-content: flex-end; }
 .setting-utility .field-state-wrap { justify-content: flex-start; margin-left: 0; }
@@ -352,6 +351,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .field-state-saved { color: var(--success); }
 .field-state-error { color: var(--danger); }
 .field-state-dirty { color: var(--warning); }
+.numeric-field-error { color: var(--danger); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .text-button { padding: 0; border: 0; background: transparent; color: var(--text-soft); font-size: 13px; text-decoration: underline; text-underline-offset: 2px; }
 .text-button:hover { color: var(--text); }
 
@@ -601,21 +601,28 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .add-setting-control select { width: auto; min-width: 170px; height: 32px; border-color: var(--border); font-size: 13px; }
 .insertion-add-control { justify-self: end; width: 100%; margin-top: 0; }
 .insertion-add-control select { width: 100%; }
-.override-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) 32px; align-items: start; gap: 22px 10px; min-width: 0; }
+.override-field { display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(280px, 320px) 32px; grid-template-areas: "copy status control utility"; align-items: start; gap: 10px; min-width: 0; }
+.override-copy { grid-area: copy; }
+.override-status { grid-area: status; display: flex; align-items: center; justify-content: flex-end; min-width: 0; min-height: 36px; }
+.override-status .field-state-wrap { justify-content: flex-end; }
+.override-setting { grid-area: control; display: grid; gap: 6px; }
 .override-copy, .override-setting { min-width: 0; }
+.override-field > .remove-configured { grid-area: utility; }
 .override-setting .template-note { margin-top: 8px; }
 .override-control { display: flex; align-items: center; gap: 6px; }
-.override-control select { flex: 0 0 132px; margin-top: 0; }
+.override-control select { min-width: 0; flex: 1 1 auto; margin-top: 0; }
+.override-control:has(input) select { flex: 0 0 108px; }
 .override-control input { min-width: 0; flex: 1; }
 .override-control .unit { color: var(--text-muted); font-size: 13px; white-space: nowrap; }
 .override-setting .setting-input-stack { display: grid; }
 .override-setting .setting-input-stack select { width: 100%; }
 .override-setting .nullable-select-control select { padding-right: 30px; }
-.override-setting .nullable-control-icon { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.override-setting .nullable-control-icon { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 7px; }
 .override-setting .nullable-control-icon > .select-control-wrapper:only-child { grid-column: 1 / -1; }
 .override-setting .nullable-control-icon > .select-control-wrapper { width: auto; }
 .override-setting .nullable-control-moveTo { display: grid; gap: 7px; }
 .override-setting .nullable-control-moveTo > .select-control-wrapper { width: 100%; }
+.override-field-error { margin: 0; }
 .insertion-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 .insertion-footer .insertion-add-control { width: min(100%, 320px); }
 .template-note, .condition-intro { display: flex; align-items: flex-start; gap: 7px; margin-top: 18px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
@@ -691,7 +698,11 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 @media (max-width: 1200px) {
-  .defaults-screen .setting-utility, .defaults-screen .setting-row:has(.nullable-control input) .setting-utility { position: static; top: auto; right: auto; width: auto; flex: 0 0 13rem; transform: none; }
+  .defaults-screen .setting-row { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); grid-template-areas: "copy control" "utility control"; column-gap: 24px; row-gap: 6px; }
+  .defaults-screen .setting-utility { justify-content: flex-start; }
+  .override-field { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) 32px; grid-template-areas: "copy control utility" "status control utility"; column-gap: 10px; row-gap: 6px; }
+  .override-status { justify-content: flex-start; min-height: 20px; }
+  .override-status .field-state-wrap { justify-content: flex-start; }
   .override-grid { grid-template-columns: 1fr; }
   .screen-intro { flex-wrap: wrap; gap: 20px; }
 }
@@ -704,7 +715,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
   .screen-content { width: calc(100% - 50px); }
   .editor-header { padding: 0 25px; }
   .editor-scroll { width: calc(100% - 50px); }
-  .setting-row { grid-template-columns: minmax(0, 1fr) minmax(132px, 44%); gap: 14px; }
+  .setting-row { gap: 14px; }
 }
 
 @media (min-width: 781px) and (max-width: 960px) {
@@ -712,8 +723,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
   .action-overview-identity, .action-overview-actions { flex-basis: 100%; }
   .action-overview-actions { justify-content: flex-start; }
   .payload-mode-row { grid-template-columns: 1fr; gap: 10px; }
-  .override-field { grid-template-columns: minmax(0, 320px) 32px; justify-content: start; gap: 10px; }
-  .override-copy { grid-column: 1 / -1; }
+  .override-field { grid-template-columns: minmax(0, 320px) 32px; grid-template-areas: "copy copy" "control utility" "status status"; justify-content: start; gap: 10px; }
   .override-setting { width: 100%; }
   .insertion-empty-state, .insertion-footer { grid-template-columns: 1fr; gap: 10px; }
   .insertion-add-control { justify-self: start; }
@@ -739,8 +749,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
   .defaults-disclosure summary { min-height: 72px; padding-inline: 15px; }
   .defaults-section-description { padding-inline: 15px; }
   .defaults-screen .field-list { padding-inline: 15px; }
-  .defaults-screen .setting-row { grid-template-columns: 1fr; gap: 8px; align-items: start; }
-  .defaults-screen .setting-utility, .defaults-screen .setting-row:has(.nullable-control input) .setting-utility { transform: none; }
+  .defaults-screen .setting-row { grid-template-columns: 1fr; grid-template-areas: "copy" "control" "utility"; gap: 8px; align-items: start; }
   .insert-editor { min-height: calc(100dvh - 59px); }
   .mobile-action-back { display: inline-flex; margin-bottom: 12px; }
   .editor-scroll { width: calc(100% - 30px); padding-top: 28px; }
@@ -753,13 +762,12 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
   .payload-boundary, .payload-template-summary { margin: 15px; }
   .insert-disclosure-section .defaults-disclosure .disclosure-body { padding-inline: 15px; }
   .override-grid, .trigger-grid, .unsupported-grid { grid-template-columns: 1fr; }
-  .override-field { grid-template-columns: minmax(0, 320px) 32px; justify-content: start; gap: 10px; }
-  .override-copy { grid-column: 1 / -1; }
+  .override-field { grid-template-columns: minmax(0, 320px) 32px; grid-template-areas: "copy copy" "control utility" "status status"; justify-content: start; gap: 10px; }
   .insertion-empty-state, .insertion-footer { grid-template-columns: 1fr; gap: 10px; }
   .insertion-add-control { justify-self: start; }
   .insertion-footer { justify-content: flex-start; }
   .insertion-add-control { width: min(100%, 320px); }
-  .setting-row { grid-template-columns: 1fr; gap: 8px; align-items: start; }
+  .setting-row { grid-template-columns: 1fr; grid-template-areas: "copy" "control" "utility"; gap: 8px; align-items: start; }
   .setting-control { width: 100%; }
   .field-state-wrap { justify-content: flex-start; }
   .setting-utility .field-state-wrap { justify-content: flex-start; margin-left: 0; }

@@ -141,6 +141,10 @@ const numberUnits: Record<string, string> = {
   history: 'days',
 }
 
+function numericValidationMessage(field: string) {
+  return field === 'history' ? 'Enter a valid number of days.' : 'Enter a valid number.'
+}
+
 export const defaultFieldGroups: Array<{ key: string; label: string; description: string; fields: string[] }> = [
   {
     key: 'general',
@@ -823,10 +827,21 @@ function revisionsEqual(a: Revision, b: Revision): boolean {
 
 const NULL_CHOICE = '__macrowhisper_null__'
 const EMPTY_CHOICE = '__macrowhisper_empty__'
+const CURRENT_DEFAULT_CHOICE = '__macrowhisper_current_default__'
 
 function displayValue(value: FieldValue): string {
   if (value === undefined || value === null) return ''
   return String(value)
+}
+
+function currentDefaultLabel(label: string, matches: boolean): string {
+  return matches ? `${label} (current Default)` : label
+}
+
+function currentDefaultSecondsLabel(value: Scalar): string {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  const amount = Number.isFinite(numeric) ? String(numeric) : 'No value'
+  return `${amount} ${numeric === 1 ? 'second' : 'seconds'} (current Default)`
 }
 
 function statusText(status: DraftStatus | undefined, previewMode = false): string {
@@ -1167,12 +1182,14 @@ function FieldState({
   onRetry,
   onResync,
   errorId,
+  showError = true,
 }: {
   entry?: DraftEntry
   onRevert: () => void
   onRetry?: () => void
   onResync?: () => void
   errorId?: string
+  showError?: boolean
 }) {
   const previewMode = useContext(PreviewModeContext)
   if (!entry) return null
@@ -1187,14 +1204,14 @@ function FieldState({
       {(entry.status === 'dirty' || entry.status === 'error') && (
         <button type="button" className="text-button" data-field-blur-action={pathKey(entry.path)} onPointerDown={(event) => event.preventDefault()} onClick={onRevert}>Revert</button>
       )}
-      {entry.status === 'error' && onRetry && (
+      {entry.status === 'error' && entry.request && onRetry && (
         <button type="button" className="text-button" onClick={onRetry}>Retry</button>
       )}
       {canResync && onResync && (
         <button type="button" className="text-button" onClick={onResync}>Review current value</button>
       )}
       {entry.reviewed && entry.status === 'dirty' && <span className="field-comparison">Current: <code>{JSON.stringify(entry.baseValue) ?? '(not set)'}</code><button type="button" className="text-button" onClick={onRetry}>Reapply draft</button></span>}
-      {entry.error && <span id={errorId} className="field-error" role="alert">{entry.error}</span>}
+      {showError && entry.error && <span id={errorId} className="field-error" role="alert">{entry.error}</span>}
     </div>
   )
 }
@@ -1425,8 +1442,32 @@ function App({ store: suppliedStore }: { store?: EditorStore } = {}) {
     const field = path[path.length - 1]
     const numericField = field === 'actionDelay' || field === 'returnDelay' || field === 'restoreClipboardDelay' || field === 'scheduledActionTimeout' || field === 'scriptWaitTimeout' || field === 'clipboardBuffer' || field === 'history'
     if (numericField) {
-      if (typeof rawValue === 'string' && rawValue.trim() !== '') value = Number(rawValue)
-      else if (typeof rawValue === 'string' && rawValue.trim() === '' && path[0] === 'defaults') value = null
+      if (typeof rawValue === 'string' && rawValue.trim() !== '') {
+        value = Number(rawValue)
+        if (!Number.isFinite(value)) {
+          updateDrafts((previous) => {
+            const existing = previous[key]
+            const preserveBaseline = existing && existing.status !== 'saved'
+            return {
+              ...previous,
+              [key]: {
+                value: rawValue,
+                path: existing?.path ?? path,
+                baseValue: preserveBaseline ? existing.baseValue : readPath(snapshotRef.current, path),
+                baseRevision: preserveBaseline ? existing.baseRevision : cloneValue(snapshotRef.current.revision),
+                status: 'error',
+                error: numericValidationMessage(field),
+                errorCode: 'invalid-number',
+                request: undefined,
+                requestId: undefined,
+                version: (preserveBaseline ? existing?.version ?? 0 : (existing?.version ?? 0) + 1),
+                savedAt: undefined,
+              },
+            }
+          })
+          return false
+        }
+      } else if (typeof rawValue === 'string' && rawValue.trim() === '' && path[0] === 'defaults') value = null
     }
     const existingDraft = draftsRef.current[key]
     if ((!existingDraft || existingDraft.status === 'saved') && Object.is(value, readPath(snapshotRef.current, path))) return true
@@ -2215,6 +2256,7 @@ function NullableTextControl({
   revertKey,
   collapseDefault = false,
   pending = false,
+  inheritedValue,
   folderPickerPreview = false,
   chooseDirectory,
 }: {
@@ -2229,11 +2271,14 @@ function NullableTextControl({
   revertKey?: string
   collapseDefault?: boolean
   pending?: boolean
+  inheritedValue?: Scalar
   folderPickerPreview?: boolean
   chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>
 }) {
   const isMove = kind === 'moveTo'
   const isCustomValue = typeof value === 'string' && value !== '' && (!isMove || value !== '.delete')
+  const inheritedText = typeof inheritedValue === 'string' ? inheritedValue : ''
+  const inheritedMode = isMove && inheritedText === '.delete' ? 'delete' : inheritedText === '' ? 'empty' : 'custom'
   const [customOpen, setCustomOpen] = useState(isCustomValue)
   const mode = customOpen || isCustomValue ? 'custom' : isMove && value === '.delete' ? 'delete' : collapseDefault ? 'empty' : pending ? 'pending' : 'empty'
   const inputId = `${controlId}-custom-value`
@@ -2252,6 +2297,7 @@ function NullableTextControl({
             onChoice('.delete')
           } else {
             setCustomOpen(true)
+            if (!collapseDefault && inheritedMode === 'custom') onChoice(inheritedText)
           }
         }}>
           {collapseDefault ? <>
@@ -2260,9 +2306,9 @@ function NullableTextControl({
             <optgroup label="Explicit values">{isMove && <option value="delete">Delete recording</option>}<option value="custom">Custom</option></optgroup>
           </> : <>
             {pending && <option value="pending" disabled>Choose value…</option>}
-            <option value="empty">{isMove ? 'Keep recording' : 'No icon'}</option>
-            {isMove && <option value="delete">Delete recording</option>}
-            <option value="custom">Custom</option>
+            <option value="empty">{currentDefaultLabel(isMove ? 'Keep recording' : 'No icon', inheritedMode === 'empty')}</option>
+            {isMove && <option value="delete">{currentDefaultLabel('Delete recording', inheritedMode === 'delete')}</option>}
+            <option value="custom">{currentDefaultLabel('Custom', inheritedMode === 'custom')}</option>
           </>}
         </select>
         {builtInActive && <BuiltInPill id={builtInDescriptionId} />}
@@ -2337,7 +2383,8 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
   if (field === 'history' || field === 'actionDelay' || field === 'returnDelay' || field === 'restoreClipboardDelay' || field === 'scheduledActionTimeout' || field === 'scriptWaitTimeout' || field === 'clipboardBuffer') {
     const props = textHandlers(path)
     const useBuiltIn = shouldRestoreBuiltIn(field, value) ? <button type="button" className="text-button" data-field-blur-action={pathKey(path)} onPointerDown={(event) => event.preventDefault()} onClick={() => onChoice(null)}>Use built-in</button> : null
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack"><div className="input-with-unit"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} inputMode="decimal" type="text" placeholder={field === 'history' ? 'Keep forever' : numberDefaultText(field)} /><span>{numberUnits[field]}</span></div></div></SettingRow>
+    const helpId = `${field}-number-help`
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} showError={false} />} utility={useBuiltIn} controlId={field}><div className="setting-input-stack"><div className="input-with-unit"><input id={field} {...props} aria-label={meta.label} aria-describedby={entry?.error ? helpId : undefined} aria-invalid={Boolean(entry?.error)} inputMode="decimal" type="text" placeholder={field === 'history' ? 'Keep forever' : numberDefaultText(field)} /><span>{numberUnits[field]}</span></div>{entry?.error && <span id={helpId} className="numeric-field-error" role="alert">{entry.error}</span>}</div></SettingRow>
   }
 
   if (booleanFields.has(field)) {
@@ -2355,7 +2402,7 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
 }
 
 function SettingRow({ label, description, state, utility, children, controlId }: { label: string; description: string; state?: ReactNode; utility?: ReactNode; children: ReactNode; controlId?: string }) {
-  return <div className="setting-row"><div className="setting-copy"><div className="setting-label"><label htmlFor={controlId}>{label}</label><div className="setting-utility"><div className="setting-utility-state">{state}</div><div className="setting-utility-action">{utility}</div></div></div><p id={controlId ? `${controlId}-description` : undefined}>{description}</p></div><div className="setting-control">{children}</div></div>
+  return <div className="setting-row"><div className="setting-copy"><div className="setting-label"><label htmlFor={controlId}>{label}</label></div><p id={controlId ? `${controlId}-description` : undefined}>{description}</p></div><div className="setting-utility"><div className="setting-utility-state">{state}</div><div className="setting-utility-action">{utility}</div></div><div className="setting-control">{children}</div></div>
 }
 
 function BuiltInPill({ id }: { id: string }) {
@@ -2785,7 +2832,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
             const disabledNote = disabled ? `${payloadMode === 'autoPaste' ? 'Template: Off outside text fields; Defaults inside text fields.' : 'Template: Off.'} Stored override is retained.` : undefined
             const removeLabel = configured ? `Remove ${actionMeta[field].label} override` : `Cancel adding ${actionMeta[field].label} override`
             const utility = <button type="button" className="remove-configured" aria-label={removeLabel} onClick={() => { setPendingOverrides((current) => current.filter((item) => item !== field)); if (configured) void commitField(actionPath(field), null) }}><Cross2Icon aria-hidden="true" /></button>
-            return <div className="configured-item" key={field}><OverrideField field={field} path={actionPath(field)} value={valueFor(actionPath(field))} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} pending={!configured} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) setPendingOverrides((current) => current.filter((item) => item !== field)) }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); setPendingOverrides((current) => current.filter((item) => item !== field)) }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} disabled={disabled} disabledNote={disabledNote} utility={utility} /></div>
+            return <div className="configured-item" key={field}><OverrideField field={field} path={actionPath(field)} value={valueFor(actionPath(field))} inheritedValue={effectiveDefault(snapshot, field)} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} pending={!configured} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) setPendingOverrides((current) => current.filter((item) => item !== field)) }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); setPendingOverrides((current) => current.filter((item) => item !== field)) }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} disabled={disabled} disabledNote={disabledNote} utility={utility} /></div>
           })}</div>
           {visibleOverrides.length > 0 && addOverrideControl && <div className="insertion-footer">{addOverrideControl}</div>}
         </Disclosure></div>
@@ -3072,25 +3119,30 @@ function FieldLifecycle({ status }: { status: 'idle' | 'saving' | 'saved' }) {
   return <span className={`field-state field-state-${status === 'saving' ? 'saving' : 'saved'}`}>{status === 'saving' ? (previewMode ? 'Updating preview…' : 'Saving…') : <><CheckIcon aria-hidden="true" /> {previewMode ? 'Updated in preview' : 'Saved'}</>}</span>
 }
 
-function OverrideField({ field, path, value, entry, meta, pending = false, onChoice, onText, onBlur, onRevert, onRetry, onResync, folderPickerPreview, chooseDirectory, disabled = false, disabledNote, utility }: { field: string; path: string[]; value: FieldValue; entry?: DraftEntry; meta: { label: string; description: string }; pending?: boolean; onChoice: (value: FieldValue) => void; onText: (value: string) => void; onBlur: (value: string) => void; onRevert: () => void; onRetry: () => void; onResync: () => void; folderPickerPreview: boolean; chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>; disabled?: boolean; disabledNote?: string; utility?: ReactNode }) {
-  const state = <FieldState entry={entry} onRevert={onRevert} onRetry={onRetry} onResync={onResync} errorId={fieldErrorId(path)} />
+function OverrideField({ field, path, value, inheritedValue, entry, meta, pending = false, onChoice, onText, onBlur, onRevert, onRetry, onResync, folderPickerPreview, chooseDirectory, disabled = false, disabledNote, utility }: { field: string; path: string[]; value: FieldValue; inheritedValue: Scalar; entry?: DraftEntry; meta: { label: string; description: string }; pending?: boolean; onChoice: (value: FieldValue) => void; onText: (value: string) => void; onBlur: (value: string) => void; onRevert: () => void; onRetry: () => void; onResync: () => void; folderPickerPreview: boolean; chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>; disabled?: boolean; disabledNote?: string; utility?: ReactNode }) {
+  const errorId = fieldErrorId(path)
+  const state = <FieldState entry={entry} onRevert={onRevert} onRetry={onRetry} onResync={onResync} errorId={errorId} showError={false} />
   const inputId = path.join('-')
   const numberField = field === 'actionDelay' || field === 'restoreClipboardDelay' || field === 'scriptWaitTimeout'
+  const numberHelpId = `${inputId}-number-help`
   const [numberOpen, setNumberOpen] = useState(value !== null && value !== undefined)
   let control: ReactNode = null
 
   if (field === 'icon' || field === 'moveTo') {
-    control = <NullableTextControl kind={field} controlId={inputId} value={value} pending={pending} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />
+    control = <NullableTextControl kind={field} controlId={inputId} value={value} pending={pending} inheritedValue={inheritedValue} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />
   } else if (numberField) {
+    const inheritedNumber = typeof inheritedValue === 'number' ? inheritedValue : Number(inheritedValue)
+    const hasInheritedNumber = inheritedValue !== null && inheritedValue !== '' && Number.isFinite(inheritedNumber)
     const showingValue = numberOpen || (value !== null && value !== undefined)
-    control = <div className="override-control"><select id={inputId} aria-label={`${meta.label} mode`} value={pending && !showingValue ? 'pending' : 'value'} onChange={() => setNumberOpen(true)}>{pending && !showingValue && <option value="pending" disabled>Choose value…</option>}<option value="value">Custom</option></select>{showingValue && <input id={`${inputId}-value`} value={displayValue(value)} inputMode="decimal" onChange={(event) => onText(event.target.value)} onBlur={(event) => { if (!isFieldBlurActionTarget(event.relatedTarget, pathKey(path))) onBlur(event.target.value) }} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} />}<span className="unit">seconds</span></div>
+    const numberMode = pending && !numberOpen ? 'pending' : 'custom'
+    control = <div className="override-control"><select id={inputId} aria-label={`${meta.label} mode`} value={numberMode} onChange={(event) => { setNumberOpen(true); if (hasInheritedNumber && (pending || event.target.value === CURRENT_DEFAULT_CHOICE)) onChoice(inheritedNumber) }}>{pending && !numberOpen && <option value="pending" disabled>Choose value…</option>}{hasInheritedNumber && <option value={CURRENT_DEFAULT_CHOICE}>{currentDefaultSecondsLabel(inheritedNumber)}</option>}<option value="custom">Custom…</option></select>{showingValue && <><input id={`${inputId}-value`} value={displayValue(value)} inputMode="decimal" onChange={(event) => onText(event.target.value)} onBlur={(event) => { if (!isFieldBlurActionTarget(event.relatedTarget, pathKey(path))) onBlur(event.target.value) }} aria-label={meta.label} aria-describedby={entry?.error ? numberHelpId : undefined} aria-invalid={Boolean(entry?.error)} /><span className="unit">seconds</span></>}</div>
   } else if (booleanFields.has(field)) {
     const selected = value === true
-    control = <div className="setting-input-stack"><select id={inputId} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} value={pending ? 'pending' : selected ? 'on' : 'off'} onChange={(event) => onChoice(event.target.value === 'on')}>{pending && <option value="pending" disabled>Choose value…</option>}<option value="on">{booleanText(field, true)}</option><option value="off">{booleanText(field, false)}</option></select></div>
+    control = <div className="setting-input-stack"><select id={inputId} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} value={pending ? 'pending' : selected ? 'on' : 'off'} onChange={(event) => onChoice(event.target.value === 'on')}>{pending && <option value="pending" disabled>Choose value…</option>}<option value="on">{currentDefaultLabel(booleanText(field, true), inheritedValue === true)}</option><option value="off">{currentDefaultLabel(booleanText(field, false), inheritedValue === false)}</option></select></div>
   }
 
   if (!control) return null
-  return <div className="override-field"><div className="override-copy"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p></div><fieldset className="template-field override-setting" disabled={disabled}>{control}{disabledNote && <p className="template-note">{disabledNote}</p>}</fieldset>{utility}</div>
+  return <div className="override-field"><div className="override-copy"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label></div><p>{meta.description}</p></div><div className="override-status">{state}</div><fieldset className="template-field override-setting" disabled={disabled}>{control}{numberField && entry?.error && <span id={numberHelpId} className="numeric-field-error" role="alert">{entry.error}</span>}{!numberField && entry?.error && <span id={errorId} className="field-error override-field-error" role="alert">{entry.error}</span>}{disabledNote && <p className="template-note">{disabledNote}</p>}</fieldset>{utility}</div>
 }
 
 function Disclosure({ title, subtitle, meta, open, onToggle, children, variant = 'standard' }: { title: string; subtitle: string; meta?: ReactNode; open: boolean; onToggle: (open: boolean) => void; children: ReactNode; variant?: 'standard' | 'defaults' }) {

@@ -93,7 +93,9 @@ the control; ordinary numeric Defaults also save on Enter. The interface shows
 acknowledgement that clears after roughly two seconds; a failed request keeps
 the draft and offers Revert or Retry until it is resolved. **Revert** discards
 the local draft and restores the last successfully saved value without writing
-to the configuration. Textarea placeholder
+to the configuration. Invalid numeric drafts stay local and show a concise
+field-level error beneath their editor; they are not sent as malformed JSON.
+Textarea placeholder
 tools are part of the same editing boundary, so choosing a placeholder does not
 save halfway through an insertion.
 
@@ -171,8 +173,14 @@ one coordinated disclosure set: opening one closes the previously open section,
 and choosing another action resets the set. Opening a settings section shows
 configured entries first and offers an explicit Add control for another
 exception. A newly added override asks for an explicit value before it changes
-the configuration. Removing an override resumes inheritance from **Defaults**;
-removing a condition restores **Always**.
+the configuration. Its choices identify the value that currently comes from
+**Defaults**, but choosing that value still saves an explicit override. When an
+inherited icon or recording destination is custom, choosing **Custom** starts
+from that inherited value so it can be pinned unchanged or edited. Numeric
+overrides similarly open an editable **Custom** field prefilled from Defaults,
+whether the user chooses the displayed current value or **Custom** directly.
+Removing an override resumes inheritance from **Defaults**; removing a condition
+restores **Always**.
 Unsupported or ambiguous raw condition and trigger expressions remain available
 for deliberate raw editing and are never silently simplified.
 

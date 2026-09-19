@@ -527,7 +527,7 @@ describe('configuration editor interactions', () => {
 
   it('shows configured action state first and adds exceptions on demand', async () => {
     const user = userEvent.setup()
-    renderWithStore()
+    const store = renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
     await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
     const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
@@ -547,6 +547,8 @@ describe('configuration editor interactions', () => {
     const escapeControl = within(insertion!).getByRole('combobox', { name: 'Simulate Escape' })
     expect(escapeControl).toHaveValue('pending')
     expect(within(escapeControl).getByRole('option', { name: 'Choose value…' })).toBeDisabled()
+    expect(within(escapeControl).getByRole('option', { name: 'Simulate Escape (current Default)' })).toBeInTheDocument()
+    expect(within(escapeControl).getByRole('option', { name: 'Skip Escape' })).toBeInTheDocument()
     const cancelOverride = within(insertion!).getByRole('button', { name: 'Cancel adding Simulate Escape override' })
     expect(cancelOverride).not.toHaveAttribute('title')
     expect(cancelOverride).toHaveTextContent('')
@@ -564,6 +566,7 @@ describe('configuration editor interactions', () => {
     await user.selectOptions(addAgain, 'simEsc')
     await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Simulate Escape' }), 'on')
     expect(await within(insertion!).findByRole('button', { name: 'Remove Simulate Escape override' })).toBeInTheDocument()
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.simEsc).toBe(true))
   })
 
   it('keeps custom icon controls together in an insertion override row', async () => {
@@ -581,11 +584,110 @@ describe('configuration editor interactions', () => {
     const iconMode = within(insertion!).getByRole('combobox', { name: 'Icon mode' })
     expect(iconMode).toHaveValue('pending')
     expect(within(iconMode).getByRole('option', { name: 'Choose value…' })).toBeDisabled()
+    expect(within(iconMode).getByRole('option', { name: 'No icon (current Default)' })).toBeInTheDocument()
     await user.selectOptions(iconMode, 'custom')
 
     const customIcon = within(insertion!).getByRole('textbox', { name: 'Custom icon' })
     expect(customIcon.closest('.nullable-control-icon')).not.toBeNull()
     expect(within(insertion!).getByRole('button', { name: 'Cancel adding Icon override' })).toBeInTheDocument()
+  })
+
+  it('pins and prefills custom inherited icon and recording values', async () => {
+    const user = userEvent.setup()
+    const store = new FixtureStore('populated', { writeDelayMs: 0 })
+    store.externalChange((snapshot) => {
+      snapshot.defaults.icon = '★'
+      snapshot.defaults.moveTo = '~/Documents/processed-recordings'
+    })
+    render(<App store={store} />)
+
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    const insertion = screen.getByText('Action overrides', { selector: 'strong' }).closest('details')
+    expect(insertion).not.toBeNull()
+
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'icon')
+    const iconMode = within(insertion!).getByRole('combobox', { name: 'Icon mode' })
+    expect(within(iconMode).getByRole('option', { name: 'Custom (current Default)' })).toBeInTheDocument()
+    await user.selectOptions(iconMode, 'custom')
+    expect(within(insertion!).getByRole('textbox', { name: 'Custom icon' })).toHaveValue('★')
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.icon).toBe('★'))
+
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'moveTo')
+    const moveMode = within(insertion!).getByRole('combobox', { name: 'Move recording mode' })
+    expect(within(moveMode).getByRole('option', { name: 'Custom (current Default)' })).toBeInTheDocument()
+    await user.selectOptions(moveMode, 'custom')
+    expect(within(insertion!).getByRole('textbox', { name: 'Recording folder path' })).toHaveValue('~/Documents/processed-recordings')
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.moveTo).toBe('~/Documents/processed-recordings'))
+  })
+
+  it('offers the inherited numeric value as an explicit override and a Custom starting point', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    const insertion = screen.getByText('Action overrides', { selector: 'strong' }).closest('details')
+    expect(insertion).not.toBeNull()
+
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'actionDelay')
+    let delayMode = within(insertion!).getByRole('combobox', { name: 'Action delay mode' })
+    expect(within(delayMode).getByRole('option', { name: '0 seconds (current Default)' })).toBeInTheDocument()
+    await user.selectOptions(delayMode, within(delayMode).getByRole('option', { name: '0 seconds (current Default)' }))
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.actionDelay).toBe(0))
+    expect(delayMode).toHaveValue('custom')
+    expect(within(insertion!).getByRole('textbox', { name: 'Action delay' })).toHaveValue('0')
+
+    act(() => {
+      store.externalChange((snapshot) => { snapshot.defaults.actionDelay = 0.25 })
+    })
+    await waitFor(() => expect(within(delayMode).getByRole('option', { name: '0.25 seconds (current Default)' })).toBeInTheDocument())
+    expect(delayMode).toHaveValue('custom')
+    expect(within(insertion!).getByRole('textbox', { name: 'Action delay' })).toHaveValue('0')
+    expect(store.getSnapshot().inserts.dailyNotes.actionDelay).toBe(0)
+
+    await user.click(within(insertion!).getByRole('button', { name: 'Remove Action delay override' }))
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.actionDelay).toBeNull())
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'actionDelay')
+    delayMode = within(insertion!).getByRole('combobox', { name: 'Action delay mode' })
+    await user.selectOptions(delayMode, 'custom')
+    expect(delayMode).toHaveValue('custom')
+    expect(within(insertion!).getByRole('textbox', { name: 'Action delay' })).toHaveValue('0.25')
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.actionDelay).toBe(0.25))
+  })
+
+  it('keeps invalid numeric overrides contained beside their editor with useful guidance', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    const insertion = screen.getByText('Action overrides', { selector: 'strong' }).closest('details')
+    expect(insertion).not.toBeNull()
+
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'restoreClipboardDelay')
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Clipboard restore delay mode' }), 'custom')
+    const input = within(insertion!).getByRole('textbox', { name: 'Clipboard restore delay' })
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.restoreClipboardDelay).toBe(0.3))
+    await user.clear(input)
+    await user.type(input, '2d')
+    fireEvent.blur(input)
+
+    const guidance = await within(insertion!).findByText('Enter a valid number.')
+    const row = input.closest('.override-field') as HTMLElement
+    expect(guidance.closest('.override-setting')).not.toBeNull()
+    expect(within(row.querySelector('.override-status') as HTMLElement).getByText('Preview not updated')).toBeInTheDocument()
+    expect(row.querySelector('.override-copy')?.contains(row.querySelector('.override-status'))).toBe(false)
+    expect(within(row).queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    expect(screen.queryByText('A set edit needs a JSON value.')).not.toBeInTheDocument()
+    expect(store.getSnapshot().inserts.dailyNotes.restoreClipboardDelay).toBe(0.3)
   })
 
   it('protects the .autoPaste built-in and keeps Do nothing explicit', async () => {
@@ -1370,6 +1472,7 @@ describe('configuration editor interactions', () => {
     const utility = row.querySelector('.setting-utility') as HTMLElement
 
     expect(utility).toBeInTheDocument()
+    expect(row.querySelector('.setting-copy')?.contains(utility)).toBe(false)
     expect(within(utility).queryByRole('button', { name: 'Use built-in' })).not.toBeInTheDocument()
     await user.clear(control)
     await user.type(control, '0.2')
@@ -1442,6 +1545,22 @@ describe('configuration editor interactions', () => {
     await user.keyboard('{Enter}')
     await waitFor(() => expect(store.getSnapshot().defaults.returnDelay).toBeNull())
     expect(returnDelay).toHaveValue('')
+  })
+
+  it('keeps invalid numeric Defaults local and reports a concise field error', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const actionDelay = screen.getByRole('textbox', { name: 'Action delay' })
+
+    await user.clear(actionDelay)
+    await user.type(actionDelay, '2d')
+    fireEvent.blur(actionDelay)
+
+    const error = await screen.findByText('Enter a valid number.')
+    expect(actionDelay).toHaveAttribute('aria-invalid', 'true')
+    expect(error.closest('.setting-control')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    expect(store.getSnapshot().defaults.actionDelay).toBe(0)
   })
 
   it('keeps an explicit zero distinct from an unset numeric Default', async () => {

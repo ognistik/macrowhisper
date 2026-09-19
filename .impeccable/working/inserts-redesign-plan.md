@@ -124,8 +124,12 @@ including repeated sources with different transforms, is independently editable.
 ## Checkpoint 4 — behavior comprehension and finish
 
 Status: in progress. The Action overrides section now uses explicit pending
-choices, compact removal controls, and a shared control rail; Conditions,
-Triggers, Chaining, and the closing verification remain.
+choices, marks the current inherited value without offering inheritance as a
+choice, prefills custom inherited values for deliberate pinning, and uses
+compact removal controls with a shared control rail. Editing status now occupies
+a reserved layout region, and invalid numeric overrides stay contained beneath
+their controls with concise validation. Conditions, Triggers, Chaining, and the
+closing verification remain.
 
 - Refine Action overrides, Conditions, Triggers, and Chaining summaries.
 - Improve trigger density and advanced/raw boundaries; decide whether a local
