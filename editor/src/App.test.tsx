@@ -534,13 +534,58 @@ describe('configuration editor interactions', () => {
     expect(within(actionList).queryByRole('button', { name: 'Duplicate' })).not.toBeInTheDocument()
     await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
 
-    await user.click(screen.getByText('Insertion behavior', { selector: 'strong' }))
-    const insertion = screen.getByText('Insertion behavior', { selector: 'strong' }).closest('details')
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    const insertion = screen.getByText('Action overrides', { selector: 'strong' }).closest('details')
     expect(insertion).not.toBeNull()
+    expect(screen.queryByText('Insertion behavior', { selector: 'strong' })).not.toBeInTheDocument()
     expect(within(insertion!).getByText('Using Defaults')).toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: 'Simulate Escape' })).not.toBeInTheDocument()
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Add override' }), 'simEsc')
-    expect(screen.getByRole('combobox', { name: 'Simulate Escape' })).toBeInTheDocument()
+    const emptyAddOverride = within(insertion!).getByRole('combobox', { name: 'Add override' })
+    expect(emptyAddOverride.closest('.insertion-empty-state')).not.toBeNull()
+
+    await user.selectOptions(emptyAddOverride, 'simEsc')
+    const escapeControl = within(insertion!).getByRole('combobox', { name: 'Simulate Escape' })
+    expect(escapeControl).toHaveValue('pending')
+    expect(within(escapeControl).getByRole('option', { name: 'Choose value…' })).toBeDisabled()
+    const cancelOverride = within(insertion!).getByRole('button', { name: 'Cancel adding Simulate Escape override' })
+    expect(cancelOverride).not.toHaveAttribute('title')
+    expect(cancelOverride).toHaveTextContent('')
+    await user.selectOptions(escapeControl, 'off')
+    const removeOverride = await within(insertion!).findByRole('button', { name: 'Remove Simulate Escape override' })
+    expect(removeOverride).not.toHaveAttribute('title')
+    expect(removeOverride).toHaveTextContent('')
+
+    await user.click(removeOverride)
+    await waitFor(() => expect(within(insertion!).getByText('Using Defaults')).toBeInTheDocument())
+    expect(within(insertion!).queryByText(/Removing an override/)).not.toBeInTheDocument()
+    const addAgain = within(insertion!).getByRole('combobox', { name: 'Add override' })
+    expect(addAgain).toBeInTheDocument()
+
+    await user.selectOptions(addAgain, 'simEsc')
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Simulate Escape' }), 'on')
+    expect(await within(insertion!).findByRole('button', { name: 'Remove Simulate Escape override' })).toBeInTheDocument()
+  })
+
+  it('keeps custom icon controls together in an insertion override row', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    const insertion = screen.getByText('Action overrides', { selector: 'strong' }).closest('details')
+    expect(insertion).not.toBeNull()
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'icon')
+    const iconMode = within(insertion!).getByRole('combobox', { name: 'Icon mode' })
+    expect(iconMode).toHaveValue('pending')
+    expect(within(iconMode).getByRole('option', { name: 'Choose value…' })).toBeDisabled()
+    await user.selectOptions(iconMode, 'custom')
+
+    const customIcon = within(insertion!).getByRole('textbox', { name: 'Custom icon' })
+    expect(customIcon.closest('.nullable-control-icon')).not.toBeNull()
+    expect(within(insertion!).getByRole('button', { name: 'Cancel adding Icon override' })).toBeInTheDocument()
   })
 
   it('protects the .autoPaste built-in and keeps Do nothing explicit', async () => {
@@ -772,11 +817,11 @@ describe('configuration editor interactions', () => {
     await user.click(review)
     expect(review).toHaveAttribute('aria-expanded', 'true')
 
-    for (const label of ['Insertion behavior', 'Conditions', 'Triggers', 'Chaining']) {
+    for (const label of ['Action overrides', 'Conditions', 'Triggers', 'Chaining']) {
       await user.click(screen.getByText(label, { selector: 'strong' }))
       expect(detailsFor(label)).toHaveAttribute('open')
       expect(review).toHaveAttribute('aria-expanded', 'false')
-      for (const other of ['Insertion behavior', 'Conditions', 'Triggers', 'Chaining'].filter((item) => item !== label)) {
+      for (const other of ['Action overrides', 'Conditions', 'Triggers', 'Chaining'].filter((item) => item !== label)) {
         expect(detailsFor(other)).not.toHaveAttribute('open')
       }
     }

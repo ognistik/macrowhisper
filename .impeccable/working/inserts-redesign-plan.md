@@ -60,8 +60,8 @@ legible, while advanced sections remain findable without dominating the page.
 
 ## Checkpoint 3 — placeholder workspace
 
-Status: implemented for user review together with the configuration-v3 newline
-model. Placeholder detection is
+Status: implemented and verified by the user together with the
+configuration-v3 newline model. Placeholder detection is
 continuous and caret-independent; every complete occurrence is listed, while
 custom metadata paths remain structured and unsupported XML/raw syntax remains
 untouched. The current pass keeps review collapsed after insertion, offers Date
@@ -123,7 +123,11 @@ including repeated sources with different transforms, is independently editable.
 
 ## Checkpoint 4 — behavior comprehension and finish
 
-- Refine Insertion behavior, Conditions, Triggers, and Chaining summaries.
+Status: in progress. The Action overrides section now uses explicit pending
+choices, compact removal controls, and a shared control rail; Conditions,
+Triggers, Chaining, and the closing verification remain.
+
+- Refine Action overrides, Conditions, Triggers, and Chaining summaries.
 - Improve trigger density and advanced/raw boundaries; decide whether a local
   sample tester belongs in this release.
 - Complete keyboard, screen-reader, contrast, dark-mode, narrow-window, and 200%

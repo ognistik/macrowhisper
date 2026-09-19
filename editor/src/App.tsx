@@ -15,7 +15,6 @@ import {
   GlobeIcon,
   LightningBoltIcon,
   MagnifyingGlassIcon,
-  MinusCircledIcon,
   Pencil1Icon,
   PlusIcon,
   ResetIcon,
@@ -769,11 +768,6 @@ function shouldRestoreBuiltIn(field: string, value: FieldValue): boolean {
   if (value === null || value === undefined || value === '') return false
   const currentValue = typeof value === 'string' ? Number(value) : value
   return Number.isNaN(currentValue) || !Object.is(currentValue, defaultValue)
-}
-
-function inheritedNumberDefaultText(snapshot: ConfigSnapshot, field: string): string {
-  const value = effectiveDefault(snapshot, field)
-  return value === null || value === undefined || value === '' ? 'None' : String(value)
 }
 
 function effectiveValue(snapshot: ConfigSnapshot, valueFor: (path: string[]) => FieldValue, field: string): Scalar {
@@ -2211,6 +2205,7 @@ function FolderPathControl({ label, blurActionKey, children, chooseFolder, onSel
 
 function NullableTextControl({
   kind,
+  controlId,
   value,
   onChoice,
   onText,
@@ -2219,10 +2214,12 @@ function NullableTextControl({
   errorId,
   revertKey,
   collapseDefault = false,
+  pending = false,
   folderPickerPreview = false,
   chooseDirectory,
 }: {
   kind: 'icon' | 'moveTo'
+  controlId: string
   value: FieldValue
   onChoice: (value: FieldValue) => void
   onText: (value: string) => void
@@ -2231,25 +2228,23 @@ function NullableTextControl({
   errorId?: string
   revertKey?: string
   collapseDefault?: boolean
+  pending?: boolean
   folderPickerPreview?: boolean
   chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>
 }) {
   const isMove = kind === 'moveTo'
   const isCustomValue = typeof value === 'string' && value !== '' && (!isMove || value !== '.delete')
   const [customOpen, setCustomOpen] = useState(isCustomValue)
-  const mode = customOpen || isCustomValue ? 'custom' : isMove && value === '.delete' ? 'delete' : collapseDefault ? 'empty' : value === null || value === undefined ? 'default' : 'empty'
-  const inputId = `${kind}-custom-value`
+  const mode = customOpen || isCustomValue ? 'custom' : isMove && value === '.delete' ? 'delete' : collapseDefault ? 'empty' : pending ? 'pending' : 'empty'
+  const inputId = `${controlId}-custom-value`
   const builtInActive = collapseDefault && mode === 'empty'
   const builtInDescriptionId = `${kind}-built-in-description`
   return (
-    <div className="nullable-control">
+    <div className={`nullable-control nullable-control-${kind}`}>
       <div className="select-control-wrapper nullable-select-control">
-        <select aria-label={`${ariaLabel} mode`} aria-describedby={builtInActive ? builtInDescriptionId : undefined} value={mode} onChange={(event) => {
+        <select id={controlId} aria-label={`${ariaLabel} mode`} aria-describedby={builtInActive ? builtInDescriptionId : undefined} value={mode} onChange={(event) => {
           const next = event.target.value
-          if (next === 'default') {
-            setCustomOpen(false)
-            onChoice(null)
-          } else if (next === 'empty') {
+          if (next === 'empty') {
             setCustomOpen(false)
             onChoice('')
           } else if (next === 'delete') {
@@ -2259,12 +2254,12 @@ function NullableTextControl({
             setCustomOpen(true)
           }
         }}>
-          {!collapseDefault && <option value="default">Default</option>}
           {collapseDefault ? <>
             <optgroup label="Built-in value"><option value="empty">{isMove ? 'Keep recording' : 'No icon'}</option></optgroup>
             <hr />
             <optgroup label="Explicit values">{isMove && <option value="delete">Delete recording</option>}<option value="custom">Custom</option></optgroup>
           </> : <>
+            {pending && <option value="pending" disabled>Choose value…</option>}
             <option value="empty">{isMove ? 'Keep recording' : 'No icon'}</option>
             {isMove && <option value="delete">Delete recording</option>}
             <option value="custom">Custom</option>
@@ -2327,7 +2322,7 @@ function DefaultField({ field, snapshot, valueFor, drafts, textHandlers, setDraf
   }
 
   if (field === 'icon' || field === 'moveTo') {
-    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />}><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={(next) => setDraftValue(path, next)} onBlur={(next) => { if (entry?.status === 'dirty' || next !== displayValue(readPath(snapshot, path))) void commitField(path, next) }} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} collapseDefault folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} /></SettingRow>
+    return <SettingRow label={meta.label} description={meta.description} state={<FieldState entry={entry} {...saveProps} />} controlId={field}><NullableTextControl kind={field} controlId={field} value={value} onChoice={onChoice} onText={(next) => setDraftValue(path, next)} onBlur={(next) => { if (entry?.status === 'dirty' || next !== displayValue(readPath(snapshot, path))) void commitField(path, next) }} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} collapseDefault folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} /></SettingRow>
   }
 
   if (field === 'watch' || field === 'clipboardIgnore' || field === 'bypassModes') {
@@ -2696,7 +2691,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     : `Triggered by ${joinSummaryParts(triggerParts)}${triggerParts.length > 1 ? ` (${effectiveTriggerLogic === 'and' ? 'all types must match' : 'any type can match'})` : ''}`
   const payloadSummary = payloadMode === 'autoPaste' ? 'Uses built-in Auto-paste' : payloadMode === 'none' ? 'Performs no payload' : 'Inserts custom text'
   const insertionSummary = payloadMode === 'text'
-    ? (overrideCount === 0 ? 'Uses Defaults' : `${overrideCount} insertion override${overrideCount === 1 ? '' : 's'}`)
+    ? (overrideCount === 0 ? 'Uses Defaults' : `${overrideCount} action override${overrideCount === 1 ? '' : 's'}`)
     : 'Uses built-in insertion behavior'
   const conditionsSummary = payloadMode === 'text'
     ? conditionHasIssue
@@ -2719,11 +2714,12 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
       : 'Stops after this action'
   const effectiveBehavior = `${triggerSummary} · ${payloadSummary} · ${insertionSummary} · ${conditionsSummary} · ${nextSummary}`
   const insertionDisclosureMeta = payloadMode === 'text'
-    ? `${overrideCount} override${overrideCount === 1 ? '' : 's'}${overrideCount === 0 ? ' · Using Defaults' : ''}`
+    ? (overrideCount === 0 ? 'Uses Defaults' : `${overrideCount} override${overrideCount === 1 ? '' : 's'}`)
     : `Built-in active${overrideCount > 0 ? ` · ${overrideCount} stored override${overrideCount === 1 ? '' : 's'}` : ''}`
   const conditionDisclosureMeta = payloadMode === 'text'
     ? conditionSummary
     : `Built-in active${conditionRaw ? ' · Stored rules retained' : ''}`
+  const addOverrideControl = availableOverrides.length > 0 ? <label className="add-setting-control insertion-add-control"><span className="sr-only">Add override</span><PlusIcon aria-hidden="true" /><select aria-label="Add override" value="" onChange={(event) => { const field = event.target.value; if (field) setPendingOverrides((current) => [...current, field]) }}><option value="">Add override…</option>{availableOverrides.map((field) => <option key={field} value={field}>{actionMeta[field].label}</option>)}</select></label> : null
 
   return (
     <section className="insert-editor">
@@ -2781,14 +2777,17 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           </div> : <div className="payload-template-summary"><div><strong>{payloadMode === 'autoPaste' ? 'Auto-paste dictation' : 'Do nothing'}</strong><span>{payloadMode === 'autoPaste' ? 'Macrowhisper uses its protected built-in paste flow and insertion behavior. This action cannot be deleted.' : 'This Insert performs no payload operation. Its triggers and chain settings can still apply.'}</span></div>{recoveredPayload !== undefined && <div className="payload-recovery" role="status"><div><strong>Custom text retained</strong><span>{recoveredPayload.length} character{recoveredPayload.length === 1 ? '' : 's'} kept for this editing session.</span></div><button type="button" className="quiet-button" onClick={() => void setActionChoice('text')}>Restore custom text</button></div>}</div>}
         </section>
 
-        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Insertion behavior" subtitle="Overrides inherited Defaults for this Insert." meta={insertionDisclosureMeta} open={openDisclosure === 'insertion'} onToggle={(open) => setDisclosureOpen('insertion', open)} variant="defaults">
-          {visibleOverrides.length === 0 && <div className="section-empty"><strong>Using Defaults</strong><span>This Insert has no insertion overrides.</span></div>}
+        <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Action overrides" subtitle="Change inherited Defaults for this action." meta={insertionDisclosureMeta} open={openDisclosure === 'insertion'} onToggle={(open) => setDisclosureOpen('insertion', open)} variant="defaults">
+          {visibleOverrides.length === 0 && <div className="section-empty insertion-empty-state"><div className="insertion-empty-copy"><strong>Using Defaults</strong></div>{addOverrideControl}</div>}
           <div className="configured-list">{visibleOverrides.map((field) => {
             const configured = configuredOverrides.includes(field)
-            return <div className="configured-item" key={field}><fieldset className="template-field" disabled={payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard')}><OverrideField field={field} path={actionPath(field)} snapshot={snapshot} value={valueFor(actionPath(field))} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) setPendingOverrides((current) => current.filter((item) => item !== field)) }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); setPendingOverrides((current) => current.filter((item) => item !== field)) }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />{payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard') && <p className="template-note">{payloadMode === 'autoPaste' ? 'Template: Off outside text fields; Defaults inside text fields.' : 'Template: Off.'} Stored override is retained.</p>}</fieldset><button type="button" className="text-button remove-configured" onClick={() => { setPendingOverrides((current) => current.filter((item) => item !== field)); if (configured) void commitField(actionPath(field), null) }}><Cross2Icon aria-hidden="true" /> {configured ? 'Use Defaults' : 'Cancel'}</button></div>
+            const disabled = payloadMode !== 'text' && (field === 'simEsc' || field === 'restoreClipboard')
+            const disabledNote = disabled ? `${payloadMode === 'autoPaste' ? 'Template: Off outside text fields; Defaults inside text fields.' : 'Template: Off.'} Stored override is retained.` : undefined
+            const removeLabel = configured ? `Remove ${actionMeta[field].label} override` : `Cancel adding ${actionMeta[field].label} override`
+            const utility = <button type="button" className="remove-configured" aria-label={removeLabel} onClick={() => { setPendingOverrides((current) => current.filter((item) => item !== field)); if (configured) void commitField(actionPath(field), null) }}><Cross2Icon aria-hidden="true" /></button>
+            return <div className="configured-item" key={field}><OverrideField field={field} path={actionPath(field)} value={valueFor(actionPath(field))} entry={drafts[pathKey(actionPath(field))]} meta={actionMeta[field]} pending={!configured} onChoice={(value) => { void commitField(actionPath(field), value); if (value !== null && value !== undefined) setPendingOverrides((current) => current.filter((item) => item !== field)) }} onText={(value) => setDraftValue(actionPath(field), value)} onBlur={(value) => { commitIfChanged(actionPath(field), value); setPendingOverrides((current) => current.filter((item) => item !== field)) }} onRevert={() => revertField(actionPath(field))} onRetry={() => retryField(actionPath(field))} onResync={() => resyncField(actionPath(field))} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} disabled={disabled} disabledNote={disabledNote} utility={utility} /></div>
           })}</div>
-          {availableOverrides.length > 0 && <label className="add-setting-control"><span className="sr-only">Add override</span><PlusIcon aria-hidden="true" /><select aria-label="Add override" value="" onChange={(event) => { const field = event.target.value; if (field) setPendingOverrides((current) => [...current, field]) }}><option value="">Add override…</option>{availableOverrides.map((field) => <option key={field} value={field}>{actionMeta[field].label}</option>)}</select></label>}
-          <div className="template-note"><MinusCircledIcon aria-hidden="true" /> Removing an override restores Use Defaults. Empty strings remain explicit values.</div>
+          {visibleOverrides.length > 0 && addOverrideControl && <div className="insertion-footer">{addOverrideControl}</div>}
         </Disclosure></div>
 
         <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Conditions" subtitle="Apply supported settings inside or outside text fields." meta={conditionDisclosureMeta} open={openDisclosure === 'conditions'} onToggle={(open) => setDisclosureOpen('conditions', open)} variant="defaults">
@@ -3073,26 +3072,25 @@ function FieldLifecycle({ status }: { status: 'idle' | 'saving' | 'saved' }) {
   return <span className={`field-state field-state-${status === 'saving' ? 'saving' : 'saved'}`}>{status === 'saving' ? (previewMode ? 'Updating preview…' : 'Saving…') : <><CheckIcon aria-hidden="true" /> {previewMode ? 'Updated in preview' : 'Saved'}</>}</span>
 }
 
-function OverrideField({ field, path, snapshot, value, entry, meta, onChoice, onText, onBlur, onRevert, onRetry, onResync, folderPickerPreview, chooseDirectory }: { field: string; path: string[]; snapshot: ConfigSnapshot; value: FieldValue; entry?: DraftEntry; meta: { label: string; description: string }; onChoice: (value: FieldValue) => void; onText: (value: string) => void; onBlur: (value: string) => void; onRevert: () => void; onRetry: () => void; onResync: () => void; folderPickerPreview: boolean; chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null> }) {
+function OverrideField({ field, path, value, entry, meta, pending = false, onChoice, onText, onBlur, onRevert, onRetry, onResync, folderPickerPreview, chooseDirectory, disabled = false, disabledNote, utility }: { field: string; path: string[]; value: FieldValue; entry?: DraftEntry; meta: { label: string; description: string }; pending?: boolean; onChoice: (value: FieldValue) => void; onText: (value: string) => void; onBlur: (value: string) => void; onRevert: () => void; onRetry: () => void; onResync: () => void; folderPickerPreview: boolean; chooseDirectory?: (purpose: FolderPickerPurpose) => Promise<string | null>; disabled?: boolean; disabledNote?: string; utility?: ReactNode }) {
   const state = <FieldState entry={entry} onRevert={onRevert} onRetry={onRetry} onResync={onResync} errorId={fieldErrorId(path)} />
   const inputId = path.join('-')
   const numberField = field === 'actionDelay' || field === 'restoreClipboardDelay' || field === 'scriptWaitTimeout'
   const [numberOpen, setNumberOpen] = useState(value !== null && value !== undefined)
+  let control: ReactNode = null
 
   if (field === 'icon' || field === 'moveTo') {
-    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><NullableTextControl kind={field} value={value} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} /></div>
-  }
-  if (numberField) {
+    control = <NullableTextControl kind={field} controlId={inputId} value={value} pending={pending} onChoice={onChoice} onText={onText} onBlur={onBlur} ariaLabel={meta.label} errorId={fieldErrorId(path)} revertKey={pathKey(path)} folderPickerPreview={folderPickerPreview} chooseDirectory={chooseDirectory} />
+  } else if (numberField) {
     const showingValue = numberOpen || (value !== null && value !== undefined)
-    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><div className="override-control"><select aria-label={`${meta.label} inheritance`} value={showingValue ? 'value' : 'default'} onChange={(event) => { if (event.target.value === 'default') { setNumberOpen(false); onChoice(null) } else setNumberOpen(true) }}><option value="default">Use Defaults ({inheritedNumberDefaultText(snapshot, field)} s)</option><option value="value">Override</option></select>{showingValue && <input id={inputId} value={displayValue(value)} inputMode="decimal" onChange={(event) => onText(event.target.value)} onBlur={(event) => { if (!isFieldBlurActionTarget(event.relatedTarget, pathKey(path))) onBlur(event.target.value) }} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} />}<span className="unit">seconds</span></div></div>
+    control = <div className="override-control"><select id={inputId} aria-label={`${meta.label} mode`} value={pending && !showingValue ? 'pending' : 'value'} onChange={() => setNumberOpen(true)}>{pending && !showingValue && <option value="pending" disabled>Choose value…</option>}<option value="value">Custom</option></select>{showingValue && <input id={`${inputId}-value`} value={displayValue(value)} inputMode="decimal" onChange={(event) => onText(event.target.value)} onBlur={(event) => { if (!isFieldBlurActionTarget(event.relatedTarget, pathKey(path))) onBlur(event.target.value) }} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} />}<span className="unit">seconds</span></div>
+  } else if (booleanFields.has(field)) {
+    const selected = value === true
+    control = <div className="setting-input-stack"><select id={inputId} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} value={pending ? 'pending' : selected ? 'on' : 'off'} onChange={(event) => onChoice(event.target.value === 'on')}>{pending && <option value="pending" disabled>Choose value…</option>}<option value="on">{booleanText(field, true)}</option><option value="off">{booleanText(field, false)}</option></select></div>
   }
-  if (booleanFields.has(field)) {
-    const inherited = effectiveDefault(snapshot, field) === true
-    const selected = value === null || value === undefined ? inherited : value === true
-    const pinnedToCurrentDefault = typeof value === 'boolean' && value === inherited
-    return <div className="override-field"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p><div className="setting-input-stack"><select id={inputId} aria-label={meta.label} aria-describedby={entry?.error ? fieldErrorId(path) : undefined} value={selected ? 'on' : 'off'} onChange={(event) => { const next = event.target.value === 'on'; onChoice(next === inherited ? null : next) }}><option value="on">{booleanText(field, true)}{inherited ? ' · Use Defaults' : ''}</option><option value="off">{booleanText(field, false)}{!inherited ? ' · Use Defaults' : ''}</option></select>{pinnedToCurrentDefault && <button type="button" className="text-button reset-field-button" onClick={() => onChoice(null)}>Use Defaults</button>}</div></div>
-  }
-  return null
+
+  if (!control) return null
+  return <div className="override-field"><div className="override-copy"><div className="override-label"><label htmlFor={inputId}>{meta.label}</label>{state}</div><p>{meta.description}</p></div><fieldset className="template-field override-setting" disabled={disabled}>{control}{disabledNote && <p className="template-note">{disabledNote}</p>}</fieldset>{utility}</div>
 }
 
 function Disclosure({ title, subtitle, meta, open, onToggle, children, variant = 'standard' }: { title: string; subtitle: string; meta?: ReactNode; open: boolean; onToggle: (open: boolean) => void; children: ReactNode; variant?: 'standard' | 'defaults' }) {

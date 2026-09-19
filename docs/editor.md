@@ -137,10 +137,11 @@ generation, accepted version, and on-disk fingerprint. This prevents an older
 browser response from silently replacing a newer change.
 
 The editor distinguishes three related concepts in its labels: **Defaults** are
-the user's shared configuration, **Use Defaults** removes an action-level
-override, and **Built-in** identifies the value Macrowhisper ships with for the
-specific root setting being edited. Built-in action templates remain named
-action modes; they do not become the Built-in value of an unrelated setting.
+the user's shared configuration, removing an entry under **Action overrides**
+resumes inheritance from those Defaults, and **Built-in** identifies the value
+Macrowhisper ships with for the specific root setting being edited. Built-in
+action templates remain named action modes; they do not become the Built-in
+value of an unrelated setting.
 Ordinary dropdowns place the Built-in value first, then separate it visually
 and semantically from explicit values. Searchable action pickers use the same
 grouping for built-in, inheritance, no-action, and configured-action choices.
@@ -165,12 +166,13 @@ Insert names are unique across all five action groups. Rename updates inbound
 blocked while Defaults or another action still points at the Insert.
 
 Collapsed action sections summarize the behavior that is actually configured.
-Placeholder review, Insertion behavior, Conditions, Triggers, and Chaining form
+Placeholder review, Action overrides, Conditions, Triggers, and Chaining form
 one coordinated disclosure set: opening one closes the previously open section,
 and choosing another action resets the set. Opening a settings section shows
 configured entries first and offers an explicit Add control for another
-exception. Removing an override restores **Use Defaults**; removing a condition
-restores **Always**.
+exception. A newly added override asks for an explicit value before it changes
+the configuration. Removing an override resumes inheritance from **Defaults**;
+removing a condition restores **Always**.
 Unsupported or ambiguous raw condition and trigger expressions remain available
 for deliberate raw editing and are never silently simplified.
 
