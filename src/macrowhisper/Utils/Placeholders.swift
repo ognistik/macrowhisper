@@ -633,28 +633,25 @@ private func shouldPreserveOriginalWordCaseForPlaceholder(_ token: String) -> Bo
     return false
 }
 
-// Function to process LLM result based on XML placeholders in the action
-// Supports both {{xml:tagName}} and {{json:xml:tagName}} formats
+// Function to process LLM result based on XML placeholders in the action.
+// XML extraction is intentionally separate from placeholder expansion: the
+// extracted text is kept in a side table so text that happens to look like a
+// placeholder is never parsed again after it is inserted into an action.
 func processXmlPlaceholders(action: String, llmResult: String) -> (String, [String: String]) {
     var cleanedLlmResult = llmResult
     var extractedTags: [String: String] = [:]
-    
-    // First, identify which XML tags are requested in the action - supports both {{xml:tag}}, {{json:xml:tag}}, and {{raw:xml:tag}}
-    let placeholderPattern = "\\{\\{(?:(json|raw):)?xml:([A-Za-z0-9_]+)\\}\\}"
-    let placeholderRegex = try? NSRegularExpression(pattern: placeholderPattern, options: [.dotMatchesLineSeparators])
-    
+
     var requestedTags: Set<String> = []
-    
-    // Find all XML placeholders in the action
-    if let matches = placeholderRegex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
-        for match in matches {
-            if let tagNameRange = Range(match.range(at: 2), in: action) {
-                let tagName = String(action[tagNameRange])
-                requestedTags.insert(tagName)
-            }
+
+    // Parse XML expressions instead of using a second regex. This preserves
+    // the existing tag-name grammar while allowing the same transform and
+    // replacement suffixes as dynamic placeholders.
+    for segment in extractPlaceholderSegments(from: action) {
+        if let expression = parseXMLPlaceholderExpression(segment.content) {
+            requestedTags.insert(expression.tagName)
         }
     }
-    
+
     // If no XML tags are requested, return the original LLM result
     if requestedTags.isEmpty {
         logDebug("[XMLPlaceholders] No XML placeholders found in action, returning original llmResult unchanged")
@@ -692,8 +689,8 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
                         var content = String(cleanedLlmResult[contentRange])
                         content = content.trimmingCharacters(in: .whitespacesAndNewlines)
                         
-                        // For multiple occurrences, we'll use the content from the first match found
-                        // (which is the last one processed due to reverse order)
+                        // Preserve the historical last-occurrence behavior. Matches are
+                        // processed in reverse, so the first stored value is the final tag.
                         if extractedTags[tagName] == nil {
                             extractedTags[tagName] = content
                             logDebug("[XMLPlaceholders] Extracted tag '\(tagName)': \(redactForLogs(content))")
@@ -724,58 +721,34 @@ func processXmlPlaceholders(action: String, llmResult: String) -> (String, [Stri
     return (cleanedLlmResult, extractedTags)
 }
 
-// Function to replace XML placeholders in an action string
-// Supports {{xml:tagName}}, {{json:xml:tagName}}, and {{raw:xml:tagName}} formats
-// The json: prefix applies JSON string escaping to the extracted XML content
-// The raw: prefix applies no escaping to the extracted XML content
-// The actionType parameter determines additional escaping for specific action types (e.g., URL encoding for URL actions)
+// Function to replace XML placeholders in an action string.
+// XML expressions use the same transform -> regex replacement -> final
+// escaping order as dynamic placeholders. The extracted value is substituted
+// directly from extractedTags, so it is never fed back through the parser.
 func replaceXmlPlaceholders(action: String, extractedTags: [String: String], actionType: ActionType? = nil) -> String {
     var result = action
-    
-    // Find all XML placeholders using regex - supports {{xml:tag}}, {{json:xml:tag}}, and {{raw:xml:tag}}
-    let pattern = "\\{\\{(?:(json|raw):)?xml:([A-Za-z0-9_]+)\\}\\}"
-    let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
-    
-    // Get all matches
-    if let matches = regex?.matches(in: action, options: [], range: NSRange(action.startIndex..., in: action)) {
-        for match in matches.reversed() {
-            if let tagNameRange = Range(match.range(at: 2), in: action),
-               let fullMatchRange = Range(match.range, in: action) {
-                
-                let tagName = String(action[tagNameRange])
-                
-                // Check the prefix type for escaping
-                var prefixType: String? = nil
-                if match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound,
-                   let prefixRange = Range(match.range(at: 1), in: action) {
-                    prefixType = String(action[prefixRange])
-                }
-                
-                // Replace the placeholder with the extracted content if available and not empty
-                if let content = extractedTags[tagName], !content.isEmpty {
-                    let finalContent: String
-                    switch prefixType {
-                    case "json":
-                        finalContent = escapeJsonString(content)
-                    case "raw":
-                        finalContent = content  // No escaping for raw prefix
-                    default:
-                        // Apply action-specific escaping if no prefix is specified
-                        if let actionType = actionType {
-                            finalContent = applyFinalEscaping(value: content, prefixType: nil, actionType: actionType)
-                        } else {
-                            finalContent = content  // Default: no escaping when actionType is nil
-                        }
-                    }
-                    result.replaceSubrange(fullMatchRange, with: finalContent)
-                } else {
-                    // If content is missing or empty, remove the placeholder entirely
-                    result.replaceSubrange(fullMatchRange, with: "")
-                }
+    let segments = extractPlaceholderSegments(from: action)
+
+    for segment in segments.reversed() {
+        guard let expression = parseXMLPlaceholderExpression(segment.content) else {
+            // Reserve the XML namespace even for malformed/unsupported XML
+            // expressions. Such a value must not fall through to a metadata
+            // key named `xml`.
+            if isXMLPlaceholderNamespace(segment.content) {
+                result.replaceSubrange(segment.fullRange, with: "")
             }
+            continue
         }
+
+        let finalContent = finalizeXMLPlaceholderValue(
+            extractedTags[expression.tagName] ?? "",
+            expression: expression,
+            actionType: actionType
+        )
+
+        result.replaceSubrange(segment.fullRange, with: finalContent)
     }
-    
+
     return result
 }
 
@@ -1018,6 +991,13 @@ private struct ParsedPlaceholderExpression {
     let regexReplacements: [(regex: String, replacement: String)]
 }
 
+private struct ParsedXMLPlaceholderExpression {
+    let prefixType: String?
+    let tagName: String
+    let transformName: String?
+    let regexReplacements: [(regex: String, replacement: String)]
+}
+
 private func isEscapedCharacter(in text: String, at index: String.Index) -> Bool {
     guard index > text.startIndex else { return false }
     var backslashCount = 0
@@ -1135,6 +1115,128 @@ private func splitByUnescapedDoublePipe(_ value: String) -> [String] {
     return parts
 }
 
+/// Parses the reserved XML placeholder namespace. XML tag names intentionally
+/// retain the historical `[A-Za-z0-9_]+` grammar; only `::transform` and
+/// `||regex||replacement` suffixes are accepted after the tag name.
+private func parseXMLPlaceholderExpression(_ content: String) -> ParsedXMLPlaceholderExpression? {
+    var remaining = content
+    var prefixType: String?
+
+    if remaining.hasPrefix("json:") {
+        prefixType = "json"
+        remaining.removeFirst("json:".count)
+    } else if remaining.hasPrefix("raw:") {
+        prefixType = "raw"
+        remaining.removeFirst("raw:".count)
+    }
+
+    guard remaining.hasPrefix("xml:") else { return nil }
+    remaining.removeFirst("xml:".count)
+
+    let tagStart = remaining.startIndex
+    let tagEnd = remaining.firstIndex(where: { character in
+        guard let asciiValue = character.asciiValue else { return true }
+        return !(
+            (asciiValue >= 65 && asciiValue <= 90) ||
+            (asciiValue >= 97 && asciiValue <= 122) ||
+            (asciiValue >= 48 && asciiValue <= 57) ||
+            asciiValue == 95
+        )
+    }) ?? remaining.endIndex
+
+    guard tagEnd > tagStart else { return nil }
+    let tagName = String(remaining[tagStart..<tagEnd])
+    remaining = String(remaining[tagEnd...])
+
+    var transformName: String?
+    if remaining.hasPrefix("::") {
+        remaining.removeFirst(2)
+        let (head, tail) = splitAtFirstUnescapedDelimiter(in: remaining, delimiters: ["||"])
+        let trimmed = head.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        transformName = trimmed
+        remaining = tail
+    }
+
+    var regexReplacements: [(regex: String, replacement: String)] = []
+    if remaining.hasPrefix("||") {
+        remaining.removeFirst(2)
+        let parts = splitByUnescapedDoublePipe(remaining)
+        guard parts.count.isMultiple(of: 2) else { return nil }
+        for index in stride(from: 0, to: parts.count - 1, by: 2) {
+            if index + 1 < parts.count {
+                regexReplacements.append((regex: parts[index], replacement: parts[index + 1]))
+            }
+        }
+        remaining = ""
+    }
+
+    guard remaining.isEmpty else { return nil }
+
+    return ParsedXMLPlaceholderExpression(
+        prefixType: prefixType,
+        tagName: tagName,
+        transformName: transformName,
+        regexReplacements: regexReplacements
+    )
+}
+
+/// Returns true for the reserved XML namespace, including malformed suffixes.
+/// This prevents an unsupported XML expression from being treated as a
+/// metadata lookup for a top-level key named `xml`.
+private func isXMLPlaceholderNamespace(_ content: String) -> Bool {
+    var remaining = content
+    while true {
+        let normalized = remaining.lowercased()
+        if normalized.hasPrefix("json:") {
+            remaining.removeFirst("json:".count)
+        } else if normalized.hasPrefix("raw:") {
+            remaining.removeFirst("raw:".count)
+        } else {
+            return normalized.hasPrefix("xml:")
+        }
+    }
+}
+
+/// Applies the shared XML value pipeline. XML content is never parsed as a
+/// template here; only its explicit transform and replacement modifiers run.
+private func finalizeXMLPlaceholderValue(
+    _ rawValue: String,
+    expression: ParsedXMLPlaceholderExpression,
+    actionType: ActionType?
+) -> String {
+    guard !rawValue.isEmpty else { return "" }
+
+    var value = rawValue
+    if let transformName = expression.transformName {
+        value = applyPlaceholderTransform(
+            value,
+            transformName: transformName,
+            placeholderKey: "xml:\(expression.tagName)"
+        )
+    }
+    if !expression.regexReplacements.isEmpty {
+        value = applyRegexReplacements(to: value, replacements: expression.regexReplacements)
+    }
+
+    if let actionType {
+        return applyFinalEscaping(
+            value: value,
+            prefixType: expression.prefixType,
+            actionType: actionType
+        )
+    }
+
+    switch expression.prefixType {
+    case "json":
+        return escapeJsonString(value)
+    case "raw", nil:
+        return value
+    default:
+        return value
+    }
+}
+
 private func parsePlaceholderExpression(_ content: String) -> ParsedPlaceholderExpression? {
     var remaining = content
     var prefixType: String? = nil
@@ -1224,21 +1326,45 @@ func actionTemplateUsesPlaceholder(_ actionTemplate: String, key: String) -> Boo
 func processDynamicPlaceholders(
     action: String,
     metaJson: [String: Any],
-    actionType: ActionType
+    actionType: ActionType,
+    extractedXMLTags: [String: String] = [:]
 ) -> PlaceholderProcessingResult {
     var result = action
     var resolvedFolderPathCache: [Int: String?] = [:]
     let placeholderSegments = extractPlaceholderSegments(from: action)
 
     for placeholderSegment in placeholderSegments.reversed() {
+            let fullMatchRange = placeholderSegment.fullRange
+
+            // Resolve XML expressions here, while iterating the original
+            // template ranges. The extracted value is inserted only after
+            // the ranges have been identified, so placeholder-looking text
+            // inside XML content cannot be expanded a second time.
+            if let xmlExpression = parseXMLPlaceholderExpression(placeholderSegment.content) {
+                let value = finalizeXMLPlaceholderValue(
+                    extractedXMLTags[xmlExpression.tagName] ?? "",
+                    expression: xmlExpression,
+                    actionType: actionType
+                )
+                result.replaceSubrange(fullMatchRange, with: value)
+                continue
+            }
+
+            // `xml:` is a reserved namespace. If parsing fails, remove the
+            // expression rather than allowing the dynamic metadata resolver
+            // to interpret `xml` as a custom metadata key.
+            if isXMLPlaceholderNamespace(placeholderSegment.content) {
+                result.replaceSubrange(fullMatchRange, with: "")
+                continue
+            }
+
             guard let parsedExpression = parsePlaceholderExpression(placeholderSegment.content) else { continue }
             let key = parsedExpression.key
             let prefixType = parsedExpression.prefixType
             let regexReplacements = parsedExpression.regexReplacements
             let transformName = parsedExpression.transformName
             let placeholderFormat = parsedExpression.format
-            let fullMatchRange = placeholderSegment.fullRange
-            
+
             func finalizePlaceholderValue(_ rawValue: String) -> String {
                 var value = rawValue
 
@@ -1759,6 +1885,7 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
     logDebug("[UnifiedPlaceholders] Processing placeholders for \(actionType) action")
     var result = action
     var updatedMetaJson = metaJson
+    var extractedXMLTags: [String: String] = [:]
     
     // Apply newline conversion for Insert actions only
     // This allows users to type \n in their action templates while preserving literal \n in placeholder content
@@ -1777,23 +1904,27 @@ func processAllPlaceholders(action: String, metaJson: [String: Any], actionType:
             logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
         }
         updatedMetaJson["llmResult"] = cleaned
-        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: actionType)
+        extractedXMLTags = tags
     } else if let regularResult = metaJson["result"] as? String, !regularResult.isEmpty {
         // logDebug("[UnifiedPlaceholders] Original result: '\(regularResult)'")
-        let (_, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
+        let (cleaned, tags) = processXmlPlaceholders(action: action, llmResult: regularResult)
         if redactedLogsEnabled {
             logDebug("[UnifiedPlaceholders] Extracted tags: [REDACTED count=\(tags.count)]")
         } else {
             logDebug("[UnifiedPlaceholders] Extracted tags: \(tags)")
         }
-        result = replaceXmlPlaceholders(action: result, extractedTags: tags, actionType: actionType)
+        updatedMetaJson["result"] = cleaned
+        extractedXMLTags = tags
     }
     
-    // Then process dynamic placeholders with appropriate escaping based on action type
+    // Process XML and dynamic placeholders in one pass over the original
+    // template. XML content is resolved from the side table and therefore is
+    // never expanded again as dynamic placeholder syntax.
     let dynamicResult = processDynamicPlaceholders(
         action: result,
         metaJson: updatedMetaJson,
-        actionType: actionType
+        actionType: actionType,
+        extractedXMLTags: extractedXMLTags
     )
     result = dynamicResult.text
     

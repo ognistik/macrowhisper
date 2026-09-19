@@ -369,6 +369,132 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let result39 = processDynamicPlaceholders(action: action39, metaJson: meta39, actionType: .insert).text
         assertEqual(result39, "Spanish", "custom metadata paths use transforms and regex replacements")
 
+        let xmlMeta: [String: Any] = [
+            "llmResult": "before<tag>foo API api</tag>after",
+            // A custom metadata key named `xml` must not capture XML syntax.
+            "xml": "metadata-fallback"
+        ]
+        let xmlPipeline = processAllPlaceholders(
+            action: "{{xml:tag::uppercase||FOO||bar||bar||done}}",
+            metaJson: xmlMeta,
+            actionType: .insert
+        ).text
+        assertEqual(xmlPipeline, "done API API", "XML transform runs before ordered regex replacements")
+
+        let xmlCaptureTransform = processAllPlaceholders(
+            action: "{{xml:tag||\\b(api|sdk)\\b||${1::uppercase}}}",
+            metaJson: ["llmResult": "<tag>api and sdk</tag>"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlCaptureTransform, "API and SDK", "XML regex replacements support capture transforms")
+
+        let xmlPrefix = processAllPlaceholders(
+            action: "{{json:xml:tag}}|{{raw:xml:tag}}",
+            metaJson: ["llmResult": "<tag>say \"hi\"</tag>"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlPrefix, "say \\\"hi\\\"|say \"hi\"", "XML json and raw prefixes select their escaping policy")
+
+        let xmlShell = processAllPlaceholders(
+            action: "{{xml:tag}}|{{raw:xml:tag}}",
+            metaJson: ["llmResult": "<tag>say \"hi\"</tag>"],
+            actionType: .shell
+        ).text
+        assertEqual(xmlShell, "say \\\"hi\\\"|say \"hi\"", "XML default escaping follows the action type while raw bypasses it")
+
+        let xmlEscapingAfterReplacement = processAllPlaceholders(
+            action: "{{xml:tag||VALUE||\"$HOME\"}}",
+            metaJson: ["llmResult": "<tag>VALUE</tag>"],
+            actionType: .shell
+        ).text
+        assertEqual(
+            xmlEscapingAfterReplacement,
+            "\\\"\\$HOME\\\"",
+            "XML replacement output is escaped exactly once after the modifier pipeline"
+        )
+
+        let xmlURL = processAllPlaceholders(
+            action: "{{xml:tag}}|{{json:xml:tag}}|{{raw:xml:tag}}",
+            metaJson: ["llmResult": "<tag>a b/c</tag>"],
+            actionType: .url
+        ).text
+        assertEqual(xmlURL, "a%20b%2Fc|a b/c|a b/c", "XML URL escaping happens once after modifiers and prefixes override it")
+
+        let xmlMultiple = processAllPlaceholders(
+            action: "{{xml:tag::uppercase}}/{{xml:tag||second||last}}",
+            metaJson: ["llmResult": "<tag>first</tag>\n<tag>second</tag>"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMultiple, "SECOND/last", "XML multiple occurrences retain the existing last-occurrence value")
+
+        let xmlMissingAndEmpty = processAllPlaceholders(
+            action: "{{xml:missing}}|{{xml:empty}}",
+            metaJson: ["llmResult": "<empty></empty>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMissingAndEmpty, "|", "missing and empty XML tags resolve to empty values")
+
+        let xmlLLMCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{swResult}}",
+            metaJson: ["llmResult": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlLLMCleanup, "value|beforeafter", "llmResult cleanup is reflected in swResult")
+
+        let xmlDirectLLMCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{llmResult}}",
+            metaJson: ["llmResult": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlDirectLLMCleanup, "value|beforeafter", "llmResult cleanup is reflected in direct llmResult placeholders")
+
+        let xmlResultCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{swResult}}",
+            metaJson: ["result": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlResultCleanup, "value|beforeafter", "result cleanup is reflected in swResult")
+
+        let xmlDirectResultCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{result}}",
+            metaJson: ["result": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlDirectResultCleanup, "value|beforeafter", "result cleanup is reflected in direct result placeholders")
+
+        let xmlLiteralPlaceholder = processAllPlaceholders(
+            action: "{{xml:tag}}",
+            metaJson: ["llmResult": "<tag>{{swResult}}</tag>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlLiteralPlaceholder, "{{swResult}}", "XML content containing placeholder-looking text is not expanded again")
+
+        let xmlUnsupportedSuffix = processAllPlaceholders(
+            action: "{{xml:tag:unsupported}}",
+            metaJson: ["llmResult": "<tag>value</tag>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlUnsupportedSuffix, "", "unsupported XML suffixes stay in the reserved XML namespace")
+
+        let xmlMalformedTail = processAllPlaceholders(
+            action: "{{xml:tag::}}|{{xml:tag||pattern}}",
+            metaJson: ["llmResult": "<tag>value</tag>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMalformedTail, "|", "empty transforms and dangling XML regex parts are rejected")
+
+        let xmlMalformedNamespace = processAllPlaceholders(
+            action: "{{XML:tag}}|{{JSON:xml:tag}}|{{json:raw:xml:tag}}",
+            metaJson: [
+                "llmResult": "<tag>value</tag>",
+                "XML": "metadata-XML",
+                "JSON": "metadata-JSON",
+                "raw": "metadata-raw"
+            ],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMalformedNamespace, "||", "case-variant and chained XML namespaces are rejected consistently")
+
         stubSelectedText = ""
         stubAppContext = ""
         stubAppVocabulary = ""

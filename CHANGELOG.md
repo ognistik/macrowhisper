@@ -2,6 +2,9 @@
 
 ## UNRELEASED
 
+### Improved
+* XML placeholders now support the same transforms and ordered regex replacements as other text placeholders, including `raw:` and `json:` forms. Extracted XML is removed consistently from both `llmResult` and `result` before `{{swResult}}` is resolved, and the editor can configure the new XML pipeline directly.
+
 ---
 ## [v2.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.2.0) - 2026/09/04
 

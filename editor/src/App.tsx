@@ -336,6 +336,7 @@ interface EditablePlaceholder {
   raw: string
   prefixType?: 'json' | 'raw'
   key: string
+  xmlTag?: string
   format?: string
   transformName?: string
   regexReplacements: ReplacementStage[]
@@ -428,6 +429,41 @@ function splitAtFirstUnescapedDelimiter(value: string, delimiters: string[]): { 
   return { head: value, tail: '' }
 }
 
+function parsePlaceholderTail(value: string, allowFormat: boolean, requireTransformName = false): { format?: string; transformName?: string; regexReplacements: ReplacementStage[] } | null {
+  let remaining = value
+  let format: string | undefined
+  if (remaining.startsWith(':') && !remaining.startsWith('::')) {
+    if (!allowFormat) return null
+    remaining = remaining.slice(1)
+    const split = splitAtFirstUnescapedDelimiter(remaining, ['::', '||'])
+    const trimmed = split.head.trim()
+    if (trimmed) format = trimmed
+    remaining = split.tail
+  }
+
+  let transformName: string | undefined
+  if (remaining.startsWith('::')) {
+    remaining = remaining.slice(2)
+    const split = splitAtFirstUnescapedDelimiter(remaining, ['||'])
+    const trimmed = split.head.trim()
+    if (trimmed) transformName = trimmed
+    if (requireTransformName && !transformName) return null
+    remaining = split.tail
+  }
+
+  const regexReplacements: ReplacementStage[] = []
+  if (remaining.startsWith('||')) {
+    const parts = splitByUnescapedDoublePipe(remaining.slice(2))
+    if (parts.length % 2 !== 0) return null
+    for (let index = 0; index < parts.length; index += 2) {
+      regexReplacements.push({ find: parts[index], replace: parts[index + 1] })
+    }
+    remaining = ''
+  }
+  if (remaining !== '') return null
+  return { format, transformName, regexReplacements }
+}
+
 function splitByUnescapedDoublePipe(value: string): string[] {
   const parts: string[] = []
   let start = 0
@@ -481,43 +517,35 @@ function parseEditablePlaceholder(value: string, segment: { start: number; end: 
     remaining = remaining.slice(4)
   }
 
+  // XML placeholders have a separate runtime grammar. The tag name is fixed
+  // source data, while transforms and replacement stages use the same editor
+  // controls as ordinary placeholders.
+  if (/^(?:json|raw):xml:/i.test(remaining)) return null
+  if (/^xml:/i.test(remaining)) {
+    const xmlMatch = remaining.match(/^xml:([A-Za-z0-9_]+)(.*)$/)
+    if (!xmlMatch) return null
+    const tail = parsePlaceholderTail(xmlMatch[2], false, true)
+    if (!tail) return null
+    return {
+      start: segment.start,
+      end: segment.end,
+      raw: value.slice(segment.start, segment.end),
+      prefixType,
+      key: 'xml',
+      xmlTag: xmlMatch[1],
+      transformName: tail.transformName,
+      regexReplacements: tail.regexReplacements,
+    }
+  }
+
   let keyEnd = 0
   while (keyEnd < remaining.length && /[A-Za-z0-9_.]/.test(remaining[keyEnd])) keyEnd += 1
   if (keyEnd === 0) return null
   const key = remaining.slice(0, keyEnd)
   remaining = remaining.slice(keyEnd)
 
-  let format: string | undefined
-  if (remaining.startsWith(':') && !remaining.startsWith('::')) {
-    remaining = remaining.slice(1)
-    const split = splitAtFirstUnescapedDelimiter(remaining, ['::', '||'])
-    const trimmed = split.head.trim()
-    if (trimmed) format = trimmed
-    remaining = split.tail
-  }
-
-  let transformName: string | undefined
-  if (remaining.startsWith('::')) {
-    remaining = remaining.slice(2)
-    const split = splitAtFirstUnescapedDelimiter(remaining, ['||'])
-    const trimmed = split.head.trim()
-    if (trimmed) transformName = trimmed
-    remaining = split.tail
-  }
-
-  const regexReplacements: ReplacementStage[] = []
-  if (remaining.startsWith('||')) {
-    const parts = splitByUnescapedDoublePipe(remaining.slice(2))
-    if (parts.length % 2 !== 0) return null
-    for (let index = 0; index < parts.length; index += 2) {
-      regexReplacements.push({ find: parts[index], replace: parts[index + 1] })
-    }
-    remaining = ''
-  }
-  if (remaining !== '') return null
-  // XML extraction is a separate runtime grammar. Keep it reviewable but raw
-  // so the dynamic-placeholder inspector never rewrites its tag syntax.
-  if (key === 'xml') return null
+  const tail = parsePlaceholderTail(remaining, true)
+  if (!tail) return null
 
   return {
     start: segment.start,
@@ -525,14 +553,15 @@ function parseEditablePlaceholder(value: string, segment: { start: number; end: 
     raw: value.slice(segment.start, segment.end),
     prefixType,
     key,
-    format,
-    transformName,
-    regexReplacements,
+    format: tail.format,
+    transformName: tail.transformName,
+    regexReplacements: tail.regexReplacements,
   }
 }
 
 function placeholderLabel(placeholder: EditablePlaceholder | null): string {
   if (!placeholder) return 'Raw placeholder'
+  if (placeholder.xmlTag !== undefined) return 'XML placeholder'
   if (placeholder.key === 'date') return 'Date'
   return placeholders.find((source) => source.key === placeholder.key)?.label ?? placeholder.key
 }
@@ -2338,12 +2367,13 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const updatePlaceholder = (next: EditablePlaceholder) => {
     const currentPayload = displayValue(valueFor(payloadPath))
     const prefix = next.prefixType ? `${next.prefixType}:` : ''
-    const format = next.format ? `:${next.format}` : next.key === 'date' ? ':short' : ''
+    const source = next.xmlTag !== undefined ? `xml:${next.xmlTag}` : next.key
+    const format = next.xmlTag !== undefined ? '' : next.format ? `:${next.format}` : next.key === 'date' ? ':short' : ''
     const transform = next.transformName ? `::${next.transformName}` : ''
     const replacements = next.regexReplacements
       .map((stage) => `||${regexBuilderPart(stage.find)}||${regexBuilderPart(stage.replace)}`)
       .join('')
-    const raw = `{{${prefix}${next.key}${format}${transform}${replacements}}}`
+    const raw = `{{${prefix}${source}${format}${transform}${replacements}}}`
     const updatedPayload = `${currentPayload.slice(0, next.start)}${raw}${currentPayload.slice(next.end)}`
     const updated = { ...next, end: next.start + raw.length, raw }
     setDraftValue(payloadPath, updatedPayload)
@@ -2633,10 +2663,9 @@ function PlaceholderReview({ occurrences, open, selectedIndex, onToggle, onSelec
 }
 
 function RawPlaceholderInspector({ occurrence }: { occurrence: PlaceholderOccurrence }) {
-  const xmlPlaceholder = /^\{\{(?:(?:json|raw):)?xml:/.test(occurrence.raw)
   return <section className="placeholder-inspector raw-placeholder-inspector" aria-label="Edit placeholder">
-    <div className="placeholder-inspector-heading"><div><strong>{xmlPlaceholder ? 'XML placeholder' : 'Raw placeholder'}</strong><span>{xmlPlaceholder ? 'XML extraction uses a separate, exact runtime syntax.' : 'This occurrence uses syntax the visual inspector cannot safely rewrite.'}</span></div><code>{occurrence.raw}</code></div>
-    <p>{xmlPlaceholder ? 'Macrowhisper currently supports XML tags without transform or regex suffixes. This occurrence stays read-only so its exact extraction syntax is never rewritten.' : 'Edit it directly in Custom text. Its exact syntax remains untouched when you review other placeholders.'}</p>
+    <div className="placeholder-inspector-heading"><div><strong>Raw placeholder</strong><span>This occurrence uses syntax the visual inspector cannot safely rewrite.</span></div><code>{occurrence.raw}</code></div>
+    <p>Edit it directly in Custom text. Its exact syntax remains untouched when you review other placeholders.</p>
   </section>
 }
 
@@ -2717,7 +2746,8 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
     onChange({ ...placeholder, regexReplacements: stages })
   }
   const builtInSource = placeholders.some((source) => source.key === placeholder.key)
-  const customSource = !builtInSource && placeholder.key !== 'date'
+  const xmlSource = placeholder.xmlTag !== undefined
+  const customSource = !builtInSource && !xmlSource && placeholder.key !== 'date'
   const knownTransform = !placeholder.transformName || placeholderTransforms.some((transform) => transform.key === placeholder.transformName)
   const indexedSource = ['actionResult', 'folderName', 'folderPath'].includes(placeholder.key)
   const sourceValue = placeholder.key === 'date' ? `date:${placeholder.format ?? 'short'}` : placeholder.key
@@ -2733,8 +2763,10 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
   return <section className="placeholder-inspector" aria-label="Edit placeholder">
     <div className="placeholder-inspector-heading"><div><strong>Occurrence inspector</strong><span>Changes apply only to the selected occurrence.</span></div><code>{placeholder.raw}</code></div>
     <div className="placeholder-inspector-grid">
-      {customSource
-        ? <div className="placeholder-fixed-source"><span>Source</span><code>{placeholder.key}</code></div>
+      {xmlSource
+        ? <div className="placeholder-fixed-source"><span>XML tag</span><code>{placeholder.xmlTag}</code></div>
+        : customSource
+          ? <div className="placeholder-fixed-source"><span>Source</span><code>{placeholder.key}</code></div>
         : <label>Source<select aria-label="Placeholder source" value={sourceValue} onChange={(event) => setSource(event.target.value)}>{placeholderGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}<optgroup label="Date and time">{currentDateFormat && !dateFormats.some((format) => format.value === currentDateFormat) && <option value={`date:${currentDateFormat}`}>Custom date · {currentDateFormat}</option>}{dateFormats.map((format) => <option key={format.value} value={`date:${format.value}`}>{format.label}</option>)}</optgroup></select></label>}
       <label>Transform<select aria-label="Placeholder transform" value={placeholder.transformName ?? ''} onChange={(event) => onChange({ ...placeholder, transformName: event.target.value || undefined })}><option value="">No transform</option>{!knownTransform && placeholder.transformName && <option value={placeholder.transformName}>Custom · {placeholder.transformName}</option>}{['Text case', 'Identifiers', 'Titles', 'Specialized'].map((group) => <optgroup label={group} key={group}>{placeholderTransforms.filter((item) => item.group === group).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</optgroup>)}</select></label>
       {indexedSource && <PlaceholderIndexField placeholder={placeholder} onChange={onChange} />}

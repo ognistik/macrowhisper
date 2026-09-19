@@ -64,10 +64,35 @@ func redactForLogs(_ text: String) -> String { text }
 func summarizeForLogs(_ text: String, maxPreview: Int) -> String { text }
 func isVerboseLogDetailEnabled() -> Bool { false }
 
-func escapeJsonString(_ value: String) -> String { value }
-func escapeAppleScriptString(_ value: String) -> String { value }
-func escapeShellCharacters(_ value: String) -> String { value }
-func escapeUrlPlaceholder(_ value: String) -> String { value }
+func escapeJsonString(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+        .replacingOccurrences(of: "\r", with: "\\r")
+        .replacingOccurrences(of: "\n", with: "\\n")
+        .replacingOccurrences(of: "\t", with: "\\t")
+        .replacingOccurrences(of: "\u{08}", with: "\\b")
+        .replacingOccurrences(of: "\u{0C}", with: "\\f")
+}
+
+func escapeAppleScriptString(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+}
+
+func escapeShellCharacters(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+        .replacingOccurrences(of: "`", with: "\\`")
+        .replacingOccurrences(of: "$", with: "\\$")
+}
+
+func escapeUrlPlaceholder(_ value: String) -> String {
+    let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+    return value.addingPercentEncoding(withAllowedCharacters: allowedCharacters) ?? value
+}
 
 func getSelectedText() -> String { stubSelectedText }
 func resolveFrontAppIdentity() -> NSRunningApplication? { globalState.lastDetectedFrontApp }

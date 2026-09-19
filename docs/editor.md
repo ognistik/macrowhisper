@@ -201,18 +201,16 @@ described in [Placeholders and context](placeholders-and-context.md); a literal
 backslash-plus-`n` output remains ambiguous until the runtime adopts a versioned,
 context-aware escape model.
 The inspector source selector uses the same built-in and direct Date choices as
-the insertion menu. Custom metadata keys and dot paths appear as fixed source
-identities: changing the source remains a deliberate raw-text edit, while the
-inspector still offers the same transform and replacement controls. `raw:` and
-`json:` prefixes are preserved through inspector edits and remain manually
-editable in the payload. Optional indexes for action results and recording
-folders accept only digits; an invalid hand-written value stays intact and is
-flagged until corrected. XML is handled by a separate exact runtime matcher
-that currently supports tag extraction but not transform or replacement
-suffixes, so XML and otherwise unsupported syntax stay visible as exact raw
-occurrences and are never rewritten by the visual inspector. The raw payload
-remains canonical, and the editor never expands placeholders against private
-live app or clipboard context.
+the insertion menu. Custom metadata keys, dot paths, and XML tags appear as
+fixed source identities: changing the source remains a deliberate raw-text
+edit, while the inspector still offers the same transform and replacement
+controls. `raw:` and `json:` prefixes are preserved through inspector edits and
+remain manually editable in the payload. Optional indexes for action results
+and recording folders accept only digits; an invalid hand-written value stays
+intact and is flagged until corrected. Structurally unsupported syntax stays
+visible as an exact raw occurrence and is never rewritten by the visual
+inspector. The raw payload remains canonical, and the editor never expands
+placeholders against private live app or clipboard context.
 
 ## Changes made elsewhere and invalid files
 

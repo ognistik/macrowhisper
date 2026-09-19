@@ -13,8 +13,8 @@ This is one of the most powerful parts of Macrowhisper.
 For each action payload, Macrowhisper processes values in this order:
 
 1. Insert actions only: turn literal `\n` into real line breaks.
-2. Extract XML placeholders if needed.
-3. Expand placeholders such as `{{key}}`, `{{json:key}}`, `{{raw:key}}`, dates, transforms, and regex replacements.
+2. Extract requested XML tag content and remove those blocks from the selected Superwhisper result.
+3. Resolve each placeholder value, then apply its transform and ordered regex replacements.
 4. Apply escaping rules based on action type.
 
 ### Basic placeholders
@@ -60,13 +60,20 @@ Supported formats:
 - `{{json:xml:tagName}}`
 - `{{raw:xml:tagName}}`
 
+XML values support the same transform and regex suffixes as other placeholders:
+
+- `{{xml:tagName::trim}}`
+- `{{xml:tagName::uppercase||\s+|| }}`
+- `{{json:xml:tagName::ensureSentence}}`
+
 Behavior:
 
 - when `llmResult` is non-empty, Macrowhisper looks for `<tagName>...</tagName>` there; otherwise it looks in a non-empty `result`
 - if the tag exists, Macrowhisper inserts the content
 - if the tag is empty or missing, the placeholder becomes empty
-- extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized when applicable
-- XML extraction currently accepts only the exact forms above; `::transform` and `||regex||replacement` suffixes are not supported for XML placeholders
+- extracted XML blocks are removed from whichever source was used before `{{swResult}}`, `{{llmResult}}`, or `{{result}}` is finalized
+- transforms and regex replacements operate on the extracted tag content before final action-specific, `json:`, or `raw:` escaping
+- placeholder-looking text inside an extracted tag remains literal content; Macrowhisper does not expand it as another placeholder
 
 ### Metadata keys and paths
 

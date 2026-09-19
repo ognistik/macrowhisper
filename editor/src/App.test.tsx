@@ -906,7 +906,7 @@ describe('configuration editor interactions', () => {
     expect(payload).toHaveValue('{{swResult||middle||before\\\\nafter}}')
   })
 
-  it('lists repeated and custom placeholders as independent occurrences without caret-driven expansion', async () => {
+  it('edits XML placeholders while preserving prefixes, repeated occurrences, and malformed syntax', async () => {
     const user = userEvent.setup()
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
@@ -915,16 +915,19 @@ describe('configuration editor interactions', () => {
     await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
 
     const payload = screen.getByRole('textbox', { name: 'Insert payload' }) as HTMLTextAreaElement
-    fireEvent.change(payload, { target: { value: 'A {{swResult}} B {{json:swResult}} C {{raw:custom.path::titleCase}} D {{xml:answer}}' } })
+    const malformedTag = '{{xml:bad-tag::uppercase}}'
+    const malformedReplacement = '{{xml:answer||odd}}'
+    const malformedPrefix = '{{json:raw:xml:answer}}'
+    fireEvent.change(payload, { target: { value: `A {{swResult}} B {{json:swResult}} C {{raw:custom.path::titleCase}} D {{xml:answer}} E {{json:xml:answer}} F {{raw:xml:OtherTag||A||B||B||C}} G {{xml:answer}} H ${malformedTag} I ${malformedReplacement} J ${malformedPrefix}` } })
     expect(screen.queryByRole('region', { name: 'Edit placeholder' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /4 placeholders found/ }))
+    await user.click(screen.getByRole('button', { name: /10 placeholders found/ }))
     const list = screen.getByRole('listbox', { name: 'Placeholder occurrences' })
     const resultOccurrences = within(list).getAllByRole('option', { name: /Result/i })
     expect(resultOccurrences).toHaveLength(2)
     await user.click(resultOccurrences[1])
     await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'uppercase')
-    expect(payload.value).toBe('A {{swResult}} B {{json:swResult::uppercase}} C {{raw:custom.path::titleCase}} D {{xml:answer}}')
+    expect(payload.value).toContain('A {{swResult}} B {{json:swResult::uppercase}} C {{raw:custom.path::titleCase}} D {{xml:answer}}')
 
     await user.click(within(list).getByRole('option', { name: /custom\.path/ }))
     expect(screen.queryByText('Metadata key or path preserved exactly.')).not.toBeInTheDocument()
@@ -939,9 +942,52 @@ describe('configuration editor interactions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'value' } })
     expect(payload.value).toContain('{{raw:custom.path::lowercase||path||value}}')
 
-    await user.click(within(list).getByRole('option', { name: /Raw placeholder/ }))
-    expect(screen.getByText('XML placeholder')).toBeInTheDocument()
-    expect(screen.getByText(/without transform or regex suffixes/)).toBeInTheDocument()
+    let xmlOccurrences = within(list).getAllByRole('option', { name: /XML placeholder/ })
+    expect(xmlOccurrences).toHaveLength(4)
+
+    // A plain XML tag is a fixed source, but uses the same transform editor.
+    await user.click(xmlOccurrences[0])
+    expect(screen.queryByRole('combobox', { name: 'Placeholder source' })).not.toBeInTheDocument()
+    expect(screen.getByText('answer', { selector: '.placeholder-fixed-source code' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'uppercase')
+    expect(payload.value).toContain('{{xml:answer::uppercase}}')
+
+    // Prefixes and tag names survive structured edits.
+    await user.click(within(list).getByRole('option', { name: /json:xml:answer/ }))
+    expect(screen.queryByRole('combobox', { name: 'Placeholder source' })).not.toBeInTheDocument()
+    expect(screen.getByText('answer', { selector: '.placeholder-fixed-source code' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'lowercase')
+    await user.click(screen.getByRole('button', { name: 'Add replacement' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find pattern 1' }), { target: { value: 'A' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text 1' }), { target: { value: 'B' } })
+    expect(payload.value).toContain('{{json:xml:answer::lowercase||A||B}}')
+
+    // A raw-prefixed XML tag is editable with the same fixed-source controls.
+    await user.click(within(list).getByRole('option', { name: /raw:xml:OtherTag/ }))
+    expect(screen.queryByRole('combobox', { name: 'Placeholder source' })).not.toBeInTheDocument()
+    expect(screen.getByText('OtherTag', { selector: '.placeholder-fixed-source code' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Find pattern 1' })).toHaveValue('A')
+    expect(screen.getByRole('textbox', { name: 'Find pattern 2' })).toHaveValue('B')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'trim')
+    expect(payload.value).toContain('{{raw:xml:OtherTag::trim||A||B||B||C}}')
+
+    // Repeated XML occurrences are independent entries.
+    xmlOccurrences = within(list).getAllByRole('option', { name: /XML placeholder/ })
+    await user.click(xmlOccurrences[3])
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Placeholder transform' }), 'lowercase')
+    expect(payload.value).toContain('G {{xml:answer::lowercase}}')
+
+    // Unsupported XML syntax stays raw and is never normalized by another edit.
+    const rawOccurrences = within(list).getAllByRole('option', { name: /Raw placeholder/ })
+    expect(rawOccurrences).toHaveLength(3)
+    await user.click(rawOccurrences[0])
+    const rawInspector = screen.getByRole('region', { name: 'Edit placeholder' })
+    expect(within(rawInspector).getByText('Raw placeholder')).toBeInTheDocument()
+    expect(within(rawInspector).getByText(malformedTag)).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Placeholder transform' })).not.toBeInTheDocument()
+    expect(payload.value).toContain(malformedTag)
+    expect(payload.value).toContain(malformedReplacement)
+    expect(payload.value).toContain(malformedPrefix)
   })
 
   it('preserves indexed action results while editing transforms', async () => {
