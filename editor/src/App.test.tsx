@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import App, { defaultFieldGroups, DEFAULTS_OPEN_SECTION_STORAGE_KEY, overrideFields } from './App'
+import App, { defaultFieldGroups, overrideFields } from './App'
 import { defaultsSchema, insertSchema } from './generated/schema'
 import { FixtureStore } from './store/fixtureStore'
 import type { StoreScenario } from './model/types'
@@ -254,24 +254,32 @@ describe('configuration editor interactions', () => {
     expect(insertion).not.toHaveAttribute('open')
   })
 
-  it('restores a persisted Defaults section and explicit all-collapsed state', async () => {
+  it('returns to a fully collapsed Defaults overview after navigation and remounting', async () => {
     const user = userEvent.setup()
-    const storage = (window as Window & { localStorage?: Storage }).localStorage
-    if (!storage) return
-    const first = render(<App store={new FixtureStore('populated')} />)
+    const store = new FixtureStore('populated')
+    try {
+      window.localStorage?.setItem('macrowhisper-editor-defaults-open-section', 'insertion')
+    } catch {
+      // This runtime may not provide localStorage; the editor must still start collapsed.
+    }
+    const first = render(<App store={store} />)
     const insertionTitle = screen.getByText('Insertion', { selector: 'strong' })
     expect(defaultFieldGroups.every((section) => !screen.getByText(section.label, { selector: 'strong' }).closest('details')?.hasAttribute('open'))).toBe(true)
     await user.click(insertionTitle)
-    expect(storage.getItem(DEFAULTS_OPEN_SECTION_STORAGE_KEY)).toBe('insertion')
-    first.unmount()
+    expect(insertionTitle.closest('details')).toHaveAttribute('open')
 
-    render(<App store={new FixtureStore('populated')} />)
-    const restoredInsertion = screen.getByText('Insertion', { selector: 'strong' }).closest('details')
-    expect(restoredInsertion).toHaveAttribute('open')
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const inserts = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(inserts).getByRole('option', { name: /dailyNotes/ }))
+    await user.click(within(inserts).getByRole('button', { name: 'All sections' }))
+    await user.click(within(screen.getByRole('navigation', { name: 'Configuration sections' })).getByRole('button', { name: 'Defaults' }))
+    expect(defaultFieldGroups.every((section) => !screen.getByText(section.label, { selector: 'strong' }).closest('details')?.hasAttribute('open'))).toBe(true)
+
     await user.click(screen.getByText('Insertion', { selector: 'strong' }))
-    expect(storage.getItem(DEFAULTS_OPEN_SECTION_STORAGE_KEY)).toBe('')
-    screen.getByText('General behavior', { selector: 'strong' })
-    expect(screen.getByText('General behavior', { selector: 'strong' }).closest('details')).not.toHaveAttribute('open')
+    first.unmount()
+    render(<App store={store} />)
+    expect(defaultFieldGroups.every((section) => !screen.getByText(section.label, { selector: 'strong' }).closest('details')?.hasAttribute('open'))).toBe(true)
   })
 
   it('previews the Superwhisper folder chooser without changing the draft', async () => {
@@ -569,7 +577,7 @@ describe('configuration editor interactions', () => {
     await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.simEsc).toBe(true))
   })
 
-  it('keeps new overrides at the bottom until the section closes, then restores alphabetical order', async () => {
+  it('keeps newly added overrides in place until the section closes, then restores alphabetical order', async () => {
     const user = userEvent.setup()
     renderWithStore()
     const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
@@ -601,9 +609,11 @@ describe('configuration editor interactions', () => {
 
     const visibleLabels = () => Array.from(insertion!.querySelectorAll('.override-label label')).map((label) => label.textContent)
     await user.selectOptions(addOverride, 'simEsc')
-    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Simulate Escape' }), 'off')
     await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Add override' }), 'actionDelay')
+    expect(visibleLabels()).toEqual(['Simulate Escape', 'Action delay'])
     await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Action delay mode' }), 'custom')
+    await waitFor(() => expect(visibleLabels()).toEqual(['Simulate Escape', 'Action delay']))
+    await user.selectOptions(within(insertion!).getByRole('combobox', { name: 'Simulate Escape' }), 'off')
     await waitFor(() => expect(visibleLabels()).toEqual(['Simulate Escape', 'Action delay']))
 
     await user.click(actionOverrides)
@@ -620,6 +630,7 @@ describe('configuration editor interactions', () => {
   it('does not persist an override row until the user chooses a value', async () => {
     const user = userEvent.setup()
     const store = new FixtureStore('populated', { writeDelayMs: 0 })
+    const mutate = vi.spyOn(store, 'mutate')
     const mounted = render(<App store={store} />)
     const openDailyNotesOverrides = async () => {
       const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
@@ -635,6 +646,28 @@ describe('configuration editor interactions', () => {
     await user.selectOptions(within(insertion).getByRole('combobox', { name: 'Add override' }), 'clipboardAttachments')
     expect(within(insertion).getByRole('combobox', { name: 'Clipboard attachments' })).toHaveValue('pending')
     expect(store.getSnapshot().inserts.dailyNotes.clipboardAttachments).toBeNull()
+
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    expect(within(insertion).queryByRole('combobox', { name: 'Clipboard attachments' })).not.toBeInTheDocument()
+    expect(mutate).not.toHaveBeenCalled()
+
+    await user.selectOptions(within(insertion).getByRole('combobox', { name: 'Add override' }), 'clipboardAttachments')
+    expect(within(insertion).getByRole('combobox', { name: 'Clipboard attachments' })).toHaveValue('pending')
+
+    await user.click(screen.getByText('Conditions', { selector: 'strong' }))
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    expect(within(insertion).queryByRole('combobox', { name: 'Clipboard attachments' })).not.toBeInTheDocument()
+
+    await user.selectOptions(within(insertion).getByRole('combobox', { name: 'Add override' }), 'clipboardAttachments')
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    await user.click(screen.getByText('Action overrides', { selector: 'strong' }))
+    insertion = screen.getByText('Action overrides', { selector: 'strong' }).closest('details') as HTMLDetailsElement
+    expect(within(insertion).queryByRole('combobox', { name: 'Clipboard attachments' })).not.toBeInTheDocument()
+
+    await user.selectOptions(within(insertion).getByRole('combobox', { name: 'Add override' }), 'clipboardAttachments')
 
     mounted.unmount()
     render(<App store={store} />)

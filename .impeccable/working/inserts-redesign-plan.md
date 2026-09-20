@@ -129,9 +129,10 @@ as a choice, prefills custom inherited values for deliberate pinning, and uses
 compact removal controls with a shared control rail. Editing status now
 occupies a reserved layout region, and invalid numeric overrides stay contained
 beneath their controls with concise validation. The Add override menu and
-established rows now share an alphabetical order, while a newly configured row
-remains at the bottom until the section closes so it never jumps away from the
-user's focus. Unfinished rows remain local editing state and never persist
+established rows now share an alphabetical order, while every newly added row
+keeps its insertion position until the section closes so choosing a later value
+never shifts the user's focus. Closing the section discards untouched rows and
+restores saved rows to alphabetical order; unfinished rows also never persist
 across navigation or reload. Conditions, Triggers, Chaining, and the closing
 verification remain.
 

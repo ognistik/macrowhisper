@@ -16,11 +16,12 @@ the neutral status control, and preview-qualified **Updating preview…** /
 **Updated in preview** field acknowledgements identify these as in-memory
 transactions; they never borrow **Connected** or **Saved** from the live editor.
 They do not mean that `macrowhisper.json` changed, and reloading resets fixture
-configuration. Appearance and the last open—or
-intentionally all-collapsed—Defaults section are browser-local presentation
-preferences. See the [user editor guide](../editor.md) for the
-supported connected behavior and the [implementation plan](web-editor-plan.md)
-for the remaining expansion gates.
+configuration. Appearance is a browser-local presentation preference. Defaults
+and ordinary action disclosures instead start from a tidy, fully collapsed
+overview whenever the user enters that editor; a section that needs repair may
+open itself to expose the problem. See the [user editor guide](../editor.md) for
+the supported connected behavior and the
+[implementation plan](web-editor-plan.md) for the remaining expansion gates.
 
 The preview also shows the **Choose…** control beside folder paths. Opening it
 explains the integration boundary without inventing a filesystem selection or
@@ -124,7 +125,7 @@ or expand placeholders against private runtime context.
 
 ## Review the interactions
 
-- Defaults is a single centered accordion capped at `940px`, with `12px` between flat, subtly bordered section surfaces. The first visit starts fully collapsed; after interaction, browser storage restores the last open section or an intentionally collapsed overview. Choosing another section closes the current one and opens the new section in the same interaction. Closed sections show only their title and effective-state summary, while the explanatory copy and fields appear after opening with a restrained `180ms` reveal and matching chevron rotation.
+- Defaults is a single centered accordion capped at `940px`, with `12px` between flat, subtly bordered section surfaces. It starts fully collapsed whenever the user enters Defaults. Choosing another section closes the current one and opens the new section in the same interaction. Closed sections show only their title and effective-state summary, while the explanatory copy and fields appear after opening with a restrained `180ms` reveal and matching chevron rotation.
 - Open Defaults sections give controls a `280px` to `320px` column on desktop and stack labels above controls below `780px`. Insertion, Clipboard, and Scripts and triggers add lightweight internal groups without nested cards. Their root timing values remain visible because action-level overrides can enable the related behavior while inheriting that root value; Return delay also applies to one-shot CLI auto-return. Ordinary native choices keep their `Built-in value` group separate from explicit values. Cross-action references use a searchable keyboard-operable picker that ranks exact and prefix matches before substring matches, keeps built-in/inheritance/no-action choices explicit, and identifies each result's action type. When the built-in value is active, the closed control shows the plain value with an integrated `Built-in` source label; eligible text and numeric fields with an unambiguous shipped fallback expose `Use built-in` only until restoration succeeds.
 - Field save acknowledgement is intentionally brief: the live editor keeps `Saving…` while a write is pending and clears `Saved` after roughly two seconds; the fixture preview uses `Updating preview…` and `Updated in preview` instead. Errors persist until resolved. Descriptions use a protected reading measure so long copy wraps before entering the utility rail's visual territory. Status and `Use built-in` occupy a stable, right-aligned trailing rail beside the field label; it is optically aligned with the corresponding desktop control, moves to the lower input baseline when a custom two-control editor is open, and remains visually empty when idle so routine state changes do not resize the row. Revert suppresses the field's blur commit and restores the last accepted value without issuing a write. Save activity is not folded into a section's effective-behavior summary.
 - Clearing an ordinary numeric Default and leaving the field—or pressing Enter—saves `null` to use the shipped value. An explicit `0` remains distinct, History keeps its blank `Keep forever` meaning while displaying `days` beside numeric values, and nonempty invalid or negative values continue to surface validation errors.

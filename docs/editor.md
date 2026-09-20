@@ -14,7 +14,7 @@ The connected, writable slice is deliberately small and complete:
 
 | Area | Connected behavior |
 | --- | --- |
-| Defaults | Review shared behavior in concise section summaries, then open one area at a time to change paths, timing, clipboard, recording, and chain controls. The first visit starts fully collapsed; the browser remembers the last open section or an intentionally collapsed overview. |
+| Defaults | Review shared behavior in concise section summaries, then open one area at a time to change paths, timing, clipboard, recording, and chain controls. Defaults starts fully collapsed whenever you enter it. |
 | Inserts | Create, duplicate, rename, edit, and delete Insert actions; add only the overrides, triggers, conditions, and links that differ from normal behavior. |
 | URLs, Shortcuts, Shell, AppleScript | Names and counts come from the authenticated live snapshot, but the type-specific panels remain read-only until their editor slice is implemented. In the standalone Vite preview, these values are fixtures. |
 
@@ -180,12 +180,12 @@ from that inherited value so it can be pinned unchanged or edited. Numeric
 overrides similarly open an editable **Custom** field prefilled from Defaults,
 whether the user chooses the displayed current value or **Custom** directly.
 The Add override menu and established override rows use the same alphabetical
-label order. A newly configured row remains at the bottom while Action
-overrides stays open, keeping the control the user just added in place; closing
-the section or leaving the action returns saved rows to alphabetical order. An
-override that has only been added to the editor and has not received a value is
-local editing state: it is not written to the configuration and disappears
-after navigation or reload.
+label order. Newly added rows keep their insertion order while Action overrides
+stays open, including when a later row receives its value before an earlier
+one. Closing the section, switching to another disclosure, or leaving the
+action discards untouched rows that still have no value and returns saved rows
+to alphabetical order. These untouched rows are local editing state: they are
+not written to the configuration and also disappear after reload.
 Removing an override resumes inheritance from **Defaults**; removing a condition
 restores **Always**.
 Unsupported or ambiguous raw condition and trigger expressions remain available
