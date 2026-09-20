@@ -829,7 +829,11 @@ describe('configuration editor interactions', () => {
     await user.selectOptions(addCondition, 'action')
     await user.selectOptions(within(conditions).getByRole('combobox', { name: 'Condition for action' }), 'inside')
     await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.inputCondition).toBe('action'))
-    expect(within(conditions).getByText('Runs in text fields. Skipped outside.')).toBeInTheDocument()
+    expect(within(conditions).getByText('Runs only in text fields; other settings still apply.')).toBeInTheDocument()
+
+    await user.selectOptions(within(conditions).getByRole('combobox', { name: 'Condition for action' }), 'outside')
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.inputCondition).toBe('!action'))
+    expect(within(conditions).getByText('Runs only outside text fields; other settings still apply.')).toBeInTheDocument()
 
     await user.click(within(conditions).getByRole('button', { name: 'Remove Payload condition' }))
     await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.inputCondition).toBe(''))
@@ -849,7 +853,7 @@ describe('configuration editor interactions', () => {
 
     expect(within(conditions).getByText('Payload')).toBeInTheDocument()
     expect(within(conditions).getByText('Press Return after insert')).toBeInTheDocument()
-    expect(within(conditions).getByText('Runs in text fields. Skipped outside.')).toBeInTheDocument()
+    expect(within(conditions).getByText('Runs only in text fields; other settings still apply.')).toBeInTheDocument()
     expect(within(conditions).getByText('Applies in text fields. Uses Defaults outside.')).toBeInTheDocument()
     const addCondition = within(conditions).getByRole('combobox', { name: 'Add condition' })
     expect(within(addCondition).getAllByRole('option').slice(1).map((option) => option.textContent)).toEqual([
