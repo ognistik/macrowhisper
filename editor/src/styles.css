@@ -105,7 +105,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 button { color: inherit; }
 
-code, .input-with-unit, .raw-expression input, .advanced-copy code {
+code, .input-with-unit, .advanced-copy code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
@@ -625,21 +625,39 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .override-field-error { margin: 0; }
 .insertion-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
 .insertion-footer .insertion-add-control { width: min(100%, 320px); }
-.template-note, .condition-intro { display: flex; align-items: flex-start; gap: 7px; margin-top: 18px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.template-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 18px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
 .template-note svg { flex: 0 0 auto; width: 13px; height: 13px; }
-.condition-list { display: grid; border-top: 1px solid var(--border); }
-.condition-row, .logic-row { display: grid; grid-template-columns: minmax(0, 1fr) 200px auto; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.condition-builder { min-width: 0; }
+.condition-configured-list { min-width: 0; }
+.condition-configured-item .condition-row { padding: 0; border: 0; }
+.condition-row, .logic-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) 32px; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
 .condition-row > div, .logic-row > div { display: grid; gap: 3px; }
 .condition-row strong, .logic-row strong { font-size: 13px; font-weight: 650; }
 .condition-row span, .logic-row span { color: var(--text-muted); font-size: 13px; }
+.condition-copy { min-width: 0; }
+.condition-copy .condition-configure-target { width: fit-content; margin-top: 4px; padding: 0; }
+.condition-configured-item.is-inert { border-color: color-mix(in srgb, var(--warning) 32%, var(--border)); }
+.condition-configured-item.is-inert .condition-copy > span { color: var(--warning); }
+.condition-footer { display: flex; min-height: 48px; align-items: flex-end; justify-content: flex-end; gap: 16px; padding-top: 14px; }
+.condition-footer .field-state-wrap { justify-content: flex-start; margin-right: auto; }
+.condition-add-control { width: min(100%, 320px); }
+.condition-empty-state .field-state-wrap { justify-content: flex-start; }
+.condition-template-state { display: grid; gap: 4px; padding: 3px 0 2px; }
+.condition-template-state strong { font-size: 13px; }
+.condition-template-state span { max-width: 68ch; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.condition-recovery { display: grid; gap: 14px; }
+.condition-recovery-heading { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 9px; padding: 12px; border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border)); border-radius: 7px; background: var(--danger-soft); color: var(--danger); }
+.condition-recovery-heading > svg { width: 16px; height: 16px; margin-top: 1px; }
+.condition-recovery-heading > div { display: grid; gap: 3px; }
+.condition-recovery-heading strong { font-size: 13px; }
+.condition-recovery-heading span { color: var(--text-soft); font-size: 13px; line-height: 1.5; }
+.condition-saved-expression { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted); color: var(--text-muted); font-size: 13px; }
+.condition-saved-expression code { overflow-wrap: anywhere; color: var(--text-soft); text-align: right; white-space: pre-wrap; }
+.condition-recovery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.condition-reference-link { display: inline-flex; align-items: center; gap: 5px; }
+.condition-reference-link svg { width: 13px; height: 13px; }
 .advanced-toggle { display: flex; align-items: center; gap: 7px; margin-top: 13px; color: var(--text-soft); font-size: 13px; }
 .advanced-toggle input { width: 14px; height: 14px; }
-.raw-expression { display: grid; gap: 6px; margin-top: 10px; }
-.raw-expression input { font-size: 13px; }
-.raw-expression > span { color: var(--text-muted); font-size: 13px; }
-.raw-expression .field-state-wrap { justify-content: flex-start; }
-.generated-expression { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 15px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted); color: var(--text-muted); font-size: 13px; }
-.generated-expression code { max-width: 72%; overflow-wrap: anywhere; color: var(--text-soft); text-align: right; white-space: pre-wrap; }
 .trigger-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 26px; }
 .trigger-field { display: grid; align-content: start; gap: 4px; }
 .trigger-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -771,9 +789,14 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
   .setting-control { width: 100%; }
   .field-state-wrap { justify-content: flex-start; }
   .setting-utility .field-state-wrap { justify-content: flex-start; margin-left: 0; }
-  .condition-row, .logic-row { grid-template-columns: 1fr; gap: 8px; }
-  .logic-row { grid-template-columns: 1fr; }
+  .condition-row { grid-template-columns: minmax(0, 320px) 44px; grid-template-areas: "copy copy" "control utility"; justify-content: start; gap: 8px; }
+  .condition-row .condition-copy { grid-area: copy; }
+  .condition-row select { grid-area: control; width: 100%; }
+  .condition-row .remove-configured { grid-area: utility; }
+  .logic-row { grid-template-columns: 1fr; gap: 8px; }
   .logic-row .field-state-wrap { justify-content: flex-start; }
+  .condition-footer { align-items: flex-start; flex-direction: column; }
+  .condition-add-control { align-self: flex-start; }
   .trigger-token-row { grid-template-columns: minmax(0, 1fr) auto; }
   .trigger-token-row .token-exception { grid-column: 1 / 2; }
   .placeholder-inspector-grid { grid-template-columns: 1fr; }
@@ -832,6 +855,9 @@ dialog.modal::backdrop { background: rgba(0, 0, 0, .48); }
   .placeholder-popover button { grid-template-columns: 1fr; gap: 4px; }
   .placeholder-occurrence-list > button { grid-template-columns: 24px minmax(0, 1fr); }
   .occurrence-meta { grid-column: 2; }
+  .condition-saved-expression { grid-template-columns: 1fr; gap: 5px; }
+  .condition-saved-expression code { text-align: left; }
+  .condition-recovery-actions .quiet-button { width: 100%; }
 }
 .field-error { flex-basis: 100%; color: var(--danger); font-size: 13px; font-weight: 400; overflow-wrap: anywhere; }
 .mobile-nav-backdrop { position: fixed; z-index: 14; inset: 0; border: 0; background: rgba(0, 0, 0, .4); }

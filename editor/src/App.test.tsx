@@ -797,6 +797,140 @@ describe('configuration editor interactions', () => {
     expect(store.getSnapshot().inserts.dailyNotes.restoreClipboardDelay).toBe(0.3)
   })
 
+  it('keeps an empty Conditions section visual and commits only after a context is chosen', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+
+    const conditionsHeading = screen.getByText('Conditions', { selector: 'strong' })
+    await user.click(conditionsHeading)
+    const conditions = conditionsHeading.closest('details') as HTMLDetailsElement
+    expect(within(conditions).queryByText('No conditional behavior is configured.')).not.toBeInTheDocument()
+    expect(within(conditions).queryByText('Generated expression')).not.toBeInTheDocument()
+    expect(within(conditions).queryByRole('textbox', { name: 'Advanced input condition' })).not.toBeInTheDocument()
+    expect(within(conditions).getByText('Same behavior everywhere')).toBeInTheDocument()
+
+    let addCondition = within(conditions).getByRole('combobox', { name: 'Add condition' })
+    expect(within(addCondition).getAllByRole('option').map((option) => option.textContent)).toEqual(['Add condition…', 'Payload'])
+    await user.selectOptions(addCondition, 'action')
+    const payloadCondition = within(conditions).getByRole('combobox', { name: 'Condition for action' })
+    expect(payloadCondition).toHaveValue('')
+    expect(within(conditions).getByText('Choose where this payload should run.')).toBeInTheDocument()
+    expect(within(payloadCondition).getByRole('option', { name: 'Choose where…' })).toBeInTheDocument()
+    expect(store.getSnapshot().inserts.dailyNotes.inputCondition).toBeNull()
+    expect(within(conditions).getByRole('button', { name: 'Cancel adding Payload condition' })).toBeInTheDocument()
+
+    await user.click(within(conditions).getByRole('button', { name: 'Cancel adding Payload condition' }))
+    expect(within(conditions).queryByRole('combobox', { name: 'Condition for action' })).not.toBeInTheDocument()
+    addCondition = within(conditions).getByRole('combobox', { name: 'Add condition' })
+    await user.selectOptions(addCondition, 'action')
+    await user.selectOptions(within(conditions).getByRole('combobox', { name: 'Condition for action' }), 'inside')
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.inputCondition).toBe('action'))
+    expect(within(conditions).getByText('Runs in text fields. Skipped outside.')).toBeInTheDocument()
+
+    await user.click(within(conditions).getByRole('button', { name: 'Remove Payload condition' }))
+    await waitFor(() => expect(store.getSnapshot().inserts.dailyNotes.inputCondition).toBe(''))
+    expect(within(conditions).queryByRole('combobox', { name: 'Condition for action' })).not.toBeInTheDocument()
+  })
+
+  it('offers conditions only for Payload and explicitly configured eligible settings', async () => {
+    const user = userEvent.setup()
+    renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+    const conditionsHeading = screen.getByText('Conditions', { selector: 'strong' })
+    await user.click(conditionsHeading)
+    const conditions = conditionsHeading.closest('details') as HTMLDetailsElement
+
+    expect(within(conditions).getByText('Payload')).toBeInTheDocument()
+    expect(within(conditions).getByText('Press Return after insert')).toBeInTheDocument()
+    expect(within(conditions).getByText('Runs in text fields. Skipped outside.')).toBeInTheDocument()
+    expect(within(conditions).getByText('Applies in text fields. Uses Defaults outside.')).toBeInTheDocument()
+    const addCondition = within(conditions).getByRole('combobox', { name: 'Add condition' })
+    expect(within(addCondition).getAllByRole('option').slice(1).map((option) => option.textContent)).toEqual([
+      'Action delay',
+      'Clipboard restore delay',
+      'Move recording',
+      'Next action',
+      'Restore clipboard',
+      'Simulate Escape',
+    ])
+    expect(within(addCondition).queryByRole('option', { name: 'Stack clipboard context' })).not.toBeInTheDocument()
+    expect(within(addCondition).queryByRole('option', { name: 'Type instead of paste' })).not.toBeInTheDocument()
+  })
+
+  it('preserves inert saved conditions and routes users to configure their target', async () => {
+    const user = userEvent.setup()
+    const store = new FixtureStore('populated', { writeDelayMs: 0 })
+    store.externalChange((snapshot) => { snapshot.inserts.dailyNotes.inputCondition = 'simReturn' })
+    render(<App store={store} />)
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /dailyNotes/ }))
+    const conditionsHeading = screen.getByText('Conditions', { selector: 'strong' })
+    await user.click(conditionsHeading)
+    const conditions = conditionsHeading.closest('details') as HTMLDetailsElement
+
+    expect(within(conditions).getByText('No effect until Press Return after insert has an action override.')).toBeInTheDocument()
+    expect(within(conditions).getByRole('combobox', { name: 'Condition for simReturn' })).toBeDisabled()
+    await user.click(within(conditions).getByRole('button', { name: 'Add override' }))
+
+    const actionOverridesHeading = screen.getByText('Action overrides', { selector: 'strong' })
+    const actionOverrides = actionOverridesHeading.closest('details') as HTMLDetailsElement
+    expect(actionOverrides).toHaveAttribute('open')
+    expect(within(actionOverrides).getByRole('combobox', { name: 'Press Return after insert' })).toHaveValue('pending')
+    expect(store.getSnapshot().inserts.dailyNotes.inputCondition).toBe('simReturn')
+  })
+
+  it('keeps unusual manual expressions exact until deliberate visual recovery', async () => {
+    const user = userEvent.setup()
+    const store = new FixtureStore('populated', { writeDelayMs: 0 })
+    const unusual = 'simReturn|!simReturn|action'
+    store.externalChange((snapshot) => { snapshot.inserts.quickReply.inputCondition = unusual })
+    render(<App store={store} />)
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+    const conditionsHeading = screen.getByText('Conditions', { selector: 'strong' })
+    await user.click(conditionsHeading)
+    const conditions = conditionsHeading.closest('details') as HTMLDetailsElement
+
+    expect(within(conditions).getByRole('group', { name: 'These conditions need review' })).toHaveTextContent(unusual)
+    expect(store.getSnapshot().inserts.quickReply.inputCondition).toBe(unusual)
+    expect(within(conditions).queryByRole('combobox', { name: 'Add condition' })).not.toBeInTheDocument()
+    expect(within(conditions).queryByRole('textbox', { name: 'Advanced input condition' })).not.toBeInTheDocument()
+
+    await user.click(within(conditions).getByRole('button', { name: 'Replace with visual conditions' }))
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.inputCondition).toBe('action|!simReturn'))
+    expect(within(conditions).getByRole('combobox', { name: 'Condition for action' })).toHaveValue('inside')
+    expect(within(conditions).getByRole('combobox', { name: 'Condition for simReturn' })).toHaveValue('outside')
+  })
+
+  it('retains Custom text conditions behind built-in payload behavior', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /Do nothing/ }))
+    const conditionsHeading = screen.getByText('Conditions', { selector: 'strong' })
+    await user.click(conditionsHeading)
+    const conditions = conditionsHeading.closest('details') as HTMLDetailsElement
+
+    expect(within(conditions).getByText('Managed by Do nothing')).toBeInTheDocument()
+    expect(within(conditions).getByText('Your Custom text conditions are retained and return when you switch modes.')).toBeInTheDocument()
+    expect(within(conditions).queryByRole('combobox', { name: 'Add condition' })).not.toBeInTheDocument()
+    expect(within(conditions).queryByRole('combobox', { name: 'Condition for simReturn' })).not.toBeInTheDocument()
+    expect(store.getSnapshot().inserts.skipOutside.inputCondition).toBe('simReturn')
+  })
+
   it('protects the .autoPaste built-in and keeps Do nothing explicit', async () => {
     const user = userEvent.setup()
     renderWithStore()
@@ -928,14 +1062,14 @@ describe('configuration editor interactions', () => {
     const summary = screen.getByLabelText('Effective behavior')
     expect(summary).toHaveTextContent('Triggered by 2 voice phrases, 3 front apps and 1 browser URL (all types must match)')
     expect(summary).toHaveTextContent('Inserts custom text')
-    expect(summary).toHaveTextContent('input conditions')
+    expect(summary).toHaveTextContent('2 conditions')
     expect(summary).toHaveTextContent('Stops after this action')
 
     await user.click(within(actionList).getByRole('option', { name: /Do nothing/ }))
     const builtInSummary = screen.getByLabelText('Effective behavior')
     expect(builtInSummary).toHaveTextContent('Triggered by 2 voice phrases')
     expect(builtInSummary).toHaveTextContent('Performs no payload')
-    expect(builtInSummary).toHaveTextContent('Uses built-in input conditions')
+    expect(builtInSummary).toHaveTextContent('Uses built-in input behavior')
   })
 
   it('keeps placeholder insertion organized and opens customization deliberately', async () => {

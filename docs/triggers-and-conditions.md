@@ -181,6 +181,12 @@ That is why a phrase like `google best pizza` can trigger a search and still pas
 
 This is most useful when you want the same action to behave differently depending on where you dictated.
 
+The editor presents these as plain-language **Inside text fields** and **Outside
+text fields** choices. Its Add condition menu contains Payload plus eligible
+settings that the action explicitly configures; it does not expose the token
+syntax during normal editing. The syntax below remains available for manual
+JSON editing.
+
 Format rules:
 
 - use pipe-separated tokens
@@ -198,7 +204,9 @@ Examples:
 "inputCondition": "!restoreClipboard|!action"
 ```
 
-If the condition does not apply, Macrowhisper falls back to the matching default behavior.
+If a setting condition does not apply, that setting uses its matching Defaults
+behavior. If the `action` condition does not apply, Macrowhisper skips the
+payload while the rest of the action lifecycle can continue.
 
 ### Allowed tokens
 
@@ -230,10 +238,19 @@ For compatibility, the legacy `noEsc` spelling in an `inputCondition` is normali
 
 When a token does not apply in the current context:
 
-- booleans and numbers fall back to defaults
-- `action` becomes an empty string
-- values such as `moveTo` and `nextAction` fall back to defaults
+- conditioned settings, including booleans, numbers, `moveTo`, and
+  `nextAction`, resolve from Defaults
+- `action` becomes an empty string, so the payload is skipped
 
-In plain terms: Macrowhisper temporarily turns off the parts of the action that do not apply.
+In plain terms: Macrowhisper temporarily uses Defaults for a conditioned
+setting, or skips the payload when Payload is conditioned. Other lifecycle
+settings can still apply.
+
+The editor preserves a saved condition whose target is no longer explicitly
+configured and flags it as currently having no effect. Repeated,
+contradictory, malformed, or unsupported expressions are also preserved
+exactly and require deliberate recovery rather than silent normalization.
+Built-in payload modes retain stored conditions, but their protected built-in
+behavior takes precedence until the action returns to custom text.
 
 ---

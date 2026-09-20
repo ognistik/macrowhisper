@@ -15,7 +15,7 @@ The connected, writable slice is deliberately small and complete:
 | Area | Connected behavior |
 | --- | --- |
 | Defaults | Review shared behavior in concise section summaries, then open one area at a time to change paths, timing, clipboard, recording, and chain controls. Defaults starts fully collapsed whenever you enter it. |
-| Inserts | Create, duplicate, rename, edit, and delete Insert actions; add only the overrides, triggers, conditions, and links that differ from normal behavior. |
+| Inserts | Create, duplicate, rename, edit, and delete Insert actions; add only the overrides, triggers, conditions, and links that differ from normal behavior. Conditions use plain-language inside/outside choices and can target Payload or an eligible setting that the action explicitly configures. |
 | URLs, Shortcuts, Shell, AppleScript | Names and counts come from the authenticated live snapshot, but the type-specific panels remain read-only until their editor slice is implemented. In the standalone Vite preview, these values are fixtures. |
 
 Names from every action group can still appear in the Defaults and Insert
@@ -161,7 +161,9 @@ values retain their JSON meaning:
 - `""` means an intentional empty string, not inheritance;
 - `false`, `0`, and empty payloads are not converted by truthiness rules; and
 - built-in action values such as `.autoPaste` and `.none` remain distinct from
-  custom text and preserve stored sibling settings.
+  custom text and preserve stored sibling settings. Stored conditions are also
+  retained, but the protected built-in payload behavior governs until the
+  action returns to **Insert custom text**.
 
 Insert names are unique across all five action groups. Rename updates inbound
 `activeAction` and `nextAction` references in the same transaction. Deletion is
@@ -172,7 +174,9 @@ Placeholder review, Action overrides, Conditions, Triggers, and Chaining form
 one coordinated disclosure set: opening one closes the previously open section,
 and choosing another action resets the set. Opening a settings section shows
 configured entries first and offers an explicit Add control for another
-exception. A newly added override asks for an explicit value before it changes
+exception. Conditions offer **Payload** plus eligible settings that this action
+explicitly configures; inherited-only settings do not appear in that menu. A
+newly added override or condition asks for an explicit value before it changes
 the configuration. Its choices identify the value that currently comes from
 **Defaults**, but choosing that value still saves an explicit override. When an
 inherited icon or recording destination is custom, choosing **Custom** starts
@@ -187,9 +191,18 @@ action discards untouched rows that still have no value and returns saved rows
 to alphabetical order. These untouched rows are local editing state: they are
 not written to the configuration and also disappear after reload.
 Removing an override resumes inheritance from **Defaults**; removing a condition
-restores **Always**.
-Unsupported or ambiguous raw condition and trigger expressions remain available
-for deliberate raw editing and are never silently simplified.
+removes that inside/outside rule. When a setting's condition does not match, the
+setting uses **Defaults**; when a Payload condition does not match, the payload
+is skipped. If a saved condition targets a setting the action no longer
+configures, the editor keeps and displays it, explains that it currently has no
+effect, and links to the place where the target can be configured.
+
+The normal Conditions interface never exposes pipe-separated tokens. Repeated,
+contradictory, malformed, or unsupported condition expressions remain
+byte-for-byte intact and enter an exceptional recovery state instead of being
+silently simplified. The saved expression is shown there for diagnosis, and a
+deliberate recovery action can replace it with the equivalent supported visual
+rules. Trigger expressions keep their existing advanced editing behavior.
 
 The placeholder menu presents categorized result, captured-context, workflow,
 recording-folder, and Date sources as compact full-width rows. Each row keeps

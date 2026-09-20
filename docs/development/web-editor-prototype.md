@@ -135,7 +135,14 @@ or expand placeholders against private runtime context.
   a text control and leave it to commit; there is no global Save button.
 - Add and remove an action override, and compare an intentionally empty payload
   with a built-in template. Removing an override must restore Use Defaults, and
-  stored sibling settings must survive payload-mode changes.
+  stored sibling settings and conditions must survive payload-mode changes while
+  the protected template behavior remains explicit.
+- Open Conditions on an empty and configured custom action. Verify its
+  plain-language rows, that Add condition offers only Payload and eligible
+  explicitly configured settings, and that an unmet setting uses Defaults while
+  an unmet Payload rule skips the payload. Confirm inert saved rules remain
+  visible with a route to configure their target, and unusual expressions keep
+  their exact saved value until deliberate exceptional recovery.
 - Insert a placeholder source at the caret, then put the caret inside it to edit
   its transform and regex replacements in the inline inspector. The toolbar,
   textarea, and inspector form one editing boundary.
@@ -149,9 +156,11 @@ The current prototype was inspected at 1440, 1024, 768, and 390 CSS pixels in
 light and dark modes. Browser checks covered immediate choice acknowledgement,
 blur-only text commits, caret insertion, native Undo after placeholder
 insertion, built-in template controls, invalid drafts, and explicit conflict
-review/reapply. Automated UI coverage exercises the same save and conflict
-state transitions and checks that Defaults and Insert field metadata stays in
-step with the generated schema projection.
+review/reapply. Conditions were also checked for empty, configured, inert,
+unusual-expression, and built-in-retention states without exposing raw syntax in
+the normal path. Automated UI coverage exercises the same save and conflict
+state transitions, condition eligibility and recovery, and checks that Defaults
+and Insert field metadata stays in step with the generated schema projection.
 
 This pass did not complete a Safari, VoiceOver, or 200% browser-zoom audit.
 Those remain required before the connected editor is release-ready.

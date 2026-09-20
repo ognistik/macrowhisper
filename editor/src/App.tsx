@@ -2496,7 +2496,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const [pendingOverrides, setPendingOverrides] = useState<string[]>([])
   const [sessionOverrideOrder, setSessionOverrideOrder] = useState<string[]>([])
   const [pendingConditions, setPendingConditions] = useState<string[]>([])
-  const [conditionAdvanced, setConditionAdvanced] = useState(false)
+  const [sessionConditionOrder, setSessionConditionOrder] = useState<string[]>([])
   const [renaming, setRenaming] = useState(false)
   const composingRef = useRef(false)
   const deferredBlurRef = useRef(false)
@@ -2542,6 +2542,13 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     if (openDisclosure !== 'insertion') {
       setPendingOverrides([])
       setSessionOverrideOrder([])
+    }
+  }, [openDisclosure])
+
+  useEffect(() => {
+    if (openDisclosure !== 'conditions') {
+      setPendingConditions([])
+      setSessionConditionOrder([])
     }
   }, [openDisclosure])
 
@@ -2699,11 +2706,14 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   }
 
   const actionMeta = actionFieldLabels
+  const conditionLabel = (field: string) => field === 'action' ? 'Payload' : actionMeta[field]?.label ?? field
   const conditionUnsupported = Object.keys(conditionValues).some((field) => !conditionFieldsByGroup.inserts.includes(field))
   const conditionHasIssue = conditionAnalysis.malformed || conditionAnalysis.repeated.length > 0 || conditionUnsupported
   const conditionSummary = conditionRaw
-    ? `${Object.keys(conditionValues).length} rule${Object.keys(conditionValues).length === 1 ? '' : 's'}${conditionHasIssue ? ' · review raw' : ''}`
-    : 'Always'
+    ? conditionHasIssue
+      ? 'Needs review'
+      : `${Object.keys(conditionValues).length} condition${Object.keys(conditionValues).length === 1 ? '' : 's'}`
+    : 'No conditions'
   const overrideCount = overrideFields.filter((field) => valueFor(actionPath(field)) !== null && valueFor(actionPath(field)) !== undefined).length
   const configuredOverrides = overrideFields.filter((field) => field in actionMeta && valueFor(actionPath(field)) !== null && valueFor(actionPath(field)) !== undefined)
   const visibleOverrides = [
@@ -2711,9 +2721,27 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     ...sessionOverrideOrder.filter((field) => configuredOverrides.includes(field) || pendingOverrides.includes(field)),
   ]
   const availableOverrides = overrideFields.filter((field) => field in actionMeta && !visibleOverrides.includes(field))
-  const configuredConditions = conditionFieldsByGroup.inserts.filter((field) => conditionValues[field])
-  const visibleConditions = [...configuredConditions, ...pendingConditions.filter((field) => !configuredConditions.includes(field))]
-  const availableConditions = conditionFieldsByGroup.inserts.filter((field) => !visibleConditions.includes(field))
+  const sortedConditionFields = [...conditionFieldsByGroup.inserts].sort((left, right) => conditionLabel(left).localeCompare(conditionLabel(right)))
+  const conditionTargetIsConfigured = (field: string) => {
+    if (field === 'action') return payloadMode === 'text'
+    const value = valueFor(actionPath(field))
+    return value !== null && value !== undefined
+  }
+  const configuredConditions = sortedConditionFields.filter((field) => conditionValues[field])
+  const visibleConditions = [
+    ...configuredConditions.filter((field) => !sessionConditionOrder.includes(field)),
+    ...sessionConditionOrder.filter((field) => configuredConditions.includes(field) || pendingConditions.includes(field)),
+  ]
+  const eligibleConditionFields = payloadMode === 'text'
+    ? sortedConditionFields.filter((field) => conditionTargetIsConfigured(field))
+    : []
+  const availableConditions = eligibleConditionFields.filter((field) => !visibleConditions.includes(field))
+  const normalizedConditionValues = Object.fromEntries(
+    sortedConditionFields
+      .filter((field) => conditionValues[field])
+      .map((field) => [field, conditionValues[field]]),
+  ) as Record<string, 'inside' | 'outside'>
+  const normalizedCondition = conditionForValues(normalizedConditionValues)
   const triggerKinds = [
     ['triggerVoice', 'voice phrase', 'voice phrases'],
     ['triggerApps', 'front app', 'front apps'],
@@ -2737,11 +2765,11 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     : 'Uses built-in insertion behavior'
   const conditionsSummary = payloadMode === 'text'
     ? conditionHasIssue
-      ? 'Input conditions need review'
+      ? 'Conditions need review'
       : conditionRaw
-        ? `${Object.keys(conditionValues).length} input condition${Object.keys(conditionValues).length === 1 ? '' : 's'}`
-        : 'No input conditions'
-    : 'Uses built-in input conditions'
+        ? `${Object.keys(conditionValues).length} condition${Object.keys(conditionValues).length === 1 ? '' : 's'}`
+        : 'No conditions'
+    : 'Uses built-in input behavior'
   const nextActionValue = valueFor(actionPath('nextAction'))
   const inheritedNextAction = displayValue(effectiveDefault(snapshot, 'nextAction'))
   const resolvedNextAction = nextActionValue === null || nextActionValue === undefined ? inheritedNextAction : displayValue(nextActionValue)
@@ -2760,8 +2788,9 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
     : `Built-in active${overrideCount > 0 ? ` · ${overrideCount} stored override${overrideCount === 1 ? '' : 's'}` : ''}`
   const conditionDisclosureMeta = payloadMode === 'text'
     ? conditionSummary
-    : `Built-in active${conditionRaw ? ' · Stored rules retained' : ''}`
+    : `Built-in behavior${conditionRaw ? ' · Conditions retained' : ''}`
   const addOverrideControl = availableOverrides.length > 0 ? <label className="add-setting-control insertion-add-control"><span className="sr-only">Add override</span><PlusIcon aria-hidden="true" /><select aria-label="Add override" value="" onChange={(event) => { const field = event.target.value; if (field) { setPendingOverrides((current) => [...current, field]); setSessionOverrideOrder((current) => [...current, field]) } }}><option value="">Add override…</option>{availableOverrides.map((field) => <option key={field} value={field}>{actionMeta[field].label}</option>)}</select></label> : null
+  const addConditionControl = availableConditions.length > 0 ? <label className="add-setting-control insertion-add-control condition-add-control"><span className="sr-only">Add condition</span><PlusIcon aria-hidden="true" /><select aria-label="Add condition" value="" onChange={(event) => { const field = event.target.value; if (field) { setPendingConditions((current) => [...current, field]); setSessionConditionOrder((current) => [...current, field]) } }}><option value="">Add condition…</option>{availableConditions.map((field) => <option key={field} value={field}>{conditionLabel(field)}</option>)}</select></label> : null
 
   return (
     <section className="insert-editor">
@@ -2836,10 +2865,60 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
         </Disclosure></div>
 
         <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Conditions" subtitle="Apply supported settings inside or outside text fields." meta={conditionDisclosureMeta} open={openDisclosure === 'conditions'} onToggle={(open) => setDisclosureOpen('conditions', open)} variant="defaults">
-          <div className="condition-intro">Add a rule only when a setting should behave differently inside or outside a text field.</div>
-          {conditionHasIssue && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />This saved expression contains {conditionAnalysis.malformed ? 'an invalid token' : conditionAnalysis.repeated.length > 0 ? `repeated token${conditionAnalysis.repeated.length === 1 ? '' : 's'}` : 'a token this editor cannot represent'}. It stays intact until you deliberately edit Advanced raw mode.</div>}
-          <fieldset className="template-field" disabled={payloadMode !== 'text' || conditionHasIssue || conditionAdvanced}>{payloadMode !== 'text' && <p className="template-note">The built-in mode supplies its own conditions. Your stored expression is retained for Custom text.</p>}{conditionHasIssue && !conditionAdvanced && <p className="template-note">Structured controls are paused until you enable Edit raw expression.</p>}{visibleConditions.length === 0 && !conditionHasIssue && <div className="section-empty"><strong>Always</strong><span>No conditional behavior is configured.</span></div>}<div className="condition-list">{visibleConditions.map((field) => <div className="condition-row" key={field}><div><strong>{field === 'action' ? 'Payload' : actionMeta[field]?.label ?? field}</strong><span>{field === 'action' ? 'Text or built-in action value' : 'Choose where this rule applies'}</span></div><select aria-label={`Condition for ${field}`} value={conditionValues[field] ?? ''} onChange={(event) => setConditionMode(field, event.target.value as 'inside' | 'outside')}><option value="" disabled>Choose…</option><option value="inside">Only in a text field</option><option value="outside">Only outside text fields</option></select><button type="button" className="icon-button" aria-label={`Remove condition for ${field}`} onClick={() => setConditionMode(field, 'always')}><Cross2Icon aria-hidden="true" /></button></div>)}</div>{availableConditions.length > 0 && !conditionHasIssue && <label className="add-setting-control"><span className="sr-only">Add condition</span><PlusIcon aria-hidden="true" /><select aria-label="Add condition" value="" onChange={(event) => { const field = event.target.value; if (field) setPendingConditions((current) => [...current, field]) }}><option value="">Add condition…</option>{availableConditions.map((field) => <option key={field} value={field}>{field === 'action' ? 'Payload' : actionMeta[field]?.label ?? field}</option>)}</select></label>}</fieldset>
-          <div className="generated-expression"><span>Generated expression</span><code>{conditionRaw || 'Always'}</code></div><label className="advanced-toggle"><input type="checkbox" checked={conditionAdvanced} onChange={(event) => setConditionAdvanced(event.target.checked)} /> Edit raw expression</label><div className="raw-expression"><input aria-label="Advanced input condition" readOnly={!conditionAdvanced} value={conditionRaw} aria-describedby={drafts[pathKey(conditionPath)]?.error ? fieldErrorId(conditionPath) : undefined} onChange={(event) => { if (conditionAdvanced) setDraftValue(conditionPath, event.target.value) }} onBlur={(event) => { if (conditionAdvanced) commitIfChanged(conditionPath, event.target.value) }} /><span>{conditionAdvanced ? 'Raw mode is deliberate; existing text is preserved until you edit it.' : 'Read-only preview. Enable Edit raw expression only for syntax this builder cannot represent.'}</span><FieldState entry={drafts[pathKey(conditionPath)]} onRevert={() => revertField(conditionPath)} onRetry={() => retryField(conditionPath)} onResync={() => resyncField(conditionPath)} errorId={fieldErrorId(conditionPath)} /></div>
+          {payloadMode !== 'text' ? <div className="condition-template-state">
+            <strong>Managed by {payloadMode === 'autoPaste' ? 'Auto-paste dictation' : 'Do nothing'}</strong>
+            <span>{conditionRaw ? 'Your Custom text conditions are retained and return when you switch modes.' : 'Switch to Custom text to add conditions.'}</span>
+          </div> : conditionHasIssue ? <div className="condition-recovery" role="group" aria-labelledby="condition-recovery-title">
+            <div className="condition-recovery-heading" role="alert"><ExclamationTriangleIcon aria-hidden="true" /><div><strong id="condition-recovery-title">These conditions need review</strong><span>This saved value cannot be changed safely with the visual controls. It remains exactly as written until you replace it deliberately.</span></div></div>
+            <div className="condition-saved-expression"><span>Saved expression</span><code>{conditionRaw}</code></div>
+            <div className="condition-recovery-actions">
+              <button type="button" className="quiet-button" disabled={editingBlocked} onClick={() => void commitField(conditionPath, normalizedCondition)}>Replace with visual conditions</button>
+              <a className="text-button condition-reference-link" href="https://github.com/ognistik/macrowhisper/blob/main/docs/triggers-and-conditions.md#conditional-behavior-with-inputcondition" target="_blank" rel="noreferrer">Condition syntax reference <UpdateIcon aria-hidden="true" /></a>
+            </div>
+            <FieldState entry={drafts[pathKey(conditionPath)]} onRevert={() => revertField(conditionPath)} onRetry={() => retryField(conditionPath)} onResync={() => resyncField(conditionPath)} errorId={fieldErrorId(conditionPath)} />
+          </div> : <fieldset className="template-field condition-builder" disabled={editingBlocked}>
+            <div className="configured-list condition-configured-list">{visibleConditions.map((field) => {
+              const configured = configuredConditions.includes(field)
+              const targetConfigured = conditionTargetIsConfigured(field)
+              const label = conditionLabel(field)
+              const removeLabel = configured ? `Remove ${label} condition` : `Cancel adding ${label} condition`
+              const mode = conditionValues[field]
+              const consequence = !targetConfigured
+                ? field === 'nextAction'
+                  ? 'No effect until this action has an explicit next step.'
+                  : `No effect until ${label} has an action override.`
+                : !mode
+                  ? field === 'action'
+                    ? 'Choose where this payload should run.'
+                    : 'Choose where this setting should apply.'
+                  : field === 'action'
+                    ? mode === 'inside'
+                      ? 'Runs in text fields. Skipped outside.'
+                      : 'Runs outside text fields. Skipped inside.'
+                    : mode === 'inside'
+                      ? 'Applies in text fields. Uses Defaults outside.'
+                      : 'Applies outside text fields. Uses Defaults inside.'
+              const configureTarget = () => {
+                if (field === 'nextAction') {
+                  setDisclosureOpen('chaining', true)
+                  return
+                }
+                setPendingOverrides((current) => current.includes(field) ? current : [...current, field])
+                setSessionOverrideOrder((current) => current.includes(field) ? current : [...current, field])
+                setDisclosureOpen('insertion', true)
+              }
+              return <div className={`configured-item condition-configured-item${targetConfigured ? '' : ' is-inert'}`} key={field}>
+                <div className="condition-row">
+                  <div className="condition-copy"><strong>{label}</strong><span>{consequence}</span>{configured && !targetConfigured && <button type="button" className="text-button condition-configure-target" onClick={configureTarget}>{field === 'nextAction' ? 'Configure next action' : 'Add override'}</button>}</div>
+                  <select aria-label={`Condition for ${field}`} value={conditionValues[field] ?? ''} disabled={configured && !targetConfigured} onChange={(event) => setConditionMode(field, event.target.value as 'inside' | 'outside')}><option value="" disabled>Choose where…</option><option value="inside">Only in a text field</option><option value="outside">Only outside text fields</option></select>
+                  <button type="button" className="remove-configured" aria-label={removeLabel} onClick={() => { setPendingConditions((current) => current.filter((item) => item !== field)); setSessionConditionOrder((current) => current.filter((item) => item !== field)); if (configured) setConditionMode(field, 'always') }}><Cross2Icon aria-hidden="true" /></button>
+                </div>
+              </div>
+            })}</div>
+            {visibleConditions.length === 0
+              ? <div className="section-empty insertion-empty-state condition-empty-state"><div className="insertion-empty-copy"><strong>Same behavior everywhere</strong><FieldState entry={drafts[pathKey(conditionPath)]} onRevert={() => revertField(conditionPath)} onRetry={() => retryField(conditionPath)} onResync={() => resyncField(conditionPath)} errorId={fieldErrorId(conditionPath)} /></div>{addConditionControl}</div>
+              : <div className="condition-footer"><FieldState entry={drafts[pathKey(conditionPath)]} onRevert={() => revertField(conditionPath)} onRetry={() => retryField(conditionPath)} onResync={() => resyncField(conditionPath)} errorId={fieldErrorId(conditionPath)} />{addConditionControl}</div>}
+          </fieldset>}
         </Disclosure></div>
 
         <TriggerEditor action={action} selectedName={selectedName} actionPath={actionPath} drafts={drafts} valueFor={valueFor} setDraftValue={setDraftValue} commitIfChanged={commitIfChanged} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} open={openDisclosure === 'triggers'} onToggle={(open) => setDisclosureOpen('triggers', open)} />
