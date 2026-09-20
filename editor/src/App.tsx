@@ -362,7 +362,7 @@ const dateFormats = [
 
 const triggerFields = ['triggerVoice', 'triggerApps', 'triggerModes', 'triggerUrls']
 const triggerLabels: Record<string, { label: string; description: string; placeholder: string }> = {
-  triggerVoice: { label: 'Voice phrases', description: 'Match a spoken prefix, or switch to Raw regex for a regular expression.', placeholder: 'reply' },
+  triggerVoice: { label: 'Voice phrases', description: 'Match a spoken phrase at the beginning or end, or switch to Raw regex for a regular expression.', placeholder: 'reply' },
   triggerApps: { label: 'Front apps', description: 'Match an app name or bundle ID. Mark a row as an exception to exclude it.', placeholder: 'Mail or com.apple.mail' },
   triggerModes: { label: 'Superwhisper modes', description: 'Match one or more configured mode names.', placeholder: 'writing' },
   triggerUrls: { label: 'Browser URLs', description: 'Match a domain or URL prefix.', placeholder: 'docs.example.com' },
@@ -371,6 +371,7 @@ const triggerLabels: Record<string, { label: string; description: string; placeh
 interface TriggerToken {
   value: string
   excluded: boolean
+  placement?: 'beginning' | 'end'
 }
 
 function splitTriggerTokens(raw: string, field: string): string[] {
@@ -393,13 +394,25 @@ function splitTriggerTokens(raw: string, field: string): string[] {
 function parseTriggerTokens(raw: string, field: string): TriggerToken[] {
   return splitTriggerTokens(raw, field)
     .filter((token) => token !== '')
-    .map((token) => ({ excluded: token.startsWith('!'), value: token.startsWith('!') ? token.slice(1) : token }))
+    .map((token) => {
+      const excluded = token.startsWith('!')
+      const withoutException = excluded ? token.slice(1) : token
+      const suffix = field === 'triggerVoice' && withoutException.startsWith('*')
+      return {
+        excluded,
+        value: suffix ? withoutException.slice(1) : withoutException,
+        ...(field === 'triggerVoice' ? { placement: suffix ? 'end' as const : 'beginning' as const } : {}),
+      }
+    })
 }
 
-function serializeTriggerTokens(tokens: TriggerToken[]): string {
+function serializeTriggerTokens(tokens: TriggerToken[], field?: string): string {
   return tokens
-    .map((token) => `${token.excluded ? '!' : ''}${token.value}`)
-    .filter((token) => token !== '' && token !== '!')
+    .filter((token) => token.value !== '')
+    .map((token) => {
+      const suffix = field === 'triggerVoice' && token.placement === 'end'
+      return `${token.excluded ? '!' : ''}${suffix ? '*' : ''}${token.value}`
+    })
     .join('|')
 }
 
@@ -3100,8 +3113,9 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
   </section>
 }
 
-function TriggerTokenRows({ field, rows, onChange, onAdd, onRemove }: { field: string; rows: TriggerToken[]; onChange: (index: number, next: TriggerToken) => void; onAdd: () => void; onRemove: (index: number) => void }) {
-  return <div className="trigger-token-list">{rows.map((row, index) => <div className="trigger-token-row" key={`${field}-${index}`}><input aria-label={`${triggerLabels[field].label} ${index + 1}`} value={row.value} onChange={(event) => onChange(index, { ...row, value: event.target.value })} placeholder={triggerLabels[field].placeholder} /><label className="token-exception"><input type="checkbox" checked={row.excluded} onChange={(event) => onChange(index, { ...row, excluded: event.target.checked })} /> Exclude</label>{rows.length > 1 && <button type="button" className="icon-button" aria-label={`Remove ${triggerLabels[field].label} ${index + 1}`} onClick={() => onRemove(index)}><Cross2Icon aria-hidden="true" /></button>}</div>)}<button type="button" className="text-button add-trigger-button" onClick={onAdd}><PlusIcon aria-hidden="true" /> Add {field === 'triggerVoice' ? 'phrase' : field === 'triggerApps' ? 'app' : field === 'triggerModes' ? 'mode' : 'URL'}</button></div>
+function TriggerTokenRows({ field, rows, onChange, onPlacementChange, onExceptionChange, onAdd, onRemove }: { field: string; rows: TriggerToken[]; onChange: (index: number, next: TriggerToken) => void; onPlacementChange?: (index: number, placement: 'beginning' | 'end') => void; onExceptionChange?: (index: number, excluded: boolean) => void; onAdd: () => void; onRemove: (index: number) => void }) {
+  const isVoice = field === 'triggerVoice'
+  return <div className="trigger-token-list">{rows.map((row, index) => <div className={`trigger-token-row${isVoice ? ' voice-trigger-token-row' : ''}`} key={`${field}-${index}`}><input aria-label={`${triggerLabels[field].label} ${index + 1}`} value={row.value} onChange={(event) => onChange(index, { ...row, value: event.target.value })} placeholder={triggerLabels[field].placeholder} />{isVoice && <label className="phrase-placement"><span className="sr-only">Voice phrase {index + 1} placement</span><select aria-label={`Voice phrase ${index + 1} placement`} value={row.placement ?? 'beginning'} onChange={(event) => onPlacementChange?.(index, event.target.value as 'beginning' | 'end')}><option value="beginning">Beginning</option><option value="end">End</option></select></label>}<label className="token-exception"><input type="checkbox" checked={row.excluded} onChange={(event) => onExceptionChange ? onExceptionChange(index, event.target.checked) : onChange(index, { ...row, excluded: event.target.checked })} /> Exclude</label>{rows.length > 1 && <button type="button" className="icon-button" aria-label={`Remove ${triggerLabels[field].label} ${index + 1}`} onClick={() => onRemove(index)}><Cross2Icon aria-hidden="true" /></button>}</div>)}<button type="button" className="text-button add-trigger-button" onClick={onAdd}><PlusIcon aria-hidden="true" /> Add {field === 'triggerVoice' ? 'phrase' : field === 'triggerApps' ? 'app' : field === 'triggerModes' ? 'mode' : 'URL'}</button></div>
 }
 
 interface TriggerEditorProps {
@@ -3122,9 +3136,9 @@ interface TriggerEditorProps {
 
 function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, setDraftValue, commitIfChanged, commitField, revertField, retryField, resyncField, open, onToggle }: TriggerEditorProps) {
   const [pendingFields, setPendingFields] = useState<string[]>([])
-  const [voiceMode, setVoiceMode] = useState<'prefix' | 'regex' | 'advanced'>(() => {
+  const [voiceMode, setVoiceMode] = useState<'phrases' | 'regex' | 'advanced'>(() => {
     const raw = displayValue(action.triggerVoice)
-    return isRawVoiceExpression(raw) ? 'regex' : isStructuredTriggerExpression(raw, 'triggerVoice') ? 'prefix' : 'advanced'
+    return isRawVoiceExpression(raw) ? 'regex' : isStructuredTriggerExpression(raw, 'triggerVoice') ? 'phrases' : 'advanced'
   })
   const [voiceAdvancedOptIn, setVoiceAdvancedOptIn] = useState(false)
   const [rawModes, setRawModes] = useState<Record<string, boolean>>({})
@@ -3133,7 +3147,7 @@ function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, set
   useEffect(() => {
     setRows(Object.fromEntries(triggerFields.map((field) => [field, parseTriggerTokens(displayValue(valueFor(actionPath(field))), field)])))
     const voice = displayValue(valueFor(actionPath('triggerVoice')))
-    setVoiceMode(isRawVoiceExpression(voice) ? 'regex' : isStructuredTriggerExpression(voice, 'triggerVoice') ? 'prefix' : 'advanced')
+    setVoiceMode(isRawVoiceExpression(voice) ? 'regex' : isStructuredTriggerExpression(voice, 'triggerVoice') ? 'phrases' : 'advanced')
     setVoiceAdvancedOptIn(false)
   // rawSignature changes only after a saved/external value changes; row edits are deliberate and reparse losslessly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3141,7 +3155,17 @@ function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, set
 
   const updateRows = (field: string, nextRows: TriggerToken[]) => {
     setRows((current) => ({ ...current, [field]: nextRows }))
-    setDraftValue(actionPath(field), serializeTriggerTokens(nextRows))
+    setDraftValue(actionPath(field), serializeTriggerTokens(nextRows, field))
+  }
+  const updateVoicePlacement = (index: number, placement: 'beginning' | 'end') => {
+    const nextRows = (rows.triggerVoice ?? []).map((row, rowIndex) => rowIndex === index ? { ...row, placement } : row)
+    updateRows('triggerVoice', nextRows)
+    void commitField(actionPath('triggerVoice'), serializeTriggerTokens(nextRows, 'triggerVoice'))
+  }
+  const updateVoiceException = (index: number, excluded: boolean) => {
+    const nextRows = (rows.triggerVoice ?? []).map((row, rowIndex) => rowIndex === index ? { ...row, excluded } : row)
+    updateRows('triggerVoice', nextRows)
+    void commitField(actionPath('triggerVoice'), serializeTriggerTokens(nextRows, 'triggerVoice'))
   }
   const triggerIssue = triggerFields.some((field) => {
     const raw = displayValue(valueFor(actionPath(field)))
@@ -3175,8 +3199,8 @@ function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, set
       return <div className="trigger-field configured-item" key={field}>
         <div className="trigger-field-heading"><label htmlFor={`${field}-raw`}>{triggerLabels[field].label}</label><div className="trigger-field-actions">{stateFor(field)}<button type="button" className="icon-button" aria-label={`Remove ${triggerLabels[field].label}`} onClick={() => { setPendingFields((current) => current.filter((item) => item !== field)); setRows((current) => ({ ...current, [field]: [] })); if (raw) void commitField(path, '') }}><Cross2Icon aria-hidden="true" /></button></div></div>
         <p>{triggerLabels[field].description}</p>
-        {isVoice && <label className="trigger-mode">Mode<select aria-label="Voice trigger mode" value={voiceMode} onChange={(event) => { const next = event.target.value as 'prefix' | 'regex' | 'advanced'; setVoiceMode(next); setVoiceAdvancedOptIn(next === 'advanced') }}><option value="prefix">Prefix phrases</option><option value="regex">Raw regex</option><option value="advanced">Advanced raw</option></select></label>}
-        {isVoice && voiceMode === 'regex' ? <><input id={`${field}-raw`} aria-label="Voice raw regex" value={rawRegexBody(raw)} onChange={(event) => setDraftValue(path, `==${event.target.value}==`)} onBlur={(event) => { commitIfChanged(path, `==${event.target.value}==`); setPendingFields((current) => current.filter((item) => item !== field)) }} placeholder="^(reply|respond)\\s+(.+)$" /><small className="trigger-help">Stored as <code>==…==</code> so the expression is treated as regex.</small></> : isVoice && voiceMode === 'advanced' ? <><textarea id={`${field}-raw`} aria-label="Advanced voice trigger" value={raw} onChange={(event) => setDraftValue(path, event.target.value)} onBlur={(event) => { commitIfChanged(path, event.target.value); setPendingFields((current) => current.filter((item) => item !== field)) }} rows={2} /><small className="trigger-help">Raw syntax is preserved until you intentionally edit it.</small></> : rawMode ? <><textarea id={`${field}-raw`} aria-label={`Advanced ${triggerLabels[field].label}`} readOnly={!rawModes[field]} value={raw} onChange={(event) => { if (rawModes[field]) setDraftValue(path, event.target.value) }} onBlur={(event) => { if (rawModes[field]) commitIfChanged(path, event.target.value) }} rows={2} /><label className="advanced-toggle"><input type="checkbox" checked={Boolean(rawModes[field])} onChange={(event) => setRawModes((current) => ({ ...current, [field]: event.target.checked }))} /> Advanced raw mode</label><small className="trigger-help">This expression cannot be represented as token rows until you opt into raw editing.</small></> : <><TriggerTokenRows field={field} rows={rows[field] ?? []} onChange={(index, next) => updateRows(field, (rows[field] ?? []).map((row, rowIndex) => rowIndex === index ? next : row))} onAdd={() => setRows((current) => ({ ...current, [field]: [...(current[field] ?? []), { value: '', excluded: false }] }))} onRemove={(index) => updateRows(field, (rows[field] ?? []).filter((_, rowIndex) => rowIndex !== index))} />{structured && <label className="advanced-toggle"><input type="checkbox" checked={Boolean(rawModes[field])} onChange={(event) => setRawModes((current) => ({ ...current, [field]: event.target.checked }))} /> Advanced raw mode</label>}</>}
+        {isVoice && <label className="trigger-mode"><span>Phrase rules</span><select aria-label="Voice trigger mode" value={voiceMode} onChange={(event) => { const next = event.target.value as 'phrases' | 'regex' | 'advanced'; setVoiceMode(next); setVoiceAdvancedOptIn(next === 'advanced') }}><option value="phrases">Phrase rules</option><option value="regex">Raw regex</option><option value="advanced">Advanced raw</option></select></label>}
+        {isVoice && voiceMode === 'regex' ? <><input id={`${field}-raw`} aria-label="Voice raw regex" value={rawRegexBody(raw)} onChange={(event) => setDraftValue(path, `==${event.target.value}==`)} onBlur={(event) => { commitIfChanged(path, `==${event.target.value}==`); setPendingFields((current) => current.filter((item) => item !== field)) }} placeholder="^(reply|respond)\\s+(.+)$" /><small className="trigger-help">Stored as <code>==…==</code> so the expression is treated as regex.</small></> : isVoice && voiceMode === 'advanced' ? <><textarea id={`${field}-raw`} aria-label="Advanced voice trigger" value={raw} onChange={(event) => setDraftValue(path, event.target.value)} onBlur={(event) => { commitIfChanged(path, event.target.value); setPendingFields((current) => current.filter((item) => item !== field)) }} rows={2} /><small className="trigger-help">Raw syntax is preserved until you intentionally edit it.</small></> : rawMode ? <><textarea id={`${field}-raw`} aria-label={`Advanced ${triggerLabels[field].label}`} readOnly={!rawModes[field]} value={raw} onChange={(event) => { if (rawModes[field]) setDraftValue(path, event.target.value) }} onBlur={(event) => { if (rawModes[field]) commitIfChanged(path, event.target.value) }} rows={2} /><label className="advanced-toggle"><input type="checkbox" checked={Boolean(rawModes[field])} onChange={(event) => setRawModes((current) => ({ ...current, [field]: event.target.checked }))} /> Advanced raw mode</label><small className="trigger-help">This expression cannot be represented as token rows until you opt into raw editing.</small></> : <><TriggerTokenRows field={field} rows={rows[field] ?? []} onChange={(index, next) => updateRows(field, (rows[field] ?? []).map((row, rowIndex) => rowIndex === index ? next : row))} onPlacementChange={isVoice ? updateVoicePlacement : undefined} onExceptionChange={isVoice ? updateVoiceException : undefined} onAdd={() => setRows((current) => ({ ...current, [field]: [...(current[field] ?? []), { value: '', excluded: false, ...(field === 'triggerVoice' ? { placement: 'beginning' as const } : {}) }] }))} onRemove={(index) => updateRows(field, (rows[field] ?? []).filter((_, rowIndex) => rowIndex !== index))} />{structured && <label className="advanced-toggle"><input type="checkbox" checked={Boolean(rawModes[field])} onChange={(event) => setRawModes((current) => ({ ...current, [field]: event.target.checked }))} /> Advanced raw mode</label>}</>}
       </div>
     })}</div>
     {availableFields.length > 0 && <label className="add-setting-control"><span className="sr-only">Add trigger</span><PlusIcon aria-hidden="true" /><select aria-label="Add trigger" value="" onChange={(event) => { const field = event.target.value; if (!field) return; setPendingFields((current) => [...current, field]); setRows((current) => ({ ...current, [field]: current[field]?.length ? current[field] : [{ value: '', excluded: false }] })) }}><option value="">Add trigger…</option>{availableFields.map((field) => <option key={field} value={field}>{triggerLabels[field].label}</option>)}</select></label>}

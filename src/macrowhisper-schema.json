@@ -303,10 +303,11 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Matching is case-insensitive by default; use regex flags (for example '(?-i)') in raw regex to force case-sensitive matching. Empty string, null, or omit means no trigger.",
+          "description": "Voice trigger patterns. Plain phrases match and strip at the beginning; prefix a phrase with '*' to match and strip it at the end. Use '!' first for exceptions (for example '!*cancel'), and '|' for multiple triggers. Literal phrases are case-insensitive and ignore trailing punctuation written in the configuration. Suffix stripping preserves existing sentence-ending punctuation or transfers the matched transcript's terminal punctuation after removing connector punctuation. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Use regex flags (for example '(?-i)') in raw regex to force case-sensitive matching. Empty string, null, or omit means no trigger.",
           "examples": [
             "!all but this",
             "email|mail",
+            "*send it|!*cancel",
             "==^search\\s+(.+)$==",
             "==(?-i)^Exact Case$==",
             ""

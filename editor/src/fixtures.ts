@@ -81,7 +81,7 @@ const customInsert: InsertConfig = {
   clipboardAttachments: false,
   inputCondition: 'simReturn|action',
   nextAction: '',
-  triggerVoice: 'reply|respond',
+  triggerVoice: 'reply|*respond',
   triggerApps: 'Mail|Messages|com.apple.mail',
   triggerModes: null,
   triggerUrls: 'mail.example.test',

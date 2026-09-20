@@ -366,17 +366,17 @@ The trigger system evaluates all configured actions to find matches based on voi
 #### Trigger Types:
 
 ##### 1. Voice Triggers (`triggerVoice`):
-- **Pattern**: Regex patterns that match the beginning of transcribed text
+- **Literal placement**: Plain phrases match the beginning of transcribed text; a leading `*` matches the end
 - **Exceptions**: Patterns prefixed with `!` exclude matches
 - **Multiple Patterns**: Separated by `|` (pipe character)
-- **Result Stripping (normal patterns)**: Normal voice patterns are treated as prefix matches; the matched prefix is removed from result/swResult
+- **Result Stripping (literal patterns)**: Matched prefixes and suffixes are removed from result/swResult; suffix cleanup preserves or transfers sentence-ending punctuation
 - **Case Insensitive**: All voice triggers are case-insensitive by default
 - **Raw Regex**: Wrap patterns in `==` for full regex control (e.g., `==^exact match$==`); raw regex does not strip any text from result/swResult
 
 Example:
 ```json
 {
-  "triggerVoice": "^send email|compose message|!delete email|==^google this\\.?$=="
+  "triggerVoice": "send email|compose message|*send it|!*cancel|==^google this\\.?$=="
 }
 ```
 

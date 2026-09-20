@@ -1,6 +1,232 @@
 import Foundation
 import Cocoa
 
+/// A parsed voice trigger rule. `raw` is the exact trimmed rule from the
+/// trigger list; the other fields describe the rule's matching semantics.
+struct VoiceTriggerRule {
+    let raw: String
+    let pattern: String
+    let isException: Bool
+    let isSuffix: Bool
+    let isRawRegex: Bool
+}
+
+/// Shared parser, matcher, and stripper for literal voice triggers.
+///
+/// Keeping this implementation in TriggerEvaluator.swift means the watcher,
+/// CLI, and evaluator all use the same compiled runtime source without adding
+/// another Xcode project file entry.
+enum VoiceTriggerMatcher {
+    private static let terminalPunctuation = CharacterSet(charactersIn: ".!?…")
+    private static let connectorPunctuation = CharacterSet(charactersIn: ",;:-–—")
+    private static let whitespace = CharacterSet.whitespacesAndNewlines
+    private static let trailingSuffixCharacters = whitespace.union(.punctuationCharacters)
+
+    static func split(_ input: String) -> [VoiceTriggerRule] {
+        var parts: [VoiceTriggerRule] = []
+        var current = ""
+        var index = input.startIndex
+        var inRaw = false
+
+        func pushCurrent() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, let rule = parse(trimmed) {
+                parts.append(rule)
+            }
+            current.removeAll(keepingCapacity: true)
+        }
+
+        while index < input.endIndex {
+            if inRaw {
+                if input[index] == "=" {
+                    let next = input.index(after: index)
+                    if next < input.endIndex && input[next] == "=" {
+                        current.append("==")
+                        index = input.index(after: next)
+                        inRaw = false
+                        continue
+                    }
+                }
+                current.append(input[index])
+                index = input.index(after: index)
+                continue
+            }
+
+            if input[index] == "|" {
+                pushCurrent()
+                index = input.index(after: index)
+                continue
+            }
+            if input[index] == "=" {
+                let next = input.index(after: index)
+                if next < input.endIndex && input[next] == "=" {
+                    inRaw = true
+                    current.append("==")
+                    index = input.index(after: next)
+                    continue
+                }
+            }
+            current.append(input[index])
+            index = input.index(after: index)
+        }
+        pushCurrent()
+        return parts
+    }
+
+    static func match(_ text: String, rule: VoiceTriggerRule) -> NSTextCheckingResult? {
+        let regexPattern: String
+        if rule.isRawRegex {
+            regexPattern = rule.pattern.hasPrefix("(?i)") || rule.pattern.hasPrefix("(?-i)")
+                ? rule.pattern
+                : "(?i)" + rule.pattern
+        } else if rule.isSuffix {
+            let literalPattern = rule.pattern
+            guard !literalPattern.isEmpty else { return nil }
+            regexPattern = "(?i)" + NSRegularExpression.escapedPattern(for: literalPattern)
+        } else {
+            guard !rule.pattern.isEmpty else { return nil }
+            regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: rule.pattern)
+        }
+
+        guard let regex = try? NSRegularExpression(pattern: regexPattern, options: []) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+
+        if !rule.isSuffix || rule.isRawRegex {
+            return regex.firstMatch(in: text, options: [], range: range)
+        }
+
+        // A suffix literal must end at the transcript's end, apart from
+        // punctuation and whitespace produced by transcription.
+        for candidate in regex.matches(in: text, options: [], range: range).reversed() {
+            guard let candidateRange = Range(candidate.range, in: text) else { continue }
+            let remainder = String(text[candidateRange.upperBound...])
+            guard remainder.unicodeScalars.allSatisfy({ trailingSuffixCharacters.contains($0) }) else {
+                continue
+            }
+            if candidateRange.lowerBound > text.startIndex {
+                let previous = text.index(before: candidateRange.lowerBound)
+                guard let scalar = text[previous].unicodeScalars.first,
+                      trailingSuffixCharacters.contains(scalar) else {
+                    continue
+                }
+            }
+            return candidate
+        }
+        return nil
+    }
+
+    /// Removes a matched literal rule from `text`. Raw regexes intentionally
+    /// never strip, even when they match.
+    static func strip(_ text: String, using rule: VoiceTriggerRule) -> String? {
+        guard !rule.isException, !rule.isRawRegex,
+              let match = match(text, rule: rule),
+              let matchRange = Range(match.range, in: text) else {
+            return nil
+        }
+
+        if rule.isSuffix {
+            return stripSuffix(text, matchedRange: matchRange)
+        }
+
+        var stripped = String(text[matchRange.upperBound...])
+        let punctuationAndWhitespace = whitespace.union(.punctuationCharacters)
+        while let first = stripped.unicodeScalars.first,
+              punctuationAndWhitespace.contains(first) {
+            stripped.removeFirst()
+        }
+        if let first = stripped.first {
+            stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
+        }
+        return stripped
+    }
+
+    private static func parse(_ raw: String) -> VoiceTriggerRule? {
+        var actualPattern = raw
+        var isException = false
+        if actualPattern.hasPrefix("!") {
+            isException = true
+            actualPattern.removeFirst()
+        }
+
+        // Raw rules retain their existing meaning. In particular, a leading
+        // `*` is only a suffix marker for literal rules, not for ==...==.
+        let isRawRegex = actualPattern.hasPrefix("==") && actualPattern.hasSuffix("==")
+        if isRawRegex {
+            let start = actualPattern.index(actualPattern.startIndex, offsetBy: 2)
+            let end = actualPattern.index(actualPattern.endIndex, offsetBy: -2)
+            return VoiceTriggerRule(
+                raw: raw,
+                pattern: String(actualPattern[start..<end]),
+                isException: isException,
+                isSuffix: false,
+                isRawRegex: true
+            )
+        }
+
+        var isSuffix = false
+        if actualPattern.hasPrefix("*") {
+            isSuffix = true
+            actualPattern.removeFirst()
+        }
+        return VoiceTriggerRule(
+            raw: raw,
+            pattern: normalizedLiteralPattern(actualPattern),
+            isException: isException,
+            isSuffix: isSuffix,
+            isRawRegex: false
+        )
+    }
+
+    private static func normalizedLiteralPattern(_ pattern: String) -> String {
+        var end = pattern.endIndex
+        while end > pattern.startIndex {
+            let previous = pattern.index(before: end)
+            guard pattern[previous].unicodeScalars.allSatisfy({ trailingSuffixCharacters.contains($0) }) else {
+                break
+            }
+            end = previous
+        }
+        return String(pattern[..<end])
+    }
+
+    private static func stripSuffix(_ text: String, matchedRange: Range<String.Index>) -> String {
+        var retained = String(text[..<matchedRange.lowerBound])
+        let trailing = String(text[matchedRange.upperBound...])
+
+        // The command's trailing punctuation is transferred only when the
+        // retained content does not already end in sentence punctuation.
+        let terminal = terminalPunctuationCluster(in: trailing)
+
+        retained = retained.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = retained.unicodeScalars.last, connectorPunctuation.contains(last) {
+            retained.removeLast()
+            retained = retained.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let hasStrongEnding = retained.unicodeScalars.last.map { terminalPunctuation.contains($0) } ?? false
+        if !hasStrongEnding, !terminal.isEmpty, !retained.isEmpty {
+            retained += terminal
+        }
+        return retained
+    }
+
+    private static func terminalPunctuationCluster(in trailing: String) -> String {
+        var scalars = Array(trailing.unicodeScalars)
+        while let last = scalars.last, whitespace.contains(last) {
+            scalars.removeLast()
+        }
+
+        var cluster: [UnicodeScalar] = []
+        while let last = scalars.last, terminalPunctuation.contains(last) {
+            cluster.append(last)
+            scalars.removeLast()
+        }
+        return String(String.UnicodeScalarView(cluster.reversed()))
+    }
+}
+
 /// Handles trigger evaluation for all action types (inserts, URLs, shortcuts, shell scripts, AppleScript)
 class TriggerEvaluator {
     private let logger: Logger
@@ -25,6 +251,7 @@ class TriggerEvaluator {
     private struct TriggerEvaluationResult {
         let matched: Bool
         let strippedResult: String?
+        let matchedVoiceTrigger: VoiceTriggerRule?
         let rank: TriggerMatchRank?
     }
 
@@ -33,6 +260,7 @@ class TriggerEvaluator {
         let name: String
         let type: ActionType
         let strippedResult: String?
+        let matchedVoiceTrigger: VoiceTriggerRule?
         let rank: TriggerMatchRank
     }
     
@@ -48,7 +276,7 @@ class TriggerEvaluator {
         frontAppName: String?,
         frontAppBundleId: String?,
         frontAppUrl: String?
-    ) -> [(action: Any, name: String, type: ActionType, strippedResult: String?)] {
+    ) -> [(action: Any, name: String, type: ActionType, strippedResult: String?, matchedVoiceTrigger: VoiceTriggerRule?)] {
         
         let modeName = metaJson["modeName"] as? String
         var matchedTriggerActions: [RankedTriggerAction] = []
@@ -82,6 +310,7 @@ class TriggerEvaluator {
                         name: name,
                         type: .insert,
                         strippedResult: evaluation.strippedResult,
+                        matchedVoiceTrigger: evaluation.matchedVoiceTrigger,
                         rank: rank
                     )
                 )
@@ -109,6 +338,7 @@ class TriggerEvaluator {
                         name: name,
                         type: .url,
                         strippedResult: evaluation.strippedResult,
+                        matchedVoiceTrigger: evaluation.matchedVoiceTrigger,
                         rank: rank
                     )
                 )
@@ -136,6 +366,7 @@ class TriggerEvaluator {
                         name: name,
                         type: .shortcut,
                         strippedResult: evaluation.strippedResult,
+                        matchedVoiceTrigger: evaluation.matchedVoiceTrigger,
                         rank: rank
                     )
                 )
@@ -163,6 +394,7 @@ class TriggerEvaluator {
                         name: name,
                         type: .shell,
                         strippedResult: evaluation.strippedResult,
+                        matchedVoiceTrigger: evaluation.matchedVoiceTrigger,
                         rank: rank
                     )
                 )
@@ -190,6 +422,7 @@ class TriggerEvaluator {
                         name: name,
                         type: .appleScript,
                         strippedResult: evaluation.strippedResult,
+                        matchedVoiceTrigger: evaluation.matchedVoiceTrigger,
                         rank: rank
                     )
                 )
@@ -207,7 +440,13 @@ class TriggerEvaluator {
         }
 
         return sortedMatches.map {
-            (action: $0.action, name: $0.name, type: $0.type, strippedResult: $0.strippedResult)
+            (
+                action: $0.action,
+                name: $0.name,
+                type: $0.type,
+                strippedResult: $0.strippedResult,
+                matchedVoiceTrigger: $0.matchedVoiceTrigger
+            )
         }
     }
 
@@ -247,6 +486,8 @@ class TriggerEvaluator {
         var appMatched = false
         var urlMatched = false
         var strippedResult: String? = nil
+        var matchedVoiceTrigger: VoiceTriggerRule? = nil
+        var matchedVoiceTriggerLength = -1
         var voicePositivePatternMatched = false
         var modePositivePatternMatched = false
         var appPositivePatternMatched = false
@@ -267,95 +508,72 @@ class TriggerEvaluator {
                 "[TriggerEval] Action '\(actionName)' has invalid triggerLogic '\(triggerLogic ?? "nil")'. " +
                 "Skipping trigger evaluation for this action."
             )
-            return TriggerEvaluationResult(matched: false, strippedResult: nil, rank: nil)
+            return TriggerEvaluationResult(
+                matched: false,
+                strippedResult: nil,
+                matchedVoiceTrigger: nil,
+                rank: nil
+            )
         }
         
         // Voice trigger
         if let triggerVoice = triggerVoice, !triggerVoice
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty {
-            // Split triggers by '|' but ignore '|' inside raw regex blocks delimited by '=='
-            let triggers = splitVoiceTriggers(triggerVoice)
+            let triggers = VoiceTriggerMatcher.split(triggerVoice)
             var matched = false
             var exceptionMatched = false
             if verbose {
                 if redactedLogsEnabled {
                     logDebug("[TriggerEval] Voice trigger check for action '\(actionName)': patterns=[REDACTED count=\(triggers.count)]")
                 } else {
-                    logDebug("[TriggerEval] Voice trigger check for action '\(actionName)': patterns=\(triggers)")
+                    logDebug("[TriggerEval] Voice trigger check for action '\(actionName)': patterns=\(triggers.map(\.raw))")
                 }
             }
             
             for trigger in triggers {
-                let isException = trigger.hasPrefix("!")
-                let actualPattern = isException ? String(trigger.dropFirst()) : trigger
-                
-                // Check if this is a raw regex pattern (wrapped in ==)
-                let isRawRegex = actualPattern.hasPrefix("==") && actualPattern.hasSuffix("==")
-                let patternToUse: String
-                let regexPattern: String
-                
-                if isRawRegex {
-                    // Extract the pattern between '==' delimiters - this is raw regex
-                    let startIndex = actualPattern.index(actualPattern.startIndex, offsetBy: 2)
-                    let endIndex = actualPattern.index(actualPattern.endIndex, offsetBy: -2)
-                    patternToUse = String(actualPattern[startIndex..<endIndex])
-                    
-                    // Check if user has specified case sensitivity
-                    if patternToUse.hasPrefix("(?i)") || patternToUse.hasPrefix("(?-i)") {
-                        // User has specified case sensitivity, use pattern as-is
-                        regexPattern = patternToUse
-                    } else {
-                        // Default to case-insensitive
-                        regexPattern = "(?i)" + patternToUse
-                    }
-                } else {
-                    // For prefix matching (current behavior)
-                    patternToUse = actualPattern
-                    regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: patternToUse)
-                }
-                
-                if let regex = try? NSRegularExpression(pattern: regexPattern, options: []) {
-                    let range = NSRange(location: 0, length: result.utf16.count)
-                    let found = regex.firstMatch(in: result, options: [], range: range) != nil
+                let match = VoiceTriggerMatcher.match(result, rule: trigger)
+                let found = match != nil
+                if found {
                     if verbose || found {
                         logDebug(
-                            "[TriggerEval] Voice pattern \(summarizeForLogs(trigger, maxPreview: 80)) " +
-                            "(raw regex: \(isRawRegex)) found=\(found) " +
+                            "[TriggerEval] Voice pattern \(summarizeForLogs(trigger.raw, maxPreview: 80)) " +
+                            "(raw regex: \(trigger.isRawRegex)) found=\(found) " +
                             "input=\(summarizeForLogs(result, maxPreview: 120)) " +
-                            "regex=\(summarizeForLogs(regexPattern, maxPreview: 120))"
+                            "rule=\(summarizeForLogs(trigger.raw, maxPreview: 120))"
                         )
                     }
                     
-                    if isException && found {
+                    if trigger.isException {
                         exceptionMatched = true
                     }
-                    if !isException && found {
+                    if !trigger.isException {
                         matched = true
                         voicePositivePatternMatched = true
-                        if let match = regex.firstMatch(in: result, options: [], range: range) {
+                        if let match {
                             voiceSpecificity = max(voiceSpecificity, match.range.length)
                         }
-                        if !isRawRegex {
-                            // Strip the trigger from the start, plus any leading punctuation/whitespace after
-                            let match = regex.firstMatch(in: result, options: [], range: range)!
-                            let afterTriggerIdx = result.index(result.startIndex, offsetBy: match.range.length)
-                            var stripped = String(result[afterTriggerIdx...])
-                            let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-                            while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
-                                stripped.removeFirst()
+                        if !trigger.isRawRegex, let stripped = VoiceTriggerMatcher.strip(result, using: trigger) {
+                            let matchLength = match?.range.length ?? 0
+                            let shouldReplace = matchedVoiceTrigger == nil ||
+                                matchedVoiceTrigger?.isRawRegex == true ||
+                                matchLength > matchedVoiceTriggerLength
+                            if shouldReplace {
+                                strippedResult = stripped
+                                matchedVoiceTrigger = trigger
+                                matchedVoiceTriggerLength = matchLength
                             }
-                            if let first = stripped.first {
-                                stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
-                            }
-                            strippedResult = stripped
+                        } else if matchedVoiceTrigger == nil {
+                            // Preserve the exact raw rule for diagnostics and
+                            // propagation, although raw rules never strip.
+                            matchedVoiceTrigger = trigger
                         }
                     }
                 }
             }
             
-            let hasPositive = triggers.contains { !$0.hasPrefix("!") }
-            let hasException = triggers.contains { $0.hasPrefix("!") }
+            let hasPositive = triggers.contains { !$0.isException }
+            let hasException = triggers.contains { $0.isException }
             
             if hasPositive {
                 voiceMatched = matched && !exceptionMatched
@@ -690,10 +908,14 @@ class TriggerEvaluator {
         let effectiveStrippedResult = voiceTriggerSet && voiceMatched && voicePositivePatternMatched
             ? strippedResult
             : nil
+        let effectiveMatchedVoiceTrigger = voiceTriggerSet && voiceMatched && voicePositivePatternMatched
+            ? matchedVoiceTrigger
+            : nil
 
         return TriggerEvaluationResult(
             matched: finalMatched,
             strippedResult: effectiveStrippedResult,
+            matchedVoiceTrigger: effectiveMatchedVoiceTrigger,
             rank: rank
         )
     }
@@ -835,61 +1057,6 @@ extension TriggerEvaluator {
         return trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
     }
 
-    /// Splits a triggerVoice string into individual patterns, using '|' as separator,
-    /// but ignoring '|' inside raw regex blocks delimited by '==' ... '=='.
-    /// Trims whitespace around each part and removes empty parts.
-    fileprivate func splitVoiceTriggers(_ input: String) -> [String] {
-        var parts: [String] = []
-        var current = ""
-        var i = input.startIndex
-        var inRaw = false
-
-        func pushCurrent() {
-            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { parts.append(trimmed) }
-            current.removeAll(keepingCapacity: true)
-        }
-
-        while i < input.endIndex {
-            if inRaw {
-                // Look for closing '=='
-                if input[i] == "=" {
-                    let next = input.index(after: i)
-                    if next < input.endIndex && input[next] == "=" {
-                        // Append the closing '==' and exit raw mode
-                        current.append("==")
-                        i = input.index(after: next)
-                        inRaw = false
-                        continue
-                    }
-                }
-                // Regular char inside raw
-                current.append(input[i])
-                i = input.index(after: i)
-            } else {
-                // Not in raw mode
-                if input[i] == "|" {
-                    pushCurrent()
-                    i = input.index(after: i)
-                    continue
-                }
-                // Enter raw mode on '=='
-                if input[i] == "=" {
-                    let next = input.index(after: i)
-                    if next < input.endIndex && input[next] == "=" {
-                        inRaw = true
-                        current.append("==")
-                        i = input.index(after: next)
-                        continue
-                    }
-                }
-                current.append(input[i])
-                i = input.index(after: i)
-            }
-        }
-        pushCurrent()
-        return parts
-    }
 }
 
 enum ActionType {

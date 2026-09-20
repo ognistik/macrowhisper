@@ -1076,6 +1076,33 @@ describe('configuration editor interactions', () => {
     expect(builtInSummary).toHaveTextContent('Uses built-in input behavior')
   })
 
+  it('edits voice phrase placement without exposing runtime marker syntax', async () => {
+    const user = userEvent.setup()
+    const store = renderWithStore()
+    const navigation = screen.getByRole('navigation', { name: 'Configuration sections' })
+    await user.click(within(navigation).getByRole('button', { name: /^Inserts/ }))
+    const actionList = screen.getByRole('navigation', { name: 'Insert actions' })
+    await user.click(within(actionList).getByRole('option', { name: /quickReply/ }))
+    await user.click(screen.getByText('Triggers', { selector: 'strong' }))
+
+    const firstPlacement = screen.getByRole('combobox', { name: 'Voice phrase 1 placement' })
+    const secondPlacement = screen.getByRole('combobox', { name: 'Voice phrase 2 placement' })
+    expect(firstPlacement).toHaveValue('beginning')
+    expect(secondPlacement).toHaveValue('end')
+    expect(screen.getByRole('textbox', { name: 'Voice phrases 1' })).toHaveValue('reply')
+    expect(screen.getByRole('textbox', { name: 'Voice phrases 2' })).toHaveValue('respond')
+
+    await user.selectOptions(firstPlacement, 'end')
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.triggerVoice).toBe('*reply|*respond'))
+
+    const voiceField = screen.getByText('Voice phrases', { selector: 'label' }).closest('.trigger-field') as HTMLElement
+    const exceptions = within(voiceField).getAllByRole('checkbox', { name: 'Exclude' })
+    await user.click(exceptions[1])
+    expect(exceptions[1]).toBeChecked()
+    await user.click(within(navigation).getByRole('button', { name: 'Defaults' }))
+    await waitFor(() => expect(store.getSnapshot().inserts.quickReply.triggerVoice).toBe('*reply|!*respond'))
+  })
+
   it('keeps placeholder insertion organized and opens customization deliberately', async () => {
     const user = userEvent.setup()
     renderWithStore()

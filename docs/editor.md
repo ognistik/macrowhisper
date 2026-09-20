@@ -26,6 +26,10 @@ type-specific editor is finished. The runtime action behavior itself is
 unchanged. Manual JSON editing and the existing CLI remain available for URL,
 Shortcut, Shell, and AppleScript actions.
 
+Voice phrase rows can match at the **Beginning** or **End** of a dictation.
+End placement writes the literal suffix syntax (`*phrase`) for you; exclusions
+remain a separate checkbox and raw regex remains available as an advanced mode.
+
 ## Open the editor
 
 The daemon must already be running. The editor commands do not start another

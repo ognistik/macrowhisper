@@ -142,7 +142,7 @@ This small configuration makes ordinary dictation paste into the current text fi
 }
 ```
 
-`{{swResult}}` is the final transcription value. A normal `triggerVoice` pattern matches at the start of the spoken result, and `{{result}}` receives the remaining voice text for the URL. See [configuration](docs/configuration.md), [actions](docs/actions.md), and [triggers and conditions](docs/triggers-and-conditions.md) for the complete behavior.
+`{{swResult}}` is the final transcription value. A plain `triggerVoice` phrase matches at the start of the spoken result; a leading `*` instead matches it at the end. Normal matched phrases are removed, so `{{result}}` receives the remaining voice text for the URL. See [configuration](docs/configuration.md), [actions](docs/actions.md), and [triggers and conditions](docs/triggers-and-conditions.md) for the complete behavior.
 
 ## Action selection
 

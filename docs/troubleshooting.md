@@ -90,7 +90,7 @@ macrowhisper --verbose
 
 - make sure the trigger field is not empty
 - double-check `triggerLogic`
-- remember that normal `triggerVoice` patterns match only at the start of the transcript
+- remember that plain `triggerVoice` phrases match at the start; use a leading `*` for a literal suffix such as `*send it`
 - check whether another action matched through a higher-priority trigger (voice, mode, URL, then app)
 - inspect the logs to see which trigger, if any, was used
 

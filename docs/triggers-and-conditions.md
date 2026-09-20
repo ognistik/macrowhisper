@@ -28,12 +28,17 @@ If `defaults.muteTriggers` is on, or a temporary trigger mute is active, Macrowh
 
 Use `triggerVoice` when you want spoken phrases to trigger actions.
 
-Normal voice patterns are:
+Literal voice patterns are:
 
-- prefix-only
+- prefix matches by default
+- suffix matches when prefixed with `*`
 - case-insensitive
 - treated as literal text
 - separated with `|`
+
+Trailing punctuation written in a literal configuration phrase is ignored, so
+`*send it`, `*send it.`, and `*send it...` describe the same suffix. Punctuation
+inside a phrase remains significant.
 
 The separator is ignored inside a `==...==` raw-regex wrapper, so `|` can remain part of that expression.
 
@@ -48,6 +53,17 @@ That means:
 - `google best pizza` can match
 - `search latest release notes` can match
 
+To match a phrase at the end instead, place `*` before it:
+
+```json
+"triggerVoice": "*send it|*title"
+```
+
+That means `Draft a reply, send it.` can match. The suffix and its separator are
+removed before the action runs, producing `Draft a reply.`. A leading `*` is a
+suffix marker only for literal voice phrases; raw regex keeps its existing
+meaning.
+
 #### Raw regex mode
 
 Wrap the pattern in `==...==` when you want full regex control.
@@ -60,7 +76,7 @@ Example:
 
 Important:
 
-- raw regex voice triggers do not do automatic prefix stripping
+- raw regex voice triggers do not do automatic stripping
 - if you need to remove the spoken trigger in that case, use a placeholder regex replacement
 - raw regex is case-insensitive by default; start the expression with `(?i)` or `(?-i)` when you want to state the case behavior explicitly
 
@@ -77,6 +93,12 @@ Example:
 If a trigger list contains only exceptions, the action matches whenever none of those exceptions match.
 
 When positive and exception patterns are mixed, at least one positive pattern must match and no exception may match.
+
+Place `!` before the suffix marker for a suffix exception:
+
+```json
+"triggerVoice": "*send it|!*cancel"
+```
 
 ### `triggerApps`
 
@@ -163,12 +185,22 @@ If all trigger fields are empty, the action will not auto-trigger. It can still 
 
 For normal, non-regex voice triggers:
 
-- the matched prefix is removed from `result`
-- during trigger-executed flows, Macrowhisper also tries to remove the equivalent prefix from `llmResult`
-- leading punctuation and whitespace after the removed prefix are cleaned up
-- the first remaining character is uppercased
+- matching always uses Superwhisper's original `result`, never `llmResult`
+- the matched prefix or suffix is removed from `result`
+- during trigger-executed flows, Macrowhisper also tries to remove that exact matched phrase from `llmResult`
+- prefix removal cleans leading punctuation and whitespace, then uppercases the first remaining character
+- suffix removal preserves sentence-ending punctuation already before the command
+- otherwise suffix removal drops connector punctuation such as a comma, semicolon, colon, or dash and transfers terminal punctuation from the removed command
 
 That is why a phrase like `google best pizza` can trigger a search and still pass clean text into the URL.
+
+For example:
+
+```text
+This is something, send it.  -> This is something.
+This is something, send it!  -> This is something!
+Something else... send it.   -> Something else...
+```
 
 ---
 

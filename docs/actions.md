@@ -55,7 +55,7 @@ How to interpret those fields:
 - for `clipboardAttachments`, `null` inherits `defaults.clipboardAttachments`, while `true` and `false` explicitly override it for the full chain
 - for `icon` and `nextAction`, `null` means inherit, while `""` means intentionally empty
 - for `moveTo`, `null` or omission inherits `defaults.moveTo`, `""` keeps the recording folder in place even when that default is nonempty, and a nonempty path or `.delete` overrides the default
-- `trigger*` fields help Macrowhisper choose the action; a normal positive `triggerVoice` match also removes the spoken prefix from the result before the payload is expanded
+- `trigger*` fields help Macrowhisper choose the action; a normal positive `triggerVoice` match also removes the spoken prefix, or a suffix marked with leading `*`, before the payload is expanded
 
 ### Common field examples
 

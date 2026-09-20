@@ -698,26 +698,10 @@ class SocketCommunication {
         return enhanced
     }
 
-    private func triggerVoicePatternForAction(_ action: Any, actionType: ActionType) -> String? {
-        switch actionType {
-        case .insert:
-            return (action as? AppConfiguration.Insert)?.triggerVoice
-        case .url:
-            return (action as? AppConfiguration.Url)?.triggerVoice
-        case .shortcut:
-            return (action as? AppConfiguration.Shortcut)?.triggerVoice
-        case .shell:
-            return (action as? AppConfiguration.ScriptShell)?.triggerVoice
-        case .appleScript:
-            return (action as? AppConfiguration.ScriptAppleScript)?.triggerVoice
-        }
-    }
-
     private func applyTriggerResultAdjustmentsForCLI(
         metaJson: [String: Any],
-        action: Any,
-        actionType: ActionType,
-        strippedResult: String?
+        strippedResult: String?,
+        matchedVoiceTrigger: VoiceTriggerRule?
     ) -> [String: Any] {
         var updated = metaJson
         guard let strippedResult else {
@@ -729,113 +713,16 @@ class SocketCommunication {
             return updated
         }
 
-        guard let triggerVoice = triggerVoicePatternForAction(action, actionType: actionType),
-              !triggerVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return updated
-        }
-
-        if let strippedLlmResult = stripTriggerFromTextForCLI(text: llmResult, triggerVoice: triggerVoice) {
+        if let matchedVoiceTrigger,
+           let strippedLlmResult = VoiceTriggerMatcher.strip(llmResult, using: matchedVoiceTrigger) {
             updated["llmResult"] = strippedLlmResult
             logDebug(
-                "[RunAuto] Stripped trigger from llmResult: " +
+                "[RunAuto] Stripped matched trigger from llmResult: " +
                 "\(summarizeForLogs(llmResult, maxPreview: 120)) -> \(summarizeForLogs(strippedLlmResult, maxPreview: 120))"
             )
         }
 
         return updated
-    }
-
-    /// Strips trigger pattern from text using the same logic as TriggerEvaluator/RecordingsFolderWatcher.
-    /// Returns stripped text if a non-raw, non-exception voice trigger matches; otherwise nil.
-    private func stripTriggerFromTextForCLI(text: String, triggerVoice: String) -> String? {
-        let triggers = splitVoiceTriggersForCLI(triggerVoice)
-
-        for trigger in triggers {
-            let isException = trigger.hasPrefix("!")
-            if isException {
-                continue
-            }
-
-            let actualPattern = trigger
-            let isRawRegex = actualPattern.hasPrefix("==") && actualPattern.hasSuffix("==")
-            if isRawRegex {
-                continue
-            }
-
-            let regexPattern = "^(?i)" + NSRegularExpression.escapedPattern(for: actualPattern)
-            guard let regex = try? NSRegularExpression(pattern: regexPattern, options: []) else {
-                continue
-            }
-
-            let range = NSRange(location: 0, length: text.utf16.count)
-            guard let match = regex.firstMatch(in: text, options: [], range: range) else {
-                continue
-            }
-
-            let afterTriggerIndex = text.index(text.startIndex, offsetBy: match.range.length)
-            var stripped = String(text[afterTriggerIndex...])
-            let punctuationSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-            while let first = stripped.unicodeScalars.first, punctuationSet.contains(first) {
-                stripped.removeFirst()
-            }
-            if let first = stripped.first {
-                stripped.replaceSubrange(stripped.startIndex...stripped.startIndex, with: String(first).uppercased())
-            }
-            return stripped
-        }
-
-        return nil
-    }
-
-    /// Splits a triggerVoice string into individual patterns, using '|' as separator,
-    /// but ignoring '|' inside raw regex blocks delimited by '==' ... '=='.
-    private func splitVoiceTriggersForCLI(_ input: String) -> [String] {
-        var parts: [String] = []
-        var current = ""
-        var i = input.startIndex
-        var inRaw = false
-
-        func pushCurrent() {
-            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { parts.append(trimmed) }
-            current.removeAll(keepingCapacity: true)
-        }
-
-        while i < input.endIndex {
-            if inRaw {
-                if input[i] == "=" {
-                    let next = input.index(after: i)
-                    if next < input.endIndex && input[next] == "=" {
-                        current.append("==")
-                        i = input.index(after: next)
-                        inRaw = false
-                        continue
-                    }
-                }
-                current.append(input[i])
-                i = input.index(after: i)
-            } else {
-                if input[i] == "|" {
-                    pushCurrent()
-                    i = input.index(after: i)
-                    continue
-                }
-                if input[i] == "=" {
-                    let next = input.index(after: i)
-                    if next < input.endIndex && input[next] == "=" {
-                        inRaw = true
-                        current.append("==")
-                        i = input.index(after: next)
-                        continue
-                    }
-                }
-                current.append(input[i])
-                i = input.index(after: i)
-            }
-        }
-
-        pushCurrent()
-        return parts
     }
 
     private func validateInsertExists(_ insertName: String, configManager: ConfigurationManager) -> Bool {
@@ -3810,9 +3697,8 @@ class SocketCommunication {
                             )
                             executionMetaJson = applyTriggerResultAdjustmentsForCLI(
                                 metaJson: enhancedMetaJson,
-                                action: matched.action,
-                                actionType: matched.type,
-                                strippedResult: matched.strippedResult
+                                strippedResult: matched.strippedResult,
+                                matchedVoiceTrigger: matched.matchedVoiceTrigger
                             )
                         }
                     }

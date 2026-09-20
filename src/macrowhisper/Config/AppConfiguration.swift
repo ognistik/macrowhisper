@@ -580,7 +580,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrases (plain = prefix, leading `*` = suffix, `==...==` = raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?
@@ -704,7 +704,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrases (plain = prefix, leading `*` = suffix, `==...==` = raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?
@@ -816,7 +816,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrases (plain = prefix, leading `*` = suffix, `==...==` = raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?
@@ -926,7 +926,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrases (plain = prefix, leading `*` = suffix, `==...==` = raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?

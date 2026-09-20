@@ -667,9 +667,11 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .trigger-field .field-state-wrap { justify-content: flex-start; min-height: 18px; }
 .trigger-token-list { display: grid; gap: 6px; margin-top: 4px; }
 .trigger-token-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
+.voice-trigger-token-row { grid-template-columns: minmax(0, 1fr) minmax(118px, auto) auto auto; }
 .trigger-token-row input[type="text"] { min-width: 0; }
 .token-exception { display: flex !important; grid-auto-flow: column; align-items: center; gap: 4px !important; color: var(--text-muted) !important; font-size: 13px !important; font-weight: 500 !important; white-space: nowrap; }
 .token-exception input, .advanced-toggle input { width: 14px; height: 14px; accent-color: var(--accent); }
+.phrase-placement select { min-width: 118px; margin-top: 0; }
 .trigger-mode { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--text-muted) !important; font-size: 13px !important; font-weight: 600 !important; }
 .trigger-mode select { min-width: 0; }
 .trigger-help, .trigger-priority { color: var(--text-muted); font-size: 13px; line-height: 1.45; }
@@ -798,6 +800,8 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
   .condition-footer { align-items: flex-start; flex-direction: column; }
   .condition-add-control { align-self: flex-start; }
   .trigger-token-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .voice-trigger-token-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .voice-trigger-token-row .phrase-placement { grid-column: 1 / 2; }
   .trigger-token-row .token-exception { grid-column: 1 / 2; }
   .placeholder-inspector-grid { grid-template-columns: 1fr; }
   .replacement-stage-fields { grid-template-columns: 1fr; }
