@@ -150,17 +150,32 @@ or expand placeholders against private runtime context.
   empty-list fixture is a healthy configuration with no Inserts and presents a
   creation prompt rather than a disk error. A rejected write must retain the
   draft and must not display a successful save.
+- Open Triggers on empty, configured, regular-expression, malformed-separator,
+  unreadable-expression, and invalid-logic fixtures. Confirm that opening or
+  viewing mixed phrase/regex rows never writes, an intentional edit normalizes
+  harmless empty separators, explicit Add phrase and Add regular expression
+  actions create ordered rows, phrase menus expose exception and removal while
+  regex menus expose removal only, excluded saved values retain a visible Except
+  badge, and blank pending rows keep their positions through focus changes and
+  saves to later rows but disappear on collapse/navigation. Compact muted info notes explain regex behavior and
+  exception-only matching beneath the affected group; row and group removal
+  remain distinct, and the full-width list stacks cleanly below the desktop
+  layout.
 - Review narrow windows and keyboard navigation as well as the desktop layout.
 
-The current prototype was inspected at 1440, 1024, 768, and 390 CSS pixels in
+The current prototype was inspected at 1440, 1024, 960, 781, 780, and 390 CSS pixels in
 light and dark modes. Browser checks covered immediate choice acknowledgement,
 blur-only text commits, caret insertion, native Undo after placeholder
 insertion, built-in template controls, invalid drafts, and explicit conflict
 review/reapply. Conditions were also checked for empty, configured, inert,
 unusual-expression, and built-in-retention states without exposing raw syntax in
-the normal path. Automated UI coverage exercises the same save and conflict
-state transitions, condition eligibility and recovery, and checks that Defaults
-and Insert field metadata stays in step with the generated schema projection.
+the normal path. Triggers were checked as a full-width configured list, including
+visible voice Beginning/End placement, contextual row actions, persistent Except
+badges, heterogeneous phrase/regex editing, pending-row cleanup, separator
+cleanup on deliberate edit, unreadable-value recovery, and invalid logic repair. Automated
+UI coverage exercises the same save and conflict state transitions, condition
+and trigger recovery, and checks that Defaults and Insert field metadata stays
+in step with the generated schema projection.
 
 This pass did not complete a Safari, VoiceOver, or 200% browser-zoom audit.
 Those remain required before the connected editor is release-ready.

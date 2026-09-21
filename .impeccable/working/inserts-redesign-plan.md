@@ -149,6 +149,52 @@ Success gate: the finished Inserts experience is visually continuous with
 Defaults, retains the complete configuration model, and materially improves the
 baseline critique without introducing navigation or round-trip regressions.
 
+### Triggers implementation contract
+
+- Use the full-width configured-list grammar established by Action overrides
+  and Conditions. Remove the matching-priority callout and the duplicate empty
+  explanation. Empty Triggers shows one quiet framed Add trigger control.
+- Voice triggers use one ordered list that can mix phrase and regular-expression
+  rows. Phrase rows keep independent Beginning/End placement visible; regex rows
+  carry a quiet Regex badge and never show placement controls. Explicit Add
+  phrase and Add regular expression actions create the desired row type. One
+  contextual row menu owns phrase exception state and removal. Regex menus keep
+  only row removal; they do not advertise exception behavior. Existing excluded
+  values remain visible with an Except badge without exposing serialized markers.
+- Treat harmless noncanonical separators tolerantly: show canonical visual
+  rows without writing on open, then serialize the canonical value on the
+  user's next deliberate edit. Never tie cosmetic normalization to a software
+  or configuration update.
+- Remove Advanced raw from routine and recovery UI. A saved trigger that truly
+  cannot be interpreted safely remains unchanged and gets a compact,
+  plain-language recovery state with Remove trigger and documentation actions.
+  Invalid regular expressions stay in the normal regex field with inline
+  validation.
+- Text rows save on blur or Enter. Placement, Except, removal, and logic choices
+  save immediately. Adding a row or trigger type is local until it has a value;
+  ordinary focus changes leave that unfinished field available and in its
+  original list position, even when a later row saves. Collapsing Triggers or
+  leaving the action removes unfinished blank scaffolding while
+  preserving saved rows. Regex and exception-only consequences use the same
+  compact, quiet info-note pattern beneath their group. Phrase/regex conversion is deliberately absent:
+  it would change anchoring, placement, and matched-text removal semantics.
+  Trigger logic exposes only Any type can match (default) and All types must
+  match because the field is not inherited from Defaults. Invalid saved Trigger
+  logic always exposes a repair control, even when fewer than two trigger types
+  exist. Add trigger and Trigger logic use consecutive, symmetrically padded
+  rows; the logic copy and choice are vertically centered while no transient
+  save or recovery status is present.
+- Associate trigger groups and errors programmatically, announce blocking
+  errors, keep group and row removal scopes distinct, and retain 44px targets
+  at the narrow breakpoint.
+- Keep extraction narrow: make the Trigger editor reusable for future writable
+  action groups and isolate trigger parsing/serialization, without building a
+  generic framework across overrides, conditions, and triggers.
+
+Triggers success gate: empty, structured, suffix, exception-only, raw-regex,
+unreadable, invalid-logic, save-failure, desktop, narrow, keyboard, and dark
+states all remain legible and preserve the canonical configuration contract.
+
 ## Future checkpoint — Shell and AppleScript source editors
 
 - Reuse the shared action-editor shell for inheritance, triggers, conditions,

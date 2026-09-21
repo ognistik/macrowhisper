@@ -26,9 +26,29 @@ type-specific editor is finished. The runtime action behavior itself is
 unchanged. Manual JSON editing and the existing CLI remain available for URL,
 Shortcut, Shell, and AppleScript actions.
 
-Voice phrase rows can match at the **Beginning** or **End** of a dictation.
-End placement writes the literal suffix syntax (`*phrase`) for you; exclusions
-remain a separate checkbox and raw regex remains available as an advanced mode.
+Voice triggers use one ordered list that can mix **Phrase** and **Regular
+expression** rows. Phrase rows can match at the **Beginning** or **End** of a
+dictation. Regular-expression rows show a **Regex** badge and have no placement
+choice. Use **Add phrase** or **Add regular expression** to create the desired
+row type. Phrase and non-voice rows have a compact actions menu for making the
+value an exception, returning it to a normal match, or removing it. A regular-
+expression row keeps the same menu for removal but does not offer exception
+actions. Excluded saved values retain a visible **Except** badge after the menu
+closes. The editor writes the configuration
+syntax for these choices without showing marker characters in the normal
+interface. It does not offer phrase/regex conversion because conversion would
+change placement and matched-text removal semantics. Front-app and
+Superwhisper-mode rows continue to accept their
+documented direct regular expressions and show a lightweight inline syntax
+warning when the browser can identify an unmatched bracket or escape. When
+multiple trigger types are configured, Trigger logic offers **Any type can match
+(default)** or **All types must match**; an omitted value uses the first behavior.
+The Add trigger and Trigger logic rows share a compact, vertically balanced
+footer rhythm; save and recovery feedback expands the logic control only while
+that feedback is present.
+Short info notes below a group explain contextual consequences without adding
+another setting: regex matches stay in the dictation, while an exception-only
+group matches when none of its values match.
 
 ## Open the editor
 
@@ -206,7 +226,22 @@ contradictory, malformed, or unsupported condition expressions remain
 byte-for-byte intact and enter an exceptional recovery state instead of being
 silently simplified. The saved expression is shown there for diagnosis, and a
 deliberate recovery action can replace it with the equivalent supported visual
-rules. Trigger expressions keep their existing advanced editing behavior.
+rules.
+
+Triggers follow the same preservation rule while keeping common mistakes out of
+the user's way. Empty separators in a saved alternative list are ignored when
+the editor builds its rows, but opening or viewing the action never rewrites the
+file. The next deliberate row edit saves a clean expression without those empty
+entries. Text changes save on Return or when their field loses focus; **Except**,
+placement, removal, and trigger-logic choices save immediately. A newly added
+blank row remains local and is not written until it has a value. Moving focus to
+another control does not discard or reorder it, including when a later row is
+saved. If a blank row or trigger group is still
+unfinished when Triggers closes or the user navigates away, that local
+scaffolding is discarded. If a saved trigger
+genuinely cannot be represented safely, the editor keeps it unchanged
+and shows a compact recovery panel with removal and documentation actions rather
+than exposing a raw-syntax editor.
 
 The placeholder menu presents categorized result, captured-context, workflow,
 recording-folder, and Date sources as compact full-width rows. Each row keeps

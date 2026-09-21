@@ -9,10 +9,12 @@ import {
   CodeIcon,
   CopyIcon,
   Cross2Icon,
+  DotsHorizontalIcon,
   ExclamationTriangleIcon,
   FileTextIcon,
   GearIcon,
   GlobeIcon,
+  InfoCircledIcon,
   LightningBoltIcon,
   MagnifyingGlassIcon,
   Pencil1Icon,
@@ -27,10 +29,18 @@ import { getAllActionNames } from './fixtures'
 import { defaultsSchema } from './generated/schema'
 import { ActionPicker } from './components/ActionPicker'
 import type { ActionPickerOption } from './components/ActionPicker'
+import {
+  analyzeTriggerExpression,
+  serializeTriggerTokens,
+  triggerFields,
+  triggerRegexPatternWarning,
+} from './triggerExpression'
+import type { TriggerField, TriggerToken, VoicePhrasePlacement } from './triggerExpression'
 import { API_SESSION_STORAGE_KEY, ApiStore } from './store/apiStore'
 import { FixtureStore } from './store/fixtureStore'
 import type {
   ActionGroup,
+  ActionConfig,
   ConfigSnapshot,
   Edit,
   EditorStore,
@@ -360,72 +370,11 @@ const dateFormats = [
   { value: 'yyyy-MM-dd HH:mm', label: 'Date and time', hint: 'Date plus 24-hour time.' },
 ]
 
-const triggerFields = ['triggerVoice', 'triggerApps', 'triggerModes', 'triggerUrls']
 const triggerLabels: Record<string, { label: string; description: string; placeholder: string }> = {
-  triggerVoice: { label: 'Voice phrases', description: 'Match a spoken phrase at the beginning or end, or switch to Raw regex for a regular expression.', placeholder: 'reply' },
-  triggerApps: { label: 'Front apps', description: 'Match an app name or bundle ID. Mark a row as an exception to exclude it.', placeholder: 'Mail or com.apple.mail' },
-  triggerModes: { label: 'Superwhisper modes', description: 'Match one or more configured mode names.', placeholder: 'writing' },
-  triggerUrls: { label: 'Browser URLs', description: 'Match a domain or URL prefix.', placeholder: 'docs.example.com' },
-}
-
-interface TriggerToken {
-  value: string
-  excluded: boolean
-  placement?: 'beginning' | 'end'
-}
-
-function splitTriggerTokens(raw: string, field: string): string[] {
-  const tokens: string[] = []
-  let token = ''
-  let inRegex = false
-  for (const character of raw) {
-    if (field === 'triggerVoice' && character === '=' && token.endsWith('=')) inRegex = !inRegex
-    if (character === '|' && !inRegex) {
-      tokens.push(token)
-      token = ''
-    } else {
-      token += character
-    }
-  }
-  tokens.push(token)
-  return tokens
-}
-
-function parseTriggerTokens(raw: string, field: string): TriggerToken[] {
-  return splitTriggerTokens(raw, field)
-    .filter((token) => token !== '')
-    .map((token) => {
-      const excluded = token.startsWith('!')
-      const withoutException = excluded ? token.slice(1) : token
-      const suffix = field === 'triggerVoice' && withoutException.startsWith('*')
-      return {
-        excluded,
-        value: suffix ? withoutException.slice(1) : withoutException,
-        ...(field === 'triggerVoice' ? { placement: suffix ? 'end' as const : 'beginning' as const } : {}),
-      }
-    })
-}
-
-function serializeTriggerTokens(tokens: TriggerToken[], field?: string): string {
-  return tokens
-    .filter((token) => token.value !== '')
-    .map((token) => {
-      const suffix = field === 'triggerVoice' && token.placement === 'end'
-      return `${token.excluded ? '!' : ''}${suffix ? '*' : ''}${token.value}`
-    })
-    .join('|')
-}
-
-function isRawVoiceExpression(raw: string): boolean {
-  const trimmed = raw.trim()
-  return trimmed.startsWith('==') && trimmed.endsWith('==') && trimmed.length >= 4
-}
-
-function isStructuredTriggerExpression(raw: string, field: string): boolean {
-  if (!raw) return true
-  if (field === 'triggerVoice' && isRawVoiceExpression(raw)) return false
-  if (raw.includes('==') || raw.startsWith('|') || raw.endsWith('|') || raw.includes('||')) return false
-  return splitTriggerTokens(raw, field).every((token) => token !== '' && token !== '!')
+  triggerVoice: { label: 'Voice phrases', description: 'Match and remove words at the beginning or end of dictation.', placeholder: 'reply' },
+  triggerApps: { label: 'Front apps', description: 'Match the foreground app name, bundle ID, or regular expression.', placeholder: 'Mail or com.apple.mail' },
+  triggerModes: { label: 'Superwhisper modes', description: 'Match the current mode name or a regular expression.', placeholder: 'writing' },
+  triggerUrls: { label: 'Browser URLs', description: 'Match the current browser domain or URL prefix.', placeholder: 'docs.example.com' },
 }
 
 function isEscapedAt(value: string, index: number): boolean {
@@ -707,11 +656,6 @@ function placeholderOccurrences(value: string): PlaceholderOccurrence[] {
       placeholder,
     }
   })
-}
-
-function rawRegexBody(raw: string): string {
-  const trimmed = raw.trim()
-  return isRawVoiceExpression(trimmed) ? trimmed.slice(2, -2) : raw
 }
 
 function pathKey(path: string[]): string {
@@ -2764,11 +2708,12 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
   const triggerParts = triggerKinds.flatMap(([field, singular, plural]) => {
     const raw = displayValue(valueFor(actionPath(field)))
     if (!raw) return []
-    const count = isStructuredTriggerExpression(raw, field) ? parseTriggerTokens(raw, field).length : 1
+    const analysis = analyzeTriggerExpression(raw, field)
+    const count = analysis.kind === 'tokens' ? analysis.rows.length : 1
     return [`${count} ${count === 1 ? singular : plural}`]
   })
   const joinSummaryParts = (parts: string[]) => parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
-  const effectiveTriggerLogic = displayValue(valueFor(actionPath('triggerLogic'))) || displayValue(effectiveDefault(snapshot, 'triggerLogic')) || 'or'
+  const effectiveTriggerLogic = displayValue(valueFor(actionPath('triggerLogic'))) === 'and' ? 'and' : 'or'
   const triggerSummary = triggerParts.length === 0
     ? 'No triggers; available as a fallback or chain step'
     : `Triggered by ${joinSummaryParts(triggerParts)}${triggerParts.length > 1 ? ` (${effectiveTriggerLogic === 'and' ? 'all types must match' : 'any type can match'})` : ''}`
@@ -2934,7 +2879,7 @@ function InsertEditor({ snapshot, selectedName, action, drafts, valueFor, setDra
           </fieldset>}
         </Disclosure></div>
 
-        <TriggerEditor action={action} selectedName={selectedName} actionPath={actionPath} drafts={drafts} valueFor={valueFor} setDraftValue={setDraftValue} commitIfChanged={commitIfChanged} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} open={openDisclosure === 'triggers'} onToggle={(open) => setDisclosureOpen('triggers', open)} />
+        <TriggerEditor action={action} selectedName={selectedName} actionPath={actionPath} drafts={drafts} valueFor={valueFor} setDraftValue={setDraftValue} commitField={commitField} revertField={revertField} retryField={retryField} resyncField={resyncField} open={openDisclosure === 'triggers'} onToggle={(open) => setDisclosureOpen('triggers', open)} />
 
         <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Chaining" subtitle="Continue to another action after this step." meta={valueFor(actionPath('nextAction')) ? 'Linked' : 'No next action'} open={openDisclosure === 'chaining'} onToggle={(open) => setDisclosureOpen('chaining', open)} variant="defaults"><div className="chain-field"><label htmlFor="next-action">Next action</label><p>The Defaults next action applies only to the root step. Select an action from any group.</p><ActionPicker id="next-action" label="Next action" describedBy={drafts[pathKey(actionPath('nextAction'))]?.error ? fieldErrorId(actionPath('nextAction')) : undefined} value={valueFor(actionPath('nextAction')) === null || valueFor(actionPath('nextAction')) === undefined ? NULL_CHOICE : valueFor(actionPath('nextAction')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('nextAction')))} options={[
           { value: NULL_CHOICE, label: 'Use Defaults next action', detail: 'Only for the first step', group: 'Defaults', keywords: 'inherit root' },
@@ -3113,19 +3058,125 @@ function PlaceholderInspector({ placeholder, onChange }: { placeholder: Editable
   </section>
 }
 
-function TriggerTokenRows({ field, rows, onChange, onPlacementChange, onExceptionChange, onAdd, onRemove }: { field: string; rows: TriggerToken[]; onChange: (index: number, next: TriggerToken) => void; onPlacementChange?: (index: number, placement: 'beginning' | 'end') => void; onExceptionChange?: (index: number, excluded: boolean) => void; onAdd: () => void; onRemove: (index: number) => void }) {
+function TriggerRowActions({ menuId, itemLabel, excluded, onExceptionChange, onRemove }: {
+  menuId: string
+  itemLabel: string
+  excluded: boolean
+  onExceptionChange?: (excluded: boolean) => void
+  onRemove?: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const frame = requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus({ preventScroll: true }))
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnPointerDown)
+    return () => {
+      cancelAnimationFrame(frame)
+      document.removeEventListener('pointerdown', closeOnPointerDown)
+    }
+  }, [open])
+
+  const closeAndRestoreFocus = () => {
+    setOpen(false)
+    requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }))
+  }
+  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeAndRestoreFocus()
+      return
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+    if (items.length === 0) return
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? items.length - 1
+        : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+    event.preventDefault()
+    items[next]?.focus()
+  }
+
+  return <div className="trigger-row-actions" ref={rootRef} onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)
+  }}>
+    <button ref={triggerRef} type="button" className="icon-button trigger-row-menu-button" aria-label={`Actions for ${itemLabel}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => setOpen((current) => !current)}><DotsHorizontalIcon aria-hidden="true" /></button>
+    {open && <div ref={menuRef} className="trigger-row-menu" id={menuId} role="menu" aria-label={`Actions for ${itemLabel}`} onKeyDown={onMenuKeyDown}>
+      {onExceptionChange && <button type="button" role="menuitem" onClick={() => { onExceptionChange(!excluded); closeAndRestoreFocus() }}>{excluded ? 'Match normally' : 'Make exception'}</button>}
+      {onRemove && <button type="button" role="menuitem" className="is-destructive" onClick={() => { setOpen(false); onRemove() }}>Remove {itemLabel.replace(/ \d+$/, '')}</button>}
+    </div>}
+  </div>
+}
+
+function TriggerTokenRows({ field, rows, onChange, onCommit, onPlacementChange, onExceptionChange, onAdd, onRemove }: {
+  field: TriggerField
+  rows: TriggerToken[]
+  onChange: (index: number, next: TriggerToken) => void
+  onCommit: () => void
+  onPlacementChange: (index: number, placement: VoicePhrasePlacement) => void
+  onExceptionChange: (index: number, excluded: boolean) => void
+  onAdd: (kind?: 'literal' | 'regex') => void
+  onRemove: (index: number) => void
+}) {
   const isVoice = field === 'triggerVoice'
-  return <div className="trigger-token-list">{rows.map((row, index) => <div className={`trigger-token-row${isVoice ? ' voice-trigger-token-row' : ''}`} key={`${field}-${index}`}><input aria-label={`${triggerLabels[field].label} ${index + 1}`} value={row.value} onChange={(event) => onChange(index, { ...row, value: event.target.value })} placeholder={triggerLabels[field].placeholder} />{isVoice && <label className="phrase-placement"><span className="sr-only">Voice phrase {index + 1} placement</span><select aria-label={`Voice phrase ${index + 1} placement`} value={row.placement ?? 'beginning'} onChange={(event) => onPlacementChange?.(index, event.target.value as 'beginning' | 'end')}><option value="beginning">Beginning</option><option value="end">End</option></select></label>}<label className="token-exception"><input type="checkbox" checked={row.excluded} onChange={(event) => onExceptionChange ? onExceptionChange(index, event.target.checked) : onChange(index, { ...row, excluded: event.target.checked })} /> Exclude</label>{rows.length > 1 && <button type="button" className="icon-button" aria-label={`Remove ${triggerLabels[field].label} ${index + 1}`} onClick={() => onRemove(index)}><Cross2Icon aria-hidden="true" /></button>}</div>)}<button type="button" className="text-button add-trigger-button" onClick={onAdd}><PlusIcon aria-hidden="true" /> Add {field === 'triggerVoice' ? 'phrase' : field === 'triggerApps' ? 'app' : field === 'triggerModes' ? 'mode' : 'URL'}</button></div>
+  const addLabel = field === 'triggerVoice' ? 'phrase' : field === 'triggerApps' ? 'app' : field === 'triggerModes' ? 'mode' : 'URL'
+  const configuredRows = rows.filter((row) => row.value.trim() !== '')
+  const onlyExceptions = configuredRows.length > 0 && configuredRows.every((row) => row.excluded)
+  const hasVoiceRegex = isVoice && rows.some((row) => row.kind === 'regex')
+  const regexHelpId = `${field}-regex-help`
+
+  const listRef = useRef<HTMLDivElement>(null)
+  const removeAndRestoreFocus = (index: number) => {
+    onRemove(index)
+    requestAnimationFrame(() => {
+      const actions = listRef.current?.querySelectorAll<HTMLButtonElement>('.trigger-row-menu-button')
+      actions?.[Math.min(index, actions.length - 1)]?.focus({ preventScroll: true })
+      if (actions?.length === 0) listRef.current?.querySelector<HTMLButtonElement>('.add-trigger-button')?.focus({ preventScroll: true })
+    })
+  }
+
+  return <div className="trigger-token-list" ref={listRef}>
+    {rows.map((row, index) => {
+      const isVoiceRegex = isVoice && row.kind === 'regex'
+      const singular = isVoiceRegex ? 'voice regular expression' : isVoice ? 'voice phrase' : field === 'triggerApps' ? 'front app' : field === 'triggerModes' ? 'Superwhisper mode' : 'browser URL'
+      const regexWarning = (isVoiceRegex || field === 'triggerApps' || field === 'triggerModes') ? triggerRegexPatternWarning(row.value) : null
+      const warningId = `${field}-value-${index}-warning`
+      const describedBy = [isVoiceRegex ? regexHelpId : null, regexWarning ? warningId : null].filter(Boolean).join(' ') || undefined
+      return <div className={`trigger-token-row${isVoice ? ' voice-trigger-token-row' : ''}${isVoiceRegex ? ' is-regex' : ''}`} key={`${field}-${index}`}>
+        <div className={`trigger-value-control${row.excluded ? ' is-exception' : ''}${regexWarning ? ' is-invalid' : ''}`}>
+          {isVoiceRegex && <span className="trigger-kind-badge">Regex</span>}
+          {row.excluded && <span className="trigger-exception-badge">Except</span>}
+          <input id={`${field}-value-${index}`} aria-label={`${singular} ${index + 1}`} aria-invalid={Boolean(regexWarning)} aria-describedby={describedBy} value={row.value} onChange={(event) => onChange(index, { ...row, value: event.target.value })} onBlur={onCommit} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }} placeholder={isVoiceRegex ? '^(reply|respond)\\s+(.+)$' : triggerLabels[field].placeholder} />
+        </div>
+        {isVoice && !isVoiceRegex && <label className="phrase-placement"><span className="sr-only">{`Placement for voice phrase ${index + 1}`}</span><select aria-label={`Placement for voice phrase ${index + 1}`} value={row.placement ?? 'beginning'} onChange={(event) => onPlacementChange(index, event.target.value as VoicePhrasePlacement)}><option value="beginning">Beginning</option><option value="end">End</option></select></label>}
+        <TriggerRowActions menuId={`${field}-row-${index}-actions`} itemLabel={`${singular} ${index + 1}`} excluded={row.excluded} onExceptionChange={isVoiceRegex ? undefined : (excluded) => onExceptionChange(index, excluded)} onRemove={() => removeAndRestoreFocus(index)} />
+        {regexWarning && <small id={warningId} className="regex-validation trigger-token-warning" role="status">{regexWarning}</small>}
+      </div>
+    })}
+    {isVoice ? <div className="trigger-add-actions"><button type="button" className="text-button add-trigger-button" onClick={() => onAdd('literal')}><PlusIcon aria-hidden="true" /> Add phrase</button><button type="button" className="text-button add-trigger-button" onClick={() => onAdd('regex')}><PlusIcon aria-hidden="true" /> Add regular expression</button></div> : <button type="button" className="text-button add-trigger-button" onClick={() => onAdd()}><PlusIcon aria-hidden="true" /> Add {addLabel}</button>}
+    {(hasVoiceRegex || onlyExceptions) && <div className="trigger-context-notes">
+      {hasVoiceRegex && <small id={regexHelpId} className="trigger-context-note"><InfoCircledIcon aria-hidden="true" /><span>Regex matches as written and stays in the dictation.</span></small>}
+      {onlyExceptions && <small className="trigger-context-note"><InfoCircledIcon aria-hidden="true" /><span>Exceptions only. This trigger matches when none of these values match.</span></small>}
+    </div>}
+  </div>
 }
 
 interface TriggerEditorProps {
-  action: InsertConfig
+  action: ActionConfig
   selectedName: string
   actionPath: (field: string) => string[]
   drafts: Record<string, DraftEntry>
   valueFor: (path: string[]) => FieldValue
   setDraftValue: (path: string[], value: FieldValue) => void
-  commitIfChanged: (path: string[], value: FieldValue) => void
   commitField: (path: string[], value: FieldValue) => Promise<boolean>
   revertField: (path: string[]) => void
   retryField: (path: string[]) => void
@@ -3134,79 +3185,151 @@ interface TriggerEditorProps {
   onToggle: (open: boolean) => void
 }
 
-function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, setDraftValue, commitIfChanged, commitField, revertField, retryField, resyncField, open, onToggle }: TriggerEditorProps) {
-  const [pendingFields, setPendingFields] = useState<string[]>([])
-  const [voiceMode, setVoiceMode] = useState<'phrases' | 'regex' | 'advanced'>(() => {
-    const raw = displayValue(action.triggerVoice)
-    return isRawVoiceExpression(raw) ? 'regex' : isStructuredTriggerExpression(raw, 'triggerVoice') ? 'phrases' : 'advanced'
-  })
-  const [voiceAdvancedOptIn, setVoiceAdvancedOptIn] = useState(false)
-  const [rawModes, setRawModes] = useState<Record<string, boolean>>({})
-  const [rows, setRows] = useState<Record<string, TriggerToken[]>>(() => Object.fromEntries(triggerFields.map((field) => [field, parseTriggerTokens(displayValue(valueFor(actionPath(field))), field)])))
-  const rawSignature = triggerFields.map((field) => displayValue(valueFor(actionPath(field)))).join('\u001e')
+function TriggerEditor({ action, selectedName, actionPath, drafts, valueFor, setDraftValue, commitField, revertField, retryField, resyncField, open, onToggle }: TriggerEditorProps) {
+  const [pendingFields, setPendingFields] = useState<TriggerField[]>([])
+  const [removingFields, setRemovingFields] = useState<TriggerField[]>([])
+  const [rows, setRows] = useState<Record<TriggerField, TriggerToken[]>>(() => Object.fromEntries(triggerFields.map((field) => {
+    const analysis = analyzeTriggerExpression(displayValue(valueFor(actionPath(field))), field)
+    return [field, analysis.kind === 'tokens' ? analysis.rows : []]
+  })) as Record<TriggerField, TriggerToken[]>)
+  const rowsActionRef = useRef(selectedName)
+  const rawSignature = triggerFields.map((field) => displayValue(action[field])).join('\u001e')
   useEffect(() => {
-    setRows(Object.fromEntries(triggerFields.map((field) => [field, parseTriggerTokens(displayValue(valueFor(actionPath(field))), field)])))
-    const voice = displayValue(valueFor(actionPath('triggerVoice')))
-    setVoiceMode(isRawVoiceExpression(voice) ? 'regex' : isStructuredTriggerExpression(voice, 'triggerVoice') ? 'phrases' : 'advanced')
-    setVoiceAdvancedOptIn(false)
-  // rawSignature changes only after a saved/external value changes; row edits are deliberate and reparse losslessly.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedName, rawSignature])
+    const actionChanged = rowsActionRef.current !== selectedName
+    rowsActionRef.current = selectedName
+    setRows((current) => Object.fromEntries(triggerFields.map((field) => {
+      const analysis = analyzeTriggerExpression(displayValue(action[field]), field)
+      const savedRows = analysis.kind === 'tokens' ? analysis.rows : []
+      if (!open || actionChanged) return [field, savedRows]
+      let savedIndex = 0
+      const rowsInLocalOrder = current[field].flatMap((row) => {
+        if (row.value.trim() === '') return [row]
+        const savedRow = savedRows[savedIndex]
+        savedIndex += 1
+        return savedRow ? [savedRow] : []
+      })
+      return [field, [...rowsInLocalOrder, ...savedRows.slice(savedIndex)]]
+    })) as Record<TriggerField, TriggerToken[]>)
+    if (!open || actionChanged) setPendingFields([])
+    setRemovingFields([])
+  }, [selectedName, rawSignature, open])
 
-  const updateRows = (field: string, nextRows: TriggerToken[]) => {
+  useEffect(() => {
+    if (open) return
+    setRows(Object.fromEntries(triggerFields.map((field) => {
+      const analysis = analyzeTriggerExpression(displayValue(valueFor(actionPath(field))), field)
+      return [field, analysis.kind === 'tokens' ? analysis.rows : []]
+    })) as Record<TriggerField, TriggerToken[]>)
+    setPendingFields([])
+  }, [open, selectedName])
+
+  const updateRows = (field: TriggerField, nextRows: TriggerToken[]) => {
     setRows((current) => ({ ...current, [field]: nextRows }))
-    setDraftValue(actionPath(field), serializeTriggerTokens(nextRows, field))
+    const serialized = serializeTriggerTokens(nextRows, field)
+    const path = actionPath(field)
+    const entry = drafts[pathKey(path)]
+    if (serialized !== displayValue(action[field]) || entry?.status === 'dirty') setDraftValue(path, serialized)
   }
-  const updateVoicePlacement = (index: number, placement: 'beginning' | 'end') => {
-    const nextRows = (rows.triggerVoice ?? []).map((row, rowIndex) => rowIndex === index ? { ...row, placement } : row)
-    updateRows('triggerVoice', nextRows)
-    void commitField(actionPath('triggerVoice'), serializeTriggerTokens(nextRows, 'triggerVoice'))
+  const commitRows = (field: TriggerField, nextRows = rows[field]) => {
+    const serialized = serializeTriggerTokens(nextRows, field)
+    if (!serialized && !displayValue(action[field]) && pendingFields.includes(field)) return
+    const path = actionPath(field)
+    const entry = drafts[pathKey(path)]
+    if (entry?.status !== 'dirty' && serialized === displayValue(action[field])) return
+    void commitField(path, serialized)
+    setPendingFields((current) => serialized ? current.filter((item) => item !== field) : current)
   }
-  const updateVoiceException = (index: number, excluded: boolean) => {
-    const nextRows = (rows.triggerVoice ?? []).map((row, rowIndex) => rowIndex === index ? { ...row, excluded } : row)
-    updateRows('triggerVoice', nextRows)
-    void commitField(actionPath('triggerVoice'), serializeTriggerTokens(nextRows, 'triggerVoice'))
+  const updatePlacement = (field: TriggerField, index: number, placement: VoicePhrasePlacement) => {
+    const nextRows = rows[field].map((row, rowIndex) => rowIndex === index ? { ...row, placement } : row)
+    updateRows(field, nextRows)
+    commitRows(field, nextRows)
   }
-  const triggerIssue = triggerFields.some((field) => {
-    const raw = displayValue(valueFor(actionPath(field)))
-    if (!raw) return false
-    if (field === 'triggerVoice') return !isStructuredTriggerExpression(raw, field) && !isRawVoiceExpression(raw) && !(voiceMode === 'advanced' && voiceAdvancedOptIn)
-    return !isStructuredTriggerExpression(raw, field) && !rawModes[field]
-  })
+  const updateException = (field: TriggerField, index: number, excluded: boolean) => {
+    const nextRows = rows[field].map((row, rowIndex) => rowIndex === index ? { ...row, excluded } : row)
+    updateRows(field, nextRows)
+    commitRows(field, nextRows)
+  }
+  const removeRow = (field: TriggerField, index: number) => {
+    const nextRows = rows[field].filter((_, rowIndex) => rowIndex !== index)
+    if (nextRows.length === 0 && !displayValue(action[field]) && pendingFields.includes(field)) {
+      setRows((current) => ({ ...current, [field]: [] }))
+      setPendingFields((current) => current.filter((item) => item !== field))
+      revertField(actionPath(field))
+      return
+    }
+    updateRows(field, nextRows)
+    commitRows(field, nextRows)
+  }
+  const removeField = (field: TriggerField) => {
+    const wasPendingOnly = pendingFields.includes(field) && !displayValue(action[field])
+    setPendingFields((current) => current.filter((item) => item !== field))
+    if (wasPendingOnly) {
+      setRows((current) => ({ ...current, [field]: [] }))
+      revertField(actionPath(field))
+      return
+    }
+    setRemovingFields((current) => current.includes(field) ? current : [...current, field])
+    void commitField(actionPath(field), '').then((saved) => {
+      if (!saved) return
+      setRemovingFields((current) => current.filter((item) => item !== field))
+      setRows((current) => ({ ...current, [field]: [] }))
+    })
+  }
   const configuredCount = triggerFields.reduce((count, field) => count + (displayValue(valueFor(actionPath(field))) ? 1 : 0), 0)
   const configuredFields = triggerFields.filter((field) => displayValue(valueFor(actionPath(field))))
-  const visibleFields = [...configuredFields, ...pendingFields.filter((field) => !configuredFields.includes(field))]
+  const visibleFields = [...configuredFields, ...pendingFields.filter((field) => !configuredFields.includes(field)), ...removingFields.filter((field) => !configuredFields.includes(field) && !pendingFields.includes(field))]
   const availableFields = triggerFields.filter((field) => !visibleFields.includes(field))
-  const logic = displayValue(valueFor(actionPath('triggerLogic')))
+  const logicValue = valueFor(actionPath('triggerLogic'))
+  const logic = displayValue(logicValue)
+  const logicInvalid = logicValue !== null && logicValue !== undefined && logic !== 'or' && logic !== 'and'
   const summary = configuredCount === 0
     ? 'No triggers'
     : configuredCount === 1
-      ? '1 configured'
-      : `${configuredCount} configured · ${logic === 'and' ? 'All (AND)' : 'Any (OR)'}`
+      ? logicInvalid ? '1 trigger type · Logic needs review' : '1 trigger type'
+      : `${configuredCount} trigger types · ${logicInvalid ? 'Logic needs review' : logic === 'and' ? 'All types must match' : 'Any type can match'}`
   const stateFor = (field: string) => {
     const path = actionPath(field)
-    return <FieldState entry={drafts[pathKey(path)]} onRevert={() => revertField(path)} onRetry={() => retryField(path)} onResync={() => resyncField(path)} errorId={fieldErrorId(path)} />
+    return <FieldState entry={drafts[pathKey(path)]} onRevert={() => { revertField(path); setRemovingFields((current) => current.filter((item) => item !== field)) }} onRetry={() => retryField(path)} onResync={() => { resyncField(path); setRemovingFields((current) => current.filter((item) => item !== field)) }} errorId={fieldErrorId(path)} />
   }
   return <div className="editor-section insert-disclosure-section settings-section"><Disclosure title="Triggers" subtitle="Match a phrase, app, mode, or URL." meta={summary} open={open} onToggle={onToggle} variant="defaults">
-    <p className="trigger-priority"><strong>Matching priority</strong> Voice phrase → Superwhisper mode → browser URL → front app. Multiple configured fields follow Trigger logic below.</p>
-    {visibleFields.length === 0 && <div className="section-empty"><strong>No triggers</strong><span>This Insert is available as a fallback or chain step.</span></div>}
-    <div className="trigger-grid">{visibleFields.map((field) => {
+    {visibleFields.length === 0 && availableFields.length > 0 && <div className="section-empty trigger-empty-state"><TriggerAddControl fields={availableFields} onAdd={(field) => {
+      setPendingFields((current) => [...current, field])
+      setRows((current) => ({ ...current, [field]: [{ value: '', excluded: false, ...(field === 'triggerVoice' ? { placement: 'beginning' as const } : {}) }] }))
+    }} /></div>}
+    <div className="configured-list trigger-configured-list">{visibleFields.map((field) => {
       const path = actionPath(field)
       const raw = displayValue(valueFor(path))
-      const isVoice = field === 'triggerVoice'
-      const structured = isStructuredTriggerExpression(raw, field)
-      const rawMode = rawModes[field] || (!structured && !isVoice)
-      return <div className="trigger-field configured-item" key={field}>
-        <div className="trigger-field-heading"><label htmlFor={`${field}-raw`}>{triggerLabels[field].label}</label><div className="trigger-field-actions">{stateFor(field)}<button type="button" className="icon-button" aria-label={`Remove ${triggerLabels[field].label}`} onClick={() => { setPendingFields((current) => current.filter((item) => item !== field)); setRows((current) => ({ ...current, [field]: [] })); if (raw) void commitField(path, '') }}><Cross2Icon aria-hidden="true" /></button></div></div>
-        <p>{triggerLabels[field].description}</p>
-        {isVoice && <label className="trigger-mode"><span>Phrase rules</span><select aria-label="Voice trigger mode" value={voiceMode} onChange={(event) => { const next = event.target.value as 'phrases' | 'regex' | 'advanced'; setVoiceMode(next); setVoiceAdvancedOptIn(next === 'advanced') }}><option value="phrases">Phrase rules</option><option value="regex">Raw regex</option><option value="advanced">Advanced raw</option></select></label>}
-        {isVoice && voiceMode === 'regex' ? <><input id={`${field}-raw`} aria-label="Voice raw regex" value={rawRegexBody(raw)} onChange={(event) => setDraftValue(path, `==${event.target.value}==`)} onBlur={(event) => { commitIfChanged(path, `==${event.target.value}==`); setPendingFields((current) => current.filter((item) => item !== field)) }} placeholder="^(reply|respond)\\s+(.+)$" /><small className="trigger-help">Stored as <code>==…==</code> so the expression is treated as regex.</small></> : isVoice && voiceMode === 'advanced' ? <><textarea id={`${field}-raw`} aria-label="Advanced voice trigger" value={raw} onChange={(event) => setDraftValue(path, event.target.value)} onBlur={(event) => { commitIfChanged(path, event.target.value); setPendingFields((current) => current.filter((item) => item !== field)) }} rows={2} /><small className="trigger-help">Raw syntax is preserved until you intentionally edit it.</small></> : rawMode ? <><textarea id={`${field}-raw`} aria-label={`Advanced ${triggerLabels[field].label}`} readOnly={!rawModes[field]} value={raw} onChange={(event) => { if (rawModes[field]) setDraftValue(path, event.target.value) }} onBlur={(event) => { if (rawModes[field]) commitIfChanged(path, event.target.value) }} rows={2} /><label className="advanced-toggle"><input type="checkbox" checked={Boolean(rawModes[field])} onChange={(event) => setRawModes((current) => ({ ...current, [field]: event.target.checked }))} /> Advanced raw mode</label><small className="trigger-help">This expression cannot be represented as token rows until you opt into raw editing.</small></> : <><TriggerTokenRows field={field} rows={rows[field] ?? []} onChange={(index, next) => updateRows(field, (rows[field] ?? []).map((row, rowIndex) => rowIndex === index ? next : row))} onPlacementChange={isVoice ? updateVoicePlacement : undefined} onExceptionChange={isVoice ? updateVoiceException : undefined} onAdd={() => setRows((current) => ({ ...current, [field]: [...(current[field] ?? []), { value: '', excluded: false, ...(field === 'triggerVoice' ? { placement: 'beginning' as const } : {}) }] }))} onRemove={(index) => updateRows(field, (rows[field] ?? []).filter((_, rowIndex) => rowIndex !== index))} />{structured && <label className="advanced-toggle"><input type="checkbox" checked={Boolean(rawModes[field])} onChange={(event) => setRawModes((current) => ({ ...current, [field]: event.target.checked }))} /> Advanced raw mode</label>}</>}
+      const analysis = analyzeTriggerExpression(raw, field)
+      const savedAnalysis = analyzeTriggerExpression(displayValue(action[field]), field)
+      const labelId = `${field}-trigger-label`
+      const removing = removingFields.includes(field)
+      const unreadable = (analysis.kind === 'unreadable' || (removing && savedAnalysis.kind === 'unreadable')) && !pendingFields.includes(field)
+      return <div className="configured-item trigger-configured-item" key={field}>
+        <div className="trigger-field" role="group" aria-labelledby={labelId}>
+          <div className="trigger-copy"><strong id={labelId}>{triggerLabels[field].label}</strong><span>{triggerLabels[field].description}</span><div className="trigger-status">{stateFor(field)}</div></div>
+          <div className="trigger-control">
+            {unreadable ? <div className="trigger-recovery" role="group" aria-labelledby={`${field}-recovery-title`}>
+              <div><strong id={`${field}-recovery-title`}>{triggerLabels[field].label} couldn’t be read</strong><span>This saved trigger cannot be shown as visual rows. Remove it and add the values again, or edit macrowhisper.json directly.</span></div>
+              <div className="trigger-recovery-actions"><button type="button" className="quiet-button compact" disabled={removing} onClick={() => removeField(field)}>Remove trigger</button><a className="text-button condition-reference-link" href="https://github.com/ognistik/macrowhisper/blob/main/docs/triggers-and-conditions.md#triggers" target="_blank" rel="noreferrer">Trigger documentation <UpdateIcon aria-hidden="true" /></a></div>
+            </div> : <>
+              <TriggerTokenRows field={field} rows={rows[field]} onChange={(index, next) => updateRows(field, rows[field].map((row, rowIndex) => rowIndex === index ? next : row))} onCommit={() => commitRows(field)} onPlacementChange={(index, placement) => updatePlacement(field, index, placement)} onExceptionChange={(index, excluded) => updateException(field, index, excluded)} onAdd={(kind = 'literal') => setRows((current) => ({ ...current, [field]: [...current[field], { value: '', excluded: false, ...(field === 'triggerVoice' && kind === 'regex' ? { kind: 'regex' as const } : field === 'triggerVoice' ? { placement: 'beginning' as const } : {}) }] }))} onRemove={(index) => removeRow(field, index)} />
+            </>}
+          </div>
+          {!unreadable && <button type="button" className="remove-configured trigger-group-remove" aria-label={`Remove ${triggerLabels[field].label} trigger`} disabled={removing} onClick={() => removeField(field)}><Cross2Icon aria-hidden="true" /></button>}
+        </div>
       </div>
     })}</div>
-    {availableFields.length > 0 && <label className="add-setting-control"><span className="sr-only">Add trigger</span><PlusIcon aria-hidden="true" /><select aria-label="Add trigger" value="" onChange={(event) => { const field = event.target.value; if (!field) return; setPendingFields((current) => [...current, field]); setRows((current) => ({ ...current, [field]: current[field]?.length ? current[field] : [{ value: '', excluded: false }] })) }}><option value="">Add trigger…</option>{availableFields.map((field) => <option key={field} value={field}>{triggerLabels[field].label}</option>)}</select></label>}
-    {configuredCount >= 2 && <div className="logic-row"><div><strong>Trigger logic</strong><span>How configured trigger types combine when more than one is present.</span></div><select aria-label="Trigger logic" value={valueFor(actionPath('triggerLogic')) === null || valueFor(actionPath('triggerLogic')) === undefined ? NULL_CHOICE : valueFor(actionPath('triggerLogic')) === '' ? EMPTY_CHOICE : displayValue(valueFor(actionPath('triggerLogic')))} onChange={(event) => { const next = event.target.value === NULL_CHOICE ? null : event.target.value === EMPTY_CHOICE ? '' : event.target.value; void commitField(actionPath('triggerLogic'), next) }}><option value={NULL_CHOICE}>Use Defaults (Any OR)</option>{typeof action.triggerLogic === 'string' && action.triggerLogic !== '' && action.triggerLogic !== 'or' && action.triggerLogic !== 'and' && <option value={action.triggerLogic}>Invalid saved value ({action.triggerLogic})</option>}{action.triggerLogic === '' && <option value={EMPTY_CHOICE} disabled>Invalid saved value (empty)</option>}<option value="or">Any (OR)</option><option value="and">All (AND)</option></select>{stateFor('triggerLogic')}</div>}
-    {triggerIssue && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />A saved trigger expression needs Advanced raw mode before it can be edited as text.</div>}{action.triggerLogic === 'xor' && <div className="inline-field-error"><ExclamationTriangleIcon aria-hidden="true" />Use Any (OR) or All (AND); “xor” is not a supported trigger logic.</div>}
+    {visibleFields.length > 0 && availableFields.length > 0 && <div className="trigger-footer"><TriggerAddControl compact fields={availableFields} onAdd={(field) => {
+      setPendingFields((current) => [...current, field])
+      setRows((current) => ({ ...current, [field]: current[field].length ? current[field] : [{ value: '', excluded: false, ...(field === 'triggerVoice' ? { placement: 'beginning' as const } : {}) }] }))
+    }} /></div>}
+    {(configuredCount >= 2 || logicInvalid) && <div className="logic-row trigger-logic-row"><div><strong>Trigger logic</strong><span>Choose how different trigger types combine.</span></div><div className="trigger-logic-control"><select aria-label="Trigger logic" aria-invalid={logicInvalid} aria-describedby={logicInvalid ? 'trigger-logic-error' : undefined} value={logicInvalid ? (logic === '' ? EMPTY_CHOICE : logic) : logic === 'and' ? 'and' : 'or'} onChange={(event) => { void commitField(actionPath('triggerLogic'), event.target.value) }}>{logicInvalid && <option value={logic === '' ? EMPTY_CHOICE : logic} disabled>Invalid saved value{logic ? ` (${logic})` : ' (empty)'}</option>}<option value="or">Any type can match (default)</option><option value="and">All types must match</option></select><div className="trigger-logic-status">{stateFor('triggerLogic')}</div></div></div>}
+    {logicInvalid && <div id="trigger-logic-error" className="inline-field-error" role="alert"><ExclamationTriangleIcon aria-hidden="true" />Choose Any type can match or All types must match to repair the saved Trigger logic.</div>}
   </Disclosure></div>
+}
+
+function TriggerAddControl({ fields, onAdd, compact = false }: { fields: TriggerField[]; onAdd: (field: TriggerField) => void; compact?: boolean }) {
+  return <label className={`add-setting-control insertion-add-control trigger-add-control${compact ? ' is-compact' : ''}`}><span className="sr-only">Add trigger</span><PlusIcon aria-hidden="true" /><select aria-label="Add trigger" value="" onChange={(event) => { const field = event.target.value as TriggerField; if (field) onAdd(field) }}><option value="">Add trigger{compact ? '' : '…'}</option>{fields.map((field) => <option key={field} value={field}>{triggerLabels[field].label}</option>)}</select></label>
 }
 
 function SourcePill({ source }: { source: 'custom' | 'inherited' | 'template' | 'invalid' }) {
