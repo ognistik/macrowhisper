@@ -709,7 +709,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .add-trigger-button svg { width: 13px; height: 13px; }
 .trigger-add-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
 .logic-row { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); border-top: 1px solid var(--border); }
-.trigger-logic-row { align-items: center; }
+.trigger-logic-row { align-items: center; border-bottom: 0; }
 .trigger-logic-row:has(.trigger-logic-status > .field-state-wrap) { align-items: start; }
 .trigger-logic-control { width: 100%; min-width: 0; }
 .trigger-logic-control select { width: 100%; }
