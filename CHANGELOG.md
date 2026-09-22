@@ -12,6 +12,7 @@
 
 ### Fixed
 * When dictation starts outside a text field, Superwhisper's brief clipboard replacement and restoration no longer appear in `{{clipboardContext}}` as user copies. Macrowhisper recognizes only the exact adjacent restore sequence, so ordinary clipboard changes at startup remain available as context.
+* Restarting the service with a current configuration no longer rewrites the file or replaces its recovery backup. Configuration creation, version migration, and ordinary editor saves now use one centralized backup policy: migrations keep one immutable pre-version snapshot, while real edits keep the rolling recovery snapshot.
 
 ---
 ## [v2.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.2.0) - 2026/09/04

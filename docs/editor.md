@@ -315,7 +315,8 @@ status changes to **Update required**, and a persistent explanation offers
 path controls. The update is explicit even when `autoUpdateConfig` is `false`:
 it migrates that file once without enabling future automatic updates, refreshes
 the snapshot, and unlocks editing. The same operation is available as
-`macrowhisper --update-config`.
+`macrowhisper --update-config`. Migration creates the immutable versioned
+backup, while later editor saves maintain a separate rolling recovery snapshot.
 
 A failed disk write likewise keeps the draft and reports a retryable error.
 Changing the selected configuration path with `--set-config` or

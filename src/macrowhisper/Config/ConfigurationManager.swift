@@ -21,6 +21,12 @@ struct ConfigValidationReport {
     let summary: String?
 }
 
+enum ConfigurationMigrationResult: Equatable {
+    case migrated
+    case alreadyCurrent
+    case failed
+}
+
 class ConfigurationManager {
 #if CONFIGURATION_TRANSACTION_TESTING
     // Deterministic fault/race seams used only by the standalone transaction
@@ -144,7 +150,7 @@ class ConfigurationManager {
                     initialConfig,
                     to: self.configPath,
                     expectedFingerprint: initialState.fingerprint,
-                    preserveBackup: false
+                    backupPolicy: .none
                 )
                 self._config = written.config
                 self.acceptedRevision = ConfigurationRevision(
@@ -544,6 +550,16 @@ class ConfigurationManager {
         let resolvedPath: String
     }
 
+    /// Backup behavior belongs to the write transaction rather than its
+    /// callers. Creation needs no backup, user/editor writes keep one rolling
+    /// recovery snapshot, and version migrations keep one immutable snapshot
+    /// for the target config version.
+    private enum ConfigurationBackupPolicy {
+        case none
+        case latestSnapshot
+        case preMigration(targetVersion: Int)
+    }
+
     /// Reads and classifies a configuration without resetting, backing up, or
     /// writing anything.  The normal model decoder remains the source of
     /// runtime defaults and legacy compatibility; raw JSON inspection adds the
@@ -846,7 +862,7 @@ class ConfigurationManager {
                     defaultConfig,
                     to: normalizedPath,
                     expectedFingerprint: state.fingerprint,
-                    preserveBackup: false
+                    backupPolicy: .none
                 )
                 selectedConfig = written.config
                 selectedFingerprint = written.fingerprint
@@ -882,17 +898,8 @@ class ConfigurationManager {
             // write fails, the old path, runtime configuration, and revision
             // remain active as one failed path-switch operation.
             if state.isLegacy && loadedConfig.defaults.autoUpdateConfig {
-                let migrated = migrateConfigurationToCurrentVersionValue(loadedConfig)
-                if !createPreMigrationBackupIfNeededLocked(at: normalizedPath) {
-                    logWarning("Pre-migration backup could not be created; continuing migration")
-                }
                 do {
-                    let written = try writeConfigurationLocked(
-                        migrated,
-                        to: normalizedPath,
-                        expectedFingerprint: state.fingerprint,
-                        preserveBackup: true
-                    )
+                    let written = try migrateConfigurationLocked(state, at: normalizedPath)
                     selectedConfig = written.config
                     selectedFingerprint = written.fingerprint
                     selectedIsLegacy = false
@@ -974,10 +981,10 @@ class ConfigurationManager {
                     message: "Unsupported configuration key '\(path.last ?? "")'"
                 )
             }
-            if expectedRevision != nil, state.isLegacy {
+            if state.isLegacy {
                 throw ConfigurationTransactionError(
                     code: .legacyConfiguration,
-                    message: "Editor writes are unavailable until this legacy configuration is migrated"
+                    message: "Configuration writes are unavailable until this legacy configuration is migrated"
                 )
             }
             if let expectedRevision, expectedRevision != acceptedRevision {
@@ -995,7 +1002,7 @@ class ConfigurationManager {
                 candidate,
                 to: configPath,
                 expectedFingerprint: state.fingerprint,
-                preserveBackup: true
+                backupPolicy: .latestSnapshot
             )
             return commitWrittenConfigurationLocked(written, reason: reason)
         }
@@ -1214,7 +1221,7 @@ class ConfigurationManager {
             candidate,
             to: configPath,
             expectedFingerprint: state.fingerprint,
-            preserveBackup: true
+            backupPolicy: .latestSnapshot
         )
         return commitWrittenConfigurationLocked(written, reason: reason)
     }
@@ -1394,7 +1401,7 @@ class ConfigurationManager {
         _ candidate: AppConfiguration,
         to requestedPath: String,
         expectedFingerprint: String,
-        preserveBackup: Bool
+        backupPolicy: ConfigurationBackupPolicy
     ) throws -> WrittenConfiguration {
         var configuration = candidate
         if let schemaReference = SchemaManager.getSchemaReference(), configuration.schema != schemaReference {
@@ -1547,34 +1554,57 @@ class ConfigurationManager {
         }
 
         let targetExistsAtReplacement = fileManager.fileExists(atPath: replacementTargetPath)
-        if targetExistsAtReplacement && preserveBackup {
-            // Keep one manager-owned latest snapshot. The explicit suffix
-            // avoids broad cleanup of user files and makes recovery predictable
-            // across repeated field saves.
-            let backupPath = replacementTargetPath + ".macrowhisper-backup"
-            let newBackupPath = backupPath + ".tmp.\(UUID().uuidString)"
-            backupTemporaryPath = newBackupPath
-            backupTemporaryCreated = true
-            do {
-                try fileManager.copyItem(atPath: replacementTargetPath, toPath: newBackupPath)
-                if fileManager.fileExists(atPath: backupPath) {
-                    _ = try fileManager.replaceItem(
-                        at: URL(fileURLWithPath: backupPath),
-                        withItemAt: URL(fileURLWithPath: newBackupPath),
-                        backupItemName: nil,
-                        options: [],
-                        resultingItemURL: nil
+        if targetExistsAtReplacement {
+            switch backupPolicy {
+            case .none:
+                break
+
+            case .latestSnapshot:
+                // Keep one manager-owned latest snapshot for actual user or
+                // editor writes. Repeated edits intentionally replace it.
+                let backupPath = replacementTargetPath + ".macrowhisper-backup"
+                let newBackupPath = backupPath + ".tmp.\(UUID().uuidString)"
+                backupTemporaryPath = newBackupPath
+                backupTemporaryCreated = true
+                do {
+                    try fileManager.copyItem(atPath: replacementTargetPath, toPath: newBackupPath)
+                    if fileManager.fileExists(atPath: backupPath) {
+                        _ = try fileManager.replaceItem(
+                            at: URL(fileURLWithPath: backupPath),
+                            withItemAt: URL(fileURLWithPath: newBackupPath),
+                            backupItemName: nil,
+                            options: [],
+                            resultingItemURL: nil
+                        )
+                    } else {
+                        try fileManager.moveItem(atPath: newBackupPath, toPath: backupPath)
+                    }
+                    backupTemporaryCreated = false
+                } catch {
+                    throw ConfigurationTransactionError(
+                        code: .persistenceFailed,
+                        message: "Failed to preserve the previous configuration: \(error.localizedDescription)"
                     )
-                } else {
-                    try fileManager.moveItem(atPath: newBackupPath, toPath: backupPath)
                 }
-                backupTemporaryCreated = false
-            } catch {
-                throw ConfigurationTransactionError(
-                    code: .persistenceFailed,
-                    message: "Failed to preserve the previous configuration: \(error.localizedDescription)"
-                )
+
+            case .preMigration(let targetVersion):
+                // A version migration owns one immutable pre-migration
+                // snapshot. Future target versions naturally get their own
+                // snapshot without rotating this one at every startup.
+                let backupPath = replacementTargetPath + ".backup.pre-v\(targetVersion)"
+                if !fileManager.fileExists(atPath: backupPath) {
+                    do {
+                        try fileManager.copyItem(atPath: replacementTargetPath, toPath: backupPath)
+                        logInfo("Created pre-migration backup at: \(backupPath)")
+                    } catch {
+                        throw ConfigurationTransactionError(
+                            code: .persistenceFailed,
+                            message: "Failed to create pre-migration backup: \(error.localizedDescription)"
+                        )
+                    }
+                }
             }
+
             guard Self.diskFingerprint(at: replacementTargetPath) == expectedFingerprint else {
                 throw ConfigurationTransactionError(
                     code: .resourceMismatch,
@@ -2684,7 +2714,7 @@ class ConfigurationManager {
                 _config,
                 to: configPath,
                 expectedFingerprint: state.fingerprint,
-                preserveBackup: true
+                backupPolicy: .latestSnapshot
             )
             _ = commitWrittenConfigurationLocked(written, reason: "saveConfig")
         }
@@ -2801,73 +2831,63 @@ class ConfigurationManager {
         }
     }
     
-    // MARK: - Configuration Update
-    /// Updates the configuration file by reloading from disk and re-saving
-    /// This ensures the configuration is updated with any new schema changes or defaults
-    /// while preserving user data
-    func updateConfiguration() -> Bool {
-        logInfo("Updating configuration file...")
+    // MARK: - Configuration Migration
+    /// Migrates an older on-disk configuration through the versioned pipeline.
+    /// Current-version files are deliberately left byte-for-byte unchanged.
+    func migrateConfigurationIfNeeded() -> ConfigurationMigrationResult {
+        logInfo("Checking whether configuration migration is needed...")
 
         return syncQueue.sync {
             let state = refreshDiskStateLocked(notifyExternalChange: true)
-            guard !state.isMissing, state.syntaxIsValid, let currentConfig = state.config else {
-                logError("Failed to load current configuration for update")
-                return false
+            guard !state.isMissing, state.syntaxIsValid, state.config != nil else {
+                logError("Failed to load current configuration for migration")
+                return .failed
             }
             guard state.semanticIssues.isEmpty, state.unknownPaths.isEmpty, !state.isFuture else {
-                logError("Configuration update rejected: \(transactionError(for: state).localizedDescription)")
-                return false
+                logError("Configuration migration rejected: \(transactionError(for: state).localizedDescription)")
+                return .failed
             }
 
-            var updatedConfig = currentConfig
-            if state.isLegacy || (currentConfig.configVersion ?? 1) < AppConfiguration.currentConfigVersion {
-                let createdBackup = createPreMigrationBackupIfNeededLocked()
-                if !createdBackup {
-                    logWarning("Pre-migration backup could not be created; continuing migration")
-                }
-                let didMigrate = migrateConfigurationToCurrentVersion(&updatedConfig)
-                if didMigrate {
-                    logInfo("Migrated configuration semantics to configVersion \(AppConfiguration.currentConfigVersion)")
-                } else {
-                    updatedConfig.configVersion = AppConfiguration.currentConfigVersion
-                    logInfo("Marked configuration as configVersion \(AppConfiguration.currentConfigVersion)")
-                }
+            guard state.isLegacy else {
+                logDebug("Configuration is already at configVersion \(AppConfiguration.currentConfigVersion)")
+                return .alreadyCurrent
             }
-            _ = Self.normalizeEscInputConditionTokens(&updatedConfig)
-            _ = updatedConfig.defaults.canonicalizeRootDefaultsForPersistence()
 
             do {
-                try validateCandidateConfiguration(updatedConfig)
-                let written = try writeConfigurationLocked(
-                    updatedConfig,
-                    to: configPath,
-                    expectedFingerprint: state.fingerprint,
-                    preserveBackup: true
-                )
-                _ = commitWrittenConfigurationLocked(written, reason: "configUpdate")
-                logInfo("Configuration file updated successfully")
-                return true
+                let written = try migrateConfigurationLocked(state, at: configPath)
+                _ = commitWrittenConfigurationLocked(written, reason: "configMigration")
+                logInfo("Configuration migration completed successfully")
+                return .migrated
             } catch {
-                logError("Failed to save updated configuration: \(error.localizedDescription)")
-                return false
+                logError("Failed to migrate configuration: \(error.localizedDescription)")
+                return .failed
             }
         }
     }
 
-    private func createPreMigrationBackupIfNeededLocked(at requestedPath: String? = nil) -> Bool {
-        let targetPath = Self.resolveSymlink(requestedPath ?? configPath)
-        let backupPath = targetPath + ".backup.pre-v\(AppConfiguration.currentConfigVersion)"
-        if fileManager.fileExists(atPath: backupPath) {
-            return true
+    /// The single persistence path for every automatic or explicit version
+    /// migration, including migration while switching configuration files.
+    private func migrateConfigurationLocked(
+        _ state: DiskState,
+        at requestedPath: String
+    ) throws -> WrittenConfiguration {
+        guard state.isLegacy, let source = state.config else {
+            throw ConfigurationTransactionError(
+                code: .invalidDiskState,
+                message: "Configuration does not require migration"
+            )
         }
-        do {
-            try fileManager.copyItem(atPath: targetPath, toPath: backupPath)
-            logInfo("Created pre-migration backup at: \(backupPath)")
-            return true
-        } catch {
-            logError("Failed to create pre-migration backup: \(error)")
-            return false
-        }
+
+        let migrated = migrateConfigurationToCurrentVersionValue(source)
+        try validateCandidateConfiguration(migrated)
+        return try writeConfigurationLocked(
+            migrated,
+            to: requestedPath,
+            expectedFingerprint: state.fingerprint,
+            backupPolicy: .preMigration(
+                targetVersion: AppConfiguration.currentConfigVersion
+            )
+        )
     }
 
     private func migrateConfigurationToCurrentVersion(_ config: inout AppConfiguration) -> Bool {

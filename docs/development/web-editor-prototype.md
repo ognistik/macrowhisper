@@ -213,10 +213,12 @@ arrive before a watcher notification. Atomic replacement is not a filesystem
 compare-and-swap against an unrelated editor. A noncooperating process can
 still write during the final read/replace window; a recoverable pre-write
 snapshot mitigates this boundary but does not eliminate it.
-The latest pre-write snapshot is retained beside the resolved JSON target as
-`<filename>.macrowhisper-backup`; each successful backup replaces that one
-owned recovery file. Explicit legacy migration also retains its existing
-versioned migration snapshots such as `.backup.pre-v3`. Saving preserves payload strings and numeric
+For actual user or editor saves, the latest pre-write snapshot is retained
+beside the resolved JSON target as `<filename>.macrowhisper-backup`; each
+successful save replaces that one owned recovery file. Version migration uses
+the same atomic writer with a different centralized policy: it creates only the
+immutable versioned snapshot such as `.backup.pre-v3`. A current-version
+startup performs no write and creates no backup. Saving preserves payload strings and numeric
 precision rather than applying numeric formatting expressions to JSON text.
 
 Run the transaction regression independently of your service:

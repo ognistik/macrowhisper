@@ -108,8 +108,8 @@ macrowhisper --reset-config
 ```
 
 After editing, validate the file. `--update-config` migrates older files through
-each configuration version and applies current schema and formatting changes
-while preserving your settings:
+each configuration version while preserving your settings. A file already at
+the current version is left unchanged:
 
 ```bash
 macrowhisper --validate-config

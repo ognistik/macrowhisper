@@ -173,7 +173,7 @@
         },
         "autoUpdateConfig": {
           "type": ["boolean", "null"],
-          "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config. null or omitted = use built-in default (true).",
+          "description": "Automatically migrate an older configuration version on service startup. A current-version file is left unchanged. When false, use --update-config or the editor to migrate manually. null or omitted = use built-in default (true).",
           "default": true
         },
         "redactedLogs": {

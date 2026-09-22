@@ -109,7 +109,7 @@ Release and installation packaging move that same resource tree into
 
 ### 1. Main Application ([src/macrowhisper/main.swift](../../src/macrowhisper/main.swift))
 - Parses CLI commands, starts the socket server, and owns watcher lifecycle
-- Applies startup config auto-update when `defaults.autoUpdateConfig` is enabled
+- Applies sequential startup migration to older config versions when `defaults.autoUpdateConfig` is enabled; current versions are read-only at startup
 - Exposes config utilities like `--update-config`, `--validate-config`, `--set-config`, and `--reset-config`
 - Exposes `--editor` / `-e` and `--editor-url` to obtain a fresh authenticated editor link from the running daemon
 - Exposes runtime/action commands like `--exec-action`, `--run-auto`, `--get-action`, `--copy-action`, `--folder-name`, `--folder-path`, and `--mute-triggers`
@@ -280,7 +280,7 @@ Release and installation packaging move that same resource tree into
 
 - `configVersion: 3` is the current semantic baseline
 - placeholder syntax uses `\n` for a line break and `\\n` for a literal `\n`; JSON source escapes each of those backslashes once more
-- version 1 and 2 files are normalized in memory for runtime compatibility; automatic or explicit persistence creates the pre-v3 backup and writes the canonical form
+- version 1 and 2 files are normalized in memory for runtime compatibility; the single automatic or explicit migration path creates only the immutable pre-v3 backup and writes the canonical form
 - `null` means inherit from defaults or built-in behavior
 - `""` means intentionally empty
 - `.none` is reserved for action-template semantics, not for fields like `icon` or `moveTo`

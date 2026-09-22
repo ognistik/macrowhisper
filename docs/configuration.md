@@ -32,7 +32,7 @@ About `$schema`:
 For most people, the safest setup is:
 
 - keep `"autoUpdateConfig": true`
-- let Macrowhisper normalize the config on startup
+- let Macrowhisper migrate older config versions on startup
 - create or remove actions with CLI commands instead of always adding everything in the JSON by hand
 
 Examples:
@@ -168,15 +168,16 @@ If you prefer editing everything by hand:
 - `defaults` is required
 - `defaults.watch` may be omitted or set to `null`; both use the built-in default watch folder
 - any action you define must include `action`
-- `autoUpdateConfig` defaults to `true`, so set it to `false` only if you want to manage format updates yourself
+- `autoUpdateConfig` defaults to `true`, so set it to `false` only if you want to run version migrations yourself
 
-If you want to go back to a built-in root default later, set that defaults value to null (or remove it), set autoUpdateConfig: true, and restart the service. On startup, Macrowhisper will resolve it and write the effective value back into the file.
+If you want to go back to a built-in root default later, set that defaults value to null (or remove it). Macrowhisper resolves the value in memory without rewriting a current-version file merely because the service restarted.
 
 Versioning notes:
 
 - `configVersion: 3` is the current format
 - if `configVersion` is missing, Macrowhisper treats it as version 1 behavior
-- with `autoUpdateConfig: true`, startup migrates older files one version at a time and writes the current format; the version 3 migration creates a one-time `<filename>.backup.pre-v3` copy first
+- with `autoUpdateConfig: true`, startup migrates older files one version at a time; a current-version file is left byte-for-byte unchanged
+- each migration target creates one immutable `<filename>.backup.pre-vN` copy before replacing the older file; migration does not create the rolling editor backup
 - with `autoUpdateConfig: false`, an older file continues to run through the compatibility layer but stays unchanged on disk; the web editor is read-only until you choose its **Update to version 3** action or run `macrowhisper --update-config`
 - when notifications are enabled, a genuinely new background-service process reminds you about an older manually managed configuration; live reloads, config-path changes, watcher resets, editor commands, and ordinary action commands do not show that reminder
 - legacy files may use `noUpdates`, `noNoti`, `noEsc`, and `pressReturn`; Macrowhisper reads these aliases and maps them to the current setting names
@@ -210,7 +211,7 @@ request the literal characters `\n`.
 
 These settings live under `defaults`.
 
-At the defaults level, `null` is accepted for backward compatibility, but auto-updated configs are normalized toward explicit persisted values.
+At the defaults level, `null` is accepted for backward compatibility and resolves to the built-in value in memory. Version migration may persist the corresponding explicit value; restarting with a current-version file does not rewrite it.
 
 When Macrowhisper creates a configuration, it selects the Superwhisper folder once and writes the resolved path to `defaults.watch`. It first honors Superwhisper's configured folder, then checks the current `~/superwhisper` and legacy `~/Documents/superwhisper` locations. Paths inside the user's home directory are written with `~` so configs stay portable and do not expose the local username; custom locations outside the home directory remain absolute. If Superwhisper has not created either folder yet, Macrowhisper uses `~/superwhisper`, matching new Superwhisper installations. Healthy explicit `watch` values are never migrated automatically. If a configured recordings folder later moves or disappears, Macrowhisper checks Superwhisper's current preference and the known legacy-to-current location, requires a real replacement `recordings` folder, and persists an unambiguous repair. If recovery is not immediately possible, Macrowhisper waits for the original folder to return and occasionally checks whether Superwhisper's setting now points to a valid location. This lightweight recovery monitoring stops as soon as the recordings folder is available again.
 
@@ -242,7 +243,7 @@ When Macrowhisper creates a configuration, it selects the Superwhisper folder on
 | `clipboardIgnore` | string/null | `""` | Case-insensitive regex checked against the front app name or bundle ID during clipboard capture. Empty or `null` means no ignore rules. |
 | `bypassModes` | string/null | `""` | Pipe-separated Superwhisper mode names that exactly match, case-insensitively, to bypass Macrowhisper. Empty or `null` disables bypass. |
 | `muteTriggers` | bool/null | `false` | Mute trigger matching globally. |
-| `autoUpdateConfig` | bool/null | `true` | Allow startup to rewrite the config with current format and schema fields. `false` prevents those startup writes; `--update-config` still performs a manual update. |
+| `autoUpdateConfig` | bool/null | `true` | Allow startup to migrate an older `configVersion`. Current-version files are not rewritten. `false` leaves version migration to `--update-config` or the editor. |
 | `redactedLogs` | bool/null | `true` | Hide sensitive content in logs. |
 | `nextAction` | string/null | `""` | Default next action to use as the first chain step. Empty or `null` means no default chain step. |
 

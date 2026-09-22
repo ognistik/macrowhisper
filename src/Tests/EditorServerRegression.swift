@@ -398,6 +398,7 @@ private func runEditorServerRegression() throws {
     assertTrue(!migratedLegacy.isLegacyOnDisk, "update response reports a writable nonlegacy snapshot")
     assertTrue(!migratedLegacy.config.defaults.autoUpdateConfig, "explicit update preserves autoUpdateConfig false")
     assertTrue(FileManager.default.fileExists(atPath: legacyConfigPath.path + ".backup.pre-v3"), "editor migration keeps a pre-v3 backup")
+    assertTrue(!FileManager.default.fileExists(atPath: legacyConfigPath.path + ".macrowhisper-backup"), "editor migration creates no rolling backup")
 
     let revealHeaders = [
         "Authorization": authorization,
@@ -555,6 +556,7 @@ private func runEditorServerRegression() throws {
     assertTrue(commitResponse.status == 200, "authenticated JSON edit commits")
     let committed = try decode(ConfigurationSnapshot.self, commitResponse)
     assertTrue(committed.config.defaults.actionDelay == 1.25, "edit response contains committed configuration")
+    assertTrue(FileManager.default.fileExists(atPath: configPath.path + ".macrowhisper-backup"), "editor save keeps one rolling backup")
 
     let staleResponse = try request(
         port: port,

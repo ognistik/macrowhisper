@@ -903,7 +903,7 @@ final class EditorServer {
         // command-line `--update-config` command. It creates the manager's
         // pre-migration backup and applies the versioned migration without
         // changing defaults.autoUpdateConfig.
-        guard configManager.updateConfiguration() else {
+        guard configManager.migrateConfigurationIfNeeded() != .failed else {
             return makeAPIErrorResponse(
                 status: 500,
                 reason: "Internal Server Error",

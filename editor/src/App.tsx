@@ -138,7 +138,7 @@ const booleanFieldLabels: Record<string, BooleanFieldLabels> = {
   clipboardStacking: { on: 'Stack clipboard context', off: 'Use one clipboard value' },
   clipboardAttachments: { on: 'Enable attachments', off: 'Disable attachments' },
   muteTriggers: { on: 'Mute trigger matching', off: 'Evaluate triggers' },
-  autoUpdateConfig: { on: 'Update on startup', off: 'Leave config unchanged' },
+  autoUpdateConfig: { on: 'Migrate on startup', off: 'Migrate manually' },
   redactedLogs: { on: 'Redact sensitive values', off: 'Include values in logs' },
 }
 
@@ -247,7 +247,7 @@ const defaultFieldLabels: Record<string, { label: string; description: string }>
   clipboardIgnore: { label: 'Ignore clipboard apps', description: 'App names or bundle IDs to ignore. Separate alternatives with |; regular expressions are supported. Leave empty to capture every app.' },
   bypassModes: { label: 'Bypass modes', description: 'Superwhisper modes to leave untouched. Separate exact names with |. Leave empty to process every mode.' },
   muteTriggers: { label: 'Mute all triggers', description: 'Skip trigger matching and use the fallback action.' },
-  autoUpdateConfig: { label: 'Update config on startup', description: 'Apply schema changes and formatting on startup.' },
+  autoUpdateConfig: { label: 'Migrate config on startup', description: 'Migrate older configuration versions automatically. Current versions stay unchanged.' },
   redactedLogs: { label: 'Redact sensitive logs', description: 'Keep dictation, clipboard, and context values out of logs.' },
 }
 
@@ -767,7 +767,7 @@ function defaultSectionSummary(sectionKey: string, snapshot: ConfigSnapshot, val
     case 'scripts':
       return `${bool('scriptAsync') ? 'Scripts continue immediately' : 'Wait for scripts'} · ${bool('muteTriggers') ? 'Triggers muted' : 'Triggers evaluated'}`
     case 'advanced':
-      return `${text('icon') || 'No icon'} · ${bool('autoUpdateConfig') ? 'Startup updates on' : 'Startup updates off'} · ${bool('redactedLogs') ? 'Logs redacted' : 'Logs include values'}`
+      return `${text('icon') || 'No icon'} · ${bool('autoUpdateConfig') ? 'Auto-migration on' : 'Manual migration'} · ${bool('redactedLogs') ? 'Logs redacted' : 'Logs include values'}`
     default:
       return ''
   }

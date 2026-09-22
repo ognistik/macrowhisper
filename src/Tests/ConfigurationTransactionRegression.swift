@@ -90,6 +90,26 @@ private func runConfigurationTransactionRegressionTests() throws {
     assertEqual(initial.diskIssues.count, 0, "valid snapshot has no disk issues")
     assertEqual(initial.config.inserts["autoPaste"]?.action, "Value 1.23456", "payload decimal text survives initial load")
 
+    let currentBytesBeforeMigrationCheck = try Data(contentsOf: path)
+    assertEqual(
+        manager.migrateConfigurationIfNeeded(),
+        .alreadyCurrent,
+        "current configuration needs no migration"
+    )
+    assertEqual(
+        try Data(contentsOf: path),
+        currentBytesBeforeMigrationCheck,
+        "current configuration remains byte-for-byte unchanged"
+    )
+    assertTrue(
+        !FileManager.default.fileExists(atPath: path.path + ".backup.pre-v3"),
+        "current configuration creates no migration backup"
+    )
+    assertTrue(
+        !FileManager.default.fileExists(atPath: path.path + ".macrowhisper-backup"),
+        "current configuration creates no rolling backup"
+    )
+
     let numericEdit = ConfigurationEdit(
         path: ["defaults", "actionDelay"],
         operation: .set,
@@ -107,6 +127,10 @@ private func runConfigurationTransactionRegressionTests() throws {
     let committedOnDisk = try readConfig(at: path)
     assertEqual(committedOnDisk.defaults.actionDelay, 1.23456, "numeric edit is persisted")
     assertEqual(committedOnDisk.inserts["autoPaste"]?.action, "Value 1.23456", "numeric serialization does not round payload strings")
+    assertTrue(
+        FileManager.default.fileExists(atPath: path.path + ".macrowhisper-backup"),
+        "a real editor write keeps one rolling backup"
+    )
     pumpMainQueue()
     assertEqual(callbackReasons.filter { $0 == "transaction-test" }.count, 1, "successful transaction publishes one callback")
 
@@ -457,6 +481,7 @@ private func runConfigurationTransactionRegressionTests() throws {
       "inserts": { "autoPaste": { "action": "Legacy" } }
     }
     """, to: legacyPath)
+    let legacyBytesBeforeMigration = try Data(contentsOf: legacyPath)
     let legacyNotificationCountBeforeStartup = testNotifications.count
     let legacyManager = ConfigurationManager(configPath: legacyPath.path)
     let legacySnapshot = legacyManager.configurationSnapshot()
@@ -467,9 +492,23 @@ private func runConfigurationTransactionRegressionTests() throws {
         expectedRevision: legacySnapshot.revision
     )
     assertEqual(rejectionCode(legacyEditResult), .legacyConfiguration, "editor write to legacy disk is rejected")
-    assertTrue(legacyManager.updateConfiguration(), "explicit update command migrates legacy configuration")
+    do {
+        try legacyManager.mutateConfiguration { candidate in
+            candidate.defaults.muteNotifications = true
+        }
+        fail("trusted writes cannot bypass legacy migration")
+    } catch let error as ConfigurationTransactionError {
+        assertEqual(error.code, .legacyConfiguration, "trusted writes cannot bypass legacy migration")
+    }
+    assertTrue(!FileManager.default.fileExists(atPath: legacyPath.path + ".macrowhisper-backup"), "rejected legacy writes create no rolling backup")
+    assertEqual(legacyManager.migrateConfigurationIfNeeded(), .migrated, "explicit update command migrates legacy configuration")
     assertTrue(FileManager.default.fileExists(atPath: legacyPath.path + ".backup.pre-v3"), "legacy migration keeps a pre-migration backup")
-    assertTrue(FileManager.default.fileExists(atPath: legacyPath.path + ".macrowhisper-backup"), "transaction keeps the latest write snapshot")
+    assertEqual(
+        try Data(contentsOf: URL(fileURLWithPath: legacyPath.path + ".backup.pre-v3")),
+        legacyBytesBeforeMigration,
+        "migration backup preserves the original legacy bytes"
+    )
+    assertTrue(!FileManager.default.fileExists(atPath: legacyPath.path + ".macrowhisper-backup"), "migration does not create a rolling edit backup")
     assertEqual(try readConfig(at: legacyPath).configVersion, AppConfiguration.currentConfigVersion, "legacy migration writes current version")
 
     // v1 and v2 are normalized in memory even when automatic persistence is
@@ -495,10 +534,12 @@ private func runConfigurationTransactionRegressionTests() throws {
         "v1 in-memory normalization retains the newline token"
     )
     assertTrue(v1Manager.hasLegacyConfigOnDisk, "v1 remains legacy on disk when auto-update is disabled")
-    assertTrue(v1Manager.updateConfiguration(), "v1 update migrates through v2 to v3")
+    assertEqual(v1Manager.migrateConfigurationIfNeeded(), .migrated, "v1 update migrates through v2 to v3")
     let v1Migrated = try readConfig(at: v1Path)
     assertEqual(v1Migrated.configVersion, 3, "v1 migration lands on v3")
     assertEqual(v1Migrated.inserts["autoPaste"]?.action, "v1\\nnext", "v1 migration writes canonical Insert syntax")
+    assertTrue(FileManager.default.fileExists(atPath: v1Path.path + ".backup.pre-v3"), "v1 migration keeps its versioned backup")
+    assertTrue(!FileManager.default.fileExists(atPath: v1Path.path + ".macrowhisper-backup"), "v1 migration creates no rolling backup")
 
     let v2Path = root.appendingPathComponent("legacy-v2-escapes.json")
     try write(#"""
@@ -527,11 +568,13 @@ private func runConfigurationTransactionRegressionTests() throws {
         "v2 legacy escaped backslash+n preserves observed runtime semantics"
     )
     assertTrue(v2Manager.hasLegacyConfigOnDisk, "v2 remains legacy on disk when auto-update is disabled")
-    assertTrue(v2Manager.updateConfiguration(), "v2 update migrates to v3")
+    assertEqual(v2Manager.migrateConfigurationIfNeeded(), .migrated, "v2 update migrates to v3")
     let v2Migrated = try readConfig(at: v2Path)
     assertEqual(v2Migrated.configVersion, 3, "v2 migration lands on v3")
     assertEqual(v2Migrated.inserts["autoPaste"]?.action, "v2\\nnext", "v2 migration writes canonical raw newline syntax")
     assertEqual(v2Migrated.inserts["literal"]?.action, "left\\\\\\nright", "v2 migration preserves escaped newline behavior")
+    assertTrue(FileManager.default.fileExists(atPath: v2Path.path + ".backup.pre-v3"), "v2 migration keeps its versioned backup")
+    assertTrue(!FileManager.default.fileExists(atPath: v2Path.path + ".macrowhisper-backup"), "v2 migration creates no rolling backup")
 
     let v3RawPath = root.appendingPathComponent("v3-raw-newline.json")
     try write("""
@@ -563,6 +606,7 @@ private func runConfigurationTransactionRegressionTests() throws {
     let switchManager = ConfigurationManager(configPath: activeSwitchPath.path)
     assertTrue(switchManager.switchConfigPath(to: legacySwitchPath.path), "path switch migrates a legacy target")
     assertTrue(FileManager.default.fileExists(atPath: legacySwitchPath.path + ".backup.pre-v3"), "path switch keeps the target pre-migration backup")
+    assertTrue(!FileManager.default.fileExists(atPath: legacySwitchPath.path + ".macrowhisper-backup"), "path switch migration creates no rolling backup")
     assertTrue(!FileManager.default.fileExists(atPath: activeSwitchPath.path + ".backup.pre-v3"), "path switch does not back up the previous active file")
     assertEqual(try Data(contentsOf: activeSwitchPath), activeSwitchBytesBefore, "path switch leaves the previous active file untouched")
     assertEqual(try readConfig(at: legacySwitchPath).configVersion, AppConfiguration.currentConfigVersion, "path switch writes the migrated target version")

@@ -968,14 +968,15 @@ if args.contains("--update-config") {
     // Create a temporary configuration manager to perform the update
     let tempConfigManager = ConfigurationManager(configPath: configPath)
     
-    if tempConfigManager.updateConfiguration() {
-        print("✅ Configuration file updated successfully")
-        print("Applied any new schema changes and fixed formatting issues")
+    switch tempConfigManager.migrateConfigurationIfNeeded() {
+    case .migrated:
+        print("✅ Configuration migrated successfully")
         print("Your existing settings have been preserved")
-        
-        // Show the path that was updated
         print("Updated: \(configPath)")
-    } else {
+    case .alreadyCurrent:
+        print("Configuration is already at the current version")
+        print("Unchanged: \(configPath)")
+    case .failed:
         print("❌ Failed to update configuration file")
         print("Please check that the file is valid JSON and try again")
         exit(1)
@@ -1745,8 +1746,8 @@ func printHelp() {
       --reset-config                Persist default config path without starting daemon
                                     (if daemon is running, switches to it immediately)
       --get-config                  Show the currently saved config path
-      --update-config               Update configuration file with new schema changes
-                                    (preserves your settings, fixes formatting issues)
+      --update-config               Migrate an older configuration version
+                                    (current-version files remain unchanged)
       --validate-config             Validate config and print detailed path-based issues
       --reveal-config               Open the configuration file in Finder
                                     (creates default config if none exists)
@@ -1929,15 +1930,17 @@ globalConfigManager = configManager
 var config = configManager.config
 globalState.setNotificationsDisabledSynchronously(config.defaults.muteNotifications)
 
-// Automatically update configuration file on startup to apply any schema changes
-// Respect user preference defaults.autoUpdateConfig (defaults to true)
+// Automatically migrate older configuration versions on startup. Current
+// versions remain byte-for-byte unchanged.
 let shouldAutoUpdateConfig = configManager.config.defaults.autoUpdateConfig
 if shouldAutoUpdateConfig {
-    logDebug("Performing automatic configuration update on startup...")
-    if configManager.updateConfiguration() {
-        logInfo("Configuration file automatically updated with latest schema and formatting")
-    } else {
-        logDebug("Configuration file update skipped - no changes needed or file had errors")
+    switch configManager.migrateConfigurationIfNeeded() {
+    case .migrated:
+        logInfo("Configuration file automatically migrated to configVersion \(AppConfiguration.currentConfigVersion)")
+    case .alreadyCurrent:
+        logDebug("Configuration is already current; startup left it unchanged")
+    case .failed:
+        logDebug("Configuration migration failed")
         if configManager.hasLegacyConfigOnDisk {
             notify(
                 title: "Macrowhisper - Outdated Config",
@@ -1946,7 +1949,7 @@ if shouldAutoUpdateConfig {
         }
     }
 } else {
-    logDebug("Startup auto configuration update disabled by defaults.autoUpdateConfig = false")
+    logDebug("Startup configuration migration disabled by defaults.autoUpdateConfig = false")
     if configManager.hasLegacyConfigOnDisk {
         notify(
             title: "Macrowhisper - Outdated Config",
