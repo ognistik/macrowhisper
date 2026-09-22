@@ -59,6 +59,7 @@ src/
 │   └── Networking/
 │       ├── SocketCommunication.swift     # Unix socket server, CLI commands, editor bootstrap
 │       ├── EditorServer.swift             # Authenticated loopback editor HTTP server and resources
+│       ├── UpdateCheckResult.swift       # Typed update-check outcomes and CLI/socket presentation
 │       └── VersionChecker.swift          # Update checks
 ├── macrowhisper-schema.json              # JSON schema for config editing/validation
 ├── macrowhisper.xcodeproj/               # Supported signed application build
@@ -254,6 +255,7 @@ Release and installation packaging move that same resource tree into
 - [src/macrowhisper/Utils/ServiceLifecycleDiagnostics.swift](../../src/macrowhisper/Utils/ServiceLifecycleDiagnostics.swift): records launch intents, daemon sessions, clean signal shutdowns, and unclean previous sessions; launchd status parsing lives in `ServiceManager`
 - [src/macrowhisper/Utils/Logger.swift](../../src/macrowhisper/Utils/Logger.swift): central logging with redaction-aware helpers
 - [src/macrowhisper/Utils/NotificationManager.swift](../../src/macrowhisper/Utils/NotificationManager.swift): user-facing alerts for startup/config/runtime issues
+- [src/macrowhisper/Networking/UpdateCheckResult.swift](../../src/macrowhisper/Networking/UpdateCheckResult.swift): typed update-check outcomes, socket serialization, CLI messages, and exit status
 - [src/macrowhisper/Networking/VersionChecker.swift](../../src/macrowhisper/Networking/VersionChecker.swift): optional update checks
 
 ---

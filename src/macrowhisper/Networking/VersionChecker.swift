@@ -82,6 +82,7 @@ class VersionChecker {
         guard let url = URL(string: versionsURL) else {
             logError("Invalid versions URL")
             updateCheckInProgress = false
+            recordFailedCheck()
             return
         }
         
@@ -102,11 +103,13 @@ class VersionChecker {
         
         let semaphore = DispatchSemaphore(value: 0)
         var resultData: Data?
+        var resultResponse: URLResponse?
         var resultError: Error?
         
         let session = URLSession(configuration: .default)
         session.dataTask(with: request) { data, response, error in
             resultData = data
+            resultResponse = response
             resultError = error
             semaphore.signal()
         }.resume()
@@ -116,77 +119,67 @@ class VersionChecker {
         
         if result == .timedOut {
             logDebug("Version check timed out - continuing offline")
-            lastFailedCheckDate = Date() // Track the failure
+            recordFailedCheck()
             return
         }
         
         if let error = resultError {
             logDebug("Version check failed: \(error.localizedDescription) - continuing offline")
-            lastFailedCheckDate = Date() // Track the failure
+            recordFailedCheck()
+            return
+        }
+
+        if let httpResponse = resultResponse as? HTTPURLResponse,
+           !(200...299).contains(httpResponse.statusCode) {
+            logDebug("Version check failed with HTTP status \(httpResponse.statusCode) - continuing offline")
+            recordFailedCheck()
             return
         }
         
         guard let data = resultData else {
             logDebug("No data received from version check - continuing offline")
-            lastFailedCheckDate = Date() // Track the failure
+            recordFailedCheck()
             return
         }
         
-        // Clear the failed check date since we succeeded
-        lastFailedCheckDate = nil
-        
-        // Update last check date - this is critical
-        lastCheckDate = Date()
-        
-        processVersionResponse(data)
-    }
-    
-    private func processVersionResponse(_ data: Data) {
-        do {
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                logError("Invalid JSON in versions response")
-                return
-            }
-            
-            // Parse the new JSON format with "version" and "description" fields
-            guard let latestVersion = json["version"] as? String else {
-                logError("Missing 'version' field in versions JSON")
-                return
-            }
-            
-            let description = json["description"] as? String ?? ""
-            
-            // Check if update is available
-            if isNewerVersion(latest: latestVersion, current: currentCLIVersion) {
-                let versionMessage = "v\(currentCLIVersion) → v\(latestVersion)"
-                showCLIUpdateDialog(versionMessage: versionMessage, description: description, latestVersion: latestVersion, bypassReminderCheck: isForcedCheck)
-            } else {
-                logDebug("CLI is up to date (\(currentCLIVersion))")
-            }
-            
-        } catch {
-            logError("Error parsing versions JSON: \(error)")
+        let checkResult = processVersionResponse(data)
+        if checkResult.succeeded {
+            lastFailedCheckDate = nil
+            lastCheckDate = Date()
+        } else {
+            recordFailedCheck()
         }
     }
-    
-    private func isNewerVersion(latest: String, current: String) -> Bool {
-        let latestComponents = latest.split(separator: ".").compactMap { Int($0) }
-        let currentComponents = current.split(separator: ".").compactMap { Int($0) }
-        
-        let maxCount = max(latestComponents.count, currentComponents.count)
-        
-        for i in 0..<maxCount {
-            let latestPart = i < latestComponents.count ? latestComponents[i] : 0
-            let currentPart = i < currentComponents.count ? currentComponents[i] : 0
-            
-            if latestPart > currentPart {
-                return true
-            } else if latestPart < currentPart {
-                return false
+
+    private func recordFailedCheck() {
+        lastCheckDate = nil
+        lastFailedCheckDate = Date()
+    }
+
+    private func processVersionResponse(_ data: Data) -> UpdateCheckResult {
+        let evaluation = UpdateCheckEvaluator.evaluate(data: data, currentVersion: currentCLIVersion)
+        let result = evaluation.result
+
+        switch result.status {
+        case .updateAvailable:
+            guard let latestVersion = result.latestVersion else {
+                logError("Update result is missing the latest version")
+                return .failed(currentVersion: currentCLIVersion, reason: "the update result is incomplete")
             }
+            let versionMessage = "v\(currentCLIVersion) → v\(latestVersion)"
+            showCLIUpdateDialog(
+                versionMessage: versionMessage,
+                description: evaluation.releaseDescription,
+                latestVersion: latestVersion,
+                bypassReminderCheck: isForcedCheck
+            )
+        case .upToDate:
+            logDebug("CLI is up to date (\(currentCLIVersion))")
+        case .failed:
+            logError("Version response rejected: \(result.failureReason ?? "unknown error")")
         }
-        
-        return false
+
+        return result
     }
     
     private func showCLIUpdateDialog(versionMessage: String, description: String, latestVersion: String, bypassReminderCheck: Bool = false) {
@@ -421,29 +414,17 @@ class VersionChecker {
     }
     
     /// Force an update check regardless of timing constraints and disableUpdateCheck setting
-    func forceUpdateCheck() {
-        logDebug("Forcing update check - resetting ALL timing constraints...")
-        
-        // Set the forced check flag
+    func forceUpdateCheck() -> UpdateCheckResult {
+        logDebug("Forcing update check - bypassing timing constraints...")
+
         isForcedCheck = true
-        
-        // Reset all timing constraints completely, including reminder date for force check
-        lastCheckDate = nil
-        lastFailedCheckDate = nil
-        lastReminderDate = nil  // Also reset this for force check to ensure dialog shows
-        lastRemindedVersion = nil  // Reset reminded version to ensure dialog shows for any version
-        
-        logDebug("Performing forced update check...")
-        
-        // Perform the check synchronously for forced checks
-        forceUpdateCheckSynchronous()
-        
-        // Reset the forced check flag after the check
-        isForcedCheck = false
+        defer { isForcedCheck = false }
+
+        return forceUpdateCheckSynchronous()
     }
     
     /// Synchronous version of update check for forced updates
-    private func forceUpdateCheckSynchronous() {
+    private func forceUpdateCheckSynchronous() -> UpdateCheckResult {
         // Note: Forced checks ignore the disableUpdateCheck setting
         logDebug("Performing synchronous update check (ignoring disableUpdateCheck setting)...")
         updateCheckInProgress = true
@@ -452,7 +433,8 @@ class VersionChecker {
         guard let url = URL(string: versionsURL) else {
             logError("Invalid versions URL")
             updateCheckInProgress = false
-            return
+            recordFailedCheck()
+            return .failed(currentVersion: currentCLIVersion, reason: "the update URL is invalid")
         }
         
         var request = URLRequest(url: url)
@@ -461,11 +443,13 @@ class VersionChecker {
         // Perform synchronous request
         let semaphore = DispatchSemaphore(value: 0)
         var resultData: Data?
+        var resultResponse: URLResponse?
         var resultError: Error?
         
         let session = URLSession(configuration: .default)
         session.dataTask(with: request) { data, response, error in
             resultData = data
+            resultResponse = response
             resultError = error
             semaphore.signal()
         }.resume()
@@ -476,32 +460,39 @@ class VersionChecker {
         
         if result == .timedOut {
             logDebug("Forced version check timed out")
-            lastFailedCheckDate = Date()
-            return
+            recordFailedCheck()
+            return .failed(currentVersion: currentCLIVersion, reason: "the request timed out")
         }
         
         if let error = resultError {
             logDebug("Forced version check failed: \(error.localizedDescription)")
-            lastFailedCheckDate = Date()
-            return
+            recordFailedCheck()
+            return .failed(currentVersion: currentCLIVersion, reason: error.localizedDescription)
+        }
+
+        if let httpResponse = resultResponse as? HTTPURLResponse,
+           !(200...299).contains(httpResponse.statusCode) {
+            logDebug("Forced version check failed with HTTP status \(httpResponse.statusCode)")
+            recordFailedCheck()
+            return .failed(currentVersion: currentCLIVersion, reason: "the update server returned HTTP \(httpResponse.statusCode)")
         }
         
         guard let data = resultData else {
             logDebug("No data received from forced version check")
-            lastFailedCheckDate = Date()
-            return
+            recordFailedCheck()
+            return .failed(currentVersion: currentCLIVersion, reason: "the update server returned no data")
         }
-        
-        // Clear the failed check date since we succeeded
-        lastFailedCheckDate = nil
-        
-        // Update last check date
-        lastCheckDate = Date()
-        
-        // Process the response
-        processVersionResponse(data)
-        
+
+        let checkResult = processVersionResponse(data)
+        if checkResult.succeeded {
+            lastFailedCheckDate = nil
+            lastCheckDate = Date()
+        } else {
+            recordFailedCheck()
+        }
+
         logDebug("Forced update check completed")
+        return checkResult
     }
     
     /// Completely clear all UserDefaults for version checker (nuclear option for debugging)

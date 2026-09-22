@@ -261,6 +261,7 @@ The compile inputs and runner names are:
 | `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
 | `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
 | `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |
+| `update-check-result` | `src/macrowhisper/Networking/UpdateCheckResult.swift` + `src/Tests/UpdateCheckResultRegression.swift` |
 
 For example, the configuration and clipboard runners can be compiled as
 follows (repeat the same pattern for the other rows):

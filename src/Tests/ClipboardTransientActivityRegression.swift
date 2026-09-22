@@ -791,6 +791,166 @@ private func runClipboardTransientActivityRegressionTests() {
         "action execution closes the adjacent startup transaction window"
     )
 
+    // Global monitoring has the stable X operation at count 44. The session
+    // bootstrap catches Superwhisper's hidden Y operation at count 45, and the
+    // first session observation sees X restored at count 46, 1.029s later.
+    let bootstrapSessionStart = Date(timeIntervalSince1970: 300)
+    let sessionSnapshotAt = bootstrapSessionStart.addingTimeInterval(0.1)
+    let sessionPollAt = bootstrapSessionStart.addingTimeInterval(1.029)
+    let globalRestoreOperationAt = sessionSnapshotAt.addingTimeInterval(0.1)
+    let bootstrapState = StartupClipboardBootstrapState(
+        stableGlobalChangeCount: 44,
+        stableGlobalPayloadFingerprint: "X",
+        stableGlobalLastChangeObservedAt: bootstrapSessionStart.addingTimeInterval(-10),
+        sessionSnapshotChangeCount: 45,
+        sessionSnapshotPayloadFingerprint: "Y",
+        sessionSnapshotObservedAt: sessionSnapshotAt
+    )
+
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: bootstrapState,
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: bootstrapSessionStart,
+            // The session poll discovers X at +1.029s, but global monitoring
+            // timestamped the restore operation at +0.2s. Use operation time
+            // here so poll delay cannot broaden the suppression window.
+            observedAt: globalRestoreOperationAt,
+            observedChangeCount: 46,
+            observedPayloadFingerprint: "X"
+        ) == .ignoreRestoredStableClipboard,
+        true,
+        "outside-input bootstrap X44 to hidden Y45 to restored X46 is excluded"
+    )
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: bootstrapState,
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: bootstrapSessionStart,
+            observedAt: sessionSnapshotAt.addingTimeInterval(0.05),
+            observedChangeCount: 46,
+            observedPayloadFingerprint: "X"
+        ) == .ignoreRestoredStableClipboard,
+        true,
+        "the faster session sampler can classify the restore before global monitoring observes it"
+    )
+    assertEqual(
+        sessionPollAt.timeIntervalSince(globalRestoreOperationAt) >
+            ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW,
+        true,
+        "the delayed session poll itself is outside the restore operation window"
+    )
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: bootstrapState,
+            sessionStartInputFieldState: .inInputField,
+            sessionStartTime: bootstrapSessionStart,
+            observedAt: globalRestoreOperationAt,
+            observedChangeCount: 46,
+            observedPayloadFingerprint: "X"
+        ) == .capture,
+        true,
+        "the bootstrap restore remains eligible when recording starts in an input field"
+    )
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: bootstrapState,
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: bootstrapSessionStart,
+            observedAt: globalRestoreOperationAt,
+            observedChangeCount: 46,
+            observedPayloadFingerprint: "Z"
+        ) == .capture,
+        true,
+        "a first observation with a different payload remains eligible"
+    )
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: StartupClipboardBootstrapState(
+                stableGlobalChangeCount: 44,
+                stableGlobalPayloadFingerprint: "X",
+                stableGlobalLastChangeObservedAt: bootstrapSessionStart.addingTimeInterval(-10),
+                sessionSnapshotChangeCount: 46,
+                sessionSnapshotPayloadFingerprint: "Y",
+                sessionSnapshotObservedAt: sessionSnapshotAt
+            ),
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: bootstrapSessionStart,
+            observedAt: globalRestoreOperationAt,
+            observedChangeCount: 47,
+            observedPayloadFingerprint: "X"
+        ) == .capture,
+        true,
+        "a non-adjacent bootstrap snapshot count remains eligible"
+    )
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: bootstrapState,
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: bootstrapSessionStart,
+            observedAt: globalRestoreOperationAt,
+            observedChangeCount: 47,
+            observedPayloadFingerprint: "X"
+        ) == .capture,
+        true,
+        "a restore count jump cannot broaden bootstrap suppression"
+    )
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: StartupClipboardBootstrapState(
+                stableGlobalChangeCount: 44,
+                stableGlobalPayloadFingerprint: "X",
+                stableGlobalLastChangeObservedAt: bootstrapSessionStart.addingTimeInterval(-10),
+                sessionSnapshotChangeCount: 45,
+                sessionSnapshotPayloadFingerprint: "Y",
+                sessionSnapshotObservedAt: bootstrapSessionStart.addingTimeInterval(
+                    ADJACENT_STARTUP_TRANSIENT_CANDIDATE_WINDOW + 0.001
+                )
+            ),
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: bootstrapSessionStart,
+            observedAt: globalRestoreOperationAt,
+            observedChangeCount: 46,
+            observedPayloadFingerprint: "X"
+        ) == .capture,
+        true,
+        "a late bootstrap snapshot remains eligible"
+    )
+    assertEqual(
+        evaluateStartupClipboardBootstrapRestore(
+            state: bootstrapState,
+            sessionStartInputFieldState: .outsideInputField,
+            sessionStartTime: bootstrapSessionStart,
+            observedAt: sessionSnapshotAt.addingTimeInterval(
+                ADJACENT_STARTUP_TRANSIENT_RESTORE_WINDOW + 0.001
+            ),
+            observedChangeCount: 46,
+            observedPayloadFingerprint: "X"
+        ) == .capture,
+        true,
+        "a late restore operation remains eligible"
+    )
+
+    var sessionFirstBootstrapTransaction = InferredTransientRestoreTracker()
+    sessionFirstBootstrapTransaction.recordIgnoredTransaction(
+        candidateChangeCount: 45,
+        restoreChangeCount: 46,
+        classifiedAt: globalRestoreOperationAt
+    )
+    assertEqual(
+        sessionFirstBootstrapTransaction.decision(
+            changeCount: 46,
+            content: "stable clipboard",
+            containsIgnoredMarker: false,
+            observedAt: globalRestoreOperationAt.addingTimeInterval(0.3),
+            previousChangeCount: 44,
+            previousContent: "stable clipboard",
+            canArmCandidate: false
+        ) == .ignorePreviouslyClassified(candidateChangeCount: 45, restoreChangeCount: 46),
+        true,
+        "a startup transaction classified by the faster session sampler remains ignored by the later global sampler"
+    )
+
     assertEqual(
         isSameContentClipboardRewrite(currentClipboard: "seed", previousClipboard: "seed"),
         true,

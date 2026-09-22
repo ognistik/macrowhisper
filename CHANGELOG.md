@@ -8,6 +8,10 @@
 * **Configuration version 3 makes Insert escaping predictable.** Macrowhisper Insert text uses `\n` for a line break and `\\n` for a literal backslash followed by `n`; their JSON spellings are `\\n` and `\\\\n`. Existing version 1 and 2 files migrate sequentially when automatic updates are enabled, with a pre-v3 backup before the file is rewritten.
 * The configuration editor keeps older files read-only and offers an explicit update to version 3. Users who manage updates manually are reminded when the background service starts; normal CLI actions and live reloads do not interrupt work with that notification.
 * The Insert editor now shows ordinary custom text with real line breaks while keeping complete placeholders inline. Returns typed inside a placeholder are normalized to `\n` when the edit is saved, without rewriting text under the cursor.
+* `--check-updates` now prints whether Macrowhisper is current, an update is available, or the check failed. Normal results no longer send users to the logs, while failures include the exact diagnostic log path and return a nonzero exit status.
+
+### Fixed
+* When dictation starts outside a text field, Superwhisper's brief clipboard replacement and restoration no longer appear in `{{clipboardContext}}` as user copies. Macrowhisper recognizes only the exact adjacent restore sequence, so ordinary clipboard changes at startup remain available as context.
 
 ---
 ## [v2.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.2.0) - 2026/09/04

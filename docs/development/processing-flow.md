@@ -131,6 +131,15 @@ original clipboard snapshot, selected text, input-field state, and eligible
 pre-recording observations. It creates or joins an execution group so adjacent
 recordings and pending finalization share a controlled clipboard owner.
 
+During this bootstrap boundary, Superwhisper may publish a temporary clipboard
+value after the stable startup state was sampled and restore that stable state
+before the first session poll. For sessions that began outside an input field,
+bootstrap reconciliation can exclude the temporary operation and its restore as
+one transaction, but only when the stable content or payload matches exactly,
+the `NSPasteboard.changeCount` values are adjacent, and both observations fit
+the narrow startup timing window. First copies, mismatched baselines, and
+non-adjacent or late observations remain eligible clipboard context.
+
 #### Enhanced Session Structure:
 - `EarlyMonitoringSession` owns per-recording observations: `groupId`, start time, selected text, session-start input state, clipboard changes, pre-recording text/stack/changes, replay guards, change counts, and the frozen context snapshot.
 - `ExecutionGroup` owns `rootOriginalSnapshot`, root selected text and pre-recording context, frozen root settings, member recording paths, script results, attachment eligibility, and pending restoration/finalization. The original snapshot is separate from the context payload.
@@ -312,6 +321,7 @@ The clipboard synchronization system handles the complex timing between Superwhi
 #### Synchronization Methods:
 
 - `prepareClipboardContextForAction` reconciles the Superwhisper result before freezing context. A matching current pasteboard operation can be classified immediately; otherwise it uses the short activity wait and reconciliation fallback.
+- Startup bootstrap reconciliation separately handles a temporary write that is present in the bootstrap snapshot and whose first later observation restores the exact stable pre-bootstrap state. It is limited to outside-input sessions and exact adjacent count/timing matches, so ordinary first copies are not hidden.
 - `executeInsertWithEnhancedClipboardSync` runs watcher inserts, while `executeNonInsertActionWithClipboardRestore` runs watcher URL, Shortcut, shell, and AppleScript steps. Both receive a Boolean-returning action closure, chain boundary flags, restoration settings, and an optional completion callback.
 - `shouldUseSuperwhisperSync` controls the first-step wait; `shouldStopMonitoringAfterAction` and `shouldTriggerCleanupAfterAction` keep intermediate steps from finalizing the chain.
 - CLI execution has separate original-snapshot and chain-state handling in `SocketCommunication`; there is no separate `executeInsertWithClipboardSync` fallback method.

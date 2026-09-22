@@ -1206,11 +1206,16 @@ if hasDaemonCommand {
     
     if args.contains("--check-updates") {
         if let response = socketCommunication.sendCommand(.forceUpdateCheck) {
-            print(response)
+            if let result = UpdateCheckResult.fromSocketPayload(response) {
+                print(result.userMessage)
+                exit(result.cliExitCode)
+            }
+
+            print("Failed to check for updates: \(response)")
         } else {
             print("Failed to check for updates.")
         }
-        exit(0)
+        exit(1)
     }
     
     if args.contains("--auto-return") {
@@ -1799,7 +1804,7 @@ func printHelp() {
       --remove-action <name>        Remove any action by name (works for all action types)
 
     OTHER (require running daemon):
-      --check-updates               Force check for updates
+      --check-updates               Check for updates and print the result
       --version-clear               Clears all UserDefaults related
                                     to version checks. Only to be used for debugging
       --version-state               Checks the state of update checks

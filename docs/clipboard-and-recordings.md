@@ -12,11 +12,13 @@ Superwhisper and Macrowhisper may touch the clipboard near the same time. Macrow
 
 Superwhisper marks dictations as transient when its **Clipboard history** setting is Off, telling clipboard-history apps to skip them. Macrowhisper still counts transient clipboard activity for synchronization while excluding it from captured clipboard context. With history On, result reconciliation keeps recognized Superwhisper result writes out of context too. The history toggle is not a Macrowhisper detection requirement and does not control restoration of the original clipboard. It only controls Superwhisper's writes: Macrowhisper's paste-based inserts write ordinary text that clipboard-history apps may capture even with Superwhisper's history Off.
 
+At recording startup, Superwhisper can write a temporary clipboard value while Macrowhisper is taking its bootstrap snapshot, then restore the exact stable clipboard state that existed just before that write. When the session began outside an input field, Macrowhisper can reconcile that first post-bootstrap restoration and exclude the temporary write and its restore from `{{clipboardContext}}` together. This is deliberately narrow: the stable content or payload must match exactly, the change counts must be adjacent, and the observations must fall within the startup timing window. A genuine first copy, a mismatched baseline, or a delayed/non-adjacent change remains eligible for context capture.
+
 ### The main timing values
 
 - a short wait for Superwhisper clipboard sync before the first action in a chain: `0.1s`
 - a recent-activity window to avoid unnecessary waiting: `0.5s`
-- a startup replay guard that extends `5.0s` after the recording folder appears; when buffered history is available, the same-content check also examines up to `3.0s` before that point. Same-content replays in the guard are ignored while different content remains eligible. The guard stays active after audio starts and closes when action execution starts. A separate `1.0s` adjacent-transient rule applies only when the session began outside an input field
+- a startup replay guard that extends `5.0s` after the recording folder appears; when buffered history is available, the same-content check also examines up to `3.0s` before that point. Same-content replays in the guard are ignored while different content remains eligible. The guard stays active after audio starts and closes when action execution starts. A separate narrowly bounded adjacent-transient bootstrap rule applies only when the session began outside an input field and requires an exact stable-state match plus adjacent change counts
 - the user-controlled pre-recording capture window from `clipboardBuffer`
 
 Capture is bounded to 50 clipboard operations per session and 100 entries in the app-wide rolling history; older observations are dropped.
