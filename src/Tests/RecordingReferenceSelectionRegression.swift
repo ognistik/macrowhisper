@@ -9,12 +9,22 @@ struct RegressionConfiguration {
 }
 
 final class ConfigurationManager {
-    let config = RegressionConfiguration(defaults: RegressionDefaults(watch: "/tmp"))
+    let config: RegressionConfiguration
+
+    init(watch: String = "/tmp") {
+        config = RegressionConfiguration(defaults: RegressionDefaults(watch: watch))
+    }
 }
 
 final class RecordingsFolderWatcher {
+    var activePath: String?
+
+    init(activePath: String? = nil) {
+        self.activePath = activePath
+    }
+
     func getMostRecentActiveRecordingPath() -> String? {
-        nil
+        activePath
     }
 }
 
@@ -113,6 +123,79 @@ private func runRecordingReferenceSelectionRegressionTests() {
     ])
     assertEqual(nonLLM.reference?.path, "/recordings/newest", "non-LLM raw result remains immediately valid")
     assertEqual(nonLLM.skippedNewerRecordings.count, 0, "non-LLM recording is not reported as skipped")
+
+    var meeting = candidate("/recordings/meeting", languageModelName: "", result: "Meeting notes")
+    meeting.metaJson["kind"] = "meeting"
+    assertEqual(isMeetingRecordingMetaJson(meeting.metaJson), true, "meeting kind is recognized")
+    assertEqual(isValidRecordingMetaJson(meeting.metaJson), true, "explicit meeting metadata remains valid for manual CLI use")
+
+    let meetingFallback = selectLatestValidRecordingReference(from: [
+        meeting,
+        candidate("/recordings/dictation", languageModelName: "", result: "Dictation")
+    ])
+    assertEqual(meetingFallback.reference?.path, "/recordings/dictation", "implicit latest selection skips meetings")
+    assertEqual(meetingFallback.skippedNewerRecordings.count, 0, "meetings are not reported as pending LLM results")
+
+    var incompleteMeeting = candidate("/recordings/incomplete-meeting", languageModelName: "OSS", result: "Raw notes")
+    incompleteMeeting.metaJson["kind"] = " Meeting \n"
+    let incompleteMeetingFallback = selectLatestValidRecordingReference(from: [
+        incompleteMeeting,
+        candidate("/recordings/dictation", languageModelName: "", result: "Dictation")
+    ])
+    assertEqual(incompleteMeetingFallback.reference?.path, "/recordings/dictation", "incomplete meetings are skipped")
+    assertEqual(incompleteMeetingFallback.skippedNewerRecordings.count, 0, "incomplete meetings produce no LLM warning")
+
+    var otherKind = candidate("/recordings/other", languageModelName: "", result: "Other result")
+    otherKind.metaJson["kind"] = "other"
+    assertEqual(isMeetingRecordingMetaJson(otherKind.metaJson), false, "other kinds remain eligible")
+    assertEqual(isMeetingRecordingMetaJson(candidate("/recordings/legacy", languageModelName: "", result: "Legacy").metaJson), false, "missing kind remains eligible")
+    assertEqual(
+        selectLatestValidRecordingReference(from: [otherKind, meeting]).reference?.path,
+        "/recordings/other",
+        "other kinds retain normal selection"
+    )
+
+    var meetingModeDictation = candidate("/recordings/meeting-mode-dictation", languageModelName: "", result: "Dictation")
+    meetingModeDictation.metaJson["kind"] = "dictation"
+    meetingModeDictation.metaJson["modeName"] = "Meeting"
+    assertEqual(isMeetingRecordingMetaJson(meetingModeDictation.metaJson), false, "mode name does not determine recording kind")
+
+    let root = (NSTemporaryDirectory() as NSString)
+        .appendingPathComponent("macrowhisper-recording-selection-\(UUID().uuidString)")
+    let recordingsPath = (root as NSString).appendingPathComponent("recordings")
+    let meetingPath = (recordingsPath as NSString).appendingPathComponent("meeting")
+    let dictationPath = (recordingsPath as NSString).appendingPathComponent("dictation")
+    defer { try? FileManager.default.removeItem(atPath: root) }
+    do {
+        try FileManager.default.createDirectory(atPath: meetingPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dictationPath, withIntermediateDirectories: true)
+        let meetingData = try JSONSerialization.data(withJSONObject: meeting.metaJson)
+        let dictationData = try JSONSerialization.data(withJSONObject: meetingModeDictation.metaJson)
+        try meetingData.write(to: URL(fileURLWithPath: (meetingPath as NSString).appendingPathComponent("meta.json")))
+        try dictationData.write(to: URL(fileURLWithPath: (dictationPath as NSString).appendingPathComponent("meta.json")))
+    } catch {
+        fputs("FAIL: could not create recording fixtures: \(error)\n", stderr)
+        exit(1)
+    }
+
+    let manager = ConfigurationManager(watch: root)
+    let watcher = RecordingsFolderWatcher(activePath: meetingPath)
+    assertEqual(
+        resolveRecordingFolderPath(configManager: manager, recordingsWatcher: watcher, index: 0)
+            .map { ($0 as NSString).lastPathComponent },
+        "dictation",
+        "folder lookup skips active and completed meetings"
+    )
+    assertEqual(
+        resolveRecordingFolderPath(configManager: manager, recordingsWatcher: watcher, index: 1),
+        nil,
+        "meeting does not occupy a folder index"
+    )
+    assertEqual(
+        getValidRecordingReferences(configManager: manager).map { ($0.path as NSString).lastPathComponent },
+        ["dictation"],
+        "valid recording list excludes meetings"
+    )
 }
 
 @main

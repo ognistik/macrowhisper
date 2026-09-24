@@ -18,7 +18,7 @@ class RecordingsFolderWatcher {
     private var lastKnownSubdirectories: Set<String> = []
     private var pendingMetaJsonFiles: [String: DispatchSourceFileSystemObject] = [:]
     private var pendingAudioFileWatchers: [String: DispatchSourceFileSystemObject] = [:]
-    private var recordingHadWavFiles: [String: Bool] = [:] // Track if recording ever had .wav files
+    private var recordingHadAudioFiles: [String: Bool] = [:] // Track if recording ever had supported audio
     private var recordingTimeoutTimers: [String: DispatchSourceTimer] = [:] // Timeout timers for recordings
     private var integratedS1ResultGraceWorkItems: [String: DispatchWorkItem] = [:]
     private var processedRecordings: Set<String> = []
@@ -36,7 +36,7 @@ class RecordingsFolderWatcher {
     private var invalidationReported = false
     
     // Constants
-    private let RECORDING_TIMEOUT_SECONDS: Double = 17.0 // Timeout for recordings without WAV files
+    private let RECORDING_TIMEOUT_SECONDS: Double = 17.0 // Timeout for recordings without supported audio
 
     init?(basePath: String, configManager: ConfigurationManager, historyManager: HistoryManager, socketCommunication: SocketCommunication, versionChecker: VersionChecker?, onWatchedFolderInvalidated: ((String) -> Void)? = nil) {
         self.basePath = basePath
@@ -171,7 +171,7 @@ class RecordingsFolderWatcher {
                 watcher.cancel()
             }
             pendingAudioFileWatchers.removeAll()
-            recordingHadWavFiles.removeAll()
+            recordingHadAudioFiles.removeAll()
             
             // Cancel all timeout timers
             for (_, timer) in recordingTimeoutTimers {
@@ -421,7 +421,7 @@ class RecordingsFolderWatcher {
                 if let audioWatcher = pendingAudioFileWatchers[fullPath] {
                     audioWatcher.cancel()
                     pendingAudioFileWatchers.removeValue(forKey: fullPath)
-                    recordingHadWavFiles.removeValue(forKey: fullPath)
+                    recordingHadAudioFiles.removeValue(forKey: fullPath)
                     logDebug("Removed watcher for deleted directory (audio watcher): \(fullPath)")
                     hadWatchers = true
                 }
@@ -469,7 +469,7 @@ class RecordingsFolderWatcher {
         // This captures selected text and clipboard context at session start
         clipboardMonitor.startEarlyMonitoring(for: path, sessionStartTime: detectedAt)
         
-        // Start monitoring for .wav file changes to detect cancellation
+        // Start monitoring for supported audio file changes to detect cancellation
         setupAudioFileMonitoring(for: path)
         
         // Start timeout timer for recording to detect stalled recordings
@@ -592,22 +592,22 @@ class RecordingsFolderWatcher {
         logDebug("Started watching for meta.json creation in: \(recordingPath)")
     }
     
-    /// Sets up monitoring for .wav file changes to detect recording cancellation
+    /// Sets up monitoring for supported audio file changes to detect recording cancellation
     private func setupAudioFileMonitoring(for recordingPath: String) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: recordingPath) {
             return
         }
         
-        // Initialize tracking - check if .wav files exist initially (they might not yet)
-        let initiallyHasWavFiles = checkForWavFiles(in: recordingPath)
-        recordingHadWavFiles[recordingPath] = initiallyHasWavFiles
-        if initiallyHasWavFiles {
+        // Initialize tracking - audio files might not exist yet.
+        let initiallyHasAudioFiles = checkForAudioFiles(in: recordingPath)
+        recordingHadAudioFiles[recordingPath] = initiallyHasAudioFiles
+        if initiallyHasAudioFiles {
             clipboardMonitor.markAudioRecordingStarted(for: recordingPath)
             cancelRecordingTimeout(for: recordingPath)
         }
         
-        // Watch the recording directory for file changes to detect .wav file removal
+        // Watch the recording directory for supported audio file removal.
         let fileDescriptor = open(recordingPath, O_EVTONLY)
         guard fileDescriptor >= 0 else {
             logError("Failed to open file descriptor for audio monitoring: \(recordingPath)")
@@ -623,7 +623,7 @@ class RecordingsFolderWatcher {
             if self.isAlreadyProcessed(recordingPath: recordingPath) {
                 watcher.cancel()
                 self.pendingAudioFileWatchers.removeValue(forKey: recordingPath)
-                self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                self.recordingHadAudioFiles.removeValue(forKey: recordingPath)
                 return
             }
             
@@ -639,45 +639,45 @@ class RecordingsFolderWatcher {
                 
                 // Check current state
                 let directoryExists = FileManager.default.fileExists(atPath: recordingPath)
-                let hasWavFiles = directoryExists ? self.checkForWavFiles(in: recordingPath) : false
-                let hadWavFilesBefore = self.recordingHadWavFiles[recordingPath] ?? false
+                let hasAudioFiles = directoryExists ? self.checkForAudioFiles(in: recordingPath) : false
+                let hadAudioFilesBefore = self.recordingHadAudioFiles[recordingPath] ?? false
                 
-                // Update tracking if we now have .wav files (recording started)
-                if hasWavFiles && !hadWavFilesBefore {
-                    self.recordingHadWavFiles[recordingPath] = true
-                    logDebug("Audio recording started: .wav file detected in \(recordingPath)")
+                // Update tracking if supported audio appeared (recording started).
+                if hasAudioFiles && !hadAudioFilesBefore {
+                    self.recordingHadAudioFiles[recordingPath] = true
+                    logDebug("Audio recording started: .wav or .ogg file detected in \(recordingPath)")
                     self.clipboardMonitor.markAudioRecordingStarted(for: recordingPath)
                     
-                    // Cancel timeout timer since WAV file appeared
+                    // Cancel timeout timer since supported audio appeared.
                     self.cancelRecordingTimeout(for: recordingPath)
                 }
                 
                 // Only trigger cancellation if:
                 // 1. Directory still exists (folder deletion is handled separately)
-                // 2. We previously had .wav files (recording was active)
-                // 3. No .wav files are present now (they were removed)
-                if directoryExists && hadWavFilesBefore && !hasWavFiles {
+                // 2. We previously had supported audio (recording was active)
+                // 3. No supported audio is present now (it was removed)
+                if directoryExists && hadAudioFilesBefore && !hasAudioFiles {
                     // Double-check after another brief delay to be absolutely sure
                     self.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                         guard let self = self else { return }
                         
                         // Final verification
-                        let finalCheck = self.checkForWavFiles(in: recordingPath)
+                        let finalCheck = self.checkForAudioFiles(in: recordingPath)
                         if !finalCheck && FileManager.default.fileExists(atPath: recordingPath) {
-                            logInfo("CANCELLATION DETECTED: .wav file removed from \(recordingPath) - triggering recovery")
+                            logInfo("CANCELLATION DETECTED: audio file removed from \(recordingPath) - triggering recovery")
                             
                             // Mark as processed to prevent further processing
                             self.markAsProcessed(recordingPath: recordingPath)
                             
                             // Trigger unified recovery for cancellation
-                            self.performRecordingRecovery(reason: "recording cancelled - .wav file removed from \((recordingPath as NSString).lastPathComponent)")
+                            self.performRecordingRecovery(reason: "recording cancelled - audio file removed from \((recordingPath as NSString).lastPathComponent)")
                             
                             // Clean up this watcher and tracking
                             watcher.cancel()
                             self.pendingAudioFileWatchers.removeValue(forKey: recordingPath)
-                            self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                            self.recordingHadAudioFiles.removeValue(forKey: recordingPath)
                         } else if finalCheck {
-                            logDebug("False alarm: .wav file reappeared in \(recordingPath) - continuing monitoring")
+                            logDebug("False alarm: audio file reappeared in \(recordingPath) - continuing monitoring")
                         }
                     }
                 }
@@ -690,30 +690,15 @@ class RecordingsFolderWatcher {
         
         watcher.resume()
         pendingAudioFileWatchers[recordingPath] = watcher
-        logDebug("Started monitoring for .wav file changes in: \(recordingPath)")
+        logDebug("Started monitoring for .wav or .ogg file changes in: \(recordingPath)")
     }
     
-    /// Checks if any .wav files exist in the given directory with additional validation
-    private func checkForWavFiles(in directoryPath: String) -> Bool {
+    /// Checks if any nonempty supported audio file exists in the directory.
+    private func checkForAudioFiles(in directoryPath: String) -> Bool {
         do {
-            let contents = try FileManager.default.contentsOfDirectory(atPath: directoryPath)
-            let wavFiles = contents.filter { $0.lowercased().hasSuffix(".wav") }
-            
-            // Not only check for existence, but also verify the files are accessible and not zero-size
-            // This helps distinguish between file deletion and temporary file states during rewrites
-            for wavFile in wavFiles {
-                let wavPath = "\(directoryPath)/\(wavFile)"
-                let attributes = try? FileManager.default.attributesOfItem(atPath: wavPath)
-                if let fileSize = attributes?[.size] as? Int64, fileSize > 0 {
-                    // Found at least one valid .wav file with content
-                    return true
-                }
-            }
-            
-            // Either no .wav files found, or all are zero-size (which could indicate deletion in progress)
-            return false
+            return try RecordingAudioFiles.hasUsableAudioFile(in: directoryPath)
         } catch {
-            logError("Failed to check directory contents for .wav files: \(error)")
+            logError("Failed to check directory contents for audio files: \(error)")
             return false
         }
     }
@@ -811,6 +796,31 @@ class RecordingsFolderWatcher {
                 watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
                 return
             }
+
+            // Meetings are not dictations. Skip as soon as the kind is known,
+            // even when Superwhisper has not written a result yet.
+            if isMeetingRecordingMetaJson(metaJson) {
+                logInfo("Ignoring Superwhisper meeting in \(recordingPath)")
+                markAsProcessed(recordingPath: recordingPath)
+                cancelRecordingTimeout(for: recordingPath)
+                cleanupPendingWatcher(for: recordingPath)
+                cleanupPendingWatcher(for: metaJsonPath)
+                clipboardMonitor.stopEarlyMonitoring(for: recordingPath)
+
+                // Folder arrival paused one-time timeouts before kind was known.
+                // Re-arm them after the meeting's watchers have been removed.
+                queue.async { [weak self] in
+                    guard let self = self, !self.hasActiveRecordingSessions() else { return }
+                    if globalState.autoReturnEnabled {
+                        startAutoReturnTimeout()
+                    }
+                    if globalState.scheduledActionName != nil {
+                        startScheduledActionTimeout()
+                    }
+                }
+                return
+            }
+
             // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
             // If languageModelName is not empty, wait for llmResult
             // If languageModelName is empty, wait for result
@@ -1817,7 +1827,7 @@ class RecordingsFolderWatcher {
             if let audioWatcher = self.pendingAudioFileWatchers[path] {
                 audioWatcher.cancel()
                 self.pendingAudioFileWatchers.removeValue(forKey: path)
-                self.recordingHadWavFiles.removeValue(forKey: path)
+                self.recordingHadAudioFiles.removeValue(forKey: path)
                 logDebug("Cleaned up pending audio watcher for path: \(path)")
             }
 
@@ -1890,7 +1900,7 @@ class RecordingsFolderWatcher {
                 let recordingPath = self.extractRecordingPath(from: path)
                 watcher.cancel()
                 self.pendingAudioFileWatchers.removeValue(forKey: path)
-                self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                self.recordingHadAudioFiles.removeValue(forKey: recordingPath)
                 cleanedUpWatcherCount += 1
                 logDebug("Cancelled pending audio watcher for: \(path)")
             }
@@ -1900,7 +1910,7 @@ class RecordingsFolderWatcher {
                 if let timer = self.recordingTimeoutTimers.removeValue(forKey: recordingPath) {
                     timer.cancel()
                 }
-                self.recordingHadWavFiles.removeValue(forKey: recordingPath)
+                self.recordingHadAudioFiles.removeValue(forKey: recordingPath)
                 self.markAsProcessed(recordingPath: recordingPath)
             }
 
@@ -1924,10 +1934,10 @@ class RecordingsFolderWatcher {
         // Watcher paths can be:
         // - Recording directory path (e.g., "/path/to/recordings/1234567890")
         // - Meta.json path (e.g., "/path/to/recordings/1234567890/meta.json")
-        // - Audio file path (e.g., "/path/to/recordings/1234567890/audio.wav")
+        // - Audio file path (e.g., "/path/to/recordings/1234567890/output.ogg")
         if path.hasSuffix("/meta.json") {
             return String(path.dropLast(10)) // Remove "/meta.json"
-        } else if path.contains("/") && path.hasSuffix(".wav") {
+        } else if path.contains("/") && RecordingAudioFiles.isSupportedAudioPath(path) {
             return (path as NSString).deletingLastPathComponent
         } else {
             return path // Already a recording directory path
@@ -1948,7 +1958,7 @@ class RecordingsFolderWatcher {
     
     // MARK: - Recording Timeout Management
     
-    /// Starts a timeout timer for a recording to detect stalled recordings without WAV files
+    /// Starts a timeout timer for a recording to detect stalled recordings without supported audio.
     private func startRecordingTimeout(for recordingPath: String) {
         performQueueSynchronized {
             // Cancel any existing timer for this recording
@@ -1963,17 +1973,17 @@ class RecordingsFolderWatcher {
             timer.setEventHandler { [weak self] in
                 guard let self = self else { return }
                 
-                // Check if recording still doesn't have WAV files and hasn't been processed
+                // Check if recording still lacks supported audio and has not been processed.
                 if !self.isAlreadyProcessed(recordingPath: recordingPath) {
-                    let hasWavFiles = self.checkForWavFiles(in: recordingPath)
-                    if !hasWavFiles {
-                        logInfo("TIMEOUT CANCELLATION: Recording \((recordingPath as NSString).lastPathComponent) timed out after \(self.RECORDING_TIMEOUT_SECONDS) seconds without WAV file")
+                    let hasAudioFiles = self.checkForAudioFiles(in: recordingPath)
+                    if !hasAudioFiles {
+                        logInfo("TIMEOUT CANCELLATION: Recording \((recordingPath as NSString).lastPathComponent) timed out after \(self.RECORDING_TIMEOUT_SECONDS) seconds without audio file")
                         
                         // Mark as processed to prevent further processing
                         self.markAsProcessed(recordingPath: recordingPath)
                         
                         // Trigger unified recovery for timeout cancellation
-                        self.performRecordingRecovery(reason: "recording timed out after \(self.RECORDING_TIMEOUT_SECONDS) seconds without WAV file - \((recordingPath as NSString).lastPathComponent)")
+                        self.performRecordingRecovery(reason: "recording timed out after \(self.RECORDING_TIMEOUT_SECONDS) seconds without audio file - \((recordingPath as NSString).lastPathComponent)")
                     }
                 }
                 
@@ -1988,7 +1998,7 @@ class RecordingsFolderWatcher {
         }
     }
     
-    /// Cancels the timeout timer for a recording (called when WAV file appears or recording completes)
+    /// Cancels the timeout timer for a recording (called when supported audio appears or recording completes).
     private func cancelRecordingTimeout(for recordingPath: String) {
         performQueueSynchronized {
             if let timer = self.recordingTimeoutTimers[recordingPath] {

@@ -42,11 +42,13 @@ and [development guide](README.md).
    └── Capture original clipboard
    ↓
 3. Start Session, Audio, and Timeout Monitoring
-   ├── If meta.json complete → Process it with early monitoring already active
-   ├── If meta.json incomplete → Watch for a valid result
+   ├── If meta.json complete → Check its kind and result with early monitoring active
+   ├── If meta.json incomplete → Watch for metadata changes and a valid result
    └── If meta.json missing → Watch for file creation
    ↓
 4. Meta.json Processing (RecordingsFolderWatcher)
+   ├── If kind is meeting → Skip automatic processing before result readiness
+   └── Otherwise → Wait for a valid result, then continue action selection
    ↓
 5. Context Gathering & Session Data Enhancement
    ├── Front App context
@@ -187,12 +189,21 @@ Meta.json contains the transcription results from Superwhisper and may not exist
 2. **Delayed Processing**: Watch for meta.json creation with `watchForMetaJsonCreation()`
 3. **Update Processing**: Watch for meta.json changes with `watchMetaJsonForChanges()`
 
+Before waiting for result readiness, the watcher skips a recording whose
+metadata `kind`, after trimming surrounding whitespace, matches `meeting`
+without regard to case. Other kind values and missing `kind` continue through
+normal processing.
+
 #### Validation Requirements:
 - A nonempty string `languageModelName` selects the LLM path, which requires a nonempty string `llmResult`.
 - Without a nonempty `languageModelName`, a nonempty string `result` is required.
 - Missing, null, nonstring, and empty required results keep the metadata watcher active.
 - For integrated S1-Language + S1-Voice (`languageModelKey: "sl-1"`, `modelKey: "sv-1"`), an available `llmResult` with an empty `result` gets a one-second grace period. Processing then continues with `llmResult` if `result` still has not arrived.
 - Voice triggers use `result`; they do not match when that source text is empty, even if `llmResult` is ready. See [runtime](../runtime.md) for readiness and recovery behavior.
+
+The same exclusion applies to CLI commands that use the latest recording by
+default and to folder lookup commands. An explicit `--meta` can select a
+meeting recording for an action command.
 
 #### Context Enhancement:
 ```swift
@@ -598,7 +609,8 @@ for each action type's tokens and fallback behavior.
 
 #### 1. Missing Meta.json:
 - **Behavior**: Watch for file creation; this watcher has no independent metadata timeout
-- **Recording timeout**: A separate 17-second check recovers recordings still lacking a valid WAV file
+- **Recording timeout**: A separate 17-second check recovers recordings still lacking a non-empty `.wav` or `.ogg` file
+- **Cancellation**: Removing all previously detected non-empty `.wav` and `.ogg` files triggers recovery
 - **Cleanup**: Remove watchers when recording folder is deleted
 
 #### 2. Invalid Meta.json:

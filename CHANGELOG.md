@@ -4,6 +4,12 @@
 
 ### Improved
 * `--check-updates` now prints whether Macrowhisper is current, an update is available, or the check failed. Normal results no longer send users to the logs, while failures include the exact diagnostic log path and return a nonzero exit status.
+* Recording monitoring now recognizes non-empty `.wav` and `.ogg` files for audio arrival, cancellation detection, and the no-audio timeout.
+* Automatic processing, implicit latest-recording selection, and folder lookup
+  commands skip recordings whose metadata `kind`, after trimming surrounding
+  whitespace, matches `meeting` without regard to case. Other kinds and missing
+  `kind` values follow normal selection rules; an explicit `--meta` can select
+  a meeting recording for an action command.
 
 ### Fixed
 * When dictation starts outside a text field, Superwhisper's brief clipboard replacement and restoration no longer appear in `{{clipboardContext}}` as user copies. Macrowhisper recognizes only the exact adjacent restore sequence, so ordinary clipboard changes at startup remain available as context.

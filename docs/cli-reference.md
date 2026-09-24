@@ -157,7 +157,7 @@ macrowhisper --start-service
 | `--get-action` | Shows the current active action name. |
 | `--get-action <name>` | Shows the processed output for that action. |
 | `--get-icon` | Shows the icon for the active action. |
-| `--folder-name [<index>]` / `--folder-path [<index>]` | Looks up the active recording first, then valid completed recording folders newest by creation date (`0` is the first result). Invalid or incomplete folders are skipped. |
+| `--folder-name [<index>]` / `--folder-path [<index>]` | Looks up the active folder, then completed folders newest first (`0` is first). Skips folders with readable metadata whose `kind` matches `meeting` after trimming surrounding whitespace and ignoring case; invalid or incomplete completed folders are skipped too. |
 
 #### Set defaults
 
@@ -205,7 +205,10 @@ You can check mute state through `--status`.
 
 ### `--meta`: use a different `meta.json`
 
-By default, action commands use the latest valid Superwhisper result.
+By default, action commands use the latest valid, eligible Superwhisper result.
+Recordings whose metadata `kind`, after trimming surrounding whitespace,
+matches `meeting` without regard to case are skipped during this implicit
+lookup. Other kinds and missing `kind` values follow normal validity rules.
 
 Use `--meta` when you want to point Macrowhisper to:
 
@@ -220,6 +223,7 @@ How Macrowhisper reads the value:
 - a directory path loads `<directory>/meta.json`; a file path loads that JSON file directly
 - otherwise, the value is treated as a recording folder name under the configured Superwhisper `recordings` directory
 - without `--meta`, Macrowhisper chooses the newest completed folder with a valid result; folders missing the required non-empty `llmResult` or `result` are skipped
+- an explicit `--meta` selects the requested source even when its metadata `kind` is `meeting`
 - when `languageModelName` is non-empty, the required field is a non-empty string `llmResult`; otherwise it is a non-empty string `result`
 
 Examples:

@@ -47,12 +47,21 @@ marked processed and none is executed; an older directory arriving later is
 also skipped as a cloud-sync copy. A newer single arrival can supersede an
 incomplete recording and trigger recovery before processing the new session.
 
+The watcher checks metadata `kind` before waiting for a transcription result.
+If it matches `meeting` after surrounding whitespace is trimmed, without
+regard to case, the recording is skipped. Other `kind` values and metadata
+without `kind` continue through normal processing.
+
 Macrowhisper waits for a non-empty string in the field appropriate to the
 recording metadata: `llmResult` when `languageModelName` is non-empty, and
 `result` otherwise. For the integrated S1 pair (`languageModelKey` `sl-1` and
 `modelKey` `sv-1`), a non-empty `llmResult` with an empty `result` receives a
 one-second settle grace period before the LLM result is accepted. Malformed or
 incomplete metadata remains watched for a later update.
+
+CLI commands that use the latest recording by default skip meetings, as do the
+folder lookup commands. An explicit `--meta` can select one for an action
+command.
 
 ### `bypassModes`
 
@@ -74,11 +83,13 @@ its pending watchers are cleaned up, but no action or trigger is selected.
 ### Recovery and cleanup
 
 The watcher treats an incomplete or disappearing recording as a recoverable
-session. A recording with no WAV file is given a 17-second grace period; a WAV
-file removed after a valid non-zero WAV was seen, or a recording whose
-`meta.json` is deleted after recheck, is recovered and skipped. Recovery
-cancels pending metadata/audio watchers, settle work, timers, one-time state,
-and clipboard execution groups while preserving the current clipboard.
+session. A recording with no non-empty `.wav` or `.ogg` file is given a
+17-second grace period; the file extensions are matched without regard to case.
+If all such audio files are removed after a valid non-empty one was seen, or a
+recording's `meta.json` is deleted after recheck, the session is recovered and
+skipped. Recovery cancels pending metadata/audio watchers, settle work, timers,
+one-time state, and clipboard execution groups while preserving the current
+clipboard.
 
 After a valid recording is marked processed, the final action controls its
 recording-folder handling: `moveTo` set to `null` or omitted inherits

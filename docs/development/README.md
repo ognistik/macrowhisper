@@ -174,6 +174,7 @@ The compile inputs and runner names are:
 | `action-chain-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/ActionChainValidationRegression.swift` |
 | `input-condition-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/InputConditionValidationRegression.swift` |
 | `recording-reference-selection` | `src/macrowhisper/Utils/RecordingReferenceResolver.swift` + `src/Tests/RecordingReferenceSelectionRegression.swift` (the runner supplies its manager/watcher stubs) |
+| `recording-audio-files` | `src/macrowhisper/Utils/RecordingAudioFiles.swift` + `src/Tests/RecordingAudioFilesRegression.swift` |
 | `recording-metadata-settle-policy` | `src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift` + `src/Tests/RecordingMetadataSettlePolicyRegression.swift` |
 | `sim-return-behavior` | `src/macrowhisper/Utils/SimReturnBehavior.swift` + `src/Tests/SimReturnBehaviorRegression.swift` |
 | `smart-insert-boundary` | `src/macrowhisper/Utils/SmartInsertBoundary.swift` + `src/Tests/SmartInsertBoundaryRegression.swift` |
@@ -188,6 +189,9 @@ The compile inputs and runner names are:
 | `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
 | `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |
 | `update-check-result` | `src/macrowhisper/Networking/UpdateCheckResult.swift` + `src/Tests/UpdateCheckResultRegression.swift` |
+
+The `recording-reference-selection` runner also covers implicit meeting
+exclusion, including case and surrounding-whitespace normalization.
 
 For example, the configuration and clipboard runners can be compiled as
 follows (repeat the same pattern for the other rows):

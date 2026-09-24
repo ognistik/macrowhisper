@@ -221,6 +221,9 @@ This section gives you the best overall picture of how Macrowhisper behaves.
 ### Step A: A recording starts
 
 When a new recording folder appears, Macrowhisper begins tracking that session.
+Any non-empty `.wav` or `.ogg` file in the folder counts as audio for recording
+start and cancellation monitoring and cancels the no-audio timeout; extensions
+are matched without regard to case.
 
 At startup, existing recording folders are marked as processed. Macrowhisper
 then waits for a single new folder; simultaneous arrivals are marked processed
@@ -247,10 +250,18 @@ The short version:
   period before processing
 
 Malformed or incomplete metadata stays under watch for a later update. A
-recording with no WAV file is given a 17-second grace period; removed audio or
-metadata can cause the session to be recovered and skipped.
+recording with no non-empty `.wav` or `.ogg` file is given a 17-second grace
+period; removal of all previously detected audio or deletion of metadata can
+cause the session to be recovered and skipped.
 
 This prevents actions from firing too early.
+
+There is an early skip for meetings: before waiting for a transcription result,
+Macrowhisper skips automatic processing when metadata `kind`, after trimming
+surrounding whitespace, matches `meeting` without regard to case. Other kinds
+and metadata without `kind` follow the normal flow. To select a meeting
+recording in a CLI command, pass it explicitly with `--meta`; see the
+[CLI reference](cli-reference.md#meta-use-a-different-metajson).
 
 ### Step C: It gathers runtime context
 

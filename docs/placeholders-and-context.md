@@ -31,7 +31,18 @@ For each action payload, Macrowhisper processes values in this order:
 
 For most users, `{{swResult}}` is the main one to remember.
 
-Folder indexes are zero-based. Index `0` points to the most recent active recording folder when one exists; subsequent indexes use valid completed folders in newest-first order. A completed folder is eligible when its `meta.json` has a non-empty `result`, or, when `languageModelName` is non-empty, a non-empty `llmResult`. Missing, invalid, or out-of-range indexes resolve to an empty value. CLI commands that resolve the latest valid result can skip newer completed folders still waiting for `llmResult` and use an older valid folder instead.
+Folder indexes are zero-based. Index `0` points to the most recent eligible active
+recording folder when one exists; subsequent indexes use eligible completed
+folders in newest-first order. A folder with readable metadata whose `kind`,
+after trimming surrounding whitespace, matches `meeting` without regard to case
+is excluded from folder lookups, including when it is the active recording.
+Other `kind` values, and a missing or unreadable `kind`, do not trigger this
+meeting filter. A completed folder is eligible when its `meta.json` has a
+non-empty `result`, or, when `languageModelName` is non-empty, a non-empty
+`llmResult`.
+Missing, invalid, or out-of-range indexes resolve to an empty value. CLI
+commands that resolve the latest valid result can skip newer completed folders
+still waiting for `llmResult` and use an older valid folder instead.
 
 ### Date placeholders
 

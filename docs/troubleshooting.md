@@ -71,8 +71,14 @@ macrowhisper --verbose
   off as described in [Getting started](getting-started.md#set-up-superwhisper)
 - wait for a valid result: `llmResult` is required when `languageModelName` is
   non-empty; otherwise `result` must be a non-empty string
-- a recording folder without a WAV file has a 17-second grace period, and
-  existing folders at daemon startup are intentionally ignored
+- a recording folder without a non-empty `.wav` or `.ogg` file has a 17-second
+  grace period, and existing folders at daemon startup are intentionally
+  ignored
+- automatic processing skips recordings whose metadata `kind`, after trimming
+  surrounding whitespace, matches `meeting` without regard to case; other
+  kinds and a missing `kind` are handled normally. An explicit `--meta` can
+  select a meeting recording for a CLI command; see the
+  [CLI reference](cli-reference.md#meta-use-a-different-metajson)
 
 ### Double paste
 
@@ -141,9 +147,10 @@ macrowhisper --verbose
 
 If a recording is canceled or disappears while it is being processed,
 Macrowhisper cancels its pending watchers, timers, one-time state, and action
-execution group while preserving the current clipboard. A missing WAV after
-the 17-second grace period, removal of a previously valid WAV, or deletion of
-`meta.json` after recheck can cause this recovery path.
+execution group while preserving the current clipboard. No non-empty `.wav`
+or `.ogg` file after the 17-second grace period, removal of all previously
+detected audio, or deletion of `meta.json` after recheck can cause this recovery
+path.
 
 After a completed action, the final action's `moveTo` controls recording-folder
 handling: `null` or omission inherits `defaults.moveTo`, explicit `""` keeps the

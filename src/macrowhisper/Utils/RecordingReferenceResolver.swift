@@ -38,6 +38,23 @@ private func getSortedRecordingDirectories(configManager: ConfigurationManager?)
         }
 }
 
+/// Superwhisper meetings are not dictations. Other and missing kinds keep the
+/// existing recording behavior for compatibility with older metadata.
+func isMeetingRecordingMetaJson(_ json: [String: Any]) -> Bool {
+    guard let kind = json["kind"] as? String else { return false }
+    return kind.trimmingCharacters(in: .whitespacesAndNewlines)
+        .caseInsensitiveCompare("meeting") == .orderedSame
+}
+
+private func isMeetingRecording(at directoryPath: String) -> Bool {
+    let metaJsonPath = (directoryPath as NSString).appendingPathComponent("meta.json")
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return false
+    }
+    return isMeetingRecordingMetaJson(json)
+}
+
 /// Validates whether a recording meta.json contains a usable transcription result.
 /// If `languageModelName` is present/non-empty, `llmResult` must be non-empty.
 /// Otherwise, `result` must be non-empty.
@@ -95,6 +112,10 @@ func selectLatestValidRecordingReference(
     var skippedNewerRecordings: [SkippedRecordingAwaitingLLMResult] = []
 
     for candidate in candidates {
+        if isMeetingRecordingMetaJson(candidate.metaJson) {
+            continue
+        }
+
         if isValidRecordingMetaJson(candidate.metaJson) {
             return LatestValidRecordingResolution(
                 reference: ValidRecordingReference(path: candidate.path, metaJson: candidate.metaJson),
@@ -147,6 +168,7 @@ func getValidRecordingReferences(configManager: ConfigurationManager?) -> [Valid
         guard FileManager.default.fileExists(atPath: metaJsonPath),
               let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              !isMeetingRecordingMetaJson(json),
               isValidRecordingMetaJson(json) else {
             continue
         }
@@ -176,6 +198,10 @@ func getLatestValidRecordingResolution(configManager: ConfigurationManager?) -> 
             continue
         }
 
+        if isMeetingRecordingMetaJson(json) {
+            continue
+        }
+
         candidates.append((path: directory.path, metaJson: json))
         if isValidRecordingMetaJson(json) {
             return selectLatestValidRecordingReference(from: candidates)
@@ -198,7 +224,8 @@ func resolveRecordingFolderPath(
     var currentIndex = 0
 
     if let activePath = recordingsWatcher?.getMostRecentActiveRecordingPath(),
-       FileManager.default.fileExists(atPath: activePath) {
+       FileManager.default.fileExists(atPath: activePath),
+       !isMeetingRecording(at: activePath) {
         seen.insert(activePath)
         if index == 0 {
             return activePath
@@ -214,6 +241,7 @@ func resolveRecordingFolderPath(
         guard FileManager.default.fileExists(atPath: metaJsonPath),
               let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              !isMeetingRecordingMetaJson(json),
               isValidRecordingMetaJson(json) else {
             continue
         }

@@ -229,6 +229,7 @@ func startAutoReturnTimeout() {
     if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
         // Start configurable timeout on main thread with thread-safe timer management
         DispatchQueue.main.async {
+            guard globalState.autoReturnEnabled else { return }
             let timer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { [weak globalState] _ in
                 // Use thread-safe atomic operation to check and cancel auto-return
                 _ = globalState?.cancelAutoReturnIfEnabled(reason: "timed out after \(timeoutValue) seconds - no valid recording session detected")
@@ -239,6 +240,13 @@ func startAutoReturnTimeout() {
             
             // Ensure timer is added to the main run loop
             RunLoop.main.add(timer, forMode: .common)
+            // A recording may have appeared between the watcher-queue check
+            // above and this main-queue callback. Assign before rechecking so
+            // its startup cancellation and this check cannot leave a live timer.
+            if recordingsWatcher?.hasActiveRecordingSessions() == true {
+                cancelAutoReturnTimeout()
+                return
+            }
             logDebug("Auto-return timeout timer started (\(timeoutValue) seconds)")
         }
     } else {
@@ -261,6 +269,7 @@ func startScheduledActionTimeout() {
     if let watcher = recordingsWatcher, !watcher.hasActiveRecordingSessions() {
         // Start configurable timeout on main thread with thread-safe timer management
         DispatchQueue.main.async {
+            guard globalState.scheduledActionName != nil else { return }
             let timer = Timer.scheduledTimer(withTimeInterval: timeoutValue, repeats: false) { [weak globalState] _ in
                 // Use thread-safe atomic operation to check and cancel scheduled action
                 _ = globalState?.cancelScheduledActionIfSet(reason: "timed out after \(timeoutValue) seconds - no valid recording session detected")
@@ -271,6 +280,10 @@ func startScheduledActionTimeout() {
             
             // Ensure timer is added to the main run loop
             RunLoop.main.add(timer, forMode: .common)
+            if recordingsWatcher?.hasActiveRecordingSessions() == true {
+                cancelScheduledActionTimeout()
+                return
+            }
             logDebug("Scheduled action timeout timer started (\(timeoutValue) seconds)")
         }
     } else {
