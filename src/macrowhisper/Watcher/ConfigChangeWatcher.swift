@@ -7,10 +7,14 @@ class ConfigChangeWatcher {
     private var directorySource: DispatchSourceFileSystemObject?
     private let queue = DispatchQueue(label: "com.macrowhisper.configwatcher")
     private let onChanged: () -> Void
+    private let queueKey = DispatchSpecificKey<Bool>()
+    private var running = false
+    private var generation: UInt64 = 0
 
     init(filePath: String, onChanged: @escaping () -> Void) {
         self.filePath = filePath
         self.onChanged = onChanged
+        queue.setSpecific(key: queueKey, value: true)
     }
     
     /// Ensures proper cleanup of resources to prevent memory leaks
@@ -19,7 +23,25 @@ class ConfigChangeWatcher {
         stop()
     }
 
+    private func serialized(_ operation: () -> Void) {
+        if DispatchQueue.getSpecific(key: queueKey) == true {
+            operation()
+        } else {
+            queue.sync(execute: operation)
+        }
+    }
+
     func start() {
+        serialized {
+            guard !running else { return }
+            running = true
+            generation &+= 1
+            startLocked()
+        }
+    }
+
+    private func startLocked() {
+        guard running else { return }
         // Ensure we don't start multiple watchers
         guard source == nil && directorySource == nil else { return }
 
@@ -49,7 +71,7 @@ class ConfigChangeWatcher {
         )
 
         source?.setEventHandler { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, self.running else { return }
             
             // Check what type of event occurred
             let events = self.source?.mask ?? []
@@ -64,10 +86,12 @@ class ConfigChangeWatcher {
                 self.source = nil
                 
                 // Wait a brief moment for the atomic write to complete
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    // Restart watching - this will handle both file recreation and directory watching
-                    self.start()
-                    // Trigger change notification since file was updated
+                let scheduledGeneration = self.generation
+                self.queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    guard let self, self.running,
+                          self.generation == scheduledGeneration else { return }
+                    // A stopped or replaced watcher must not restart later.
+                    self.startLocked()
                     self.onChanged()
                 }
             } else {
@@ -99,7 +123,7 @@ class ConfigChangeWatcher {
         directorySource = DispatchSource.makeFileSystemObjectSource(fileDescriptor: directoryDescriptor, eventMask: .write, queue: queue)
 
         directorySource?.setEventHandler { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, self.running else { return }
             // Check if our target file now exists
             if FileManager.default.fileExists(atPath: self.filePath) {
                 logDebug("ConfigChangeWatcher: Target file \(self.filePath) was created, switching to file watcher")
@@ -122,9 +146,13 @@ class ConfigChangeWatcher {
     }
 
     func stop() {
-        source?.cancel()
-        source = nil
-        directorySource?.cancel()
-        directorySource = nil
+        serialized {
+            running = false
+            generation &+= 1
+            source?.cancel()
+            source = nil
+            directorySource?.cancel()
+            directorySource = nil
+        }
     }
 } 

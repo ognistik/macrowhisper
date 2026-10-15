@@ -1,5 +1,303 @@
 import Foundation
 
+/// Decodes the v3 newline escape syntax at runtime. Inserts apply it to their
+/// whole action; other action groups apply it only to placeholder replacements.
+///
+/// A single (odd) backslash before `n` is Macrowhisper's newline token.  An
+/// even run preserves its paired backslashes, so `\\n` in the decoded action
+/// remains a literal backslash followed by `n`.  Keeping this parser outside
+/// of JSON decoding is important: JSON escaping and Macrowhisper escaping are
+/// two separate layers.
+func decodeMacrowhisperNewlineEscapes(_ value: String) -> String {
+    let characters = Array(value)
+    var result = String()
+    result.reserveCapacity(value.count)
+
+    var index = 0
+    while index < characters.count {
+        guard characters[index] == "\\" else {
+            result.append(characters[index])
+            index += 1
+            continue
+        }
+
+        var slashCount = 0
+        while index < characters.count, characters[index] == "\\" {
+            slashCount += 1
+            index += 1
+        }
+
+        guard index < characters.count, characters[index] == "n" else {
+            result.append(String(repeating: "\\", count: slashCount))
+            continue
+        }
+
+        result.append(String(repeating: "\\", count: slashCount / 2))
+        if slashCount.isMultiple(of: 2) {
+            result.append("n")
+        } else {
+            result.append("\n")
+        }
+        index += 1
+    }
+
+    return result
+}
+
+/// Converts raw control newlines in an Insert action to the canonical v3
+/// token. Existing backslash runs stay unchanged except when immediately
+/// before a raw LF, where they are doubled so decoding preserves them. This is
+/// a persistence-layer operation, not runtime escape decoding.
+func canonicalizeMacrowhisperInsertAction(_ value: String) -> String {
+    var result = String()
+    result.reserveCapacity(value.count)
+
+    // Unicode scalars distinguish CR from LF even when Swift would represent
+    // a CRLF pair as one extended grapheme Character.
+    let characters = Array(value.unicodeScalars)
+    var index = 0
+    while index < characters.count {
+        if characters[index] == "\\" {
+            let start = index
+            while index < characters.count, characters[index] == "\\" { index += 1 }
+            let slashCount = index - start
+            if index < characters.count, characters[index] == "\n" {
+                // Preserve preceding literal backslashes under the odd/even
+                // decoder while turning the raw LF into one newline token.
+                result += String(repeating: "\\", count: slashCount * 2 + 1) + "n"
+                index += 1
+            } else {
+                result += String(repeating: "\\", count: slashCount)
+            }
+        } else if characters[index] == "\n" {
+            result += "\\n"
+            index += 1
+        } else {
+            result.unicodeScalars.append(characters[index])
+            index += 1
+        }
+    }
+    return result
+}
+
+/// Converts a legacy v1/v2 action to the v3 representation while preserving
+/// the historical runtime behavior.  Legacy runtime code replaced every
+/// `\\n` token with a line feed, including the final token in an even run.
+/// Expanding each legacy run to the equivalent odd v3 run keeps that behavior
+/// for configurations that opt out of automatic on-disk migration.
+func canonicalizeLegacyMacrowhisperInsertAction(_ value: String) -> String {
+    let characters = Array(value.unicodeScalars)
+    var result = String()
+    result.reserveCapacity(value.count)
+
+    var index = 0
+    while index < characters.count {
+        if characters[index] == "\\" {
+            let start = index
+            while index < characters.count, characters[index] == "\\" { index += 1 }
+            let slashCount = index - start
+            if index < characters.count, characters[index] == "n" {
+                // Legacy Insert execution replaced every matching \n pair,
+                // including one at the end of an even-length slash run.
+                // Encode that observed result through the v3 odd/even parser.
+                result += String(repeating: "\\", count: max(1, slashCount * 2 - 1)) + "n"
+                index += 1
+            } else if index < characters.count, characters[index] == "\n" {
+                // A raw legacy LF already meant an LF. Keep any preceding
+                // literal backslashes while spelling it as a v3 token.
+                result += String(repeating: "\\", count: slashCount * 2 + 1) + "n"
+                index += 1
+            } else {
+                result += String(repeating: "\\", count: slashCount)
+            }
+        } else if characters[index] == "\n" {
+            result += "\\n"
+            index += 1
+        } else {
+            result.unicodeScalars.append(characters[index])
+            index += 1
+        }
+    }
+
+    return result
+}
+
+/// Canonicalizes only the replacement operands of complete placeholders.
+/// Other action groups may contain literal URL, script, or Shortcut text that
+/// must not acquire Insert's whole-action escape layer.
+///
+/// During v2 migration, Foundation consumed one backslash from a replacement
+/// run immediately before `n`. Convert that result to v3's explicit spelling.
+/// On ordinary v3 writes, only raw control newlines need canonicalization.
+func canonicalizePlaceholderReplacementNewlines(_ action: String, legacy: Bool) -> String {
+    let characters = Array(action)
+
+    func validPlaceholderHead(_ head: String) -> Bool {
+        var remaining = head
+        if remaining.hasPrefix("json:") {
+            remaining.removeFirst("json:".count)
+        } else if remaining.hasPrefix("raw:") {
+            remaining.removeFirst("raw:".count)
+        }
+        // Chained prefixes and case-variant XML namespaces are reserved or
+        // interpreted differently by the runtime parser. Leave them exact.
+        if remaining.hasPrefix("json:") || remaining.hasPrefix("raw:") ||
+            (remaining.lowercased().hasPrefix("xml:") && !remaining.hasPrefix("xml:")) {
+            return false
+        }
+
+        if remaining.hasPrefix("xml:") {
+            remaining.removeFirst("xml:".count)
+            let tagEnd = remaining.firstIndex(where: { character in
+                guard let ascii = character.asciiValue else { return true }
+                return !((65...90).contains(ascii) || (97...122).contains(ascii) || (48...57).contains(ascii) || ascii == 95)
+            }) ?? remaining.endIndex
+            guard tagEnd > remaining.startIndex else { return false }
+            remaining = String(remaining[tagEnd...])
+            if remaining.hasPrefix("::") {
+                remaining.removeFirst(2)
+                return !remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return remaining.isEmpty
+        }
+
+        let keyEnd = remaining.firstIndex(where: { character in
+            !(character.isLetter || character.isNumber || character == "_" || character == ".")
+        }) ?? remaining.endIndex
+        guard keyEnd > remaining.startIndex else { return false }
+        remaining = String(remaining[keyEnd...])
+        if remaining.hasPrefix(":") && !remaining.hasPrefix("::") {
+            remaining.removeFirst()
+            if let transformStart = remaining.range(of: "::") {
+                remaining = String(remaining[transformStart.lowerBound...])
+            } else {
+                return true
+            }
+        }
+        return remaining.isEmpty || remaining.hasPrefix("::")
+    }
+
+    func escaped(at index: Int) -> Bool {
+        var slashCount = 0
+        var cursor = index - 1
+        while cursor >= 0, characters[cursor] == "\\" {
+            slashCount += 1
+            cursor -= 1
+        }
+        return !slashCount.isMultiple(of: 2)
+    }
+
+    func rewriteReplacement(_ value: String) -> String {
+        // Scalar iteration keeps the LF distinct in CRLF even though Swift's
+        // Character iterator groups that pair as one grapheme.
+        let input = Array(value.unicodeScalars)
+        var output = String()
+        var index = 0
+        while index < input.count {
+            if input[index] == "\\" {
+                let start = index
+                while index < input.count, input[index] == "\\" { index += 1 }
+                let slashCount = index - start
+                if index < input.count, input[index] == "\n" {
+                    // A run of literal slashes before a real newline must
+                    // survive the v3 decoder as the same number of slashes.
+                    output += String(repeating: "\\", count: slashCount * 2 + 1) + "n"
+                    index += 1
+                } else if legacy, index < input.count, input[index] == "n" {
+                    // Foundation emitted one literal slash for each pair in
+                    // the old run. Encode exactly that many under v3's
+                    // odd/even decoder, without invoking a newline token.
+                    output += String(repeating: "\\", count: (slashCount / 2) * 2) + "n"
+                    index += 1
+                } else {
+                    output += String(repeating: "\\", count: slashCount)
+                }
+                continue
+            }
+            if input[index] == "\n" {
+                output += "\\n"
+            } else {
+                output.unicodeScalars.append(input[index])
+            }
+            index += 1
+        }
+        return output
+    }
+
+    func rewriteContent(_ content: String) -> String {
+        let input = Array(content)
+        var parts: [String] = []
+        var start = 0
+        var index = 0
+        while index + 1 < input.count {
+            if input[index] == "|", input[index + 1] == "|" {
+                var slashCount = 0
+                var cursor = index - 1
+                while cursor >= 0, input[cursor] == "\\" { slashCount += 1; cursor -= 1 }
+                if slashCount.isMultiple(of: 2) {
+                    parts.append(String(input[start..<index]))
+                    start = index + 2
+                    index += 2
+                    continue
+                }
+            }
+            index += 1
+        }
+        guard !parts.isEmpty else { return content }
+        parts.append(String(input[start..<input.count]))
+        // Only rewrite a complete, supported replacement expression. A
+        // malformed placeholder is literal action text at runtime, so
+        // changing its bytes would change URL or script behavior.
+        guard parts.count >= 3, validPlaceholderHead(parts[0]) else {
+            return content
+        }
+        let xmlHead = parts[0].hasPrefix("xml:") ||
+            parts[0].hasPrefix("json:xml:") || parts[0].hasPrefix("raw:xml:")
+        // XML rejects an unmatched final stage; dynamic placeholders ignore
+        // it but still run their earlier complete replacement pairs.
+        if xmlHead && parts.count.isMultiple(of: 2) { return content }
+        // The first part contains the key/format/transform; complete stages
+        // then alternate pattern and replacement.
+        for partIndex in parts.indices where partIndex > 0 && partIndex.isMultiple(of: 2) {
+            parts[partIndex] = rewriteReplacement(parts[partIndex])
+        }
+        return parts.joined(separator: "||")
+    }
+
+    var output = String()
+    var cursor = 0
+    while cursor < characters.count {
+        guard cursor + 1 < characters.count,
+              characters[cursor] == "{", characters[cursor + 1] == "{",
+              !escaped(at: cursor) else {
+            output.append(characters[cursor])
+            cursor += 1
+            continue
+        }
+        var close = cursor + 2
+        while close + 1 < characters.count {
+            if characters[close] == "}", characters[close + 1] == "}", !escaped(at: close) {
+                // Keep `${1}` and similar tokens inside the placeholder.
+                if close + 2 < characters.count, characters[close + 2] == "}" {
+                    close += 1
+                    continue
+                }
+                break
+            }
+            close += 1
+        }
+        guard close + 1 < characters.count,
+              characters[close] == "}", characters[close + 1] == "}" else {
+            output.append(characters[cursor])
+            cursor += 1
+            continue
+        }
+        output += "{{" + rewriteContent(String(characters[(cursor + 2)..<close])) + "}}"
+        cursor = close + 2
+    }
+    return output
+}
+
 protocol ClipboardStackingConfigurable {
     var clipboardStacking: Bool? { get }
 }
@@ -32,8 +330,9 @@ struct AppConfiguration: Codable {
     // Configuration semantics version
     // v1: legacy empty-string fallback behavior for some action-level string fields
     // v2: explicit empty-string semantics (null=inherits, ""=explicit empty)
+    // v3: Insert and placeholder replacement newline escapes are distinct from JSON escapes.
     var configVersion: Int?
-    static let currentConfigVersion = 2
+    static let currentConfigVersion = 3
 
     /// Whether continuous clipboard monitoring needs to retain binary payloads
     /// for at least one potentially selected root action.
@@ -457,7 +756,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrase (plain prefix; leading `*` suffix; `==...==` raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?
@@ -579,7 +878,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrase (plain prefix; leading `*` suffix; `==...==` raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?
@@ -691,7 +990,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrase (plain prefix; leading `*` suffix; `==...==` raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?
@@ -801,7 +1100,7 @@ struct AppConfiguration: Codable {
         var inputCondition: String?
         var nextAction: String?
         // --- Trigger fields for future extensibility ---
-        /// Voice trigger regex (matches start of phrase)
+        /// Voice trigger phrase (plain prefix; leading `*` suffix; `==...==` raw regex)
         var triggerVoice: String?
         /// App trigger regex (matches app name or bundle ID)
         var triggerApps: String?

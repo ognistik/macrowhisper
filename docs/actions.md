@@ -23,7 +23,11 @@ Important: action names must be unique across all five groups.
 | `.autoPaste` | Insert actions only | Use Superwhisper-like auto-paste behavior |
 | `.run` | Shortcut actions only | Run the Shortcut with no input |
 
-`.none` clears this action's payload, input condition, ESC simulation, and clipboard restoration. Its delay, Return, chain, and recording-folder settings can still apply.
+`.none` clears this action's payload, input condition, ESC simulation, and
+clipboard restoration. Triggers can still select the action, and its delay,
+chain, and recording-folder settings can still apply. Insert actions' Return
+behavior can also apply. For URL actions, `openWith` and `openBackground` have
+no effect without a URL payload.
 
 ### Fields used by actions
 
@@ -55,7 +59,7 @@ How to interpret those fields:
 - for `clipboardAttachments`, `null` inherits `defaults.clipboardAttachments`, while `true` and `false` explicitly override it for the full chain
 - for `icon` and `nextAction`, `null` means inherit, while `""` means intentionally empty
 - for `moveTo`, `null` or omission inherits `defaults.moveTo`, `""` keeps the recording folder in place even when that default is nonempty, and a nonempty path or `.delete` overrides the default
-- `trigger*` fields help Macrowhisper choose the action; a normal positive `triggerVoice` match also removes the spoken prefix from the result before the payload is expanded
+- `trigger*` fields help Macrowhisper choose the action; a normal positive `triggerVoice` match also removes the spoken prefix, or a suffix marked with leading `*`, before the payload is expanded
 
 ### Common field examples
 
@@ -67,7 +71,7 @@ How to interpret those fields:
 "icon": ""
 ```
 
-An empty `icon` explicitly disables the icon for this action. `.none` is an action value, not a current version 2 icon value.
+An empty `icon` explicitly disables the icon for this action. `.none` is an action value, not a current configuration icon value.
 
 ```json
 "moveTo": ".delete"
@@ -88,6 +92,10 @@ An empty `icon` explicitly disables the icon for this action. `.none` is an acti
 ### Insert actions
 
 Insert actions are for pasting or typing text into the current app.
+
+In configuration version 3, Macrowhisper newline syntax is separate from JSON
+escaping. See [action newline escaping](configuration.md#action-newline-escaping-in-version-3)
+for line breaks, literal backslashes, and migration from older versions.
 
 Extra insert-only fields:
 
@@ -118,7 +126,7 @@ Examples:
 
 ```json
 "emailDraft": {
-  "action": "Hi,\n\n{{swResult}}\n\nThanks,",
+  "action": "Hi,\\n\\n{{swResult}}\\n\\nThanks,",
   "simReturn": false,
   "actionDelay": 0,
   "triggerModes": "email"
@@ -149,7 +157,11 @@ In the last example, `API` stays uppercase even when title casing runs.
 
 ### URL actions
 
-URL actions open websites or apps.
+URL actions expand an address template, then ask macOS to open the resulting
+URL. The scheme (such as `https:`, `mailto:`, `tel:`, or an app-specific scheme)
+identifies the kind of destination; it is separate from the handler app. An
+empty or `null` `openWith` lets macOS use the default handler, while a
+configured `openWith` asks `open -a` to use the named app, path, or bundle ID.
 
 Extra URL-only fields:
 
@@ -158,11 +170,23 @@ Extra URL-only fields:
 
 | Field | Type | Typical values | Notes |
 | --- | --- | --- | --- |
-| `action` | string | `"https://...{{swResult}}"`, `".none"` | The URL or template to open. |
+| `action` | string | `"https://...{{swResult}}"`, `".none"` | The complete address or template to open. |
 | `openWith` | string/null | `"Safari"`, `"com.google.Chrome"` | Passed to `open -a`. |
 | `openBackground` | bool/null | `true`, `false`, `null` | `true` opens in the background. |
 
 An empty or `null` `openWith` uses the system default application. `false` or `null` `openBackground` keeps the normal foreground behavior.
+
+Placeholder expansion preserves the static URL template as written. Macrowhisper
+URL-encodes each resolved placeholder value after transforms and regex
+replacements; it does not URL-encode the surrounding template text. For
+example, a static `already%20encoded` stays that way while a dynamic value
+`a b/c` expands to `a%20b%2Fc`. `raw:` bypasses that placeholder encoding and
+can produce an invalid URL if the value is not safe for its position.
+
+Enter the complete address, not just a path or query. Non-web schemes such as
+`mailto:`, `tel:`, and app-specific schemes can also be used. Placeholder
+newlines and URL replacement behavior are described in [Placeholders and
+context](placeholders-and-context.md#escapes-and-replacement-line-breaks).
 
 Examples:
 

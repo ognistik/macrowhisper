@@ -43,6 +43,98 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let result5 = processDynamicPlaceholders(action: action5, metaJson: meta5, actionType: .insert).text
         assertEqual(result5, "ABC", "unknown capture transform fails open")
 
+        let literalPipePattern = #"{{swResult||\|\|||joined}}"#
+        let literalPipePatternMeta: [String: Any] = ["llmResult": "left||right"]
+        let literalPipePatternResult = processDynamicPlaceholders(
+            action: literalPipePattern,
+            metaJson: literalPipePatternMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            literalPipePatternResult,
+            "leftjoinedright",
+            "escaped double pipes remain part of a regex pattern"
+        )
+
+        let literalPipeReplacement = #"{{swResult||middle||\|\|}}"#
+        let literalPipeReplacementMeta: [String: Any] = ["llmResult": "leftmiddleright"]
+        let literalPipeReplacementResult = processDynamicPlaceholders(
+            action: literalPipeReplacement,
+            metaJson: literalPipeReplacementMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            literalPipeReplacementResult,
+            "left||right",
+            "escaped double pipes remain literal replacement text"
+        )
+
+        let escapedReplacementNewline = #"{{swResult||middle||\n}}"#
+        let replacementNewlineMeta: [String: Any] = ["llmResult": "leftmiddleright"]
+        let escapedReplacementNewlineResult = processDynamicPlaceholders(
+            action: escapedReplacementNewline,
+            metaJson: replacementNewlineMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            escapedReplacementNewlineResult,
+            "left\nright",
+            "odd backslash-n in replacement text becomes a line break"
+        )
+
+        let literalReplacementBackslashN = #"{{swResult||middle||\\n}}"#
+        let literalReplacementBackslashNResult = processDynamicPlaceholders(
+            action: literalReplacementBackslashN,
+            metaJson: replacementNewlineMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            literalReplacementBackslashNResult,
+            #"left\nright"#,
+            "even backslash-n in replacement text remains a literal backslash+n"
+        )
+
+        let actualReplacementNewline = "{{swResult||middle||\n}}"
+        let actualReplacementNewlineResult = processDynamicPlaceholders(
+            action: actualReplacementNewline,
+            metaJson: replacementNewlineMeta,
+            actionType: .insert
+        ).text
+        assertEqual(
+            actualReplacementNewlineResult,
+            "left\nright",
+            "actual replacement newlines survive placeholder parsing"
+        )
+
+        let insertNewlineJSONCases = [
+            ("JSON newline escape", #"{"action":"{{swResult||middle||\n}}"}"#, "left\nright"),
+            ("JSON escaped backslash-n", #"{"action":"{{swResult||middle||\\n}}"}"#, "left\nright"),
+            ("JSON double escaped backslash-n", #"{"action":"{{swResult||middle||\\\\n}}"}"#, #"left\nright"#),
+        ]
+        for (label, json, expected) in insertNewlineJSONCases {
+            let object = try! JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: String]
+            let result = processAllPlaceholders(
+                action: object["action"]!,
+                metaJson: replacementNewlineMeta,
+                actionType: .insert
+            ).text
+            assertEqual(result, expected, "\(label) follows v3 Insert escape semantics")
+        }
+
+        let topLevelNewline = processAllPlaceholders(
+            action: #"before\nafter"#,
+            metaJson: [:],
+            actionType: .insert
+        ).text
+        assertEqual(topLevelNewline, "before\nafter", "v3 Insert newline token decodes outside placeholders")
+
+        let topLevelLiteralBackslashN = processAllPlaceholders(
+            action: #"before\\nafter"#,
+            metaJson: [:],
+            actionType: .insert
+        ).text
+        assertEqual(topLevelLiteralBackslashN, #"before\nafter"#, "v3 Insert literal backslash+n survives outside placeholders")
+
         let action6 = "{{swResult::titleCase:fr}}"
         let meta6: [String: Any] = ["llmResult": "le seigneur des anneaux et l'amour perdu"]
         let result6 = processDynamicPlaceholders(action: action6, metaJson: meta6, actionType: .insert).text
@@ -291,6 +383,233 @@ private func runPlaceholderRegexPipelineRegressionTests() {
         let meta38: [String: Any] = ["llmResult": "api and sdk"]
         let result38 = processDynamicPlaceholders(action: action38, metaJson: meta38, actionType: .insert).text
         assertEqual(result38, "API and SDK", "capture transform names are case-insensitive")
+
+        let action39 = "{{promptContext.systemContext.language::uppercase||ENGLISH||Spanish}}"
+        let meta39: [String: Any] = [
+            "promptContext": [
+                "systemContext": [
+                    "language": "English"
+                ]
+            ]
+        ]
+        let result39 = processDynamicPlaceholders(action: action39, metaJson: meta39, actionType: .insert).text
+        assertEqual(result39, "Spanish", "custom metadata paths use transforms and regex replacements")
+
+        let xmlMeta: [String: Any] = [
+            "llmResult": "before<tag>foo API api</tag>after",
+            // A custom metadata key named `xml` must not capture XML syntax.
+            "xml": "metadata-fallback"
+        ]
+        let xmlPipeline = processAllPlaceholders(
+            action: "{{xml:tag::uppercase||FOO||bar||bar||done}}",
+            metaJson: xmlMeta,
+            actionType: .insert
+        ).text
+        assertEqual(xmlPipeline, "done API API", "XML transform runs before ordered regex replacements")
+
+        let xmlCaptureTransform = processAllPlaceholders(
+            action: "{{xml:tag||\\b(api|sdk)\\b||${1::uppercase}}}",
+            metaJson: ["llmResult": "<tag>api and sdk</tag>"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlCaptureTransform, "API and SDK", "XML regex replacements support capture transforms")
+
+        let xmlPrefix = processAllPlaceholders(
+            action: "{{json:xml:tag}}|{{raw:xml:tag}}",
+            metaJson: ["llmResult": "<tag>say \"hi\"</tag>"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlPrefix, "say \\\"hi\\\"|say \"hi\"", "XML json and raw prefixes select their escaping policy")
+
+        let xmlShell = processAllPlaceholders(
+            action: "{{xml:tag}}|{{raw:xml:tag}}",
+            metaJson: ["llmResult": "<tag>say \"hi\"</tag>"],
+            actionType: .shell
+        ).text
+        assertEqual(xmlShell, "say \\\"hi\\\"|say \"hi\"", "XML default escaping follows the action type while raw bypasses it")
+
+        let xmlEscapingAfterReplacement = processAllPlaceholders(
+            action: "{{xml:tag||VALUE||\"$HOME\"}}",
+            metaJson: ["llmResult": "<tag>VALUE</tag>"],
+            actionType: .shell
+        ).text
+        assertEqual(
+            xmlEscapingAfterReplacement,
+            "\\\"\\$HOME\\\"",
+            "XML replacement output is escaped exactly once after the modifier pipeline"
+        )
+
+        let xmlURL = processAllPlaceholders(
+            action: "{{xml:tag}}|{{json:xml:tag}}|{{raw:xml:tag}}",
+            metaJson: ["llmResult": "<tag>a b/c</tag>"],
+            actionType: .url
+        ).text
+        assertEqual(xmlURL, "a%20b%2Fc|a b/c|a b/c", "XML URL escaping happens once after modifiers and prefixes override it")
+
+        let staticURL = processAllPlaceholders(
+            action: "myapp://search?q=already%20encoded&term={{xml:tag}}",
+            metaJson: ["llmResult": "<tag>a b/c</tag>"],
+            actionType: .url
+        ).text
+        assertEqual(
+            staticURL,
+            "myapp://search?q=already%20encoded&term=a%20b%2Fc",
+            "URL expansion preserves configured percent escapes and encodes only resolved placeholder values"
+        )
+
+        let urlRegexNewline = processAllPlaceholders(
+            action: "myapp://search?q=already%20encoded&term={{swResult||middle||\n}}",
+            metaJson: ["llmResult": "leftmiddleright"],
+            actionType: .url
+        ).text
+        assertEqual(
+            urlRegexNewline,
+            "myapp://search?q=already%20encoded&term=left%0Aright",
+            "URL regex replacement encodes a real LF after replacement and preserves static percent escapes"
+        )
+
+        let urlRegexNewlineJSON = #"{"action":"myapp://search?q=already%20encoded&term={{swResult||middle||\n}}"}"#
+        let urlRegexNewlineObject = try! JSONSerialization.jsonObject(
+            with: Data(urlRegexNewlineJSON.utf8)
+        ) as! [String: String]
+        let urlRegexNewlineFromJSON = processAllPlaceholders(
+            action: urlRegexNewlineObject["action"]!,
+            metaJson: ["llmResult": "leftmiddleright"],
+            actionType: .url
+        ).text
+        assertEqual(
+            urlRegexNewlineFromJSON,
+            "myapp://search?q=already%20encoded&term=left%0Aright",
+            "JSON-decoded single escaped newline in URL regex replacement is percent-encoded"
+        )
+
+        let urlNewlineTokenJSON = #"{"action":"myapp://search?q=already%20encoded&term={{swResult||middle||\\n}}"}"#
+        let urlNewlineTokenObject = try! JSONSerialization.jsonObject(
+            with: Data(urlNewlineTokenJSON.utf8)
+        ) as! [String: String]
+        let urlNewlineToken = processAllPlaceholders(
+            action: urlNewlineTokenObject["action"]!,
+            metaJson: ["llmResult": "leftmiddleright"],
+            actionType: .url
+        ).text
+        assertEqual(
+            urlNewlineToken,
+            "myapp://search?q=already%20encoded&term=left%0Aright",
+            "v3 URL replacement newline token follows the same JSON spelling as Inserts"
+        )
+
+        let urlLiteralBackslashNJSON = #"{"action":"myapp://search?term={{swResult||middle||\\\\n}}"}"#
+        let urlLiteralBackslashNObject = try! JSONSerialization.jsonObject(
+            with: Data(urlLiteralBackslashNJSON.utf8)
+        ) as! [String: String]
+        let urlLiteralBackslashN = processAllPlaceholders(
+            action: urlLiteralBackslashNObject["action"]!,
+            metaJson: ["llmResult": "leftmiddleright"],
+            actionType: .url
+        ).text
+        assertEqual(urlLiteralBackslashN, "myapp://search?term=left%5Cnright", "doubled v3 token preserves literal backslash+n")
+
+        let xmlURLNewline = processAllPlaceholders(
+            action: #"myapp://search?term={{xml:tag||middle||\n}}"#,
+            metaJson: ["llmResult": "<tag>leftmiddleright</tag>"],
+            actionType: .url
+        ).text
+        assertEqual(xmlURLNewline, "myapp://search?term=left%0Aright", "XML URL replacements use the same v3 newline token")
+
+        let malformedShellPlaceholder = "{{bad-key||x||y\n}}"
+        assertEqual(
+            processAllPlaceholders(action: malformedShellPlaceholder, metaJson: ["llmResult": "x"], actionType: .shell).text,
+            malformedShellPlaceholder,
+            "invalid Shell placeholder text and its line break remain literal"
+        )
+
+        for actionType: ActionType in [.shortcut, .shell, .appleScript] {
+            let expanded = processAllPlaceholders(
+                action: #"static\n|{{raw:swResult||middle||\n}}|{{raw:swResult||middle||\\n}}"#,
+                metaJson: ["llmResult": "leftmiddleright"],
+                actionType: actionType
+            ).text
+            assertEqual(
+                expanded,
+                "static\\n|left\nright|left\\nright",
+                "\(actionType) decodes replacement tokens without changing static action text"
+            )
+        }
+
+        let xmlMultiple = processAllPlaceholders(
+            action: "{{xml:tag::uppercase}}/{{xml:tag||second||last}}",
+            metaJson: ["llmResult": "<tag>first</tag>\n<tag>second</tag>"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMultiple, "SECOND/last", "XML multiple occurrences retain the existing last-occurrence value")
+
+        let xmlMissingAndEmpty = processAllPlaceholders(
+            action: "{{xml:missing}}|{{xml:empty}}",
+            metaJson: ["llmResult": "<empty></empty>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMissingAndEmpty, "|", "missing and empty XML tags resolve to empty values")
+
+        let xmlLLMCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{swResult}}",
+            metaJson: ["llmResult": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlLLMCleanup, "value|beforeafter", "llmResult cleanup is reflected in swResult")
+
+        let xmlDirectLLMCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{llmResult}}",
+            metaJson: ["llmResult": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlDirectLLMCleanup, "value|beforeafter", "llmResult cleanup is reflected in direct llmResult placeholders")
+
+        let xmlResultCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{swResult}}",
+            metaJson: ["result": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlResultCleanup, "value|beforeafter", "result cleanup is reflected in swResult")
+
+        let xmlDirectResultCleanup = processAllPlaceholders(
+            action: "{{xml:tag}}|{{result}}",
+            metaJson: ["result": "before<tag>value</tag>after"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlDirectResultCleanup, "value|beforeafter", "result cleanup is reflected in direct result placeholders")
+
+        let xmlLiteralPlaceholder = processAllPlaceholders(
+            action: "{{xml:tag}}",
+            metaJson: ["llmResult": "<tag>{{swResult}}</tag>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlLiteralPlaceholder, "{{swResult}}", "XML content containing placeholder-looking text is not expanded again")
+
+        let xmlUnsupportedSuffix = processAllPlaceholders(
+            action: "{{xml:tag:unsupported}}",
+            metaJson: ["llmResult": "<tag>value</tag>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlUnsupportedSuffix, "", "unsupported XML suffixes stay in the reserved XML namespace")
+
+        let xmlMalformedTail = processAllPlaceholders(
+            action: "{{xml:tag::}}|{{xml:tag||pattern}}",
+            metaJson: ["llmResult": "<tag>value</tag>", "xml": "metadata-fallback"],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMalformedTail, "|", "empty transforms and dangling XML regex parts are rejected")
+
+        let xmlMalformedNamespace = processAllPlaceholders(
+            action: "{{XML:tag}}|{{JSON:xml:tag}}|{{json:raw:xml:tag}}",
+            metaJson: [
+                "llmResult": "<tag>value</tag>",
+                "XML": "metadata-XML",
+                "JSON": "metadata-JSON",
+                "raw": "metadata-raw"
+            ],
+            actionType: .insert
+        ).text
+        assertEqual(xmlMalformedNamespace, "||", "case-variant and chained XML namespaces are rejected consistently")
 
         stubSelectedText = ""
         stubAppContext = ""

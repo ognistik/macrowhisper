@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/oristarium/macrowhisper-cli/blob/main/macrowhisper-schema.json",
   "title": "Macrowhisper Configuration",
-  "description": "Configuration schema for Macrowhisper. In configVersion 2, action-level null means inherit defaults and empty string means explicit empty value (for supported string fields), and ESC simulation is controlled by simEsc (true simulates ESC). At defaults level, nullable scalar fields can use null to fall back to built-in Macrowhisper defaults.",
+  "description": "Configuration schema for Macrowhisper. In configVersion 3, action-level null means inherit defaults and empty string means explicit empty value (for supported string fields), ESC simulation is controlled by simEsc (true simulates ESC), and action newline escapes are represented independently from JSON escaping. At defaults level, nullable scalar fields can use null to fall back to built-in Macrowhisper defaults.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -11,9 +11,9 @@
     },
     "configVersion": {
       "type": "integer",
-      "description": "Configuration semantics version. Version 1 is legacy behavior. Version 2 uses explicit empty semantics (null inherits defaults, empty string is explicit) and simEsc-based ESC control.",
-      "enum": [1, 2],
-      "default": 2
+      "description": "Configuration semantics version. Version 1 is legacy behavior. Version 2 introduced explicit empty semantics and simEsc-based ESC control. Version 3 makes Insert text and placeholder replacement newline escaping unambiguous: Macrowhisper \\n means a line break and \\\\n means a literal backslash followed by n (written as \\\\n and \\\\\\\\n respectively in JSON source).",
+      "enum": [1, 2, 3],
+      "default": 3
     },
     "defaults": {
       "type": "object",
@@ -173,7 +173,7 @@
         },
         "autoUpdateConfig": {
           "type": ["boolean", "null"],
-          "description": "Automatically update the configuration file on service startup to apply new schema changes and formatting. When false, startup will not write to the config file. This does not affect manual --update-config. null or omitted = use built-in default (true).",
+          "description": "Automatically migrate an older configuration version on service startup. A current-version file is left unchanged. When false, use --update-config to migrate manually. null or omitted = use built-in default (true).",
           "default": true
         },
         "redactedLogs": {
@@ -303,10 +303,11 @@
         },
         "triggerVoice": {
           "type": ["string", "null"],
-          "description": "Voice trigger patterns. Use '!' prefix for exceptions and '|' for multiple triggers. Normal patterns are treated as prefix matches and will be stripped from the start of result/swResult when matched. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Matching is case-insensitive by default; use regex flags (for example '(?-i)') in raw regex to force case-sensitive matching. Empty string, null, or omit means no trigger.",
+          "description": "Voice trigger patterns. Plain phrases match and strip at the beginning; prefix a phrase with '*' to match and strip it at the end. Use '!' first for exceptions (for example '!*cancel'), and '|' for multiple triggers. Literal phrases are case-insensitive and ignore trailing punctuation written in the configuration. Suffix stripping preserves existing sentence-ending punctuation or transfers the matched transcript's terminal punctuation after removing connector punctuation. Wrap in '==' (e.g., '==^google this\\.?$==') to enable full regex matching without stripping. Use regex flags (for example '(?-i)') in raw regex to force case-sensitive matching. Empty string, null, or omit means no trigger.",
           "examples": [
             "!all but this",
             "email|mail",
+            "*send it|!*cancel",
             "==^search\\s+(.+)$==",
             "==(?-i)^Exact Case$==",
             ""
@@ -355,12 +356,12 @@
             "action": {
               "type": "string",
               "title": "Insert Action Content",
-              "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). Use '.autoPaste' for smart paste behavior. Empty string skips insertion while other lifecycle settings can still apply. '.none' also clears inputCondition and disables ESC simulation and clipboard restoration; it does not disable other settings such as simReturn or nextAction.",
+              "description": "Text to insert with placeholder support (including context placeholders like {{selectedText}}, {{clipboardContext}}, {{appContext}}, {{appVocabulary}}). In configVersion 3 Macrowhisper Insert syntax, \\n means a line break and \\\\n means a literal backslash followed by n; JSON source escapes those backslashes once more. Use '.autoPaste' for smart paste behavior. Empty string skips insertion while other lifecycle settings can still apply. '.none' also clears inputCondition and disables ESC simulation and clipboard restoration; it does not disable other settings such as simReturn or nextAction.",
               "examples": [
                 "{{swResult}}",
                 "{{result}}",
                 "{{appVocabulary}}",
-                "{{date:short}}\nDictation: {{result}}",
+                "{{date:short}}\\nDictation: {{result}}",
                 ".autoPaste",
                 ".none",
                 ""
@@ -416,7 +417,7 @@
             "action": {
               "type": "string",
               "title": "URL to Open",
-              "description": "URL with placeholder support (including {{appVocabulary}} and other dynamic placeholders). Empty string skips URL payload. '.none' applies no-op template behavior (different from empty string).",
+              "description": "URL with placeholder support (including {{appVocabulary}} and other dynamic placeholders). In version 3, placeholder regex replacements use Macrowhisper \\n for a line break (JSON source \\\\n); static URL text remains literal. Empty string skips URL payload. '.none' applies no-op template behavior (different from empty string).",
               "examples": [
                 "https://google.com/search?q={{result}}",
                 "https://www.google.com/search?q={{appVocabulary}}",

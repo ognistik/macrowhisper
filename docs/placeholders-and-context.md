@@ -12,9 +12,10 @@ This is one of the most powerful parts of Macrowhisper.
 
 For each action payload, Macrowhisper processes values in this order:
 
-1. Insert actions only: turn literal `\n` into real line breaks.
-2. Extract XML placeholders if needed.
-3. Expand placeholders such as `{{key}}`, `{{json:key}}`, `{{raw:key}}`, dates, transforms, and regex replacements.
+1. Decode Insert action text; for other action types, decode newline escapes
+   only inside complete placeholder replacement values.
+2. Extract requested XML tag content and remove those blocks from the selected Superwhisper result.
+3. Resolve each placeholder value, then apply its transform and ordered regex replacements.
 4. Apply escaping rules based on action type.
 
 ### Basic placeholders
@@ -71,12 +72,20 @@ Supported formats:
 - `{{json:xml:tagName}}`
 - `{{raw:xml:tagName}}`
 
+XML values support the same transform and regex suffixes as other placeholders:
+
+- `{{xml:tagName::trim}}`
+- `{{xml:tagName::uppercase||\s+|| }}`
+- `{{json:xml:tagName::ensureSentence}}`
+
 Behavior:
 
 - when `llmResult` is non-empty, Macrowhisper looks for `<tagName>...</tagName>` there; otherwise it looks in a non-empty `result`
 - if the tag exists, Macrowhisper inserts the content
 - if the tag is empty or missing, the placeholder becomes empty
-- extracted XML blocks are removed from `llmResult` before `{{swResult}}` is finalized when applicable
+- extracted XML blocks are removed from whichever source was used before `{{swResult}}`, `{{llmResult}}`, or `{{result}}` is finalized
+- transforms and regex replacements operate on extracted tag content before final action-specific, `json:`, or `raw:` escaping
+- placeholder-looking text inside an extracted tag remains literal content; Macrowhisper does not expand it as another placeholder
 
 ### Metadata keys and paths
 
@@ -100,6 +109,9 @@ About `{{segments}}`:
 - time-like values such as `duration`, `languageModelProcessingTime`, and `processingTime` are shown in a human-readable format like `350ms`, `1.2s`, or `2m 5s`
 
 If a placeholder key does not exist, it becomes an empty string.
+
+Valid metadata keys and dot paths use the same `::transform` and
+`||regex||replacement` pipeline as built-in placeholders.
 
 ### Placeholder transforms with `::`
 
@@ -284,19 +296,19 @@ Remove a trailing period:
 Replace line breaks with HTML `<br>`:
 
 ```text
-{{swResult||\\n||<br>}}
+{{swResult||\n||<br>}}
 ```
 
 Uppercase only an acronym capture:
 
 ```text
-{{swResult||\\b(api|sdk)\\b||${1::uppercase}}}
+{{swResult||\b(api|sdk)\b||${1::uppercase}}}
 ```
 
 Mix raw and transformed captures:
 
 ```text
-{{swResult||(foo)\\s+(bar)||${1} ${2::titleCase}}}
+{{swResult||(foo)\s+(bar)||${1} ${2::titleCase}}}
 ```
 
 ### Behavior details
@@ -306,6 +318,44 @@ Mix raw and transformed captures:
 - unknown transforms are logged and ignored
 - capture transforms are optional
 - standard replacement syntax such as `${1}` and `$1` still works
+
+### Escapes and replacement line breaks
+
+Configuration version 3 uses one newline spelling in placeholder **replacement
+text** for Inserts, URLs, Shortcuts, Shell, and AppleScript actions. The
+Macrowhisper token `\n` means a line break; `\\n` means the literal characters
+backslash and `n`. These tokens are written with one additional escape layer in
+JSON:
+
+| Meaning | Action/placeholder syntax | JSON source |
+| --- | --- | --- |
+| Line break | `\n` | `\\n` |
+| Literal `\n` | `\\n` | `\\\\n` |
+| Regex word boundary | `\b` | `\\b` |
+
+For example, this JSON URL action places a line break between the two phrases
+before URL encoding the placeholder value:
+
+```json
+"action": "mailto:team@example.com?subject={{swResult||^.*$||First line\\nSecond line}}"
+```
+
+Insert actions apply the v3 newline rule to the entire action, including
+ordinary payload text and placeholder arguments. The other action groups apply
+it only inside complete placeholder replacement values. Static URLs, Shortcut
+names, and Shell or AppleScript code retain their literal text, including any
+`\n` they contain. Regex patterns retain their regex meaning; `\b`, for
+example, stays a word boundary.
+
+The resolved URL placeholder value is percent-encoded after transforms and
+regex replacements; static URL text keeps its configured spelling. A real
+line break in a replacement value is encoded as `%0A`.
+
+The version 2 to 3 migration preserves existing action results while rewriting
+replacement newline spellings to the v3 form. With automatic migration off,
+the same conversion runs in memory, leaving the version 2 file unchanged.
+An already-version-3 file keeps its action text on load and unrelated settings
+saves leave other actions alone.
 
 ### Prompt template for AI help
 
@@ -322,7 +372,7 @@ Output requirements (strict):
 5) Do NOT use JavaScript regex literals like /pattern/gi.
 6) If case-insensitive matching is needed, use inline options in pattern (for example (?i), (?-i), (?m), (?s)).
 7) Assume replacements are already global; do not add g flags.
-8) Escape backslashes correctly for Macrowhisper placeholder text (example: \\b, \\s, \\n).
+8) Use Macrowhisper placeholder escapes directly (example: \b, \s, \n). When placing the result in JSON, escape each backslash once more.
 9) Capture references in replacement can use $1 or ${1}.
 10) If capture transforms are useful, use this syntax in replacement:
     ${N::transformName}
@@ -351,7 +401,8 @@ Macrowhisper automatically escapes placeholder values differently depending on t
 
 - Insert: no escaping
 - Shortcut: no escaping
-- URL: URL-encode the final value
+- URL: percent-encode each resolved placeholder value after transforms and regex
+  replacements; preserve the surrounding static URL template during expansion
 - Shell: shell-safe escaping
 - AppleScript: AppleScript-safe escaping
 
@@ -364,6 +415,9 @@ Use `raw:` to disable escaping:
 ```
 
 Example use case: Superwhisper returns AppleScript that you want to run directly.
+In a URL action, `raw:` also bypasses placeholder percent-encoding, so the
+resolved value must already be suitable for its position in the URL or the
+result can be invalid.
 
 Use `json:` to force JSON string escaping:
 

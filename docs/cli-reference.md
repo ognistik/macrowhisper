@@ -68,7 +68,8 @@ Useful notes:
   opens it in Finder
 - `--validate-config` checks both JSON validity and config rules; an explicit
   `--config` path is validated for that command without being saved
-- `--update-config` refreshes formatting and schema-related fields
+- `--update-config` migrates an older configuration through each version; a
+  current-version file is left unchanged
 
 ### Service commands
 

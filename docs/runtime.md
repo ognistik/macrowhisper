@@ -113,7 +113,8 @@ watches the nearest existing parent and arms the recording watcher when the
 folder reappears. It does not create the folder. Changes to the config file
 are watched and valid updates reload while the daemon runs; invalid JSON or
 validation applies the default configuration in memory until the file is fixed.
-On startup, `defaults.autoUpdateConfig` controls whether compatible
-schema and formatting updates are written automatically.
+On startup, `defaults.autoUpdateConfig` controls whether an older
+`configVersion` is migrated automatically. A current-version file is not
+rewritten merely because the service restarted.
 
 ---

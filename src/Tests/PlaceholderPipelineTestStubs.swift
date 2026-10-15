@@ -1,7 +1,7 @@
 import Foundation
 import Cocoa
 
-// Minimal stubs for compiling Placeholders.swift in isolation for regression tests.
+// Minimal runtime stubs for compiling the production placeholder pipeline in regression tests.
 
 enum ActionType {
     case insert
@@ -11,16 +11,8 @@ enum ActionType {
     case appleScript
 }
 
-final class DummyDefaults {
-    var clipboardStacking: Bool = false
-}
-
-final class DummyConfig {
-    var defaults = DummyDefaults()
-}
-
 final class ConfigurationManager {
-    var config = DummyConfig()
+    var config = AppConfiguration.defaultConfig()
 }
 
 final class ClipboardMonitor {
@@ -63,11 +55,6 @@ func logError(_ message: String) {}
 func redactForLogs(_ text: String) -> String { text }
 func summarizeForLogs(_ text: String, maxPreview: Int) -> String { text }
 func isVerboseLogDetailEnabled() -> Bool { false }
-
-func escapeJsonString(_ value: String) -> String { value }
-func escapeAppleScriptString(_ value: String) -> String { value }
-func escapeShellCharacters(_ value: String) -> String { value }
-func escapeUrlPlaceholder(_ value: String) -> String { value }
 
 func getSelectedText() -> String { stubSelectedText }
 func resolveFrontAppIdentity() -> NSRunningApplication? { globalState.lastDetectedFrontApp }

@@ -2,17 +2,30 @@
 
 ## UNRELEASED
 
+This update supports Superwhisper's new audio format and keeps meeting recordings out of your normal dictation workflow.
+
+### Superwhisper compatibility
+* Supports Superwhisper's new OGG recordings while continuing to work with WAV recordings.
+* Ignores meeting recordings during automatic processing and when choosing your latest dictation, so meetings do not accidentally run your dictation actions. You can still choose a meeting recording manually with `--meta`.
+
+### Added
+* **Voice commands at the end of a dictation:** use a leading `*` in `triggerVoice` to match a spoken command at the end. For example:
+
+  ```json
+  "triggerVoice": "*send it"
+  ```
+
+  Say **“Draft a reply, send it.”** to trigger the action. Macrowhisper removes “send it” and leaves **“Draft a reply.”** for the action to use. See [voice triggers](docs/triggers-and-conditions.md#triggervoice) for more examples and exceptions.
+
 ### Improved
-* `--check-updates` now prints whether Macrowhisper is current, an update is available, or the check failed. Normal results no longer send users to the logs, while failures include the exact diagnostic log path and return a nonzero exit status.
-* Recording monitoring now recognizes non-empty `.wav` and `.ogg` files for audio arrival, cancellation detection, and the no-audio timeout.
-* Automatic processing, implicit latest-recording selection, and folder lookup
-  commands skip recordings whose metadata `kind`, after trimming surrounding
-  whitespace, matches `meeting` without regard to case. Other kinds and missing
-  `kind` values follow normal selection rules; an explicit `--meta` can select
-  a meeting recording for an action command.
+* **Configuration version 3:** clearer rules for line breaks and literal backslashes in Insert text. Older configurations upgrade with a backup before each version change, preserving their previous action output. If you have automatic configuration updates turned off, your file stays unchanged; run `--update-config` before using CLI commands that save configuration changes. See [configuration upgrades](docs/configuration.md#action-newline-escaping-in-version-3) for details.
+* XML placeholders now support text formatting and find-and-replace rules, including `raw:` and `json:` forms. Extracted XML is consistently removed from the remaining transcription text.
+* `--check-updates` now tells you directly whether you are up to date, an update is available, or the check failed. If it fails, it shows where to find the details.
 
 ### Fixed
-* When dictation starts outside a text field, Superwhisper's brief clipboard replacement and restoration no longer appear in `{{clipboardContext}}` as user copies. Macrowhisper recognizes only the exact adjacent restore sequence, so ordinary clipboard changes at startup remain available as context.
+* Restarting the service or running `--update-config` leaves an up-to-date configuration unchanged. Configuration upgrades stop safely if a backup cannot be saved.
+* Configuration monitoring no longer restarts after it has been stopped.
+* Fixed stray text appearing in `{{clipboardContext}}` when dictation starts outside a text field. Content you copy yourself is still kept.
 
 ---
 ## [v2.2.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.2.0) - 2026/09/04

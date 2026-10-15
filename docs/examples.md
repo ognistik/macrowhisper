@@ -8,7 +8,7 @@
 
 ```json
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "defaults": {
     "watch": "~/superwhisper",
     "activeAction": "autoPaste",
@@ -37,7 +37,7 @@
       "icon": "•"
     },
     "emailWithDictatedLineBreaks": {
-      "action": "Hey,\n\n{{swResult::ensureSentence||(?i)\\s*\\bline\\s*br(?:eak|eek|eik|iek|ick|ake)\\b[\\s.,;!?]*||\n||(?m)([^\\s.!?])(\\n+)||$1.$2||(?m)(\\n+)([a-z])||$1${2::uppercase}}}\n\nThanks,\nRobert",
+      "action": "Hey,\\n\\n{{swResult::ensureSentence||(?i)\\s*\\bline\\s*br(?:eak|eek|eik|iek|ick|ake)\\b[\\s.,;!?]*||\\n||(?m)([^\\s.!?])(\\n+)||$1.$2||(?m)(\\n+)([a-z])||$1${2::uppercase}}}\\n\\nThanks,\\nRobert",
       "triggerUrls": "mail.yahoo.com"
     }
   },
@@ -78,7 +78,7 @@ In this example, the user dictates into an insert action, then a URL opens, then
 
 ```json
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "defaults": {
     "watch": "~/superwhisper",
     "activeAction": "compose",
@@ -123,7 +123,7 @@ In this example:
 
 ```json
 {
-  "configVersion": 2,
+  "configVersion": 3,
   "defaults": {
     "watch": "~/superwhisper",
     "activeAction": "buildTicketPayload",
@@ -132,7 +132,7 @@ In this example:
   },
   "inserts": {
     "insertTicketPayload": {
-      "action": "## Ticket Draft\n\n{{actionResult}}\n\nSource App: {{frontApp}}"
+      "action": "## Ticket Draft\\n\\n{{actionResult}}\\n\\nSource App: {{frontApp}}"
     }
   },
   "urls": {},

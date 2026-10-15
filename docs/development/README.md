@@ -171,6 +171,8 @@ The compile inputs and runner names are:
 | --- | --- |
 | `cli-clipboard-chain-state` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/Tests/CLIClipboardChainStateRegression.swift` |
 | `defaults-watch` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/Tests/DefaultsWatchRegression.swift` |
+| `config-watcher-lifecycle` | `src/macrowhisper/Watcher/ConfigChangeWatcher.swift` + `src/Tests/ConfigChangeWatcherLifecycleRegression.swift` |
+| `configuration-v3-migration` | Add `-D CONFIGURATION_V3_TESTING`; compile `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationV3MigrationTestStubs.swift` + `src/Tests/ConfigurationV3MigrationRegression.swift` |
 | `action-chain-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/ActionChainValidationRegression.swift` |
 | `input-condition-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/InputConditionValidationRegression.swift` |
 | `recording-reference-selection` | `src/macrowhisper/Utils/RecordingReferenceResolver.swift` + `src/Tests/RecordingReferenceSelectionRegression.swift` (the runner supplies its manager/watcher stubs) |
@@ -180,15 +182,25 @@ The compile inputs and runner names are:
 | `smart-insert-boundary` | `src/macrowhisper/Utils/SmartInsertBoundary.swift` + `src/Tests/SmartInsertBoundaryRegression.swift` |
 | `smart-insert-heuristics` | `src/macrowhisper/Utils/SmartInsertBoundary.swift` + `src/macrowhisper/Utils/SmartInsertHeuristics.swift` + `src/Tests/SmartInsertHeuristicsRegression.swift` |
 | `browser-url-normalization` | `src/macrowhisper/Utils/BrowserURLNormalization.swift` + `src/Tests/BrowserURLNormalizationRegression.swift` |
+| `trigger-voice-suffix` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerVoiceSuffixRegression.swift` |
 | `trigger-priority` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerPriorityRegression.swift` |
 | `trigger-url-matching` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerUrlMatchingRegression.swift` |
 | `trigger-logic-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/TriggerLogicValidationRegression.swift` |
-| `placeholder-regex-pipeline` | `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderRegexPipelineRegression.swift` |
+| `placeholder-regex-pipeline` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Utils/ShellUtils.swift` + `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderRegexPipelineRegression.swift` |
+| `placeholder-migration-compatibility` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Utils/ShellUtils.swift` + `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderMigrationCompatibilityRegression.swift` |
 | `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` |
 | `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
 | `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
 | `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |
 | `update-check-result` | `src/macrowhisper/Networking/UpdateCheckResult.swift` + `src/Tests/UpdateCheckResultRegression.swift` |
+
+The `configuration-v3-migration` runner exercises production migration and
+newline helpers against temporary files, including legacy runtime parity,
+sequential backups, symlinks, backup failures, concurrent edits, and invalid or
+future configuration preservation. Its stubs keep user preferences and the
+running daemon untouched. `placeholder-migration-compatibility` locks in action
+outputs captured from the pre-v3 runtime across all five action types. Both
+placeholder runners compile the production newline decoder and escaping code.
 
 The `recording-reference-selection` runner also covers implicit meeting
 exclusion, including case and surrounding-whitespace normalization.

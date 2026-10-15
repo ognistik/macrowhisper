@@ -13,7 +13,7 @@ document's location.
 ### Core Functionality
 - **Recording watcher pipeline**: monitors Superwhisper recordings, validates `meta.json`, and handles burst/cancel/recovery scenarios
 - **Unified action system**: insert, URL, shortcut, shell, and AppleScript actions share chaining, triggering, placeholder expansion, and clipboard semantics
-- **Config version 2 semantics**: `null` means inherit defaults, `""` means explicitly empty, and reserved templates like `.none`, `.autoPaste`, and `.run` have dedicated runtime behavior
+- **Config version 3 semantics**: version 2 inheritance and explicit-empty rules remain, while Insert text and cross-action placeholder replacement escapes are decoded independently from JSON serialization; reserved templates like `.none`, `.autoPaste`, and `.run` retain dedicated runtime behavior
 - **Clipboard/session coordination**: captures selected text and clipboard context early, freezes context for execution, and avoids Superwhisper sync contamination; optional attachment handoff remains separate from the string placeholder and original-clipboard snapshot
 - **CLI/runtime parity**: socket-backed commands reuse the same action resolution rules as the live watcher
 - **JSON schema + config validation**: local schema management, semantic validation, and auto-migration/update support
@@ -27,7 +27,7 @@ src/
 ├── macrowhisper/
 │   ├── main.swift                        # Entry point, CLI parsing, daemon/bootstrap, watcher lifecycle
 │   ├── Config/
-│   │   ├── AppConfiguration.swift        # Codable config model, action definitions, configVersion 2
+│   │   ├── AppConfiguration.swift        # Codable config model, action definitions, configVersion 3
 │   │   └── ConfigurationManager.swift    # Loading, validation, migration, live reload, persistence
 │   ├── History/
 │   │   └── HistoryManager.swift          # Retention-based recordings cleanup
@@ -92,7 +92,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
 
 ### 1. Main Application ([src/macrowhisper/main.swift](../../src/macrowhisper/main.swift))
 - Parses CLI commands, starts the socket server, and owns watcher lifecycle
-- Applies startup config auto-update when `defaults.autoUpdateConfig` is enabled
+- Applies sequential startup migration to older config versions when `defaults.autoUpdateConfig` is enabled; current-version files are left unchanged
 - Exposes config utilities like `--update-config`, `--validate-config`, `--set-config`, and `--reset-config`
 - Exposes runtime/action commands like `--exec-action`, `--run-auto`, `--get-action`, `--copy-action`, `--folder-name`, `--folder-path`, and `--mute-triggers`
 - Reinitializes watchers live when config path or watch path changes
@@ -100,7 +100,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
 ### 2. Configuration System
 
 #### [src/macrowhisper/Config/AppConfiguration.swift](../../src/macrowhisper/Config/AppConfiguration.swift)
-- Defines the full config model and sets `currentConfigVersion = 2`
+- Defines the full config model and sets `currentConfigVersion = 3`
 - Centralizes defaults and normalized persistence behavior for root defaults and all action types
 - Provides `clipboardAttachments` (default `false`) with nullable action overrides; the effective root setting applies to the full chain and enables native handoff independently of string-placeholder use
 - All action types support `nextAction`, `inputCondition`, trigger fields, and per-action clipboard timing settings
@@ -113,7 +113,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
 #### [src/macrowhisper/Config/ConfigurationManager.swift](../../src/macrowhisper/Config/ConfigurationManager.swift)
 - Loads config from explicit path, saved path, or default path
 - Performs semantic validation, not just JSON decoding
-- Auto-migrates legacy naming/semantics to config version 2 when allowed
+- Migrates version 1 → 2 → 3 sequentially when allowed, preserving legacy runtime output and immutable pre-version backups
 - Preserves schema references and normalizes persisted config values
 - Reports detailed validation issues for `--validate-config`
 
@@ -157,7 +157,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
 - Evaluates triggers across all action types
 - Supports voice, front app, mode, and browser URL matching
 - Ranks actual positive matches with built-in voice > mode > URL > app priority; exception-only rules are catch-alls and action name is the final tie-breaker
-- Allows negative patterns (`!pattern`), raw regex (`==pattern==`), and AND/OR trigger logic
+- Allows negative patterns (`!pattern`), literal voice suffixes (`*pattern`), raw regex (`==pattern==`), and AND/OR trigger logic
 - Voice-trigger stripping feeds cleaned text into downstream placeholder execution when appropriate
 - App matching is tolerant of missing name or bundle ID
 
@@ -237,9 +237,11 @@ regression runners](README.md#focused-regression-runners) for the commands.
 
 ---
 
-## Config Version 2 Notes
+## Config Version 3 Notes
 
-- `configVersion: 2` is the current semantic baseline
+- `configVersion: 3` is the current semantic baseline
+- Insert text and placeholder replacements distinguish `\n` line breaks from `\\n` literal text; JSON source escapes each backslash once more
+- Version migration preserves legacy output and creates an immutable backup before each version change
 - `null` means inherit from defaults or built-in behavior
 - `""` means intentionally empty
 - `.none` is reserved for action-template semantics, not for fields like `icon` or `moveTo`

@@ -21,7 +21,16 @@ struct ConfigValidationReport {
     let summary: String?
 }
 
+enum ConfigurationMigrationResult: Equatable {
+    case migrated
+    case alreadyCurrent
+    case failed
+}
+
 class ConfigurationManager {
+#if CONFIGURATION_V3_TESTING
+    static var migrationAfterBackupHook: (() -> Void)?
+#endif
     private var _config: AppConfiguration
     var config: AppConfiguration {
         get {
@@ -266,11 +275,6 @@ class ConfigurationManager {
             if !self.updateConfiguration() {
                 logWarning("Config path switched, but automatic configuration update did not apply changes")
             }
-        } else if hasLegacyConfigOnDisk {
-            notify(
-                title: "Macrowhisper - Outdated Config",
-                message: "You are running an outdated config. Run --update-config to migrate."
-            )
         }
 
         self.configurationSuccessfullyLoaded()
@@ -373,14 +377,26 @@ class ConfigurationManager {
             
             // Check if file is empty (common edge case)
             if data.isEmpty {
-                logWarning("Configuration file is empty. Creating new configuration with defaults.")
-                _ = createBackupAndReset(reason: "empty file")
-                return AppConfiguration.defaultConfig()
+                let issue = ConfigValidationIssue(
+                    path: "root",
+                    message: "configuration file is empty",
+                    kind: .io,
+                    rawValue: nil
+                )
+                showConfigValidationErrorNotification(ConfigValidationReport(
+                    isValid: false,
+                    issues: [issue],
+                    configPath: configPath,
+                    summary: "Configuration is invalid"
+                ))
+                return nil
             }
             
             let decoder = JSONDecoder()
             var config = try decoder.decode(AppConfiguration.self, from: data)
-            hasLegacyConfigOnDisk = (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion
+            let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let hasLegacyAliases = root.map { Self.containsLegacyKeys(in: $0) } ?? false
+            hasLegacyConfigOnDisk = hasLegacyAliases || (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion
             Self.normalizeConfigurationForRuntime(&config)
             let issues = Self.sortedIssues(Self.validationIssues(for: config))
             if !issues.isEmpty {
@@ -409,12 +425,6 @@ class ConfigurationManager {
         } catch {
             // Other file system errors (permissions, etc.)
             logError("Failed to read configuration file: \(error.localizedDescription)")
-            
-            // Try to create backup and recover
-            if createBackupAndReset(reason: "read error: \(error.localizedDescription)") {
-                return AppConfiguration.defaultConfig()
-            }
-            
             return nil
         }
     }
@@ -433,6 +443,18 @@ class ConfigurationManager {
 
     private static func validationIssues(for config: AppConfiguration) -> [ConfigValidationIssue] {
         var issues: [ConfigValidationIssue] = []
+
+        if let version = config.configVersion, version < 1 || version > AppConfiguration.currentConfigVersion {
+            let message = version < 1
+                ? "configuration version must be at least 1"
+                : "configuration version \(version) is newer than supported version \(AppConfiguration.currentConfigVersion)"
+            issues.append(ConfigValidationIssue(
+                path: "configVersion",
+                message: message,
+                kind: .semantic,
+                rawValue: String(version)
+            ))
+        }
 
         if let duplicateNames = findDuplicateActionNamesAcrossTypes(in: config), !duplicateNames.isEmpty {
             for name in duplicateNames.sorted() {
@@ -1049,40 +1071,27 @@ class ConfigurationManager {
         return "\(trimmedPrefix) \(suffix)"
     }
     
-    /// Post-process JSON string to round all floating point numbers to 3 decimal places
-    private func roundDoublesInJson(_ jsonString: String) -> String {
-        // This regex matches numbers with a decimal point and more than 3 decimals (not in scientific notation)
-        let pattern = "(-?\\d+\\.\\d{4,})(?![\\deE])"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { 
-            return jsonString 
-        }
-        
-        let nsrange = NSRange(jsonString.startIndex..<jsonString.endIndex, in: jsonString)
-        var result = jsonString
-        let matches = regex.matches(in: jsonString, options: [], range: nsrange)
-        
-        for match in matches.reversed() {
-            if let range = Range(match.range, in: result) {
-                let numberString = String(result[range])
-                if let number = Double(numberString) {
-                    // Round to 3 decimal places, but remove trailing zeros using NumberFormatter
-                    let formatter = NumberFormatter()
-                    formatter.minimumFractionDigits = 0
-                    formatter.maximumFractionDigits = 3
-                    formatter.numberStyle = .decimal
-                    formatter.usesGroupingSeparator = false
-                    
-                    if let formatted = formatter.string(from: NSNumber(value: number)) {
-                        result.replaceSubrange(range, with: formatted)
-                    }
-                }
-            }
-        }
-        
-        return result
-    }
-
     func saveConfig() throws {
+        var originalDiskConfig: AppConfiguration?
+        if fileManager.fileExists(atPath: configPath) {
+            let diskPath = Self.resolveSymlink(configPath)
+            guard let rawData = try? Data(contentsOf: URL(fileURLWithPath: diskPath), options: .uncached),
+                  let root = (try? JSONSerialization.jsonObject(with: rawData)) as? [String: Any],
+                  let diskConfig = try? JSONDecoder().decode(AppConfiguration.self, from: rawData) else {
+                throw ConfigurationError.invalidJSON("Existing configuration is not readable JSON")
+            }
+            let rawVersion = diskConfig.configVersion ?? 1
+            guard rawVersion == AppConfiguration.currentConfigVersion,
+                  !Self.containsLegacyKeys(in: root),
+                  Self.unknownPaths(in: root).isEmpty else {
+                throw ConfigurationError.invalidJSON("Migrate legacy configuration explicitly before saving changes")
+            }
+            guard Self.validationIssues(for: diskConfig).isEmpty else {
+                throw ConfigurationError.invalidJSON("Existing configuration is invalid or uses a future version")
+            }
+            originalDiskConfig = diskConfig
+        }
+
         // Don't overwrite an existing file that failed to load (has invalid JSON)
         if fileManager.fileExists(atPath: configPath) &&
             self.loadConfig() == nil {
@@ -1090,6 +1099,21 @@ class ConfigurationManager {
             // Don't show another notification here - we've already notified in loadConfig()
             return
         }
+
+        var candidate = _config
+        for name in candidate.inserts.keys {
+            guard var insert = candidate.inserts[name] else { continue }
+            if originalDiskConfig == nil || insert.action != originalDiskConfig?.inserts[name]?.action {
+                insert.action = canonicalizeMacrowhisperInsertAction(insert.action)
+                candidate.inserts[name] = insert
+            }
+        }
+        _ = Self.canonicalizeNonInsertReplacements(
+            &candidate,
+            legacy: false,
+            changedFrom: originalDiskConfig
+        )
+        _config = candidate
         
         // Set suppression flag before writing config to prevent reload loop
         suppressNextConfigReload = true
@@ -1101,7 +1125,6 @@ class ConfigurationManager {
             let data = try encoder.encode(_config)
             if let jsonString = String(data: data, encoding: .utf8) {
                 var formattedJson = jsonString.replacingOccurrences(of: "\\/", with: "/")
-                formattedJson = roundDoublesInJson(formattedJson)
                 
                 // Auto-manage schema reference for seamless IDE integration
                 // This provides automatic schema management without user intervention
@@ -1129,7 +1152,6 @@ class ConfigurationManager {
                     let updatedData = try encoder.encode(_config)
                     if let updatedJsonString = String(data: updatedData, encoding: .utf8) {
                         formattedJson = updatedJsonString.replacingOccurrences(of: "\\/", with: "/")
-                        formattedJson = roundDoublesInJson(formattedJson)
                         logInfo("\(schemaAction) schema reference for IDE validation: \(schemaRef)")
                     }
                 }
@@ -1342,95 +1364,335 @@ class ConfigurationManager {
         }
     }
     
-    // MARK: - Configuration Update
-    /// Updates the configuration file by reloading from disk and re-saving
-    /// This ensures the configuration is updated with any new schema changes or defaults
-    /// while preserving user data
-    func updateConfiguration() -> Bool {
-        logInfo("Updating configuration file...")
-        
-        // First, try to load the current configuration from disk
-        guard let currentConfig = self.loadConfig() else {
-            logError("Failed to load current configuration for update")
-            return false
-        }
-        
-        var updatedConfig = currentConfig
-        if hasLegacyConfigOnDisk || (currentConfig.configVersion ?? 1) < AppConfiguration.currentConfigVersion {
-            let createdBackup = createPreMigrationBackupIfNeeded()
-            if !createdBackup {
-                logWarning("Pre-migration backup could not be created; continuing migration")
-            }
-            let didMigrate = migrateConfigurationToCurrentVersion(&updatedConfig)
-            if didMigrate {
-                logInfo("Migrated configuration semantics to configVersion \(AppConfiguration.currentConfigVersion)")
-            } else {
-                updatedConfig.configVersion = AppConfiguration.currentConfigVersion
-                logInfo("Marked configuration as configVersion \(AppConfiguration.currentConfigVersion)")
-            }
-        }
-        _ = Self.normalizeEscInputConditionTokens(&updatedConfig)
-        _ = updatedConfig.defaults.canonicalizeRootDefaultsForPersistence()
+    // MARK: - Configuration Migration
+    private static let supportedRootKeys: Set<String> = [
+        "$schema", "configVersion", "defaults", "inserts", "urls", "shortcuts", "scriptsShell", "scriptsAS"
+    ]
+    private static let actionSections: Set<String> = ["inserts", "urls", "shortcuts", "scriptsShell", "scriptsAS"]
+    private static let legacyFieldKeys: Set<String> = ["noUpdates", "noNoti", "noEsc", "pressReturn"]
+    private static let supportedDefaultsKeys: Set<String> = [
+        "watch", "disableUpdateCheck", "muteNotifications", "activeAction", "icon", "moveTo", "simEsc",
+        "simKeypress", "smartCasing", "smartPunctuation", "smartSpacing", "actionDelay", "history",
+        "simReturn", "returnDelay", "restoreClipboard", "restoreClipboardDelay", "scheduledActionTimeout",
+        "scriptAsync", "scriptWaitTimeout", "clipboardStacking", "clipboardAttachments", "clipboardBuffer",
+        "clipboardIgnore", "bypassModes", "muteTriggers", "autoUpdateConfig", "redactedLogs", "nextAction",
+        "noUpdates", "noNoti", "noEsc", "pressReturn"
+    ]
+    private static let insertKeys: Set<String> = [
+        "action", "icon", "moveTo", "simEsc", "simKeypress", "smartCasing", "smartPunctuation", "smartSpacing",
+        "actionDelay", "simReturn", "restoreClipboard", "restoreClipboardDelay", "clipboardStacking",
+        "clipboardAttachments", "inputCondition", "nextAction", "triggerVoice", "triggerApps", "triggerModes",
+        "triggerUrls", "triggerLogic", "noEsc", "pressReturn"
+    ]
+    private static let urlKeys: Set<String> = [
+        "action", "icon", "moveTo", "simEsc", "actionDelay", "restoreClipboard", "restoreClipboardDelay",
+        "clipboardStacking", "clipboardAttachments", "inputCondition", "nextAction", "triggerVoice", "triggerApps",
+        "triggerModes", "triggerUrls", "triggerLogic", "openWith", "openBackground", "noEsc", "pressReturn"
+    ]
+    private static let scriptLikeKeys: Set<String> = [
+        "action", "icon", "moveTo", "simEsc", "actionDelay", "restoreClipboard", "restoreClipboardDelay",
+        "clipboardStacking", "clipboardAttachments", "scriptAsync", "scriptWaitTimeout", "inputCondition", "nextAction",
+        "triggerVoice", "triggerApps", "triggerModes", "triggerUrls", "triggerLogic", "noEsc", "pressReturn"
+    ]
 
-        // Update our in-memory config with the loaded/migrated data
+    private static func allowedActionKeys(for section: String) -> Set<String> {
+        switch section {
+        case "inserts": return insertKeys
+        case "urls": return urlKeys
+        case "shortcuts", "scriptsShell", "scriptsAS": return scriptLikeKeys
+        default: return []
+        }
+    }
+
+    private static func unknownPaths(in root: [String: Any]) -> [[String]] {
+        var paths = root.keys.filter { !supportedRootKeys.contains($0) }.sorted().map { [$0] }
+        if let defaults = root["defaults"] as? [String: Any] {
+            paths += defaults.keys.filter { !supportedDefaultsKeys.contains($0) }.sorted().map { ["defaults", $0] }
+        }
+        for section in actionSections.sorted() {
+            guard let actions = root[section] as? [String: Any] else { continue }
+            let allowed = allowedActionKeys(for: section)
+            for actionName in actions.keys.sorted() {
+                guard let action = actions[actionName] as? [String: Any] else { continue }
+                paths += action.keys.filter { !allowed.contains($0) }.sorted().map { [section, actionName, $0] }
+            }
+        }
+        return paths
+    }
+
+    private static func containsLegacyKeys(in root: [String: Any]) -> Bool {
+        if let defaults = root["defaults"] as? [String: Any],
+           defaults.keys.contains(where: legacyFieldKeys.contains) { return true }
+        for section in actionSections {
+            guard let actions = root[section] as? [String: Any] else { continue }
+            for value in actions.values {
+                if let action = value as? [String: Any], action.keys.contains(where: { ["noEsc", "pressReturn"].contains($0) }) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Migrates a legacy configuration through each supported version step.
+    /// Current-version files are read-only here and remain byte-for-byte unchanged.
+    func migrateConfigurationIfNeeded() -> ConfigurationMigrationResult {
         syncQueue.sync {
-            _config = updatedConfig
+            let requestedPath = configPath
+            let targetPath = Self.resolveSymlink(requestedPath)
+            guard let originalData = try? Data(contentsOf: URL(fileURLWithPath: targetPath), options: .uncached),
+                  !originalData.isEmpty,
+                  let root = (try? JSONSerialization.jsonObject(with: originalData)) as? [String: Any],
+                  let source = try? JSONDecoder().decode(AppConfiguration.self, from: originalData) else {
+                logError("Configuration migration requires a readable, non-empty JSON object")
+                return .failed
+            }
+
+            let rawVersion = source.configVersion ?? 1
+            guard rawVersion <= AppConfiguration.currentConfigVersion else {
+                logError("Configuration uses a future configVersion and was left unchanged")
+                return .failed
+            }
+
+            let legacyAliases = Self.containsLegacyKeys(in: root)
+            let isLegacy = rawVersion < AppConfiguration.currentConfigVersion || legacyAliases
+            var candidate = source
+            Self.normalizeConfigurationForRuntime(&candidate)
+            let runtimeIssues = Self.sortedIssues(Self.validationIssues(for: candidate))
+            guard runtimeIssues.isEmpty else {
+                logError("Configuration migration rejected invalid values: \(runtimeIssues.map { $0.path }.joined(separator: ", "))")
+                return .failed
+            }
+            let unknownPaths = Self.unknownPaths(in: root)
+            guard unknownPaths.isEmpty else {
+                logError("Configuration migration refused to discard unknown fields: \(unknownPaths.map { $0.joined(separator: ".") }.joined(separator: ", "))")
+                return .failed
+            }
+            guard isLegacy else { return .alreadyCurrent }
+
+            // Build each schema step in memory first. Backups capture the
+            // exact bytes at the boundary before each version transition.
+            var versionedCandidate = source
+            var backupSnapshots: [(path: String, data: Data)] = []
+            var dataAtCurrentStep = originalData
+            var version = rawVersion
+            if version < 2 {
+                _ = Self.applyV2Normalization(&versionedCandidate)
+                _ = Self.normalizeEscInputConditionTokens(&versionedCandidate)
+                versionedCandidate.configVersion = 2
+                backupSnapshots.append((targetPath + ".backup.pre-v2", dataAtCurrentStep))
+                guard let version2Data = try? Self.encodedConfigurationData(versionedCandidate) else { return .failed }
+                dataAtCurrentStep = version2Data
+                version = 2
+            }
+            if version < 3 {
+                _ = migrateConfigurationToV3(&versionedCandidate)
+                versionedCandidate.configVersion = 3
+                backupSnapshots.append((targetPath + ".backup.pre-v3", dataAtCurrentStep))
+                version = 3
+            } else if legacyAliases {
+                // A current-version file carrying decoded legacy aliases still
+                // needs one canonical rewrite to avoid dropping them later.
+                backupSnapshots.append((targetPath + ".backup.pre-v3", originalData))
+            }
+
+            _ = Self.normalizeEscInputConditionTokens(&versionedCandidate)
+            _ = versionedCandidate.defaults.canonicalizeRootDefaultsForPersistence()
+            versionedCandidate.configVersion = AppConfiguration.currentConfigVersion
+            if let schemaReference = SchemaManager.getSchemaReference() {
+                versionedCandidate.schema = schemaReference
+            }
+            let candidateIssues = Self.sortedIssues(Self.validationIssues(for: versionedCandidate))
+            guard candidateIssues.isEmpty else {
+                logError("Migrated configuration failed validation: \(candidateIssues.map { $0.path }.joined(separator: ", "))")
+                return .failed
+            }
+
+            do {
+                let candidateData = try Self.encodedConfigurationData(versionedCandidate)
+                for backup in backupSnapshots {
+                    try createImmutableBackup(at: backup.path, data: backup.data)
+                }
+
+#if CONFIGURATION_V3_TESTING
+                Self.migrationAfterBackupHook?()
+#endif
+
+                // Recheck after backup and immediately before replacement.
+                // This detects changes during preparation; an external write in
+                // the final replace window remains a filesystem race.
+                guard Self.resolveSymlink(requestedPath) == targetPath,
+                      (try? Data(contentsOf: URL(fileURLWithPath: targetPath), options: .uncached)) == originalData else {
+                    logError("Configuration changed while migration was being prepared; leaving it untouched")
+                    return .failed
+                }
+
+                let temporaryPath = targetPath + ".tmp.\(UUID().uuidString)"
+                defer { try? fileManager.removeItem(atPath: temporaryPath) }
+                // Copy first to retain target metadata, then replace only its
+                // contents before the final compare-and-replace checks.
+                try fileManager.copyItem(atPath: targetPath, toPath: temporaryPath)
+                try candidateData.write(to: URL(fileURLWithPath: temporaryPath))
+
+                guard let verifiedRoot = (try? JSONSerialization.jsonObject(with: candidateData)) as? [String: Any],
+                      Self.unknownPaths(in: verifiedRoot).isEmpty,
+                      let verified = try? JSONDecoder().decode(AppConfiguration.self, from: candidateData),
+                      verified.configVersion == AppConfiguration.currentConfigVersion,
+                      Self.validationIssues(for: verified).isEmpty else {
+                    throw ConfigurationError.corruptedWrite("Generated configuration failed validation")
+                }
+
+                guard Self.resolveSymlink(requestedPath) == targetPath,
+                      (try? Data(contentsOf: URL(fileURLWithPath: targetPath), options: .uncached)) == originalData else {
+                    logError("Configuration changed immediately before migration replacement; leaving it untouched")
+                    return .failed
+                }
+                _ = try fileManager.replaceItem(
+                    at: URL(fileURLWithPath: targetPath),
+                    withItemAt: URL(fileURLWithPath: temporaryPath),
+                    backupItemName: nil,
+                    options: [],
+                    resultingItemURL: nil
+                )
+
+                _config = verified
+                hasLegacyConfigOnDisk = false
+                hasNotifiedAboutJsonError = false
+                hasNotifiedAboutValidationError = false
+                suppressNextConfigReload = true
+                logInfo("Migrated configuration to configVersion \(AppConfiguration.currentConfigVersion)")
+                return .migrated
+            } catch {
+                logError("Configuration migration failed: \(error.localizedDescription)")
+                return .failed
+            }
         }
-        
-        // Save the configuration, which will apply any new schema changes and formatting
-        do {
-            try self.saveConfig()
-        } catch {
-            logError("Failed to save updated configuration: \(error)")
-            return false
-        }
-        
-        logInfo("Configuration file updated successfully")
-        hasLegacyConfigOnDisk = false
-        return true
     }
 
-    private func createPreMigrationBackupIfNeeded() -> Bool {
-        let backupPath = configPath + ".backup.pre-v\(AppConfiguration.currentConfigVersion)"
+    /// Compatibility wrapper for existing CLI/path-switch callers.
+    func updateConfiguration() -> Bool {
+        switch migrateConfigurationIfNeeded() {
+        case .migrated, .alreadyCurrent: return true
+        case .failed: return false
+        }
+    }
+
+    private func createImmutableBackup(at backupPath: String, data: Data) throws {
         if fileManager.fileExists(atPath: backupPath) {
-            return true
+            let attributes = try fileManager.attributesOfItem(atPath: backupPath)
+            guard attributes[.type] as? FileAttributeType != .typeSymbolicLink,
+                  let existing = try? Data(contentsOf: URL(fileURLWithPath: backupPath), options: .uncached),
+                  existing == data else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            return
         }
+
+        if (try? fileManager.destinationOfSymbolicLink(atPath: backupPath)) != nil {
+            throw CocoaError(.fileWriteFileExists)
+        }
+
+        let temporaryBackup = backupPath + ".tmp.\(UUID().uuidString)"
+        defer { try? fileManager.removeItem(atPath: temporaryBackup) }
+        try data.write(to: URL(fileURLWithPath: temporaryBackup), options: [.atomic])
+        guard (try? Data(contentsOf: URL(fileURLWithPath: temporaryBackup), options: .uncached)) == data else {
+            throw ConfigurationError.corruptedWrite("Pre-migration backup did not preserve the original bytes")
+        }
+        // moveItem fails if another process creates the versioned backup first.
         do {
-            try fileManager.copyItem(atPath: configPath, toPath: backupPath)
-            logInfo("Created pre-migration backup at: \(backupPath)")
-            return true
+            try fileManager.moveItem(atPath: temporaryBackup, toPath: backupPath)
         } catch {
-            logError("Failed to create pre-migration backup: \(error)")
-            return false
+            if (try? fileManager.destinationOfSymbolicLink(atPath: backupPath)) == nil,
+               let existing = try? Data(contentsOf: URL(fileURLWithPath: backupPath), options: .uncached), existing == data {
+                return
+            }
+            throw error
         }
     }
 
-    private func migrateConfigurationToCurrentVersion(_ config: inout AppConfiguration) -> Bool {
+    private static func encodedConfigurationData(_ config: AppConfiguration) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoded = try encoder.encode(config)
+        let json = String(decoding: encoded, as: UTF8.self).replacingOccurrences(of: "\\/", with: "/")
+        guard let data = json.data(using: .utf8) else { throw ConfigurationError.corruptedWrite("Could not encode JSON as UTF-8") }
+        return data
+    }
+
+    private func migrateConfigurationToV3(_ config: inout AppConfiguration) -> Bool {
         var changed = false
-
-        if (config.configVersion ?? 1) < 2 {
-            changed = migrateConfigurationToV2(&config) || changed
+        for name in config.inserts.keys {
+            guard var insert = config.inserts[name] else { continue }
+            let canonical = canonicalizeLegacyMacrowhisperInsertAction(insert.action)
+            if canonical != insert.action {
+                insert.action = canonical
+                config.inserts[name] = insert
+                changed = true
+            }
         }
-
-        if config.configVersion != AppConfiguration.currentConfigVersion {
-            config.configVersion = AppConfiguration.currentConfigVersion
-            changed = true
-        }
-
+        changed = Self.canonicalizeNonInsertReplacements(&config, legacy: true) || changed
         return changed
     }
 
-    private func migrateConfigurationToV2(_ config: inout AppConfiguration) -> Bool {
-        return Self.applyV2Normalization(&config)
+    private static func canonicalizeNonInsertReplacements(
+        _ config: inout AppConfiguration,
+        legacy: Bool,
+        changedFrom original: AppConfiguration? = nil
+    ) -> Bool {
+        var changed = false
+        for name in config.urls.keys {
+            guard var item = config.urls[name] else { continue }
+            if let original, item.action == original.urls[name]?.action { continue }
+            let value = canonicalizePlaceholderReplacementNewlines(item.action, legacy: legacy)
+            if value != item.action { item.action = value; config.urls[name] = item; changed = true }
+        }
+        for name in config.shortcuts.keys {
+            guard var item = config.shortcuts[name] else { continue }
+            if let original, item.action == original.shortcuts[name]?.action { continue }
+            let value = canonicalizePlaceholderReplacementNewlines(item.action, legacy: legacy)
+            if value != item.action { item.action = value; config.shortcuts[name] = item; changed = true }
+        }
+        for name in config.scriptsShell.keys {
+            guard var item = config.scriptsShell[name] else { continue }
+            if let original, item.action == original.scriptsShell[name]?.action { continue }
+            let value = canonicalizePlaceholderReplacementNewlines(item.action, legacy: legacy)
+            if value != item.action { item.action = value; config.scriptsShell[name] = item; changed = true }
+        }
+        for name in config.scriptsAS.keys {
+            guard var item = config.scriptsAS[name] else { continue }
+            if let original, item.action == original.scriptsAS[name]?.action { continue }
+            let value = canonicalizePlaceholderReplacementNewlines(item.action, legacy: legacy)
+            if value != item.action { item.action = value; config.scriptsAS[name] = item; changed = true }
+        }
+        return changed
+    }
+
+    private static func migrateLegacyInsertActionsForRuntime(_ config: inout AppConfiguration) -> Bool {
+        var changed = false
+        for name in config.inserts.keys {
+            guard var insert = config.inserts[name] else { continue }
+            let canonical = canonicalizeLegacyMacrowhisperInsertAction(insert.action)
+            if canonical != insert.action { insert.action = canonical; config.inserts[name] = insert; changed = true }
+        }
+        return changed
     }
 
     private static func normalizeConfigurationForRuntime(_ config: inout AppConfiguration) {
         _ = normalizeEscInputConditionTokens(&config)
-        guard (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion else {
-            return
+        var version = config.configVersion ?? 1
+        guard version >= 1, version <= AppConfiguration.currentConfigVersion else { return }
+        if version < 2 {
+            _ = applyV2Normalization(&config)
+            version = 2
         }
-        _ = applyV2Normalization(&config)
-        config.configVersion = AppConfiguration.currentConfigVersion
+        if version < 3 {
+            _ = migrateLegacyInsertActionsForRuntime(&config)
+            _ = canonicalizeNonInsertReplacements(&config, legacy: true)
+            version = 3
+        }
+        if (config.configVersion ?? 1) < AppConfiguration.currentConfigVersion {
+            config.configVersion = AppConfiguration.currentConfigVersion
+        }
     }
 
     private static func applyV2Normalization(_ config: inout AppConfiguration) -> Bool {
