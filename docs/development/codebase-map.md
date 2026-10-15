@@ -214,7 +214,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
 - [src/macrowhisper/History/HistoryManager.swift](../../src/macrowhisper/History/HistoryManager.swift): deletes old recording folders based on `defaults.history`
 - [src/macrowhisper/Utils/ServiceManager.swift](../../src/macrowhisper/Utils/ServiceManager.swift): install/start/stop/restart/uninstall for launchd service mode
 - [src/macrowhisper/Utils/ServiceLifecycleDiagnostics.swift](../../src/macrowhisper/Utils/ServiceLifecycleDiagnostics.swift): records launch intents, daemon sessions, clean signal shutdowns, and unclean previous sessions; launchd status parsing lives in `ServiceManager`
-- [src/macrowhisper/Utils/Logger.swift](../../src/macrowhisper/Utils/Logger.swift): central logging with redaction-aware helpers
+- [src/macrowhisper/Utils/Logger.swift](../../src/macrowhisper/Utils/Logger.swift): central logging with redaction-aware helpers and coordinated file writes/rotation across threads and processes
 - [src/macrowhisper/Utils/NotificationManager.swift](../../src/macrowhisper/Utils/NotificationManager.swift): user-facing alerts for startup/config/runtime issues
 - [src/macrowhisper/Networking/UpdateCheckResult.swift](../../src/macrowhisper/Networking/UpdateCheckResult.swift): typed update-check outcomes, socket serialization, CLI messages, and exit status
 - [src/macrowhisper/Networking/VersionChecker.swift](../../src/macrowhisper/Networking/VersionChecker.swift): optional update checks

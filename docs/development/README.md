@@ -193,6 +193,11 @@ The compile inputs and runner names are:
 | `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
 | `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |
 | `update-check-result` | `src/macrowhisper/Networking/UpdateCheckResult.swift` + `src/Tests/UpdateCheckResultRegression.swift` |
+| `logger-concurrency` | `src/macrowhisper/Utils/Logger.swift` + `src/Tests/LoggerConcurrencyRegression.swift` |
+
+The `logger-concurrency` runner writes to temporary directories from concurrent
+threads, logger instances, and child processes. It checks record integrity and
+rotation without touching the normal log folder or starting the daemon.
 
 The `configuration-v3-migration` runner exercises production migration and
 newline helpers against temporary files, including legacy runtime parity,

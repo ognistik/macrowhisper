@@ -46,7 +46,8 @@ Log folder:
 
 The main log is `macrowhisper.log`; launchd service stdout and stderr go to
 `service.log` in the same folder. All log levels are written to the main log.
-It rotates after exceeding 5 MiB and keeps one rotated backup. `--verbose`
+It rotates after exceeding 5 MiB and keeps one rotated backup. The daemon and
+CLI coordinate writes and rotation when sharing this file. `--verbose`
 raises console/detail logging and disables redaction for that daemon run only;
 it does not persist a change to `defaults.redactedLogs`.
 
