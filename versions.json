@@ -1,4 +1,4 @@
 {
-  "description": "* Optional clipboard attachments: keep copied files and images ready to paste.\n* More predictable voice, mode, URL, and app trigger priority.\n* More reliable clipboard context and recovery after unfinished AI requests.\n* Fixes for S1 voice commands and configuration overrides.",
-  "version": "2.2.0"
+  "description": "* Supports new Superwhisper audio; skips meetings.\n* New voice suffix commands and bug fixes.",
+  "version": "2.3.0"
 }

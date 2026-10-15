@@ -2,6 +2,9 @@
 
 ## UNRELEASED
 
+---
+## [v2.3.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.3.0) - 2026/10/15
+
 This update supports Superwhisper's new audio format and keeps meeting recordings out of your normal dictation workflow.
 
 ### Superwhisper compatibility
@@ -15,14 +18,15 @@ This update supports Superwhisper's new audio format and keeps meeting recording
   "triggerVoice": "*send it"
   ```
 
-  Say **“Draft a reply, send it.”** to trigger the action. Macrowhisper removes “send it” and leaves **“Draft a reply.”** for the action to use. See [voice triggers](docs/triggers-and-conditions.md#triggervoice) for more examples and exceptions.
+  Say **“This is a dictation, send it.”** to trigger the action. Macrowhisper removes “send it” and leaves **“This is a dictation.”** for the action to use. For an insert action with `simReturn` enabled, this lets you dictate a message and say “send it” to insert it and press Return. See [voice triggers](https://github.com/ognistik/macrowhisper/blob/v2.3.0/docs/triggers-and-conditions.md#triggervoice) for more examples and exceptions.
 
 ### Improved
-* **Configuration version 3:** clearer rules for line breaks and literal backslashes in Insert text. Older configurations upgrade with a backup before each version change, preserving their previous action output. If you have automatic configuration updates turned off, your file stays unchanged; run `--update-config` before using CLI commands that save configuration changes. See [configuration upgrades](docs/configuration.md#action-newline-escaping-in-version-3) for details.
+* **Configuration version 3:** clearer rules for line breaks and literal backslashes in Insert text. Older configurations upgrade with a backup before each version change, preserving their previous action output. If you have automatic configuration updates turned off, your file stays unchanged; run `--update-config` before using CLI commands that save configuration changes. See [configuration upgrades](https://github.com/ognistik/macrowhisper/blob/v2.3.0/docs/configuration.md#action-newline-escaping-in-version-3) for details.
 * XML placeholders now support text formatting and find-and-replace rules, including `raw:` and `json:` forms. Extracted XML is consistently removed from the remaining transcription text.
 * `--check-updates` now tells you directly whether you are up to date, an update is available, or the check failed. If it fails, it shows where to find the details.
 
 ### Fixed
+* Log entries no longer overwrite each other when several parts of Macrowhisper run at once.
 * Restarting the service or running `--update-config` leaves an up-to-date configuration unchanged. Configuration upgrades stop safely if a backup cannot be saved.
 * Configuration monitoring no longer restarts after it has been stopped.
 * Fixed stray text appearing in `{{clipboardContext}}` when dictation starts outside a text field. Content you copy yourself is still kept.

@@ -36,8 +36,8 @@ fi
 
 AUTHOR="ognistik"
 NAME="macrowhisper"
-VERSION="2.2.0"
-EXPECTED_HASH="9ffe70fe0254f1cebb3cf12a27f132accbe5165f5c6934b156c41dc9cc023dfb"
+VERSION="2.3.0"
+EXPECTED_HASH="b232796961ea7c6bd8916caa81ae9058356743435344346dbdc1440a003abab6"
 TMP_DIR="./${AUTHOR}-${NAME}-v${VERSION}-installer"
 
 mkdir "$TMP_DIR"
