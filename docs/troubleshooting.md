@@ -85,6 +85,43 @@ macrowhisper --verbose
 
 - make sure Superwhisper's **Paste result text** and **Simulate keypresses** are **Off**; Macrowhisper's insert action handles insertion
 
+### Pasting is slow or smart formatting is missing in Chromium or Electron apps
+
+Macrowhisper needs the receiving app's accessibility information to identify a
+text field and read the text around the cursor. Some Chromium browsers and
+Electron apps enable this information only when an assistive tool requests it.
+Macrowhisper requests that support for these apps and avoids repeatedly retrying
+the same missing focused element in adjacent checks.
+
+Accessibility permission for Macrowhisper is still required. If the app does
+not expose a usable field, `.autoPaste` falls back to an ordinary Cmd+V paste
+without smart casing, punctuation, or spacing. It also skips Escape and
+clipboard restoration, just as it does outside a text field.
+
+If the recording window stays open, enable **Always close** in Superwhisper and
+set `defaults.simEsc: false`. Check other actions for explicit `simEsc: true`
+overrides. This lets Superwhisper close its own window; it does not make missing
+text-field information available. Keep Superwhisper's **Paste result text** off.
+See [setup alternatives](getting-started.md#if-you-change-these-settings).
+
+### Paste logs report success but nothing appears
+
+`Pasteboard confirmed` confirms the clipboard contents, and `succeeded: true`
+reports that the insertion routine completed. Neither confirms that the receiving
+app inserted the text; insert completion logs explicitly say `insertionVerified: false`.
+`[PasteDiagnostic]` entries supplement these messages for clipboard-based inserts,
+including direct `.autoPaste` fallbacks. Character typing with `simKeypress: true`
+does not use this paste-event observer.
+
+For another missing or delayed paste, share the complete
+`[PasteDiagnostic]` lines for that paste, along with nearby `[SmartInsert]`,
+`[AXFocus]`, and `[InputField]` lines. Include the receiving app, the kind of
+field, and whether the paste was missing, late, or only lacked smart formatting.
+The diagnostic outcomes `changed`, `unchanged`, and `unavailable` describe AX
+observations, not whether the paste succeeded. These new lines contain no
+clipboard text, field text, or URLs, even in unredacted logs.
+These diagnostics are written to the main log without requiring `--verbose`.
+
 ### The recording window stays open, or Escape dismisses something in my app
 
 - for the recommended setup, use Superwhisper's **Classic** or **Mini** recording window, set **Cancel recording** to **Escape**, and turn **Always close** off

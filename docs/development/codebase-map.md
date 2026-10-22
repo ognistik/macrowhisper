@@ -54,6 +54,8 @@ src/
 │   │   ├── NotificationManager.swift     # User notifications
 │   │   ├── Logger.swift                  # Structured logging and redaction
 │   │   ├── Accessibility.swift           # Focus/input-field detection and keyboard helpers
+│   │   ├── AccessibilityFocusPolicy.swift # Targeted activation and short-lived missing-focus retry policy
+│   │   ├── PasteDiagnostics.swift        # Privacy-safe paste event, clipboard, timing, and AX diagnostics
 │   │   └── UserDefaultsManager.swift     # Saved config-path persistence
 │   └── Networking/
 │       ├── SocketCommunication.swift     # Unix socket server and CLI command handling

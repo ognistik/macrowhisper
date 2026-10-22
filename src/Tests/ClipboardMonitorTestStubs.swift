@@ -3,6 +3,10 @@ import Cocoa
 
 final class Logger {}
 
+enum PasteDiagnostics {
+    static func recordClipboardFinalization(stage: String, changeCount: Int, delay: TimeInterval? = nil) {}
+}
+
 func getSelectedText() -> String { "" }
 func sanitizeContextPlaceholderValue(_ value: String) -> String { value }
 func resolveFrontAppIdentity() -> NSRunningApplication? { nil }

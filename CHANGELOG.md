@@ -2,6 +2,12 @@
 
 ## UNRELEASED
 
+### Added
+* Added privacy-safe `[PasteDiagnostic]` logging for paste events, clipboard writes and restoration, timing, and bounded post-paste accessibility observations.
+
+### Fixed
+* Improved text-field detection in Chromium browsers and Electron apps that enable accessibility information on demand. Avoids repeated failed focus lookups delaying pastes when the receiving app does not expose a focused field. ([#33](https://github.com/ognistik/macrowhisper/issues/33))
+
 ---
 ## [v2.3.0](https://github.com/ognistik/macrowhisper/releases/tag/v2.3.0) - 2026/10/15
 

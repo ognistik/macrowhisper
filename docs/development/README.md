@@ -181,6 +181,8 @@ The compile inputs and runner names are:
 | `sim-return-behavior` | `src/macrowhisper/Utils/SimReturnBehavior.swift` + `src/Tests/SimReturnBehaviorRegression.swift` |
 | `smart-insert-boundary` | `src/macrowhisper/Utils/SmartInsertBoundary.swift` + `src/Tests/SmartInsertBoundaryRegression.swift` |
 | `smart-insert-heuristics` | `src/macrowhisper/Utils/SmartInsertBoundary.swift` + `src/macrowhisper/Utils/SmartInsertHeuristics.swift` + `src/Tests/SmartInsertHeuristicsRegression.swift` |
+| `accessibility-focus-policy` | `src/macrowhisper/Utils/AccessibilityFocusPolicy.swift` + `src/Tests/AccessibilityFocusPolicyRegression.swift` |
+| `paste-diagnostics` | `src/macrowhisper/Utils/PasteDiagnostics.swift` + `src/Tests/PasteDiagnosticsRegression.swift` |
 | `browser-url-normalization` | `src/macrowhisper/Utils/BrowserURLNormalization.swift` + `src/Tests/BrowserURLNormalizationRegression.swift` |
 | `trigger-voice-suffix` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerVoiceSuffixRegression.swift` |
 | `trigger-priority` | `src/macrowhisper/Utils/TriggerEvaluator.swift` + `src/Tests/TriggerEvaluatorUrlMatchingTestStubs.swift` + `src/Tests/TriggerPriorityRegression.swift` |
@@ -198,6 +200,11 @@ The compile inputs and runner names are:
 The `logger-concurrency` runner writes to temporary directories from concurrent
 threads, logger instances, and child processes. It checks record integrity and
 rotation without touching the normal log folder or starting the daemon.
+
+The `paste-diagnostics` runner injects dispatch/write outcomes, a clock, scheduling,
+logging, and accessibility probes; it does not post real key events or write to
+the system clipboard. It also checks that delayed observations retain their
+state after the insertion caller returns and release bounded admission afterward.
 
 The `configuration-v3-migration` runner exercises production migration and
 newline helpers against temporary files, including legacy runtime parity,
@@ -246,6 +253,34 @@ swiftc -parse-as-library \
   - A configuration error notification should be emitted and defaults used until fixed.
 - Verify sentinel compatibility:
   - `action: ".autoPaste"` and `action: ".none"` must ignore user sibling overrides and apply built-in hard templates.
+
+### Testing Chromium and Electron focus detection
+
+Use the [signed local binary](#signed-xcode-build-for-manual-testing) for these
+checks. Compilation and mocked regression checks cannot prove that a receiving
+app exposes its accessibility tree correctly. Keep the normal configuration and
+service state recorded before switching to a manual daemon; `--config` persists
+the selected path and is not an isolation switch.
+
+- Start with a freshly launched Electron app, such as Visual Studio Code, and a
+  Chromium browser, such as Edge, Brave, or Arc. Avoid enabling their accessibility
+  support manually before the first test. Other assistive tools may already have
+  enabled it, so record whether the problem reproduces before the fix.
+- Dictate into an Electron text field and a browser page's text box. Compare the
+  browser address bar and a native app such as TextEdit as controls. Check the
+  `[AXFocus]`, `[InputField]`, and `[SmartInsert]` log entries for activation,
+  detection times, and available insertion context.
+- Repeat after switching apps, switching fields within an app, and relaunching
+  the receiving app. Confirm that current focus and selected text are read rather
+  than reused from the previous field or process.
+- Test `.autoPaste` with no text field focused. It must retain its direct-paste
+  fallback without Escape or clipboard restoration; unavailable context must not
+  trigger smart formatting. Also check an ordinary insert and a CLI insert.
+- Test both Superwhisper's recommended window setup and **Always close: On** with
+  `defaults.simEsc: false`. The latter must not send an extra Escape into the
+  receiving app. Check for action-level overrides when testing ordinary actions.
+- Move and resize the receiving app's window after dictation, and check that
+  existing assistive tools continue working.
 
 ### Testing Script Wait Modes
 - For `shortcuts`, `scriptsShell`, and `scriptsAS` actions:

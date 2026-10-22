@@ -1183,6 +1183,10 @@ func writeClipboardOriginalSnapshot(
         return false
     }
     guard snapshot.isComplete else { return false }
+    PasteDiagnostics.recordClipboardFinalization(stage: "snapshot-write-start", changeCount: pasteboard.changeCount)
+    defer {
+        PasteDiagnostics.recordClipboardFinalization(stage: "snapshot-write-finished", changeCount: pasteboard.changeCount)
+    }
     let fileURLsOnly: [URL]? = {
         var fileURLs: [URL] = []
         for item in snapshot.items {
@@ -3898,6 +3902,11 @@ class ClipboardMonitor {
                 deadline: .now() + max(0, delay),
                 execute: finalize
             )
+            PasteDiagnostics.recordClipboardFinalization(
+                stage: "group-finalization-scheduled",
+                changeCount: NSPasteboard.general.changeCount,
+                delay: max(0, delay)
+            )
         } else {
             finalize()
         }
@@ -4933,7 +4942,7 @@ class ClipboardMonitor {
         
         logDebug(
             "[ClipboardMonitor] Action clipboard handling completed " +
-            "(succeeded: \(didSucceed), restoreScheduled: \(shouldRestoreClipboard), finalStep: \(shouldStopMonitoringAfterAction))"
+            "(succeeded: \(didSucceed), insertionVerified: false, restoreScheduled: \(shouldRestoreClipboard), finalStep: \(shouldStopMonitoringAfterAction))"
         )
     }
     

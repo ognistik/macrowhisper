@@ -21,11 +21,14 @@ private struct FocusedAXContext {
 private var inputFieldDetectionCacheEntry: InputFieldDetectionCacheEntry?
 private let inputFieldDetectionCacheValidity: TimeInterval = 0.5
 private let inputFieldDetectionCacheQueue = DispatchQueue(label: "inputFieldDetectionCache", attributes: .concurrent)
-private let axFrontAppRetryAttempts = 3
-private let axFrontAppRetryDelay: TimeInterval = 0.02
 private let recentAXFrontAppFallbackWindow: TimeInterval = 0.75
 private var recentAXFrontApp: (app: NSRunningApplication, timestamp: Date)?
 private let recentAXFrontAppQueue = DispatchQueue(label: "frontAppResolutionCache", attributes: .concurrent)
+private let axAppFocusPolicyQueue = DispatchQueue(label: "accessibilityAppFocusPolicy")
+private var axActivationAttemptBudget = AccessibilityActivationAttemptBudget()
+private var axFocusFailureMemo = AccessibilityFocusFailureMemo()
+private let axFocusFailureMemoValidity: TimeInterval = 0.15
+private let axTargetApplicationMessagingTimeout: Float = 0.2
 private let browserURLCacheValidity: TimeInterval = 2.0
 private let browserURLCacheQueue = DispatchQueue(label: "browserURLCache", attributes: .concurrent)
 private let browserInsertionCandidateCacheValidity: TimeInterval = 1.0
@@ -139,86 +142,248 @@ private func getAXFocusedElementOnce() -> AXUIElement? {
 }
 
 private func getAXFocusedApplicationOnce() -> NSRunningApplication? {
-    if let focusedElement = getAXFocusedElementOnce(),
-       let focusedElementApp = runningApplication(for: pidForAXElement(focusedElement)) {
-        return focusedElementApp
-    }
-
     let systemWideElement = AXUIElementCreateSystemWide()
-    if let focusedAppElement = copyAXElementAttribute(systemWideElement, attribute: kAXFocusedApplicationAttribute as CFString),
-       let focusedApp = runningApplication(for: pidForAXElement(focusedAppElement)) {
-        return focusedApp
-    }
-
-    return nil
-}
-
-private func getAXFocusedApplicationWithRetries() -> NSRunningApplication? {
-    guard AXIsProcessTrusted() else {
+    guard let focusedAppElement = copyAXElementAttribute(
+        systemWideElement,
+        attribute: kAXFocusedApplicationAttribute as CFString
+    ) else {
         return nil
     }
-
-    for attempt in 0..<axFrontAppRetryAttempts {
-        if let app = getAXFocusedApplicationOnce() {
-            return app
-        }
-
-        if attempt + 1 < axFrontAppRetryAttempts {
-            Thread.sleep(forTimeInterval: axFrontAppRetryDelay)
-        }
-    }
-
-    return nil
+    return runningApplication(for: pidForAXElement(focusedAppElement))
 }
 
-private func getAXFocusedElementWithRetries() -> AXUIElement? {
-    guard AXIsProcessTrusted() else {
-        return nil
+private func accessibilityActivationKind(for app: NSRunningApplication) -> AccessibilityActivationKind {
+    let hasElectronFramework: Bool
+    if let bundleURL = app.bundleURL {
+        let electronFrameworkURL = bundleURL
+            .appendingPathComponent("Contents/Frameworks/Electron Framework.framework", isDirectory: true)
+        hasElectronFramework = FileManager.default.fileExists(atPath: electronFrameworkURL.path)
+    } else {
+        hasElectronFramework = false
     }
 
-    for attempt in 0..<axFrontAppRetryAttempts {
-        if let focusedElement = getAXFocusedElementOnce() {
-            return focusedElement
-        }
+    return AccessibilityActivationKind.resolve(
+        bundleIdentifier: app.bundleIdentifier,
+        hasElectronFramework: hasElectronFramework
+    )
+}
 
-        if attempt + 1 < axFrontAppRetryAttempts {
-            Thread.sleep(forTimeInterval: axFrontAppRetryDelay)
-        }
+private func appIdentity(for app: NSRunningApplication) -> AccessibilityAppIdentity {
+    AccessibilityAppIdentity(
+        processIdentifier: app.processIdentifier,
+        bundleIdentifier: app.bundleIdentifier
+    )
+}
+
+private func shouldReuseRecentFocusMiss(for app: NSRunningApplication) -> Bool {
+    let identity = appIdentity(for: app)
+    let now = ProcessInfo.processInfo.systemUptime
+    return axAppFocusPolicyQueue.sync {
+        axFocusFailureMemo.shouldReuseMiss(
+            for: identity,
+            now: now,
+            validity: axFocusFailureMemoValidity
+        )
     }
+}
 
-    return nil
+private func recordFocusMiss(for app: NSRunningApplication) {
+    guard accessibilityActivationKind(for: app) != .none else { return }
+    let identity = appIdentity(for: app)
+    let now = ProcessInfo.processInfo.systemUptime
+    axAppFocusPolicyQueue.sync {
+        axFocusFailureMemo.recordMiss(for: identity, at: now)
+    }
+}
+
+private func clearRecentFocusMiss() {
+    axAppFocusPolicyQueue.sync {
+        axFocusFailureMemo.clear()
+    }
+}
+
+private func shouldAttemptAccessibilityActivation(
+    for app: NSRunningApplication,
+    kind: AccessibilityActivationKind
+) -> Bool {
+    let identity = appIdentity(for: app)
+    let now = ProcessInfo.processInfo.systemUptime
+    return axAppFocusPolicyQueue.sync {
+        axActivationAttemptBudget.shouldAttempt(
+            for: identity,
+            kind: kind,
+            now: now,
+            cooldown: 1.0,
+            maximumAttempts: 2
+        )
+    }
+}
+
+private func recordAccessibilityActivation(
+    _ outcome: AccessibilityActivationOutcome,
+    for app: NSRunningApplication
+) {
+    let identity = appIdentity(for: app)
+    axAppFocusPolicyQueue.sync {
+        axActivationAttemptBudget.record(outcome, for: identity)
+    }
+}
+
+private func setTargetApplicationAXTimeout(_ appElement: AXUIElement, for app: NSRunningApplication) {
+    guard accessibilityActivationKind(for: app) != .none else { return }
+    let identity = appIdentity(for: app)
+    let timeoutError = AXUIElementSetMessagingTimeout(appElement, axTargetApplicationMessagingTimeout)
+    if timeoutError != .success {
+        logDebug(
+            "[AXFocus] Could not set target-app AX timeout bundle=\(identity.bundleIdentifier ?? "unknown") " +
+            "pid=\(identity.processIdentifier) error=\(timeoutError.rawValue)"
+        )
+    }
 }
 
 private func focusedAXContext(for app: NSRunningApplication) -> FocusedAXContext? {
-    let appElement = AXUIElementCreateApplication(app.processIdentifier)
-    guard let focusedElement = copyAXElementAttribute(appElement, attribute: kAXFocusedUIElementAttribute as CFString) else {
+    guard AXIsProcessTrusted() else {
+        globalState.lastDetectedFrontApp = app
         return nil
     }
-    return FocusedAXContext(app: app, element: focusedElement)
+
+    let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    let activationKind = accessibilityActivationKind(for: app)
+    let identity = appIdentity(for: app)
+
+    setTargetApplicationAXTimeout(appElement, for: app)
+
+    if let focusedElement = copyAXElementAttribute(appElement, attribute: kAXFocusedUIElementAttribute as CFString) {
+        if let context = focusedAXContext(for: focusedElement, expectedApp: app) {
+            clearRecentFocusMiss()
+            return context
+        }
+    }
+
+    guard activationKind != .none else {
+        globalState.lastDetectedFrontApp = app
+        return nil
+    }
+
+    guard shouldAttemptAccessibilityActivation(for: app, kind: activationKind) else {
+        recordFocusMiss(for: app)
+        globalState.lastDetectedFrontApp = app
+        return nil
+    }
+
+    let activationError: AXError
+    switch activationKind {
+    case .electron:
+        activationError = AXUIElementSetAttributeValue(
+            appElement,
+            "AXManualAccessibility" as CFString,
+            kCFBooleanTrue
+        )
+    case .chromiumBrowser:
+        // Chromium lazily enables its native/basic AX tree when its app AX role is read.
+        var roleValue: CFTypeRef?
+        activationError = AXUIElementCopyAttributeValue(appElement, kAXRoleAttribute as CFString, &roleValue)
+    case .none:
+        return nil
+    }
+
+    let outcome = AccessibilityActivationOutcome.classify(activationError)
+    recordAccessibilityActivation(outcome, for: app)
+    logDebug(
+        "[AXFocus] Activation bundle=\(identity.bundleIdentifier ?? "unknown") pid=\(identity.processIdentifier) " +
+        "kind=\(activationKind) outcome=\(outcome) error=\(activationError.rawValue)"
+    )
+
+    if outcome != .unavailable,
+       let focusedElement = copyAXElementAttribute(appElement, attribute: kAXFocusedUIElementAttribute as CFString) {
+        if let context = focusedAXContext(for: focusedElement, expectedApp: app) {
+            clearRecentFocusMiss()
+            return context
+        }
+    }
+
+    recordFocusMiss(for: app)
+    globalState.lastDetectedFrontApp = app
+    return nil
+}
+
+private func focusedAXContext(
+    for focusedElement: AXUIElement,
+    expectedApp: NSRunningApplication
+) -> FocusedAXContext? {
+    guard let focusedPID = pidForAXElement(focusedElement) else {
+        logDebug("[AXFocus] Could not resolve PID for focused element expectedPID=\(expectedApp.processIdentifier)")
+        return nil
+    }
+
+    guard let actualApp = runningApplication(for: focusedPID) else {
+        logDebug("[AXFocus] Focused element process is no longer running pid=\(focusedPID)")
+        return nil
+    }
+
+    if actualApp.processIdentifier != expectedApp.processIdentifier {
+        logDebug(
+            "[AXFocus] Focused element PID differs from app root expectedPID=\(expectedApp.processIdentifier) " +
+            "actualPID=\(actualApp.processIdentifier); using element owner"
+        )
+    }
+
+    return FocusedAXContext(app: actualApp, element: focusedElement)
 }
 
 private func resolveFocusedAXContext(timeout: TimeInterval = 0.1) -> FocusedAXContext? {
-    if let focusedElement = getAXFocusedElementWithRetries(),
+    let accessibilityTrusted = AXIsProcessTrusted()
+    let axFocusedApp = accessibilityTrusted ? getAXFocusedApplicationOnce() : nil
+
+    if let axFocusedApp,
+       shouldReuseRecentFocusMiss(for: axFocusedApp) {
+        globalState.lastDetectedFrontApp = axFocusedApp
+        logDebug(
+            "[AXFocus] Reusing brief no-focus result for current app bundle=\(axFocusedApp.bundleIdentifier ?? "unknown") " +
+            "pid=\(axFocusedApp.processIdentifier)"
+        )
+        return nil
+    }
+
+    if accessibilityTrusted,
+       let focusedElement = getAXFocusedElementOnce(),
        let app = runningApplication(for: pidForAXElement(focusedElement)) {
+        clearRecentFocusMiss()
         cacheRecentAXFrontApp(app)
         globalState.lastDetectedFrontApp = app
         return FocusedAXContext(app: app, element: focusedElement)
     }
 
-    if let recentApp = getRecentAXFrontApp(),
-       let context = focusedAXContext(for: recentApp) {
-        globalState.lastDetectedFrontApp = recentApp
+    let fallbackApp: NSRunningApplication?
+    if let axFocusedApp {
+        fallbackApp = axFocusedApp
+    } else {
+        let workspaceApp = getWorkspaceFrontmostApplication(timeout: timeout)
+        let recentApp = getRecentAXFrontApp()
+        fallbackApp = workspaceApp ?? recentApp
+    }
+
+    guard let fallbackApp else {
+        globalState.lastDetectedFrontApp = nil
+        return nil
+    }
+
+    if shouldReuseRecentFocusMiss(for: fallbackApp) {
+        globalState.lastDetectedFrontApp = fallbackApp
+        logDebug(
+            "[AXFocus] Reusing brief no-focus result for current app bundle=\(fallbackApp.bundleIdentifier ?? "unknown") " +
+            "pid=\(fallbackApp.processIdentifier)"
+        )
+        return nil
+    }
+
+    if let context = focusedAXContext(for: fallbackApp) {
+        cacheRecentAXFrontApp(context.app)
+        globalState.lastDetectedFrontApp = context.app
         return context
     }
 
-    let workspaceApp = getWorkspaceFrontmostApplication(timeout: timeout)
-    if let workspaceApp,
-       let context = focusedAXContext(for: workspaceApp) {
-        globalState.lastDetectedFrontApp = workspaceApp
-        return context
-    }
-
-    globalState.lastDetectedFrontApp = workspaceApp
+    globalState.lastDetectedFrontApp = fallbackApp
     return nil
 }
 
@@ -227,15 +392,9 @@ func resolveFrontApp(timeout: TimeInterval = 0.1) -> NSRunningApplication? {
         return context.app
     }
 
-    if let axFocusedApp = getAXFocusedApplicationWithRetries() {
-        cacheRecentAXFrontApp(axFocusedApp)
-        globalState.lastDetectedFrontApp = axFocusedApp
-        return axFocusedApp
-    }
-
-    if let recentApp = getRecentAXFrontApp() {
-        globalState.lastDetectedFrontApp = recentApp
-        return recentApp
+    if let detectedApp = globalState.lastDetectedFrontApp,
+       !detectedApp.isTerminated {
+        return detectedApp
     }
 
     let workspaceApp = getWorkspaceFrontmostApplication(timeout: timeout)
@@ -336,13 +495,15 @@ func isInInputField() -> Bool {
     }
 
     guard let context = resolveFocusedAXContext() else {
-        if resolveFrontApp() == nil {
+        if let detectedApp = globalState.lastDetectedFrontApp,
+           !detectedApp.isTerminated {
+            logDebug("[InputField] No focused element found for \(detectedApp.localizedName ?? "frontmost app")")
+            return finish(false, reason: "noFocusedElement")
+        } else {
             logDebug("[InputField] No frontmost app detected")
             globalState.lastDetectedFrontApp = nil
             return finish(false, reason: "noFrontApp")
         }
-        logDebug("[InputField] No focused element found")
-        return finish(false, reason: "noFocusedElement")
     }
 
     let app = context.app
@@ -494,7 +655,7 @@ func simulateEscKeyPress(activeInsert: AppConfiguration.Insert?) {
 }
 
 /// Enhanced key simulation with proper modifier handling
-func simulateKeyDown(key: Int, flags: CGEventFlags = []) {
+func simulateKeyDown(key: Int, flags: CGEventFlags = [], diagnostics: PasteDiagnostics? = nil) {
     let source = CGEventSource(stateID: .hidSystemState)
     let keyCode = CGKeyCode(key)
     
@@ -506,6 +667,16 @@ func simulateKeyDown(key: Int, flags: CGEventFlags = []) {
 
     keyDownEvent?.post(tap: .cghidEventTap)
     keyUpEvent?.post(tap: .cghidEventTap)
+    if let diagnostics {
+        diagnostics.recordDispatch(
+            key: key,
+            flags: flags,
+            sourceCreated: source != nil,
+            keyDownCreated: keyDownEvent != nil,
+            keyUpCreated: keyUpEvent != nil,
+            postedAt: DispatchTime.now().uptimeNanoseconds
+        )
+    }
 }
 
 // MARK: - Simple Text Typing (Complete Solution)
@@ -660,15 +831,15 @@ private func isInputLikeElementForSmartInsert(_ element: AXUIElement, roleHint: 
 /// Returns insertion boundary characters around the current cursor/selection in a focused input field.
 /// The left character is immediately before selection start, and the right character is immediately after selection end.
 /// Returns nil when context is unavailable or unreliable.
-func getInputInsertionContext(insertionText: String? = nil) -> InputInsertionContext? {
+func getInputInsertionContext(insertionText: String? = nil, diagnostics: PasteDiagnostics? = nil) -> InputInsertionContext? {
     if Thread.isMainThread {
-        return readInputInsertionContext(insertionText: insertionText)
+        return readInputInsertionContext(insertionText: insertionText, diagnostics: diagnostics)
     }
 
     var context: InputInsertionContext?
     let semaphore = DispatchSemaphore(value: 0)
     DispatchQueue.main.async {
-        context = readInputInsertionContext(insertionText: insertionText)
+        context = readInputInsertionContext(insertionText: insertionText, diagnostics: diagnostics)
         semaphore.signal()
     }
     let waitResult = semaphore.wait(timeout: .now() + 0.2)
@@ -678,7 +849,7 @@ func getInputInsertionContext(insertionText: String? = nil) -> InputInsertionCon
     return context
 }
 
-private func readInputInsertionContext(insertionText: String?) -> InputInsertionContext? {
+private func readInputInsertionContext(insertionText: String?, diagnostics: PasteDiagnostics?) -> InputInsertionContext? {
     let startedAt = CFAbsoluteTimeGetCurrent()
 
     guard AXIsProcessTrusted() else {
@@ -687,7 +858,12 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
     }
 
     guard let context = resolveFocusedAXContext(timeout: 0.2) else {
-        logDebug("[SmartInsert] No frontmost application found")
+        if let detectedApp = globalState.lastDetectedFrontApp,
+           !detectedApp.isTerminated {
+            logDebug("[SmartInsert] No focused element found for app \(detectedApp.bundleIdentifier ?? "unknown")")
+        } else {
+            logDebug("[SmartInsert] No frontmost application found")
+        }
         return nil
     }
     let frontApp = context.app
@@ -794,6 +970,14 @@ private func readInputInsertionContext(insertionText: String?) -> InputInsertion
         "elapsedMs=\(Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0).rounded()))"
     )
 
+    diagnostics?.captureContext(
+        app: frontApp,
+        element: effectiveSnapshot.element,
+        focusedElement: element,
+        text: effectiveSnapshot.fullText,
+        range: effectiveSnapshot.selectedRange,
+        role: effectiveSnapshot.role
+    )
     return effectiveSnapshot.context
 }
 
@@ -2274,25 +2458,21 @@ func getSelectedText() -> String {
         return ""
     }
     
-    // Resolve the front app cheaply; focused-element AX access happens on the target app below.
-    guard let frontApp = resolveFrontAppIdentity(timeout: 0.2) else {
-        logDebug("[SelectedText] No frontmost application found")
+    guard let context = resolveFocusedAXContext(timeout: 0.2) else {
+        if let detectedApp = globalState.lastDetectedFrontApp,
+           !detectedApp.isTerminated {
+            logDebug("[SelectedText] No focused element found for \(detectedApp.localizedName ?? "unknown app")")
+        } else {
+            logDebug("[SelectedText] No frontmost application found")
+        }
         return ""
     }
-    
-    // Create accessibility element for the application
+
+    let frontApp = context.app
+    let axElement = context.element
     let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+    setTargetApplicationAXTimeout(appElement, for: frontApp)
 
-    // Get the focused UI element
-    var focusedElement: CFTypeRef?
-    let focusedError = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
-
-    guard focusedError == .success, let focusedElement = focusedElement else {
-        logDebug("[SelectedText] Could not get focused element for \(frontApp.localizedName ?? "unknown app")")
-        return ""
-    }
-
-    let axElement = focusedElement as! AXUIElement
     if let selectedText = extractSelectedTextFromAXElement(axElement) {
         logDebug("[SelectedText] Found selected text from focused element.")
         return selectedText

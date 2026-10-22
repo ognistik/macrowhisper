@@ -710,6 +710,22 @@ for each action type's tokens and fallback behavior.
 #### 11. [src/macrowhisper/Utils/Accessibility.swift](../../src/macrowhisper/Utils/Accessibility.swift)
 - **Purpose**: macOS accessibility integration
 - **Key Features**: Input field detection, keyboard simulation
+- **On-demand accessibility**: Recognized Chromium browsers and Electron apps can
+  be asked to expose accessibility information when focused-element lookup fails.
+  Activation and short-lived missing-focus retry state are shared by field
+  detection and smart insertion. Focused elements are read live; a missing field
+  keeps the existing conservative `.autoPaste` and smart-insertion fallback.
+- **Paste diagnostics**: `[PasteDiagnostic]` lines record key-event creation and
+  flags, clipboard-write success and change count, monotonic timings, and
+  clipboard restoration boundaries. When smart insertion already captured an
+  AX snapshot, diagnostics reuse that snapshot; they add no pre-paste AX reads.
+  A background worker observes the focused field around 100 ms and 500 ms after paste,
+  with each AX request bounded to 20 ms. It does not delay key dispatch, retry or
+  repost events, change focus, or alter restoration timing. A prior snapshot is
+  unavailable when smart-insert checks are disabled or AX is unsupported.
+  `changed`, `unchanged`, and `unavailable` describe observations only and do
+  not guarantee successful insertion. These new logs contain no clipboard text,
+  field text, or URLs, even when logging is unredacted.
 - **ESC Logic**: Smart ESC handling based on application state
 
 ### Supporting Files:
