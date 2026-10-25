@@ -4,8 +4,12 @@
 
 ### Added
 * Added privacy-safe `[PasteDiagnostic]` logging for paste events, clipboard writes and restoration, timing, and bounded post-paste accessibility observations.
+* Added privacy-safe recording startup phase logs to help locate future daemon crashes, including native-object cleanup boundaries.
 
 ### Fixed
+* Serialized native clipboard transactions and their temporary-object cleanup across watcher, polling, and CLI execution to prevent concurrent access to shared pasteboard state.
+* Fixed a clipboard-monitor teardown crash when its final reference was released on its own session queue.
+* Fixed late main-thread focus reads racing with callers that had already timed out.
 * Improved text-field detection in Chromium browsers and Electron apps that enable accessibility information on demand. Avoids repeated failed focus lookups delaying pastes when the receiving app does not expose a focused field. ([#33](https://github.com/ognistik/macrowhisper/issues/33))
 
 ---

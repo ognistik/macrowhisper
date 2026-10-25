@@ -165,6 +165,12 @@ regression runners](README.md#focused-regression-runners) for the commands.
 
 ### 5. Clipboard and Context Capture
 
+#### [src/macrowhisper/Utils/ClipboardAccess.swift](../../src/macrowhisper/Utils/ClipboardAccess.swift)
+- Serializes complete native clipboard reads and writes across watcher, polling,
+  restoration, attachment handoff, and CLI execution with one recursive lock
+- Drains local autorelease pools before releasing the native access lock; only
+  value snapshots cross this boundary, with no monitor queue waits or callbacks
+
 #### [src/macrowhisper/Utils/ClipboardMonitor.swift](../../src/macrowhisper/Utils/ClipboardMonitor.swift)
 - Maintains two clipboard layers:
   - lightweight global history for pre-recording context
@@ -212,6 +218,8 @@ regression runners](README.md#focused-regression-runners) for the commands.
 - Preserves CLI clipboard behavior separately from watcher execution while matching chain-level restore semantics; pure CLI and `copyAction` do not perform attachment handoff, although supported original restoration may be shared
 
 ### 8. Supporting Infrastructure
+- [src/macrowhisper/Utils/MainThreadRead.swift](../../src/macrowhisper/Utils/MainThreadRead.swift): bounded main-thread context reads with synchronized result publication and cancellation after timeout
+- [src/macrowhisper/Utils/RuntimeDiagnostics.swift](../../src/macrowhisper/Utils/RuntimeDiagnostics.swift): privacy-safe recording phase markers before work, before local autorelease cleanup, and after cleanup
 - [src/macrowhisper/Utils/SchemaManager.swift](../../src/macrowhisper/Utils/SchemaManager.swift): finds a local schema and manages `$schema` references without requiring network access
 - [src/macrowhisper/History/HistoryManager.swift](../../src/macrowhisper/History/HistoryManager.swift): deletes old recording folders based on `defaults.history`
 - [src/macrowhisper/Utils/ServiceManager.swift](../../src/macrowhisper/Utils/ServiceManager.swift): install/start/stop/restart/uninstall for launchd service mode

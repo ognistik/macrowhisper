@@ -1067,13 +1067,11 @@ class SocketCommunication {
             return
         }
 
-        let pasteboard = NSPasteboard.general
         if let legacyContent {
             clipboardMonitorRef?.suppressNextClipboardCapture(for: legacyContent, duration: 1.5)
-            PasteDiagnostics.recordClipboardFinalization(stage: "cli-text-restore-start", changeCount: pasteboard.changeCount)
-            pasteboard.clearContents()
-            pasteboard.setString(legacyContent, forType: .string)
-            PasteDiagnostics.recordClipboardFinalization(stage: "cli-text-restore-finished", changeCount: pasteboard.changeCount)
+            PasteDiagnostics.recordClipboardFinalization(stage: "cli-text-restore-start", changeCount: ClipboardAccess.changeCount)
+            let write = ClipboardAccess.writeText(legacyContent)
+            PasteDiagnostics.recordClipboardFinalization(stage: "cli-text-restore-finished", changeCount: write.changeCount)
             logDebug("[CLI] Restored text clipboard content captured at chain start")
         } else {
             // A faithfully captured empty clipboard arrives as a non-nil empty
@@ -1194,9 +1192,7 @@ class SocketCommunication {
 
     /// Writes plain clipboard text for user-visible copy operations.
     private func writeClipboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        ClipboardAccess.writeText(text)
     }
 
     /// Prevents Macrowhisper clipboard writes from polluting clipboardContext capture.
@@ -2619,9 +2615,8 @@ class SocketCommunication {
             if !isInInputField() {
                 logDebug("Auto paste - not in input field, direct paste only")
                 suppressSelfClipboardCapture(resolvedText)
-                let pasteboard = NSPasteboard.general; pasteboard.clearContents()
-                let didWrite = pasteboard.setString(resolvedText, forType: .string)
-                diagnostics.recordClipboardWrite(succeeded: didWrite, changeCount: pasteboard.changeCount)
+                let write = ClipboardAccess.writeText(resolvedText)
+                diagnostics.recordClipboardWrite(succeeded: write.succeeded, changeCount: write.changeCount)
                 simulateKeyDown(key: 9, flags: .maskCommand, diagnostics: diagnostics) // Cmd+V
                 performSimReturnIfNeeded(activeInsert: activeInsert); return
             }
@@ -2660,9 +2655,8 @@ class SocketCommunication {
             if !isInInputField() {
                 logInfo("CLI exec auto paste - not in input field, direct paste only")
                 suppressSelfClipboardCapture(resolvedText)
-                let pasteboard = NSPasteboard.general; pasteboard.clearContents()
-                let didWrite = pasteboard.setString(resolvedText, forType: .string)
-                diagnostics.recordClipboardWrite(succeeded: didWrite, changeCount: pasteboard.changeCount)
+                let write = ClipboardAccess.writeText(resolvedText)
+                diagnostics.recordClipboardWrite(succeeded: write.succeeded, changeCount: write.changeCount)
                 simulateKeyDown(key: 9, flags: .maskCommand, diagnostics: diagnostics) // Cmd+V
                 performSimReturnIfNeeded(activeInsert: activeInsert)
                 return true
@@ -2700,9 +2694,8 @@ class SocketCommunication {
             if !isInInputField() {
                 logDebug("Clipboard-monitored auto paste - not in input field, direct paste only")
                 suppressSelfClipboardCapture(resolvedText)
-                let pasteboard = NSPasteboard.general; pasteboard.clearContents()
-                let didWrite = pasteboard.setString(resolvedText, forType: .string)
-                diagnostics.recordClipboardWrite(succeeded: didWrite, changeCount: pasteboard.changeCount)
+                let write = ClipboardAccess.writeText(resolvedText)
+                diagnostics.recordClipboardWrite(succeeded: write.succeeded, changeCount: write.changeCount)
                 simulateKeyDown(key: 9, flags: .maskCommand, diagnostics: diagnostics) // Cmd+V
                 performSimReturnIfNeeded(activeInsert: activeInsert); return true
             }
@@ -2968,8 +2961,6 @@ class SocketCommunication {
     }
 
     private func pasteUsingClipboard(_ text: String, activeInsert: AppConfiguration.Insert?, diagnostics: PasteDiagnostics) {
-        let pasteboard = NSPasteboard.general
-        let originalContent = pasteboard.string(forType: .string)
         let smartCasingEnabled = activeInsert?.smartCasing ?? globalConfigManager?.config.defaults.smartCasing ?? true
         let smartPunctuationEnabled = activeInsert?.smartPunctuation ?? globalConfigManager?.config.defaults.smartPunctuation ?? true
         let smartSpacingEnabled = activeInsert?.smartSpacing ?? globalConfigManager?.config.defaults.smartSpacing ?? true
@@ -2981,29 +2972,39 @@ class SocketCommunication {
             )
         }
         suppressSelfClipboardCapture(text)
-        pasteboard.clearContents()
-        let didWrite = pasteboard.setString(text, forType: .string)
-        diagnostics.recordClipboardWrite(succeeded: didWrite, changeCount: pasteboard.changeCount)
+        let (originalContent, write) = ClipboardAccess.withPasteboard { pasteboard in
+            let original = pasteboard.string(forType: .string)
+            pasteboard.clearContents()
+            let succeeded = pasteboard.setString(text, forType: .string)
+            return (original, ClipboardAccess.TextWriteResult(
+                succeeded: succeeded,
+                changeCount: pasteboard.changeCount,
+                confirmedText: shouldLogSmartInsertClipboard ? pasteboard.string(forType: .string) : nil
+            ))
+        }
+        diagnostics.recordClipboardWrite(succeeded: write.succeeded, changeCount: write.changeCount)
         if shouldLogSmartInsertClipboard {
-            let confirm = pasteboard.string(forType: .string) ?? ""
+            let confirm = write.confirmedText ?? ""
             logDebug(
                 "[SmartInsert] Pasteboard confirmed (restore): len=\(confirm.count) " +
                 "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(summarizeForLogs(visibleWhitespace(confirm), maxPreview: 120))"
             )
         }
         simulateKeyDown(key: 9, flags: .maskCommand, diagnostics: diagnostics) // Cmd+V
-        PasteDiagnostics.recordClipboardFinalization(stage: "legacy-restore-scheduled", changeCount: pasteboard.changeCount, delay: 0.3)
+        PasteDiagnostics.recordClipboardFinalization(stage: "legacy-restore-scheduled", changeCount: ClipboardAccess.changeCount, delay: 0.3)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            PasteDiagnostics.recordClipboardFinalization(stage: "legacy-restore-start", changeCount: pasteboard.changeCount)
-            pasteboard.clearContents()
-            if let original = originalContent { pasteboard.setString(original, forType: .string) }
-            PasteDiagnostics.recordClipboardFinalization(stage: "legacy-restore-finished", changeCount: pasteboard.changeCount)
+            let restoredChangeCount = ClipboardAccess.withPasteboard { pasteboard in
+                PasteDiagnostics.recordClipboardFinalization(stage: "legacy-restore-start", changeCount: pasteboard.changeCount)
+                pasteboard.clearContents()
+                if let original = originalContent { pasteboard.setString(original, forType: .string) }
+                return pasteboard.changeCount
+            }
+            PasteDiagnostics.recordClipboardFinalization(stage: "legacy-restore-finished", changeCount: restoredChangeCount)
         }
     }
     
     // Version of pasteUsingClipboard that doesn't save/restore clipboard (used with ClipboardMonitor)
     private func pasteUsingClipboardNoRestore(_ text: String, activeInsert: AppConfiguration.Insert?, diagnostics: PasteDiagnostics) {
-        let pasteboard = NSPasteboard.general
         let smartCasingEnabled = activeInsert?.smartCasing ?? globalConfigManager?.config.defaults.smartCasing ?? true
         let smartPunctuationEnabled = activeInsert?.smartPunctuation ?? globalConfigManager?.config.defaults.smartPunctuation ?? true
         let smartSpacingEnabled = activeInsert?.smartSpacing ?? globalConfigManager?.config.defaults.smartSpacing ?? true
@@ -3015,11 +3016,10 @@ class SocketCommunication {
             )
         }
         suppressSelfClipboardCapture(text)
-        pasteboard.clearContents()
-        let didWrite = pasteboard.setString(text, forType: .string)
-        diagnostics.recordClipboardWrite(succeeded: didWrite, changeCount: pasteboard.changeCount)
+        let write = ClipboardAccess.writeText(text, confirm: shouldLogSmartInsertClipboard)
+        diagnostics.recordClipboardWrite(succeeded: write.succeeded, changeCount: write.changeCount)
         if shouldLogSmartInsertClipboard {
-            let confirm = pasteboard.string(forType: .string) ?? ""
+            let confirm = write.confirmedText ?? ""
             logDebug(
                 "[SmartInsert] Pasteboard confirmed (no-restore): len=\(confirm.count) " +
                 "leadingSpaces=\(countLeadingSpaces(confirm)) visible=\(summarizeForLogs(visibleWhitespace(confirm), maxPreview: 120))"
@@ -3725,7 +3725,7 @@ class SocketCommunication {
                     }
 
                     let initialClipboardSnapshot = clipboardMonitorRef?.captureOriginalClipboardSnapshot()
-                    let initialClipboardContent = NSPasteboard.general.string(forType: .string)
+                    let initialClipboardContent = ClipboardAccess.readText()
                     let chainResult = try executeActionChainForCLI(
                         initialAction: selectedAction.action,
                         initialActionName: selectedAction.name,
@@ -3827,7 +3827,7 @@ class SocketCommunication {
                         )
 
                         let initialClipboardSnapshot = clipboardMonitorRef?.captureOriginalClipboardSnapshot()
-                        let initialClipboardContent = NSPasteboard.general.string(forType: .string)
+                        let initialClipboardContent = ClipboardAccess.readText()
                         let chainResult = try executeActionChainForCLI(
                             initialAction: action,
                             initialActionName: actionName,

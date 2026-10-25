@@ -113,13 +113,15 @@ class RecordingsFolderWatcher {
 
         source?.setEventHandler { [weak self] in
             guard let self = self else { return }
-            let event = self.source?.data ?? []
-            if event.contains(.delete) || event.contains(.rename) || event.contains(.revoke) ||
-                !FileManager.default.fileExists(atPath: self.path) {
-                self.reportWatchedFolderInvalidation()
-                return
+            RuntimeDiagnostics.withPhase("watcher.folder-event") {
+                let event = self.source?.data ?? []
+                if event.contains(.delete) || event.contains(.rename) || event.contains(.revoke) ||
+                    !FileManager.default.fileExists(atPath: self.path) {
+                    self.reportWatchedFolderInvalidation()
+                    return
+                }
+                self.handleFolderChangeEvent()
             }
-            self.handleFolderChangeEvent()
         }
 
         source?.setCancelHandler {

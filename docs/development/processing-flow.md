@@ -176,6 +176,15 @@ membership before writing the clipboard. Concurrent queues with barrier writes
 coordinate this state; operations requiring both queues use global-history
 then session ordering.
 
+Native pasteboard operations use a separate process-wide `ClipboardAccess`
+boundary. It serializes complete reads and clear/write transactions and drains
+their local autorelease pools before unlocking. Snapshot capture returns value
+data rather than live pasteboard items. Native transactions must not wait on
+monitor state queues, dispatch to main, or invoke caller callbacks; this keeps
+the existing global-history then session ordering free of a reverse dependency.
+Monitor deinitialization invalidates its detached timers without synchronously
+entering the session queue, since its final reference may be released there.
+
 ---
 
 ## Meta.json Processing

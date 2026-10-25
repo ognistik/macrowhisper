@@ -37,7 +37,7 @@ private var browserInsertionCandidateCache: BrowserInsertionCandidateCacheEntry?
 private var browserURLCacheEntry: BrowserURLCacheEntry?
 
 func requestAccessibilityPermission() -> Bool {
-    let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
+    let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as NSString: true]
     return AXIsProcessTrustedWithOptions(options)
 }
 
@@ -55,7 +55,7 @@ func requestAccessibilityPermissionOnStartup() {
     } else {
         // If not granted, show the permission dialog
         logInfo("Requesting accessibility permissions during startup for key simulation and input field detection...")
-        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true]
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as NSString: true]
         let granted = AXIsProcessTrustedWithOptions(options)
         
         if granted {
@@ -126,14 +126,9 @@ private func getWorkspaceFrontmostApplication(timeout: TimeInterval = 0.1) -> NS
         return NSWorkspace.shared.frontmostApplication
     }
 
-    var frontApp: NSRunningApplication?
-    let semaphore = DispatchSemaphore(value: 0)
-    DispatchQueue.main.async {
-        frontApp = NSWorkspace.shared.frontmostApplication
-        semaphore.signal()
-    }
-    _ = semaphore.wait(timeout: .now() + timeout)
-    return frontApp
+    return MainThreadRead.perform(timeout: timeout) {
+        NSWorkspace.shared.frontmostApplication
+    } ?? nil
 }
 
 private func getAXFocusedElementOnce() -> AXUIElement? {
@@ -836,15 +831,11 @@ func getInputInsertionContext(insertionText: String? = nil, diagnostics: PasteDi
         return readInputInsertionContext(insertionText: insertionText, diagnostics: diagnostics)
     }
 
-    var context: InputInsertionContext?
-    let semaphore = DispatchSemaphore(value: 0)
-    DispatchQueue.main.async {
-        context = readInputInsertionContext(insertionText: insertionText, diagnostics: diagnostics)
-        semaphore.signal()
-    }
-    let waitResult = semaphore.wait(timeout: .now() + 0.2)
-    if waitResult == .timedOut {
+    guard let context = MainThreadRead.perform(timeout: 0.2, {
+        readInputInsertionContext(insertionText: insertionText, diagnostics: diagnostics)
+    }) else {
         logDebug("[SmartInsert] Timed out while reading insertion context on main thread")
+        return nil
     }
     return context
 }

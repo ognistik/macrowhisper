@@ -57,6 +57,29 @@ You can also use verbose mode:
 macrowhisper --verbose
 ```
 
+### Unexpected daemon restarts
+
+An unclean `[Lifecycle]` startup warning means the previous daemon did not
+record a clean shutdown. To distinguish a crash from a force quit or kill,
+look for a matching `macrowhisper-*.ips` report in
+`~/Library/Logs/DiagnosticReports/`. Match its process ID and capture time
+with the application log; the report's filename time can be slightly later.
+
+`[RuntimeDiagnostics]` records a startup safety revision and bounded recording
+startup phases. Each phase has a process ID, phase ID, main/background thread
+label, recording folder basename, and monotonic duration. `begin` precedes the
+work, `body-finished` precedes local native-object cleanup, and `end` follows
+that cleanup. A missing `end` after `body-finished` helps narrow down a crash
+during cleanup, but does not identify the defective object by itself. These
+markers contain no dictation, clipboard text, field text, or full recording
+paths and are recorded without enabling verbose or unredacted logging.
+
+For another crash, retain the matching `.ips` report and the surrounding log
+entries, including `[Lifecycle]`, `[RuntimeDiagnostics]`, `[ClipboardMonitor]`,
+and any `[PasteDiagnostic]` entries. The daemon continues to ignore existing
+recordings on startup; these diagnostics do not replay actions or display
+recovery prompts.
+
 ## Common problems
 
 ### Nothing pastes

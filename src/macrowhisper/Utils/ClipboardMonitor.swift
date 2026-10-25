@@ -509,45 +509,49 @@ let CLIPBOARD_FILENAMES_PASTEBOARD_TYPE = NSPasteboard.PasteboardType("NSFilenam
 @discardableResult
 func writeOrderedClipboardFileList(
     _ fileURLs: [URL],
-    to pasteboard: NSPasteboard = .general
+    to pasteboard: NSPasteboard? = nil
 ) -> Bool {
-    let validFileURLs = fileURLs.filter(\.isFileURL)
-    guard validFileURLs.count == fileURLs.count,
-          !validFileURLs.isEmpty,
-          let propertyListData = try? PropertyListSerialization.data(
-            fromPropertyList: validFileURLs.map(\.path),
-            format: .xml,
-            options: 0
-          ) else {
-        return false
-    }
+    ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+        let validFileURLs = fileURLs.filter(\.isFileURL)
+        guard validFileURLs.count == fileURLs.count,
+              !validFileURLs.isEmpty,
+              let propertyListData = try? PropertyListSerialization.data(
+                fromPropertyList: validFileURLs.map(\.path),
+                format: .xml,
+                options: 0
+              ) else {
+            return false
+        }
 
-    // Write one eager Finder file list. NSURL pasteboard writers can vend
-    // their representations lazily; that makes the clipboard depend on the
-    // writer remaining available and has proved unreliable for generated
-    // images. macOS synthesizes the public file-URL flavors from this native
-    // filename-array representation.
-    pasteboard.declareTypes([CLIPBOARD_FILENAMES_PASTEBOARD_TYPE], owner: nil)
-    return pasteboard.setData(
-        propertyListData,
-        forType: CLIPBOARD_FILENAMES_PASTEBOARD_TYPE
-    )
+        // Write one eager Finder file list. NSURL pasteboard writers can vend
+        // their representations lazily; that makes the clipboard depend on the
+        // writer remaining available and has proved unreliable for generated
+        // images. macOS synthesizes the public file-URL flavors from this native
+        // filename-array representation.
+        pasteboard.declareTypes([CLIPBOARD_FILENAMES_PASTEBOARD_TYPE], owner: nil)
+        return pasteboard.setData(
+            propertyListData,
+            forType: CLIPBOARD_FILENAMES_PASTEBOARD_TYPE
+        )
+    }
 }
 
 private func pasteboardContainsOrderedClipboardFileList(
     _ fileURLs: [URL],
     on pasteboard: NSPasteboard
 ) -> Bool {
-    guard fileURLs.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }),
-          let data = pasteboard.data(forType: CLIPBOARD_FILENAMES_PASTEBOARD_TYPE),
-          let paths = try? PropertyListSerialization.propertyList(
-            from: data,
-            options: [],
-            format: nil
-          ) as? [String] else {
-        return false
+    ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+        guard fileURLs.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }),
+              let data = pasteboard.data(forType: CLIPBOARD_FILENAMES_PASTEBOARD_TYPE),
+              let paths = try? PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+              ) as? [String] else {
+            return false
+        }
+        return paths == fileURLs.map(\.path)
     }
-    return paths == fileURLs.map(\.path)
 }
 
 /// An immutable, fully materialized attachment handoff. Existing file URLs are
@@ -800,14 +804,14 @@ final class ClipboardAttachmentFileStore {
     @discardableResult
     func commit(
         _ handoff: PreparedClipboardAttachmentFileHandoff,
-        to pasteboard: NSPasteboard = .general
+        to pasteboard: NSPasteboard? = nil
     ) -> Bool {
         commitResult(handoff, to: pasteboard) == .committed
     }
 
     func commitResult(
         _ handoff: PreparedClipboardAttachmentFileHandoff,
-        to pasteboard: NSPasteboard = .general
+        to pasteboard: NSPasteboard? = nil
     ) -> ClipboardAttachmentCommitResult {
         guard !handoff.fileURLs.isEmpty else {
             discard(handoff)
@@ -836,8 +840,12 @@ final class ClipboardAttachmentFileStore {
         // Exercise the exact serialization on an isolated pasteboard before
         // touching the user's clipboard. This catches malformed or rejected
         // filename arrays without changing the general pasteboard.
-        let stagingPasteboard = NSPasteboard.withUniqueName()
-        guard writeOrderedClipboardFileList(handoff.fileURLs, to: stagingPasteboard) else {
+        let stagingWriteSucceeded = ClipboardAccess.withPasteboard(pasteboard) { _ in
+            let stagingPasteboard = NSPasteboard.withUniqueName()
+            defer { stagingPasteboard.releaseGlobally() }
+            return writeOrderedClipboardFileList(handoff.fileURLs, to: stagingPasteboard)
+        }
+        guard stagingWriteSucceeded else {
             logWarning(
                 "[ClipboardMonitor] Attachment handoff commit skipped " +
                 "(reason: filename-array-preflight-failed)"
@@ -846,7 +854,25 @@ final class ClipboardAttachmentFileStore {
             return .preservedCurrentClipboard
         }
 
-        guard pasteboard.changeCount == previousSnapshot.changeCount else {
+        var didWrite = false
+        var didVerify = false
+        var didRecover = false
+        let clipboardWasUnchanged = ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+            guard pasteboard.changeCount == previousSnapshot.changeCount else {
+                return false
+            }
+
+            didWrite = writeOrderedClipboardFileList(handoff.fileURLs, to: pasteboard)
+            didVerify = didWrite && pasteboardContainsOrderedClipboardFileList(
+                handoff.fileURLs,
+                on: pasteboard
+            )
+            if !didWrite || !didVerify {
+                didRecover = writeClipboardOriginalSnapshotNatively(previousSnapshot, to: pasteboard)
+            }
+            return true
+        }
+        guard clipboardWasUnchanged else {
             logWarning(
                 "[ClipboardMonitor] Attachment handoff commit skipped " +
                 "(reason: clipboard-changed-during-preflight)"
@@ -855,14 +881,8 @@ final class ClipboardAttachmentFileStore {
             return .preservedCurrentClipboard
         }
 
-        let didWrite = writeOrderedClipboardFileList(handoff.fileURLs, to: pasteboard)
-        let didVerify = didWrite && pasteboardContainsOrderedClipboardFileList(
-            handoff.fileURLs,
-            on: pasteboard
-        )
         let didCommit = didWrite && didVerify
         if !didCommit {
-            let didRecover = writeClipboardOriginalSnapshotNatively(previousSnapshot, to: pasteboard)
             logWarning(
                 "[ClipboardMonitor] Attachment handoff commit failed " +
                 "(reason: \(didWrite ? "post-write-verification-failed" : "general-pasteboard-write-rejected"), " +
@@ -896,59 +916,68 @@ final class ClipboardAttachmentFileStore {
     /// was interrupted before its ownership marker was written. Borrowed user
     /// files are never inside `rootDirectory` and are never deletion targets.
     @discardableResult
-    func cleanupUnused(pasteboard: NSPasteboard = .general) -> Int {
+    func cleanupUnused(pasteboard: NSPasteboard? = nil) -> Int {
         guard hasManagedCleanupCandidates() else { return 0 }
 
-        let initialChangeCount = pasteboard.changeCount
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [
-            .urlReadingFileURLsOnly: true
-        ]
-        let currentFileURLs = (pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: options
-        ) ?? []).compactMap { ($0 as? NSURL) as URL? }
-        let advertisesEagerFileList = pasteboard.types?.contains(
-            CLIPBOARD_FILENAMES_PASTEBOARD_TYPE
-        ) == true
-        let eagerFilenameData = pasteboard.data(
-            forType: CLIPBOARD_FILENAMES_PASTEBOARD_TYPE
-        )
-        let eagerFilenamePaths: [String]? = eagerFilenameData.flatMap { data in
-            try? PropertyListSerialization.propertyList(
-                from: data,
-                options: [],
-                format: nil
-            ) as? [String]
+        let pasteboardSnapshot = ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+            let initialChangeCount = pasteboard.changeCount
+            let options: [NSPasteboard.ReadingOptionKey: Any] = [
+                .urlReadingFileURLsOnly: true
+            ]
+            let currentFileURLs = (pasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: options
+            ) ?? []).compactMap { ($0 as? NSURL) as URL? }
+            let advertisesEagerFileList = pasteboard.types?.contains(
+                CLIPBOARD_FILENAMES_PASTEBOARD_TYPE
+            ) == true
+            let eagerFilenameData = pasteboard.data(
+                forType: CLIPBOARD_FILENAMES_PASTEBOARD_TYPE
+            )
+            let eagerFilenamePaths: [String]? = eagerFilenameData.flatMap { data in
+                try? PropertyListSerialization.propertyList(
+                    from: data,
+                    options: [],
+                    format: nil
+                ) as? [String]
+            }
+            return (
+                changeCount: initialChangeCount,
+                fileURLs: currentFileURLs,
+                advertisesEagerFileList: advertisesEagerFileList,
+                eagerFilenamePaths: eagerFilenamePaths,
+                isStable: pasteboard.changeCount == initialChangeCount
+            )
         }
-        guard pasteboard.changeCount == initialChangeCount else {
+        guard pasteboardSnapshot.isStable else {
             logDebug(
                 "[ClipboardMonitor] Attachment cache cleanup skipped " +
-                "(reason: clipboard-changed-during-read)"
+                    "(reason: clipboard-changed-during-read, initialChangeCount: \(pasteboardSnapshot.changeCount))"
             )
             return 0
         }
-        guard !advertisesEagerFileList || eagerFilenamePaths != nil else {
+        guard !pasteboardSnapshot.advertisesEagerFileList || pasteboardSnapshot.eagerFilenamePaths != nil else {
             if shouldEmitRateLimitedLog(
                 key: "ClipboardMonitor.attachmentCleanup.advertisedFileListUnavailable",
                 cooldown: 60 * 60
             ) {
                 logDebug(
                     "[ClipboardMonitor] Attachment cache cleanup deferred safely " +
-                    "(reason: advertised-file-list-unavailable, changeCount: \(initialChangeCount))"
+                    "(reason: advertised-file-list-unavailable, changeCount: \(pasteboardSnapshot.changeCount))"
                 )
             }
             return 0
         }
-        let eagerFilenameURLs = (eagerFilenamePaths ?? []).map {
+        let eagerFilenameURLs = (pasteboardSnapshot.eagerFilenamePaths ?? []).map {
             URL(fileURLWithPath: $0)
         }
-        let preservedFileURLs = currentFileURLs + eagerFilenameURLs
+        let preservedFileURLs = pasteboardSnapshot.fileURLs + eagerFilenameURLs
         let removedCount = cleanupUnused(
             preserving: preservedFileURLs,
             validateBeforeRemoval: {
                 // Narrow the remaining pasteboard race by revalidating
                 // immediately before every destructive filesystem operation.
-                pasteboard.changeCount == initialChangeCount
+                ClipboardAccess.withPasteboard(pasteboard) { $0.changeCount == pasteboardSnapshot.changeCount }
             }
         )
         if removedCount > 0 {
@@ -1174,46 +1203,48 @@ final class ClipboardAttachmentFileStore {
 @discardableResult
 func writeClipboardOriginalSnapshot(
     _ snapshot: ClipboardOriginalSnapshot?,
-    to pasteboard: NSPasteboard = .general
+    to pasteboard: NSPasteboard? = nil
 ) -> Bool {
-    guard let snapshot else {
-        // Nil means the capture was unavailable or unstable, not that the
-        // clipboard was empty. A successfully captured empty clipboard is a
-        // non-nil snapshot with `isEmpty == true`.
-        return false
-    }
-    guard snapshot.isComplete else { return false }
-    PasteDiagnostics.recordClipboardFinalization(stage: "snapshot-write-start", changeCount: pasteboard.changeCount)
-    defer {
-        PasteDiagnostics.recordClipboardFinalization(stage: "snapshot-write-finished", changeCount: pasteboard.changeCount)
-    }
-    let fileURLsOnly: [URL]? = {
-        var fileURLs: [URL] = []
-        for item in snapshot.items {
-            guard item.representations.count == 1,
-                  case .fileURL(let url) = item.representations[0],
-                  url.isFileURL else {
-                return nil
+    ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+        guard let snapshot else {
+            // Nil means the capture was unavailable or unstable, not that the
+            // clipboard was empty. A successfully captured empty clipboard is a
+            // non-nil snapshot with `isEmpty == true`.
+            return false
+        }
+        guard snapshot.isComplete else { return false }
+        PasteDiagnostics.recordClipboardFinalization(stage: "snapshot-write-start", changeCount: pasteboard.changeCount)
+        defer {
+            PasteDiagnostics.recordClipboardFinalization(stage: "snapshot-write-finished", changeCount: pasteboard.changeCount)
+        }
+        let fileURLsOnly: [URL]? = {
+            var fileURLs: [URL] = []
+            for item in snapshot.items {
+                guard item.representations.count == 1,
+                      case .fileURL(let url) = item.representations[0],
+                      url.isFileURL else {
+                    return nil
+                }
+                fileURLs.append(url)
             }
-            fileURLs.append(url)
+            return fileURLs.isEmpty ? nil : fileURLs
+        }()
+        if let fileURLsOnly {
+            return writeOrderedClipboardFileList(fileURLsOnly, to: pasteboard)
         }
-        return fileURLs.isEmpty ? nil : fileURLs
-    }()
-    if let fileURLsOnly {
-        return writeOrderedClipboardFileList(fileURLsOnly, to: pasteboard)
-    }
-    let nativeItems = snapshot.items.compactMap {
-        makeNativePasteboardItem(representations: $0.representations)
-    }
-    guard !nativeItems.isEmpty else {
-        if snapshot.isEmpty {
-            pasteboard.clearContents()
-            return true
+        let nativeItems = snapshot.items.compactMap {
+            makeNativePasteboardItem(representations: $0.representations)
         }
-        return false
+        guard !nativeItems.isEmpty else {
+            if snapshot.isEmpty {
+                pasteboard.clearContents()
+                return true
+            }
+            return false
+        }
+        pasteboard.clearContents()
+        return pasteboard.writeObjects(nativeItems)
     }
-    pasteboard.clearContents()
-    return pasteboard.writeObjects(nativeItems)
 }
 
 /// Representation-native restoration used only as the recovery path after an
@@ -1224,19 +1255,21 @@ private func writeClipboardOriginalSnapshotNatively(
     _ snapshot: ClipboardOriginalSnapshot,
     to pasteboard: NSPasteboard
 ) -> Bool {
-    guard snapshot.isComplete else { return false }
-    let nativeItems = snapshot.items.compactMap {
-        makeNativePasteboardItem(representations: $0.representations)
-    }
-    guard !nativeItems.isEmpty else {
-        if snapshot.isEmpty {
-            pasteboard.clearContents()
-            return true
+    ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+        guard snapshot.isComplete else { return false }
+        let nativeItems = snapshot.items.compactMap {
+            makeNativePasteboardItem(representations: $0.representations)
         }
-        return false
+        guard !nativeItems.isEmpty else {
+            if snapshot.isEmpty {
+                pasteboard.clearContents()
+                return true
+            }
+            return false
+        }
+        pasteboard.clearContents()
+        return pasteboard.writeObjects(nativeItems)
     }
-    pasteboard.clearContents()
-    return pasteboard.writeObjects(nativeItems)
 }
 
 struct ClipboardImageRetentionBudgetResult: Equatable {
@@ -1860,84 +1893,98 @@ func clipboardPayloadDiagnosticLogMessage(
 /// Reads a stable pasteboard snapshot so a queued observation is never classified
 /// with marker types belonging to a different change count.
 func captureClipboardPasteboardSnapshot(
-    from pasteboard: NSPasteboard,
+    from pasteboard: NSPasteboard? = nil,
     source: String,
     maximumAttempts: Int = 3,
     includeAttachments: Bool = true,
     captureOriginalSnapshot: Bool = false,
     attachmentLimits: ClipboardAttachmentLimits = .default
 ) -> ClipboardPasteboardSnapshot? {
-    let attemptCount = max(1, maximumAttempts)
-    var unstableAttempts: [String] = []
-    for attempt in 1...attemptCount {
-        let changeCountBeforeRead = pasteboard.changeCount
-        let types = pasteboard.types ?? []
-        let content = pasteboard.string(forType: .string)
-        let pasteboardItems = pasteboard.pasteboardItems ?? []
-        var itemRepresentations = pasteboardItems.map {
-            readClipboardPasteboardItemRepresentations(
-                $0,
-                includeAttachments: includeAttachments,
-                captureAllImageRepresentations: captureOriginalSnapshot
-            )
-        }
-        itemRepresentations = supplementClipboardImageRepresentations(
-            itemRepresentations,
-            from: pasteboard,
-            legacyText: content,
-            includeAttachments: includeAttachments,
-            captureAllImageRepresentations: captureOriginalSnapshot
-        )
-        let unsupportedOnlyItemCount = itemRepresentations.filter { item in
-            item.text == nil &&
-                !item.hasFileURLRepresentation &&
-                !item.hasPNGRepresentation &&
-                !item.hasTIFFRepresentation
-        }.count
-        let unsupportedPasteboardOnlyCount = itemRepresentations.isEmpty &&
-            !types.isEmpty && content == nil ? 1 : 0
-        let payload = makeClipboardPayload(
-            items: itemRepresentations,
-            legacyText: content,
-            limits: attachmentLimits
-        )
-        let originalSnapshot = captureOriginalSnapshot
-            ? makeClipboardOriginalSnapshot(
-                items: itemRepresentations,
-                legacyText: content,
-                changeCount: changeCountBeforeRead,
-                unsupportedRepresentationCount:
-                    unsupportedOnlyItemCount + unsupportedPasteboardOnlyCount,
-                limits: attachmentLimits
-            )
-            : nil
-        let changeCountAfterRead = pasteboard.changeCount
-        if changeCountBeforeRead == changeCountAfterRead {
-            if !unstableAttempts.isEmpty {
-                logDebug(
-                    "[ClipboardMonitor] Clipboard diagnostic source=\(source) snapshot=recovered " +
-                    "attempt=\(attempt) priorAttempts=\(unstableAttempts) " +
-                    "stableChangeCount=\(changeCountAfterRead) types=\(types.map(\.rawValue).sorted())"
+    let result: (snapshot: ClipboardPasteboardSnapshot?, diagnostic: String?) =
+        ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+            let attemptCount = max(1, maximumAttempts)
+            var unstableAttempts: [String] = []
+            for attempt in 1...attemptCount {
+                let changeCountBeforeRead = pasteboard.changeCount
+                // AppKit may vend its cached NSArray here. Rebuild both the array and
+                // each raw type string before returning the snapshot past the native
+                // autorelease-pool boundary.
+                let types = (pasteboard.types ?? []).map { type in
+                    let rawValueBytes = Array(type.rawValue.utf8)
+                    return NSPasteboard.PasteboardType(String(decoding: rawValueBytes, as: UTF8.self))
+                }
+                let content = pasteboard.string(forType: .string)
+                let pasteboardItems = pasteboard.pasteboardItems ?? []
+                var itemRepresentations = pasteboardItems.map {
+                    readClipboardPasteboardItemRepresentations(
+                        $0,
+                        includeAttachments: includeAttachments,
+                        captureAllImageRepresentations: captureOriginalSnapshot
+                    )
+                }
+                itemRepresentations = supplementClipboardImageRepresentations(
+                    itemRepresentations,
+                    from: pasteboard,
+                    legacyText: content,
+                    includeAttachments: includeAttachments,
+                    captureAllImageRepresentations: captureOriginalSnapshot
+                )
+                let unsupportedOnlyItemCount = itemRepresentations.filter { item in
+                    item.text == nil &&
+                        !item.hasFileURLRepresentation &&
+                        !item.hasPNGRepresentation &&
+                        !item.hasTIFFRepresentation
+                }.count
+                let unsupportedPasteboardOnlyCount = itemRepresentations.isEmpty &&
+                    !types.isEmpty && content == nil ? 1 : 0
+                let payload = makeClipboardPayload(
+                    items: itemRepresentations,
+                    legacyText: content,
+                    limits: attachmentLimits
+                )
+                let originalSnapshot = captureOriginalSnapshot
+                    ? makeClipboardOriginalSnapshot(
+                        items: itemRepresentations,
+                        legacyText: content,
+                        changeCount: changeCountBeforeRead,
+                        unsupportedRepresentationCount:
+                            unsupportedOnlyItemCount + unsupportedPasteboardOnlyCount,
+                        limits: attachmentLimits
+                    )
+                    : nil
+                let changeCountAfterRead = pasteboard.changeCount
+                if changeCountBeforeRead == changeCountAfterRead {
+                    let diagnostic = unstableAttempts.isEmpty
+                        ? nil
+                        : "[ClipboardMonitor] Clipboard diagnostic source=\(source) snapshot=recovered " +
+                            "attempt=\(attempt) priorAttempts=\(unstableAttempts) " +
+                            "stableChangeCount=\(changeCountAfterRead) types=\(types.map(\.rawValue).sorted())"
+                    return (
+                        snapshot: ClipboardPasteboardSnapshot(
+                            changeCount: changeCountAfterRead,
+                            content: content,
+                            types: types,
+                            payload: payload,
+                            originalSnapshot: originalSnapshot
+                        ),
+                        diagnostic: diagnostic
+                    )
+                }
+                unstableAttempts.append(
+                    "attempt=\(attempt),before=\(changeCountBeforeRead),after=\(changeCountAfterRead)," +
+                    "types=\(types.map(\.rawValue).sorted())"
                 )
             }
-            return ClipboardPasteboardSnapshot(
-                changeCount: changeCountAfterRead,
-                content: content,
-                types: types,
-                payload: payload,
-                originalSnapshot: originalSnapshot
+            return (
+                snapshot: nil,
+                diagnostic: "[ClipboardMonitor] Clipboard diagnostic source=\(source) snapshot=unstable " +
+                    "attempts=\(unstableAttempts)"
             )
-        }
-        unstableAttempts.append(
-            "attempt=\(attempt),before=\(changeCountBeforeRead),after=\(changeCountAfterRead)," +
-            "types=\(types.map(\.rawValue).sorted())"
-        )
     }
-    logDebug(
-        "[ClipboardMonitor] Clipboard diagnostic source=\(source) snapshot=unstable " +
-        "attempts=\(unstableAttempts)"
-    )
-    return nil
+    if let diagnostic = result.diagnostic {
+        logDebug(diagnostic)
+    }
+    return result.snapshot
 }
 
 private func readClipboardFileURL(from item: NSPasteboardItem) -> URL? {
@@ -2464,17 +2511,54 @@ class ClipboardMonitor {
     private let logger: Logger
     private let attachmentLimits: ClipboardAttachmentLimits
     private let attachmentFileStore: ClipboardAttachmentFileStore
-    private var clipboardAttachmentsEnabled: Bool
+    private let policyLock = NSLock()
+    private var storedClipboardAttachmentsEnabled = false
+    private var clipboardAttachmentsEnabled: Bool {
+        get {
+            policyLock.lock()
+            defer { policyLock.unlock() }
+            return storedClipboardAttachmentsEnabled
+        }
+        set {
+            policyLock.lock()
+            storedClipboardAttachmentsEnabled = newValue
+            policyLock.unlock()
+        }
+    }
     private let maxWaitTime: TimeInterval = 0.1 // Maximum time to wait for Superwhisper's clipboard change
     private let pollInterval: TimeInterval = 0.01 // 10ms polling interval
     private let recentClipboardActivityWindow: TimeInterval = 0.5 // Treat very recent session clipboard activity as Superwhisper sync
     private let maxSwResultCompareChars: Int = 16_384
     
     // Global clipboard history for pre-recording capture (lightweight, app-lifetime monitoring)
-    private var preRecordingBuffer: TimeInterval // Keep N seconds of history (0 disables)
+    private var storedPreRecordingBuffer: TimeInterval = 0
+    private var preRecordingBuffer: TimeInterval { // Keep N seconds of history (0 disables)
+        get {
+            policyLock.lock()
+            defer { policyLock.unlock() }
+            return storedPreRecordingBuffer
+        }
+        set {
+            policyLock.lock()
+            storedPreRecordingBuffer = newValue
+            policyLock.unlock()
+        }
+    }
     
     // Clipboard ignore pattern for filtering clipboard content from specific apps
-    private var clipboardIgnorePattern: String
+    private var storedClipboardIgnorePattern = ""
+    private var clipboardIgnorePattern: String {
+        get {
+            policyLock.lock()
+            defer { policyLock.unlock() }
+            return storedClipboardIgnorePattern
+        }
+        set {
+            policyLock.lock()
+            storedClipboardIgnorePattern = newValue
+            policyLock.unlock()
+        }
+    }
     
     /// Dynamic cleanup interval that scales with user's clipboard buffer setting
     private var cleanupInterval: TimeInterval {
@@ -2487,7 +2571,19 @@ class ClipboardMonitor {
     private let ignoredMarkerSequenceQueue = DispatchQueue(label: "ClipboardMonitor.ignoredMarkerSequence")
     private var ignoredMarkerSequenceTracker = IgnoredClipboardMarkerSequenceTracker()
     private var inferredTransientRestoreTracker = InferredTransientRestoreTracker()
-    private var globalMonitoringTimer: Timer?
+    private var storedGlobalMonitoringTimer: Timer?
+    private var globalMonitoringTimer: Timer? {
+        get {
+            policyLock.lock()
+            defer { policyLock.unlock() }
+            return storedGlobalMonitoringTimer
+        }
+        set {
+            policyLock.lock()
+            storedGlobalMonitoringTimer = newValue
+            policyLock.unlock()
+        }
+    }
     private var isFirstGlobalCheck = true // Track if this is the first clipboard check
     private var lastSeenClipboardContent: String? // Track last seen content independently of history
     private var lastSeenClipboardPayload: ClipboardPayload?
@@ -2500,8 +2596,20 @@ class ClipboardMonitor {
     
     // Early monitoring state for recording sessions - made thread-safe with bounds management
     private var earlyMonitoringSessions: [String: EarlyMonitoringSession] = [:]
-    private let sessionsQueue = DispatchQueue(label: "ClipboardMonitor.sessions", attributes: .concurrent)
-    private var cleanupTimer: Timer? // Periodic cleanup timer to prevent memory growth
+    private let sessionsQueue: DispatchQueue
+    private var storedCleanupTimer: Timer?
+    private var cleanupTimer: Timer? { // Periodic cleanup timer to prevent memory growth
+        get {
+            policyLock.lock()
+            defer { policyLock.unlock() }
+            return storedCleanupTimer
+        }
+        set {
+            policyLock.lock()
+            storedCleanupTimer = newValue
+            policyLock.unlock()
+        }
+    }
     private var executionGroups: [String: ExecutionGroup] = [:]
     private var recordingPathToGroupId: [String: String] = [:]
 
@@ -2695,18 +2803,19 @@ class ClipboardMonitor {
         clipboardIgnore: String = "",
         clipboardAttachments: Bool = false,
         attachmentLimits: ClipboardAttachmentLimits = .default,
-        attachmentFileStore: ClipboardAttachmentFileStore = ClipboardAttachmentFileStore()
+        attachmentFileStore: ClipboardAttachmentFileStore = ClipboardAttachmentFileStore(),
+        sessionsQueue: DispatchQueue? = nil
     ) {
         self.logger = logger
-        self.clipboardAttachmentsEnabled = clipboardAttachments
         self.attachmentLimits = attachmentLimits
         self.attachmentFileStore = attachmentFileStore
-        self.preRecordingBuffer = max(0.0, preRecordingBufferSeconds)
-        self.clipboardIgnorePattern = clipboardIgnore
-        // Initialize with current pasteboard state
-        let pasteboard = NSPasteboard.general
-        lastSeenChangeCount = pasteboard.changeCount
-        let removedAttachmentGenerationCount = attachmentFileStore.cleanupUnused(pasteboard: pasteboard)
+        self.storedClipboardAttachmentsEnabled = clipboardAttachments
+        self.storedPreRecordingBuffer = max(0.0, preRecordingBufferSeconds)
+        self.storedClipboardIgnorePattern = clipboardIgnore
+        self.sessionsQueue = sessionsQueue ?? DispatchQueue(label: "ClipboardMonitor.sessions", attributes: .concurrent)
+        // Initialize with current pasteboard state.
+        lastSeenChangeCount = ClipboardAccess.changeCount
+        let removedAttachmentGenerationCount = attachmentFileStore.cleanupUnused()
         if removedAttachmentGenerationCount > 0 {
             logDebug(
                 "[ClipboardMonitor] Removed \(removedAttachmentGenerationCount) unreferenced generated attachment " +
@@ -2724,8 +2833,24 @@ class ClipboardMonitor {
     }
     
     deinit {
-        stopGlobalClipboardMonitoring()
-        stopPeriodicCleanup()
+        // Timers belong to the main run loop and may otherwise survive the
+        // monitor. Deinitialization can happen on any queue; capture the timer
+        // values and invalidate them on main without syncing to state queues.
+        policyLock.lock()
+        let timers = [storedGlobalMonitoringTimer, storedCleanupTimer].compactMap { $0 }
+        storedGlobalMonitoringTimer = nil
+        storedCleanupTimer = nil
+        policyLock.unlock()
+        if !timers.isEmpty {
+            let invalidateTimers = {
+                timers.forEach { $0.invalidate() }
+            }
+            if Thread.isMainThread {
+                invalidateTimers()
+            } else {
+                DispatchQueue.main.async(execute: invalidateTimers)
+            }
+        }
     }
 
     /// Returns the portion of the aggregate image budget still available for
@@ -2829,15 +2954,18 @@ class ClipboardMonitor {
             stableGlobalObservedAt = lastSeenClipboardChangeObservedAt
         }
 
-        let pasteboard = NSPasteboard.general
         let originalCaptureLimits = limitsForNewOriginalSnapshot()
-        let originalPasteboardSnapshot = captureClipboardPasteboardSnapshot(
-            from: pasteboard,
-            source: "session-start",
-            includeAttachments: true,
-            captureOriginalSnapshot: true,
-            attachmentLimits: originalCaptureLimits
-        )
+        let originalPasteboardSnapshot = RuntimeDiagnostics.withPhase(
+            "session-start-clipboard-snapshot",
+            recordingPath: recordingPath
+        ) {
+            captureClipboardPasteboardSnapshot(
+                source: "session-start",
+                includeAttachments: true,
+                captureOriginalSnapshot: true,
+                attachmentLimits: originalCaptureLimits
+            )
+        }
         let sessionSnapshotObservedAt = Date()
         let userOriginalSnapshot = originalPasteboardSnapshot?.originalSnapshot
         let startupBootstrapState: StartupClipboardBootstrapState? = {
@@ -2883,10 +3011,20 @@ class ClipboardMonitor {
         }
         
         // Capture selected text immediately when recording folder appears
-        let selectedText = getSelectedText()
+        let selectedText = RuntimeDiagnostics.withPhase(
+            "session-start-selected-text",
+            recordingPath: recordingPath
+        ) {
+            getSelectedText()
+        }
         let sessionStartInputFieldState: SessionStartInputFieldState
         if checkAccessibilityPermission() {
-            sessionStartInputFieldState = isInInputField() ? .inInputField : .outsideInputField
+            sessionStartInputFieldState = RuntimeDiagnostics.withPhase(
+                "session-start-input-field",
+                recordingPath: recordingPath
+            ) {
+                isInInputField() ? .inInputField : .outsideInputField
+            }
         } else {
             sessionStartInputFieldState = .unknown
         }
@@ -2922,7 +3060,8 @@ class ClipboardMonitor {
             )
         }
         
-        let currentChangeCount = originalPasteboardSnapshot?.changeCount ?? pasteboard.changeCount
+        let currentChangeCount = originalPasteboardSnapshot?.changeCount ?? ClipboardAccess.changeCount
+        let rootClipboardAttachmentsEnabled = clipboardAttachmentsEnabled
         sessionsQueue.sync(flags: .barrier) { [weak self] in
             guard let self else { return }
 
@@ -3032,7 +3171,7 @@ class ClipboardMonitor {
                     createdAt: sessionStartTime,
                     rootRecordingPath: recordingPath,
                     rootOriginalSnapshot: userOriginalSnapshot,
-                    rootClipboardAttachmentsEnabled: self.clipboardAttachmentsEnabled,
+                    rootClipboardAttachmentsEnabled: rootClipboardAttachmentsEnabled,
                     rootClipboardStackingEnabled: false,
                     rootSelectedText: selectedText,
                     rootSessionStartInputFieldState: sessionStartInputFieldState,
@@ -3224,9 +3363,9 @@ class ClipboardMonitor {
         containing recordingPaths: Set<String>,
         reason: String
     ) -> ClipboardRecoveryAbortSummary {
-        let pasteboard = NSPasteboard.general
-        let currentClipboard = pasteboard.string(forType: .string)
-        let currentChangeCount = pasteboard.changeCount
+        let (currentClipboard, currentChangeCount) = ClipboardAccess.withPasteboard { pasteboard in
+            (pasteboard.string(forType: .string), pasteboard.changeCount)
+        }
         let resetAt = Date()
 
         var groupCount = 0
@@ -3304,9 +3443,9 @@ class ClipboardMonitor {
     @discardableResult
     func resetClipboardContextCapture(for recordingPath: String?) -> ClipboardContextResetScope {
         let resetAt = Date()
-        let pasteboard = NSPasteboard.general
-        let currentClipboard = pasteboard.string(forType: .string)
-        let currentChangeCount = pasteboard.changeCount
+        let (currentClipboard, currentChangeCount) = ClipboardAccess.withPasteboard { pasteboard in
+            (pasteboard.string(forType: .string), pasteboard.changeCount)
+        }
 
         // Reset the rolling pre-recording buffer and baseline the current pasteboard.
         // Baseline prevents a copy that happened before this command from being rediscovered
@@ -3451,17 +3590,18 @@ class ClipboardMonitor {
     ) -> Bool {
         let effectiveWindow = max(0, window ?? recentClipboardActivityWindow)
         guard effectiveWindow > 0 else { return false }
+        let attachmentsEnabled = clipboardAttachmentsEnabled
         let now = Date()
         let cutoff = now.addingTimeInterval(-effectiveWindow)
         let pasteboardSnapshot = captureClipboardPasteboardSnapshot(
-            from: .general,
+            from: nil,
             source: "system-sync-reconcile",
-            includeAttachments: clipboardAttachmentsEnabled,
+            includeAttachments: attachmentsEnabled,
             attachmentLimits: attachmentLimits
         )
         let currentClipboard = pasteboardSnapshot?.payload.textProjection(
-            attachmentsEnabled: clipboardAttachmentsEnabled
-        ) ?? (clipboardAttachmentsEnabled ? nil : pasteboardSnapshot?.content)
+            attachmentsEnabled: attachmentsEnabled
+        ) ?? (attachmentsEnabled ? nil : pasteboardSnapshot?.content)
 
         var markedChangeCount: Int?
         var markedFromCurrentPasteboard = false
@@ -3588,7 +3728,7 @@ class ClipboardMonitor {
             earlyMonitoringSessions[recordingPath]?.isExecutingAction = true
         }
         cancelInferredTransientRestoreCandidate(
-            boundaryChangeCount: NSPasteboard.general.changeCount,
+            boundaryChangeCount: ClipboardAccess.changeCount,
             observedAt: actionStartedAt
         )
         logDebug("[ClipboardMonitor] Startup clipboard replay guard ended at action execution for \(recordingPath)")
@@ -3904,7 +4044,7 @@ class ClipboardMonitor {
             )
             PasteDiagnostics.recordClipboardFinalization(
                 stage: "group-finalization-scheduled",
-                changeCount: NSPasteboard.general.changeCount,
+                changeCount: ClipboardAccess.changeCount,
                 delay: max(0, delay)
             )
         } else {
@@ -4152,9 +4292,11 @@ class ClipboardMonitor {
     /// Returns empty string if no recent clipboard changes found
     func getRecentClipboardContent() -> String {
         var recentContent = ""
+        let bufferWindow = preRecordingBuffer
+        let attachmentsEnabled = clipboardAttachmentsEnabled
         
         // If buffer disabled, return empty to avoid using global history
-        guard preRecordingBuffer > 0 else {
+        guard bufferWindow > 0 else {
             logDebug("[ClipboardMonitor] Global clipboard buffer disabled - no recent clipboard content available for CLI context")
             return ""
         }
@@ -4165,9 +4307,9 @@ class ClipboardMonitor {
                 shouldIncludeClipboardChange(timestamp: $0.timestamp, resetAt: clipboardContextResetAt)
             }) {
                 let timeSinceLastChange = Date().timeIntervalSince(mostRecent.timestamp)
-                if timeSinceLastChange <= preRecordingBuffer {
+                if timeSinceLastChange <= bufferWindow {
                     recentContent = mostRecent.payload.textProjection(
-                        attachmentsEnabled: clipboardAttachmentsEnabled
+                        attachmentsEnabled: attachmentsEnabled
                     ) ?? mostRecent.content ?? ""
                     logDebug("[ClipboardMonitor] Using recent clipboard content from \(String(format: "%.1f", timeSinceLastChange))s ago for CLI context")
                 } else {
@@ -4196,9 +4338,11 @@ class ClipboardMonitor {
         if !enableStacking {
             return getRecentClipboardContent()
         }
+        let bufferWindow = preRecordingBuffer
+        let attachmentsEnabled = clipboardAttachmentsEnabled
         
         // If buffer disabled, return empty to avoid using global history
-        guard preRecordingBuffer > 0 else {
+        guard bufferWindow > 0 else {
             logDebug("[ClipboardMonitor] Global clipboard buffer disabled - no recent clipboard content available for CLI stacking")
             return ""
         }
@@ -4208,7 +4352,7 @@ class ClipboardMonitor {
         globalHistoryQueue.sync {
             // Find all clipboard changes within the 5-second buffer
             let now = Date()
-            let cutoffTime = now.addingTimeInterval(-preRecordingBuffer)
+            let cutoffTime = now.addingTimeInterval(-bufferWindow)
             
             let recentChanges = globalClipboardHistory.filter { change in
                 change.timestamp >= cutoffTime &&
@@ -4221,7 +4365,7 @@ class ClipboardMonitor {
             // Add all recent changes (excluding empty content)
             for change in recentChanges {
                 if let content = change.payload.textProjection(
-                    attachmentsEnabled: clipboardAttachmentsEnabled
+                    attachmentsEnabled: attachmentsEnabled
                 ) ?? change.content {
                     let normalized = sanitizeContextPlaceholderValue(content)
                     if !normalized.isEmpty {
@@ -4257,12 +4401,13 @@ class ClipboardMonitor {
     /// Captures complete observations from the configured buffer before recording starts.
     /// Full metadata is retained so same-content startup replays can be filtered retroactively.
     private func capturePreRecordingClipboardChanges(beforeTime sessionStartTime: Date) -> [ClipboardChange] {
-        guard preRecordingBuffer > 0 else {
+        let bufferWindow = preRecordingBuffer
+        guard bufferWindow > 0 else {
             logDebug("[ClipboardMonitor] Pre-recording clipboard buffer disabled - skipping pre-recording capture")
             return []
         }
 
-        let bufferStartTime = sessionStartTime.addingTimeInterval(-preRecordingBuffer)
+        let bufferStartTime = sessionStartTime.addingTimeInterval(-bufferWindow)
         var capturedChanges: [ClipboardChange] = []
         globalHistoryQueue.sync {
             capturedChanges = globalClipboardHistory.filter { change in
@@ -4331,12 +4476,11 @@ class ClipboardMonitor {
             }
             return
         }
+        let attachmentsEnabled = clipboardAttachmentsEnabled
         
-        let pasteboard = NSPasteboard.general
         guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(
-            from: pasteboard,
             source: "session",
-            includeAttachments: clipboardAttachmentsEnabled,
+            includeAttachments: attachmentsEnabled,
             attachmentLimits: attachmentLimits
         ) else {
             logNoContentIfNeeded(
@@ -4350,8 +4494,8 @@ class ClipboardMonitor {
         }
         let currentChangeCount = pasteboardSnapshot.changeCount
         let currentClipboard = pasteboardSnapshot.payload.textProjection(
-            attachmentsEnabled: clipboardAttachmentsEnabled
-        ) ?? (clipboardAttachmentsEnabled ? nil : pasteboardSnapshot.content)
+            attachmentsEnabled: attachmentsEnabled
+        ) ?? (attachmentsEnabled ? nil : pasteboardSnapshot.content)
 
         if let startupBootstrapState = sessionData.startupBootstrapState,
            currentChangeCount != startupBootstrapState.sessionSnapshotChangeCount,
@@ -4672,7 +4816,7 @@ class ClipboardMonitor {
         // Repair only a previously accepted observation, preserving its time
         // and app attribution; never turn a baseline/ignored copy into context.
         if currentChangeCount == sessionData.lastSeenChangeCount,
-           clipboardAttachmentsEnabled,
+           attachmentsEnabled,
            pasteboardSnapshot.payload.retainedImageByteCount > 0,
            ignoredMarkerType(in: pasteboardSnapshot.types) == nil,
            !shouldSuppressClipboardCapture(content: currentClipboard, payload: pasteboardSnapshot.payload, now: Date()) {
@@ -4805,7 +4949,7 @@ class ClipboardMonitor {
         }
 
         logDebug("[ClipboardMonitor] Waiting for clipboard activity (maxWaitTime: \(maxWaitTime)s)")
-        let startChangeCount = NSPasteboard.general.changeCount
+        let startChangeCount = ClipboardAccess.changeCount
         waitForSuperwhisperClipboardSync(startChangeCount: startChangeCount, onReady: onReady)
     }
 
@@ -4825,7 +4969,7 @@ class ClipboardMonitor {
         startChangeCount: Int,
         onReady: @escaping (Bool) -> Void
     ) {
-        let currentChangeCount = NSPasteboard.general.changeCount
+        let currentChangeCount = ClipboardAccess.changeCount
         if currentChangeCount != startChangeCount {
             let elapsedMilliseconds = Int(max(0, Date().timeIntervalSince(startTime)) * 1_000)
             logDebug(
@@ -5016,7 +5160,7 @@ class ClipboardMonitor {
     func captureOriginalClipboardSnapshot() -> ClipboardOriginalSnapshot? {
         let originalCaptureLimits = limitsForNewOriginalSnapshot()
         return captureClipboardPasteboardSnapshot(
-            from: .general,
+            from: nil,
             source: "original-capture",
             includeAttachments: true,
             captureOriginalSnapshot: true,
@@ -5134,12 +5278,6 @@ class ClipboardMonitor {
     /// Starts lightweight global clipboard monitoring to maintain 5-second rolling buffer
     /// This ensures pre-recording clipboard content is available even for the first recording session
     private func startGlobalClipboardMonitoring() {
-        // Prevent multiple timers from being created
-        guard globalMonitoringTimer == nil else {
-            logDebug("[ClipboardMonitor] Global monitoring already running, skipping start")
-            return
-        }
-        
         logDebug("[ClipboardMonitor] Starting lightweight global clipboard monitoring")
         
         // Initialize with empty history - we only want to track actual clipboard CHANGES
@@ -5155,19 +5293,34 @@ class ClipboardMonitor {
         
         // Start periodic monitoring with 0.5s interval (lightweight)
         DispatchQueue.main.async { [weak self] in
-            self?.globalMonitoringTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            // A config update can disable buffering after this start was queued.
+            // Recheck the copied policy on main before installing the timer.
+            guard self.preRecordingBuffer > 0 else { return }
+            guard self.globalMonitoringTimer == nil else {
+                logDebug("[ClipboardMonitor] Global monitoring already running, skipping start")
+                return
+            }
+            let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 self?.checkGlobalClipboardChange()
             }
-            if let timer = self?.globalMonitoringTimer {
-                RunLoop.main.add(timer, forMode: .common)
-            }
+            self.globalMonitoringTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
         }
     }
     
     /// Stops global clipboard monitoring
     private func stopGlobalClipboardMonitoring() {
-        globalMonitoringTimer?.invalidate()
-        globalMonitoringTimer = nil
+        let invalidateTimer = { [weak self] in
+            guard let self else { return }
+            self.globalMonitoringTimer?.invalidate()
+            self.globalMonitoringTimer = nil
+        }
+        if Thread.isMainThread {
+            invalidateTimer()
+        } else {
+            DispatchQueue.main.async(execute: invalidateTimer)
+        }
 
         var hasActiveSession = false
         sessionsQueue.sync {
@@ -5241,12 +5394,13 @@ class ClipboardMonitor {
     ///   - bundleId: The bundle identifier of the application
     /// - Returns: true if the app matches the ignore pattern, false otherwise
     private func shouldIgnoreApp(appName: String, bundleId: String) -> Bool {
+        let ignorePattern = clipboardIgnorePattern
         // If no ignore pattern is set, don't ignore any apps
-        guard !clipboardIgnorePattern.isEmpty else { return false }
+        guard !ignorePattern.isEmpty else { return false }
         
         // Try to match against the ignore pattern (supports regex with pipe-separated values)
         do {
-            let regex = try NSRegularExpression(pattern: clipboardIgnorePattern, options: [.caseInsensitive])
+            let regex = try NSRegularExpression(pattern: ignorePattern, options: [.caseInsensitive])
             
             // Check if app name matches
             let nameRange = NSRange(appName.startIndex..., in: appName)
@@ -5262,7 +5416,7 @@ class ClipboardMonitor {
                 return true
             }
         } catch {
-            logError("[ClipboardMonitor] Invalid clipboardIgnore regex pattern '\(clipboardIgnorePattern)': \(error.localizedDescription)")
+            logError("[ClipboardMonitor] Invalid clipboardIgnore regex pattern '\(ignorePattern)': \(error.localizedDescription)")
         }
         
         return false
@@ -5445,7 +5599,7 @@ class ClipboardMonitor {
         // pure count/fingerprint classifier has matched X -> Y -> X. This keeps
         // ordinary recording startup on the existing fast path.
         guard let correctedSnapshot = captureClipboardPasteboardSnapshot(
-            from: .general,
+            from: nil,
             source: "startup-bootstrap-reconcile",
             includeAttachments: true,
             captureOriginalSnapshot: true,
@@ -6157,11 +6311,11 @@ class ClipboardMonitor {
     
     /// Checks for clipboard changes and maintains the lightweight rolling buffer
     private func checkGlobalClipboardChange() {
-        let pasteboard = NSPasteboard.general
+        let attachmentsEnabled = clipboardAttachmentsEnabled
+        let bufferWindow = preRecordingBuffer
         guard let pasteboardSnapshot = captureClipboardPasteboardSnapshot(
-            from: pasteboard,
             source: "global",
-            includeAttachments: clipboardAttachmentsEnabled,
+            includeAttachments: attachmentsEnabled,
             attachmentLimits: attachmentLimits
         ) else {
             logNoContentIfNeeded(
@@ -6172,8 +6326,8 @@ class ClipboardMonitor {
         }
         let currentChangeCount = pasteboardSnapshot.changeCount
         let currentClipboard = pasteboardSnapshot.payload.textProjection(
-            attachmentsEnabled: clipboardAttachmentsEnabled
-        ) ?? (clipboardAttachmentsEnabled ? nil : pasteboardSnapshot.content)
+            attachmentsEnabled: attachmentsEnabled
+        ) ?? (attachmentsEnabled ? nil : pasteboardSnapshot.content)
         let now = Date()
         
         globalHistoryQueue.async(flags: .barrier) { [weak self] in
@@ -6398,7 +6552,7 @@ class ClipboardMonitor {
             // Upgrade a captured but initially empty image operation without
             // refreshing its buffer age or app attribution.
             if currentChangeCount == self.lastSeenChangeCount,
-               self.clipboardAttachmentsEnabled,
+               attachmentsEnabled,
                self.ignoredMarkerType(in: pasteboardSnapshot.types) == nil,
                !self.shouldSuppressClipboardCapture(content: currentClipboard, payload: pasteboardSnapshot.payload, now: now),
                !self.isInferredTransientChangeCountIgnored(currentChangeCount),
@@ -6412,7 +6566,7 @@ class ClipboardMonitor {
             }
 
             // Clean up old entries beyond the buffer time (keep only last 5 seconds)
-            let cutoffTime = now.addingTimeInterval(-self.preRecordingBuffer)
+            let cutoffTime = now.addingTimeInterval(-bufferWindow)
             let beforeCount = self.globalClipboardHistory.count
             self.globalClipboardHistory.removeAll { change in
                 change.timestamp < cutoffTime
@@ -6434,17 +6588,30 @@ class ClipboardMonitor {
     /// Starts periodic cleanup to prevent memory growth from unbounded arrays
     private func startPeriodicCleanup() {
         let interval = cleanupInterval
-        cleanupTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.performPeriodicCleanup()
+        let bufferWindow = preRecordingBuffer
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.cleanupTimer == nil else { return }
+            let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+                self?.performPeriodicCleanup()
+            }
+            self.cleanupTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
         }
-        RunLoop.main.add(cleanupTimer!, forMode: .common)
-        logDebug("[ClipboardMonitor] Started periodic cleanup (every \(String(format: "%.1f", interval))s, based on clipboardBuffer: \(String(format: "%.1f", preRecordingBuffer))s)")
+        logDebug("[ClipboardMonitor] Started periodic cleanup (every \(String(format: "%.1f", interval))s, based on clipboardBuffer: \(String(format: "%.1f", bufferWindow))s)")
     }
     
     /// Stops periodic cleanup timer
     private func stopPeriodicCleanup() {
-        cleanupTimer?.invalidate()
-        cleanupTimer = nil
+        let invalidateTimer = { [weak self] in
+            guard let self else { return }
+            self.cleanupTimer?.invalidate()
+            self.cleanupTimer = nil
+        }
+        if Thread.isMainThread {
+            invalidateTimer()
+        } else {
+            DispatchQueue.main.async(execute: invalidateTimer)
+        }
         logDebug("[ClipboardMonitor] Stopped periodic cleanup")
     }
     

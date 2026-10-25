@@ -191,8 +191,12 @@ The compile inputs and runner names are:
 | `placeholder-regex-pipeline` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Utils/ShellUtils.swift` + `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderRegexPipelineRegression.swift` |
 | `placeholder-migration-compatibility` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Utils/ShellUtils.swift` + `src/macrowhisper/Utils/Placeholders.swift` + `src/Tests/PlaceholderPipelineTestStubs.swift` + `src/Tests/PlaceholderMigrationCompatibilityRegression.swift` |
 | `app-vocabulary-extraction` | `src/macrowhisper/Utils/AppVocabulary.swift` + `src/Tests/AppVocabularyTestStubs.swift` + `src/Tests/AppVocabularyExtractionRegression.swift` |
-| `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
-| `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
+| `clipboard-transient-activity` | `src/macrowhisper/Utils/ClipboardAccess.swift` + `src/macrowhisper/Utils/RuntimeDiagnostics.swift` + `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardTransientActivityRegression.swift` |
+| `clipboard-attachments` | `src/macrowhisper/Utils/ClipboardAccess.swift` + `src/macrowhisper/Utils/RuntimeDiagnostics.swift` + `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAttachmentsRegression.swift` |
+| `main-thread-read` | `src/macrowhisper/Utils/MainThreadRead.swift` + `src/Tests/MainThreadReadRegression.swift` |
+| `runtime-diagnostics` | `src/macrowhisper/Utils/RuntimeDiagnostics.swift` + `src/Tests/RuntimeDiagnosticsRegression.swift` |
+| `clipboard-access-concurrency` | `src/macrowhisper/Utils/ClipboardAccess.swift` + `src/macrowhisper/Utils/RuntimeDiagnostics.swift` + `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardAccessConcurrencyRegression.swift` |
+| `clipboard-monitor-deinit` | `src/macrowhisper/Utils/ClipboardAccess.swift` + `src/macrowhisper/Utils/RuntimeDiagnostics.swift` + `src/macrowhisper/Utils/ClipboardMonitor.swift` + `src/Tests/ClipboardMonitorTestStubs.swift` + `src/Tests/ClipboardMonitorDeinitRegression.swift` |
 | `superwhisper-folder-recovery` | `src/macrowhisper/Watcher/SuperwhisperFolderWatcher.swift` + `src/Tests/SuperwhisperFolderWatcherRecoveryRegression.swift` |
 | `update-check-result` | `src/macrowhisper/Networking/UpdateCheckResult.swift` + `src/Tests/UpdateCheckResultRegression.swift` |
 | `logger-concurrency` | `src/macrowhisper/Utils/Logger.swift` + `src/Tests/LoggerConcurrencyRegression.swift` |
@@ -200,6 +204,19 @@ The compile inputs and runner names are:
 The `logger-concurrency` runner writes to temporary directories from concurrent
 threads, logger instances, and child processes. It checks record integrity and
 rotation without touching the normal log folder or starting the daemon.
+
+The `clipboard-access-concurrency` runner uses private named pasteboards to
+check concurrent transaction isolation, production snapshot coherence during
+competing writes, nested access, and autorelease cleanup under the native lock.
+It never writes to the general clipboard. The
+`clipboard-monitor-deinit` runner releases a monitor's last reference on its
+injected serial session queue after installing its cleanup timer, checks weak
+deallocation, and drains the detached timer cleanup. It covers the teardown
+self-sync crash without starting global monitoring or modifying the clipboard.
+`main-thread-read`
+covers successful context publication, queued cancellation, and in-flight
+completion after a caller timeout. `runtime-diagnostics` checks phase ordering,
+error propagation, and privacy-safe fields.
 
 The `paste-diagnostics` runner injects dispatch/write outcomes, a clock, scheduling,
 logging, and accessibility probes; it does not post real key events or write to
@@ -230,6 +247,8 @@ swiftc -parse-as-library \
 .build/regressions/input-condition-validation
 
 swiftc -parse-as-library \
+  src/macrowhisper/Utils/ClipboardAccess.swift \
+  src/macrowhisper/Utils/RuntimeDiagnostics.swift \
   src/macrowhisper/Utils/ClipboardMonitor.swift \
   src/Tests/ClipboardMonitorTestStubs.swift \
   src/Tests/ClipboardTransientActivityRegression.swift \

@@ -2150,6 +2150,7 @@ versionChecker.checkForUpdates()
 registerForSleepWakeNotifications(versionChecker: versionChecker)
 startSocketHealthMonitor()
 // Log that we're ready
+logInfo("[RuntimeDiagnostics] runtime_safety=1 version=\(APP_VERSION) pid=\(ProcessInfo.processInfo.processIdentifier) clipboard_access=serialized native_autorelease=scoped")
 logInfo("Macrowhisper initialized and ready")
 
 // Keep the main thread running
