@@ -9,6 +9,152 @@ private func assertAttachment(_ condition: @autoclosure () -> Bool, _ label: Str
     print("PASS: \(label)")
 }
 
+private func runClipboardFileURLReadbackRegression() {
+    let fixtureDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("macrowhisper-file-url-readback-\(UUID().uuidString)", isDirectory: true)
+    try? FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+    let firstURL = fixtureDirectory.appendingPathComponent("first.pdf")
+    let secondURL = fixtureDirectory.appendingPathComponent("second.pdf")
+    FileManager.default.createFile(atPath: firstURL.path, contents: Data())
+    FileManager.default.createFile(atPath: secondURL.path, contents: Data())
+
+    let validPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.file-url-readback-valid.\(UUID().uuidString)")
+    )
+    defer { validPasteboard.releaseGlobally() }
+    assertAttachment(
+        writeOrderedClipboardFileList([firstURL, secondURL], to: validPasteboard),
+        "readback fixture publishes an ordered filename list"
+    )
+    let validChangeCount = validPasteboard.changeCount
+    assertAttachment(
+        readBackClipboardFileURLRepresentation(
+            [firstURL, secondURL],
+            from: validPasteboard,
+            expectedChangeCount: validChangeCount
+        ) == .matched,
+        "stable AppKit file-URL readback matches the ordered filename list"
+    )
+    assertAttachment(
+        readBackClipboardFileURLRepresentation(
+            [secondURL, firstURL],
+            from: validPasteboard,
+            expectedChangeCount: validChangeCount
+        ) == .missingOrMismatched,
+        "stable file-URL readback detects reversed ordering"
+    )
+    assertAttachment(
+        readBackClipboardFileURLRepresentation(
+            [firstURL],
+            from: validPasteboard,
+            expectedChangeCount: validChangeCount
+        ) == .missingOrMismatched,
+        "stable file-URL readback detects a count mismatch"
+    )
+
+    let missingPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.file-url-readback-missing.\(UUID().uuidString)")
+    )
+    defer { missingPasteboard.releaseGlobally() }
+    missingPasteboard.declareTypes([CLIPBOARD_FILENAMES_PASTEBOARD_TYPE], owner: nil)
+    let missingChangeCount = missingPasteboard.changeCount
+    assertAttachment(
+        readBackClipboardFileURLRepresentation(
+            [firstURL],
+            from: missingPasteboard,
+            expectedChangeCount: missingChangeCount
+        ) == .missingOrMismatched,
+        "stable board with no readable file URLs reports a missing representation"
+    )
+
+    let mismatchPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.file-url-readback-mismatch.\(UUID().uuidString)")
+    )
+    defer { mismatchPasteboard.releaseGlobally() }
+    assertAttachment(
+        writeOrderedClipboardFileList([firstURL], to: mismatchPasteboard),
+        "mismatch fixture publishes a filename list"
+    )
+    assertAttachment(
+        readBackClipboardFileURLRepresentation(
+            [secondURL],
+            from: mismatchPasteboard,
+            expectedChangeCount: mismatchPasteboard.changeCount
+        ) == .missingOrMismatched,
+        "stable file-URL readback reports an ordered URL mismatch"
+    )
+
+    let changedPasteboard = NSPasteboard(
+        name: NSPasteboard.Name("macrowhisper.file-url-readback-changed.\(UUID().uuidString)")
+    )
+    defer { changedPasteboard.releaseGlobally() }
+    assertAttachment(
+        writeOrderedClipboardFileList([firstURL], to: changedPasteboard),
+        "changed-board fixture publishes a filename list"
+    )
+    let staleChangeCount = changedPasteboard.changeCount
+    changedPasteboard.clearContents()
+    changedPasteboard.setString("replacement", forType: .string)
+    assertAttachment(
+        readBackClipboardFileURLRepresentation(
+            [firstURL],
+            from: changedPasteboard,
+            expectedChangeCount: staleChangeCount
+        ) == .changed,
+        "readback skips a board whose change count no longer matches publication"
+    )
+
+    _ = takeClipboardMonitorWarningMessages()
+    let missingResultSemaphore = DispatchSemaphore(value: 0)
+    var missingAsyncResult: ClipboardFileURLReadbackResult?
+    scheduleClipboardFileURLReadback(
+        [firstURL],
+        from: missingPasteboard,
+        expectedChangeCount: missingChangeCount,
+        publishedDiagnostic: "test filename list published",
+        onCompletion: { result in
+            missingAsyncResult = result
+            missingResultSemaphore.signal()
+        }
+    )
+    assertAttachment(
+        missingResultSemaphore.wait(timeout: .now() + 5) == .success &&
+            missingAsyncResult == .missingOrMismatched,
+        "background readback reports a stable missing URL representation"
+    )
+    let warnings = takeClipboardMonitorWarningMessages()
+    assertAttachment(
+        warnings.count == 1 &&
+            warnings[0].contains("file-url-readback-missing-or-mismatched") &&
+            warnings[0].contains("possibleCause: file-access-or-macOS-restriction") &&
+            warnings[0].contains("recipient access or paste is not verified") &&
+            !warnings[0].contains(fixtureDirectory.path),
+        "missing URL readback emits a privacy-safe warning with a possible restriction cause"
+    )
+
+    let changedResultSemaphore = DispatchSemaphore(value: 0)
+    var changedAsyncResult: ClipboardFileURLReadbackResult?
+    scheduleClipboardFileURLReadback(
+        [firstURL],
+        from: changedPasteboard,
+        expectedChangeCount: staleChangeCount,
+        publishedDiagnostic: "test filename list published",
+        onCompletion: { result in
+            changedAsyncResult = result
+            changedResultSemaphore.signal()
+        }
+    )
+    assertAttachment(
+        changedResultSemaphore.wait(timeout: .now() + 5) == .success &&
+            changedAsyncResult == .changed &&
+            takeClipboardMonitorWarningMessages().isEmpty &&
+            changedPasteboard.string(forType: .string) == "replacement",
+        "background readback silently skips a changed board"
+    )
+}
+
 private func makeAttachmentImageData(
     fileType: NSBitmapImageRep.FileType,
     red: UInt8,
@@ -43,6 +189,8 @@ private func makeAttachmentImageData(
 }
 
 private func runClipboardAttachmentsRegression() {
+    runClipboardFileURLReadbackRegression()
+
     let png = makeAttachmentImageData(fileType: .png, red: 0x22, green: 0x88, blue: 0xcc)
     let tiff = makeAttachmentImageData(fileType: .tiff, red: 0xcc, green: 0x66, blue: 0x11)
     let fileURL = URL(fileURLWithPath: "/private/tmp/clipboard-attachment.txt")

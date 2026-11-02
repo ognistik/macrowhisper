@@ -5,6 +5,7 @@
 ### Added
 * Added privacy-safe `[PasteDiagnostic]` logging for paste events, clipboard writes and restoration, timing, and bounded post-paste accessibility observations.
 * Added privacy-safe recording startup phase logs to help locate future daemon crashes, including native-object cleanup boundaries.
+* Added a single background file-URL readback check after clipboard attachment publication, with privacy-safe warnings when the URLs are unavailable or do not match the published list. Publication logs no longer imply that the receiving app successfully pasted the files.
 
 ### Fixed
 * Serialized native clipboard transactions and their temporary-object cleanup across watcher, polling, and CLI execution to prevent concurrent access to shared pasteboard state.

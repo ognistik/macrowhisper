@@ -554,6 +554,78 @@ private func pasteboardContainsOrderedClipboardFileList(
     }
 }
 
+enum ClipboardFileURLReadbackResult: Equatable {
+    case matched
+    case missingOrMismatched
+    case changed
+}
+
+func readBackClipboardFileURLRepresentation(
+    _ fileURLs: [URL],
+    from pasteboard: NSPasteboard? = nil,
+    expectedChangeCount: Int
+) -> ClipboardFileURLReadbackResult {
+    ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
+        guard pasteboard.changeCount == expectedChangeCount else { return .changed }
+
+        let readBackFileURLs = (pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) ?? []).compactMap { ($0 as? NSURL) as URL? }
+
+        // A pasteboard may change while AppKit is resolving its URL flavor. Do
+        // not diagnose that race as a failed representation or touch the board.
+        guard pasteboard.changeCount == expectedChangeCount else { return .changed }
+
+        let expectedURLs = fileURLs.map(\.standardizedFileURL)
+        let actualURLs = readBackFileURLs.map(\.standardizedFileURL)
+        guard actualURLs.count == expectedURLs.count,
+              actualURLs == expectedURLs else {
+            return .missingOrMismatched
+        }
+        return .matched
+    }
+}
+
+func logClipboardFileURLReadbackResult(
+    _ result: ClipboardFileURLReadbackResult,
+    expectedFileCount: Int,
+    expectedChangeCount: Int
+) {
+    guard result == .missingOrMismatched else { return }
+    logWarning(
+        "[ClipboardMonitor] Attachment handoff file-URL readback missing or mismatched " +
+        "(reason: file-url-readback-missing-or-mismatched, expectedFiles: \(expectedFileCount), " +
+        "changeCount: \(expectedChangeCount), possibleCause: file-access-or-macOS-restriction; " +
+        "recipient access or paste is not verified)"
+    )
+}
+
+func scheduleClipboardFileURLReadback(
+    _ fileURLs: [URL],
+    from pasteboard: NSPasteboard? = nil,
+    expectedChangeCount: Int,
+    publishedDiagnostic: String,
+    onCompletion: ((ClipboardFileURLReadbackResult) -> Void)? = nil
+) {
+    DispatchQueue.global(qos: .utility).async {
+        // Log publication before the diagnostic so the later warning cannot be
+        // mistaken for evidence that the filename-list write itself failed.
+        logDebug(publishedDiagnostic)
+        let result = readBackClipboardFileURLRepresentation(
+            fileURLs,
+            from: pasteboard,
+            expectedChangeCount: expectedChangeCount
+        )
+        logClipboardFileURLReadbackResult(
+            result,
+            expectedFileCount: fileURLs.count,
+            expectedChangeCount: expectedChangeCount
+        )
+        onCompletion?(result)
+    }
+}
+
 /// An immutable, fully materialized attachment handoff. Existing file URLs are
 /// borrowed; only `generatedDirectory` and the image files inside it are owned
 /// by Macrowhisper.
@@ -857,12 +929,18 @@ final class ClipboardAttachmentFileStore {
         var didWrite = false
         var didVerify = false
         var didRecover = false
+        var committedChangeCount: Int?
         let clipboardWasUnchanged = ClipboardAccess.withPasteboard(pasteboard) { pasteboard in
             guard pasteboard.changeCount == previousSnapshot.changeCount else {
                 return false
             }
 
             didWrite = writeOrderedClipboardFileList(handoff.fileURLs, to: pasteboard)
+            if didWrite {
+                // Bind the asynchronous diagnostic to this publication. A
+                // later change is treated as an unrelated clipboard update.
+                committedChangeCount = pasteboard.changeCount
+            }
             didVerify = didWrite && pasteboardContainsOrderedClipboardFileList(
                 handoff.fileURLs,
                 on: pasteboard
@@ -890,6 +968,26 @@ final class ClipboardAttachmentFileStore {
             )
         }
         finish(handoff, didWrite: didCommit)
+        if didCommit, let committedChangeCount {
+            let writtenPayload = handoff.clipboardPayload
+            scheduleClipboardFileURLReadback(
+                handoff.fileURLs,
+                from: pasteboard,
+                expectedChangeCount: committedChangeCount,
+                publishedDiagnostic:
+                    "[ClipboardMonitor] Published clipboard attachment filename list " +
+                    "(files: \(handoff.fileURLs.count), filenameListPublished: true, " +
+                    "targetPasteVerified: false, sourceAttachments: \(handoff.sourceAttachmentCount), " +
+                    "materializedImages: \(handoff.materializedImageCount), transcodedTIFFImages: " +
+                    "\(handoff.transcodedTIFFImageCount), imageNormalizationFailures: " +
+                    "\(handoff.imageNormalizationFailureCount), sourceImageBytes: " +
+                    "\(handoff.sourceImageByteCount), generatedImageBytes: " +
+                    "\(handoff.generatedImageByteCount), materializationFailures: " +
+                    "\(handoff.materializationFailureCount), generation: " +
+                    "\(handoff.generationIdentifier), cacheRetentionHours: 24, cacheLimitMiB: 1024, " +
+                    "fingerprint: \(writtenPayload.fingerprint))"
+            )
+        }
         return didCommit ? .committed : .preservedCurrentClipboard
     }
 
@@ -3956,21 +4054,6 @@ class ClipboardMonitor {
                     let commitResult = self.attachmentFileStore.commitResult(preparedHandoff)
                     if commitResult == .committed {
                         self.suppressNextClipboardCapture(for: writtenPayload, duration: 1.5)
-                        logDebug(
-                            "[ClipboardMonitor] Handed off clipboard attachments as one ordered file list " +
-                            "(files: \(preparedHandoff.fileURLs.count), sourceAttachments: " +
-                            "\(preparedHandoff.sourceAttachmentCount), materializedImages: " +
-                            "\(preparedHandoff.materializedImageCount), transcodedTIFFImages: " +
-                            "\(preparedHandoff.transcodedTIFFImageCount), imageNormalizationFailures: " +
-                            "\(preparedHandoff.imageNormalizationFailureCount), sourceImageBytes: " +
-                            "\(preparedHandoff.sourceImageByteCount), generatedImageBytes: " +
-                            "\(preparedHandoff.generatedImageByteCount), materializationFailures: " +
-                            "\(preparedHandoff.materializationFailureCount), generation: " +
-                            "\(preparedHandoff.generationIdentifier), generatedFilesPresent: " +
-                            "\(preparedHandoff.fileURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }), " +
-                            "cacheRetentionHours: 24, cacheLimitMiB: 1024, " +
-                            "fingerprint: \(writtenPayload.fingerprint))"
-                        )
                         let omittedAttachmentCount = max(
                             selectedPayload.unavailableAttachmentCount,
                             preparedHandoff.materializationFailureCount

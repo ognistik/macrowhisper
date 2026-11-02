@@ -205,6 +205,12 @@ The `logger-concurrency` runner writes to temporary directories from concurrent
 threads, logger instances, and child processes. It checks record integrity and
 rotation without touching the normal log folder or starting the daemon.
 
+The `clipboard-attachments` runner also checks native file-URL readback on
+private named pasteboards: matching lists, missing or mismatched URLs, and
+background warnings that skip a changed clipboard. These checks use temporary
+files; they do not establish protected-folder permissions or prove a separate
+receiving app can open or paste an attachment.
+
 The `clipboard-access-concurrency` runner uses private named pasteboards to
 check concurrent transaction isolation, production snapshot coherence during
 competing writes, nested access, and autorelease cleanup under the native lock.

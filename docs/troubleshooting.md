@@ -145,6 +145,37 @@ observations, not whether the paste succeeded. These new lines contain no
 clipboard text, field text, or URLs, even in unredacted logs.
 These diagnostics are written to the main log without requiring `--verbose`.
 
+### Clipboard attachments do not paste
+
+Attachment publication logs describe the filename list Macrowhisper wrote, not a
+successful paste in the receiving app. One background check reads AppKit's file
+URLs back and warns if their count or order differs from that list. If another
+app or a new copy changes the clipboard before or during the check, it skips the
+diagnosis. The check adds no wait or retry to action execution, opens no files,
+and does not rewrite the clipboard. Its logs contain no file paths or contents,
+even with redaction disabled, and appear in the main log without `--verbose`.
+
+macOS can refuse to provide file access when Macrowhisper republishes a file
+from a protected location such as Downloads or Desktop. A unified-log message
+about failing to create a sandbox extension for `public.file-url` is consistent
+with that restriction. Macrowhisper's warning identifies an unavailable or
+mismatched URL representation; it cannot determine the exact permission denial,
+and successful readback cannot prove another app can open the files.
+
+If Files and Folders already lists the needed folder for Macrowhisper, check
+whether access is enabled. Enabling attachments does not itself request folder
+permissions. Full Disk Access is not the recommended first step for this
+workflow. As a quick comparison, attach the same file directly through the
+receiving app's file picker, or copy a test file from a location Macrowhisper can
+already access. Existing files stay at their original paths; copied image data
+is materialized in Macrowhisper's cache, so these cases may behave differently.
+
+For a report, include the nearby `[ClipboardMonitor]` attachment publication and
+readback entries, the receiving app, the source folder category (for example,
+Downloads), and whether direct attachment works. There is no need to send the
+file itself or enable unredacted logging. Post reports on
+[GitHub Issues](https://github.com/ognistik/macrowhisper/issues).
+
 ### The recording window stays open, or Escape dismisses something in my app
 
 - for the recommended setup, use Superwhisper's **Classic** or **Mini** recording window, set **Cancel recording** to **Escape**, and turn **Always close** off
