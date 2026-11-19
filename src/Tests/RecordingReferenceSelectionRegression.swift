@@ -53,6 +53,24 @@ private func candidate(
 }
 
 private func runRecordingReferenceSelectionRegressionTests() {
+    let olderDictation = candidate("/recordings/older", languageModelName: "", result: "Older result")
+    var realtimeDictation = candidate("/recordings/realtime", languageModelName: "", result: "Partial")
+    realtimeDictation.metaJson["appVersion"] = "3.4.0"
+    realtimeDictation.metaJson["realtimeEnabled"] = true
+    assertEqual(
+        selectLatestValidRecordingReference(from: [realtimeDictation, olderDictation]).reference?.path,
+        olderDictation.path,
+        "implicit recording selection skips a partial Realtime transcript"
+    )
+    assertEqual(isValidRecordingMetaJson(realtimeDictation.metaJson), true, "explicit metadata can still select a partial transcript")
+
+    realtimeDictation.metaJson["roundTripTime"] = 424
+    assertEqual(
+        selectLatestValidRecordingReference(from: [realtimeDictation, olderDictation]).reference?.path,
+        realtimeDictation.path,
+        "implicit recording selection accepts the finalized Realtime transcript"
+    )
+
     let fallback = selectLatestValidRecordingReference(from: [
         candidate("/recordings/newest", languageModelName: "OSS", result: "Raw result"),
         candidate("/recordings/older", languageModelName: "", result: "Older result")

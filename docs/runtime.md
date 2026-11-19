@@ -54,8 +54,11 @@ without `kind` continue through normal processing.
 
 Macrowhisper waits for a non-empty string in the field appropriate to the
 recording metadata: `llmResult` when `languageModelName` is non-empty, and
-`result` otherwise. For the integrated S1 pair (`languageModelKey` `sl-1` and
-`modelKey` `sv-1`), a non-empty `llmResult` with an empty `result` receives a
+`result` otherwise. For voice-only dictation with Realtime enabled on
+Superwhisper 3.4.0 or later, it also waits for a numeric `roundTripTime` in
+`meta.json`, which appears with the final transcript. For the integrated S1
+pair (`languageModelKey` `sl-1` and `modelKey` `sv-1`), a non-empty `llmResult`
+with an empty `result` receives a
 one-second settle grace period before the LLM result is accepted. Malformed or
 incomplete metadata remains watched for a later update.
 

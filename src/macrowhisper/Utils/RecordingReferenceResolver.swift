@@ -79,6 +79,10 @@ func isValidRecordingMetaJson(_ json: [String: Any]) -> Bool {
     return true
 }
 
+private func isCompletedRecordingMetaJson(_ json: [String: Any]) -> Bool {
+    isValidRecordingMetaJson(json) && !RecordingMetadataSettlePolicy.shouldAwaitRealtimeFinalResult(in: json)
+}
+
 private func missingExpectedLLMResult(in json: [String: Any]) -> String? {
     let languageModelName = (json["languageModelName"] as? String)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -116,7 +120,7 @@ func selectLatestValidRecordingReference(
             continue
         }
 
-        if isValidRecordingMetaJson(candidate.metaJson) {
+        if isCompletedRecordingMetaJson(candidate.metaJson) {
             return LatestValidRecordingResolution(
                 reference: ValidRecordingReference(path: candidate.path, metaJson: candidate.metaJson),
                 skippedNewerRecordings: skippedNewerRecordings
@@ -169,7 +173,7 @@ func getValidRecordingReferences(configManager: ConfigurationManager?) -> [Valid
               let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               !isMeetingRecordingMetaJson(json),
-              isValidRecordingMetaJson(json) else {
+              isCompletedRecordingMetaJson(json) else {
             continue
         }
 
@@ -203,7 +207,7 @@ func getLatestValidRecordingResolution(configManager: ConfigurationManager?) -> 
         }
 
         candidates.append((path: directory.path, metaJson: json))
-        if isValidRecordingMetaJson(json) {
+        if isCompletedRecordingMetaJson(json) {
             return selectLatestValidRecordingReference(from: candidates)
         }
     }
@@ -242,7 +246,7 @@ func resolveRecordingFolderPath(
               let data = try? Data(contentsOf: URL(fileURLWithPath: metaJsonPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               !isMeetingRecordingMetaJson(json),
-              isValidRecordingMetaJson(json) else {
+              isCompletedRecordingMetaJson(json) else {
             continue
         }
 

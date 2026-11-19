@@ -175,7 +175,7 @@ The compile inputs and runner names are:
 | `configuration-v3-migration` | Add `-D CONFIGURATION_V3_TESTING`; compile `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationV3MigrationTestStubs.swift` + `src/Tests/ConfigurationV3MigrationRegression.swift` |
 | `action-chain-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/ActionChainValidationRegression.swift` |
 | `input-condition-validation` | `src/macrowhisper/Config/AppConfiguration.swift` + `src/macrowhisper/Config/ConfigurationManager.swift` + `src/Tests/ConfigurationValidationTestStubs.swift` + `src/Tests/InputConditionValidationRegression.swift` |
-| `recording-reference-selection` | `src/macrowhisper/Utils/RecordingReferenceResolver.swift` + `src/Tests/RecordingReferenceSelectionRegression.swift` (the runner supplies its manager/watcher stubs) |
+| `recording-reference-selection` | `src/macrowhisper/Utils/RecordingReferenceResolver.swift` + `src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift` + `src/Tests/RecordingReferenceSelectionRegression.swift` (the runner supplies its manager/watcher stubs) |
 | `recording-audio-files` | `src/macrowhisper/Utils/RecordingAudioFiles.swift` + `src/Tests/RecordingAudioFilesRegression.swift` |
 | `recording-metadata-settle-policy` | `src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift` + `src/Tests/RecordingMetadataSettlePolicyRegression.swift` |
 | `sim-return-behavior` | `src/macrowhisper/Utils/SimReturnBehavior.swift` + `src/Tests/SimReturnBehaviorRegression.swift` |

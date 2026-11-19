@@ -485,16 +485,7 @@ class RecordingsFolderWatcher {
         
         // Check if meta.json exists immediately
         if FileManager.default.fileExists(atPath: metaJsonPath) {
-            // Check if meta.json is already complete (has valid llmResult/result based on languageModelName)
-            if isMetaJsonComplete(metaJsonPath: metaJsonPath) {
-                // Meta.json is complete, process immediately without starting clipboard monitoring
-                logDebug("Meta.json exists and is complete, processing immediately without clipboard monitoring")
-                processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
-            } else {
-                // Meta.json exists but is incomplete, start monitoring
-                logDebug("Meta.json exists but is incomplete, watching for completion (early monitoring already started)")
-                processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
-            }
+            processMetaJson(metaJsonPath: metaJsonPath, recordingPath: path)
         } else {
             // Meta.json doesn't exist yet, start monitoring and wait for creation
             logDebug("Meta.json doesn't exist, watching for creation (early monitoring already started)")
@@ -502,53 +493,6 @@ class RecordingsFolderWatcher {
         }
     }
     
-    /// Checks if meta.json file is complete and ready for processing
-    /// NEW VALIDATION: Now checks based on languageModelName and llmResult/result instead of duration
-    private func isMetaJsonComplete(metaJsonPath: String) -> Bool {
-        do {
-            let data = try Data(contentsOf: URL(fileURLWithPath: metaJsonPath))
-            guard let metaJson = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return false
-            }
-
-            // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
-            // If languageModelName is not empty, wait for llmResult
-            // If languageModelName is empty, wait for result
-
-            // First, check if languageModelName exists and is not empty
-            if let languageModelName = metaJson["languageModelName"] as? String, !languageModelName.isEmpty {
-                // languageModelName is not empty, check for llmResult
-                guard let llmResult = metaJson["llmResult"], !(llmResult is NSNull) else {
-                    return false
-                }
-
-                // llmResult must be a non-empty string
-                if let llmResultString = llmResult as? String, !llmResultString.isEmpty {
-                    if RecordingMetadataSettlePolicy.shouldAwaitIntegratedS1Result(in: metaJson) {
-                        return false
-                    }
-                    return true
-                } else {
-                    return false
-                }
-            } else {
-                // languageModelName is empty or missing, check for result
-                guard let result = metaJson["result"], !(result is NSNull) else {
-                    return false
-                }
-
-                // result must be a non-empty string
-                if let resultString = result as? String, !resultString.isEmpty {
-                    return true
-                } else {
-                    return false
-                }
-            }
-        } catch {
-            return false
-        }
-    }
-
     private func watchForMetaJsonCreation(recordingPath: String) {
         // Skip if already processed
         if isAlreadyProcessed(recordingPath: recordingPath) {
@@ -706,74 +650,66 @@ class RecordingsFolderWatcher {
     }
     
     private func watchMetaJsonForChanges(metaJsonPath: String, recordingPath: String) {
-        // Skip if already processed
-        if isAlreadyProcessed(recordingPath: recordingPath) {
+        guard !isAlreadyProcessed(recordingPath: recordingPath),
+              pendingMetaJsonFiles[metaJsonPath] == nil else {
             return
         }
-        
-        // Don't create duplicate watchers
-        if pendingMetaJsonFiles[metaJsonPath] != nil {
-            return
-        }
-        
+
         let fileDescriptor = open(metaJsonPath, O_EVTONLY)
         guard fileDescriptor >= 0 else {
             logError("Failed to open file descriptor for path: \(metaJsonPath)")
             return
         }
-        
+
         let watcher = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fileDescriptor, eventMask: .all, queue: queue)
-        
-        watcher.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            
-            // Skip if already processed
+        let recheckMetadata = { [weak self] in
+            guard let self, self.pendingMetaJsonFiles[metaJsonPath] === watcher else { return }
             if self.isAlreadyProcessed(recordingPath: recordingPath) {
-                watcher.cancel()
-                self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
+                self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)?.cancel()
                 return
             }
-            
-             // Check if the file still exists (it might have been deleted or overwritten)
-            guard FileManager.default.fileExists(atPath: metaJsonPath) else {
-                // File might be temporarily unavailable during overwrite, add delay to check if it reappears
+
+            var currentFile = stat()
+            guard stat(metaJsonPath, &currentFile) == 0 else {
+                // Give a temporary removal during an overwrite time to resolve.
                 self.queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                    guard let self = self else { return }
-                    
-                    // Re-check if file exists after delay
-                    if !FileManager.default.fileExists(atPath: metaJsonPath) {
-                        // File was truly deleted, not just overwritten
-                        watcher.cancel()
-                        self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)
-                        
-                        // Treat permanent metadata deletion as cancellation so all watcher,
-                        // timer, and session-local clipboard state crosses the same hard
-                        // recovery boundary.
+                    guard let self, self.pendingMetaJsonFiles[metaJsonPath] === watcher,
+                          !self.isAlreadyProcessed(recordingPath: recordingPath) else { return }
+                    self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)?.cancel()
+
+                    if FileManager.default.fileExists(atPath: metaJsonPath) {
+                        self.processMetaJson(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                    } else {
                         self.performRecordingRecovery(
                             reason: "meta.json was deleted during processing - \((recordingPath as NSString).lastPathComponent)"
                         )
-                    } else {
-                        // File reappeared, it was just being overwritten - continue processing
-                        logDebug("meta.json reappeared after overwrite in \(recordingPath) - continuing monitoring")
-                        self.processMetaJson(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
                     }
                 }
                 return
             }
-            
-            // Process the updated meta.json file immediately
+
+            // If Superwhisper replaced the file, attach to the new inode whenever
+            // the replacement is still incomplete.
+            var watchedFile = stat()
+            if fstat(fileDescriptor, &watchedFile) != 0 ||
+                watchedFile.st_dev != currentFile.st_dev || watchedFile.st_ino != currentFile.st_ino {
+                self.pendingMetaJsonFiles.removeValue(forKey: metaJsonPath)?.cancel()
+            }
+
             self.processMetaJson(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
         }
-        
+        watcher.setEventHandler(handler: recheckMetadata)
+        // Catch writes that arrived between the last read and registration.
+        watcher.setRegistrationHandler(handler: recheckMetadata)
         watcher.setCancelHandler {
             close(fileDescriptor)
         }
-        
-        watcher.resume()
+
         pendingMetaJsonFiles[metaJsonPath] = watcher
+        watcher.resume()
         logDebug("Started watching for changes to meta.json at: \(metaJsonPath)")
     }
-    
+
     private func processMetaJson(
         metaJsonPath: String,
         recordingPath: String,
@@ -823,7 +759,13 @@ class RecordingsFolderWatcher {
                 return
             }
 
-            // NEW VALIDATION LOGIC: Check based on languageModelName and llmResult/result
+            if RecordingMetadataSettlePolicy.shouldAwaitRealtimeFinalResult(in: metaJson) {
+                logDebug("[Validation] Waiting for final Realtime metadata for \(recordingPath).")
+                watchMetaJsonForChanges(metaJsonPath: metaJsonPath, recordingPath: recordingPath)
+                return
+            }
+
+            // Choose the required output based on languageModelName.
             // If languageModelName is not empty, wait for llmResult
             // If languageModelName is empty, wait for result
 

@@ -223,7 +223,7 @@ How Macrowhisper reads the value:
 - `~` is expanded
 - a directory path loads `<directory>/meta.json`; a file path loads that JSON file directly
 - otherwise, the value is treated as a recording folder name under the configured Superwhisper `recordings` directory
-- without `--meta`, Macrowhisper chooses the newest completed folder with a valid result; folders missing the required non-empty `llmResult` or `result` are skipped
+- without `--meta`, Macrowhisper chooses the newest completed folder according to the [recording readiness rules](runtime.md#recording-readiness-and-arrival-boundaries)
 - an explicit `--meta` selects the requested source even when its metadata `kind` is `meeting`
 - when `languageModelName` is non-empty, the required field is a non-empty string `llmResult`; otherwise it is a non-empty string `result`
 

@@ -206,6 +206,7 @@ normal processing.
 #### Validation Requirements:
 - A nonempty string `languageModelName` selects the LLM path, which requires a nonempty string `llmResult`.
 - Without a nonempty `languageModelName`, a nonempty string `result` is required.
+- With Realtime enabled and no language model on Superwhisper 3.4.0 or later, a numeric `roundTripTime` is also required before the watcher accepts `result`. Implicit CLI recording selection uses the same check.
 - Missing, null, nonstring, and empty required results keep the metadata watcher active.
 - For integrated S1-Language + S1-Voice (`languageModelKey: "sl-1"`, `modelKey: "sv-1"`), an available `llmResult` with an empty `result` gets a one-second grace period. Processing then continues with `llmResult` if `result` still has not arrived.
 - Voice triggers use `result`; they do not match when that source text is empty, even if `llmResult` is ready. See [runtime](../runtime.md) for readiness and recovery behavior.

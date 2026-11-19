@@ -245,6 +245,8 @@ The short version:
 - if `languageModelName` is non-empty, Macrowhisper waits for a non-empty
   `llmResult` string
 - otherwise, it waits for a non-empty `result` string
+- with voice-only Realtime dictation on Superwhisper 3.4.0 or later, it
+  also waits for Superwhisper to finish writing the final transcript
 - for the integrated S1 pair (`languageModelKey` `sl-1` and `modelKey` `sv-1`),
   a non-empty `llmResult` with an empty `result` gets a one-second settle grace
   period before processing

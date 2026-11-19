@@ -41,7 +41,7 @@ src/
 │   │   ├── ClipboardMonitor.swift        # Global + per-session clipboard coordination
 │   │   ├── Placeholders.swift            # Placeholder parsing, transforms, meta traversal
 │   │   ├── RecordingReferenceResolver.swift # Resolve current/previous recording folders for placeholders and CLI
-│   │   ├── RecordingMetadataSettlePolicy.swift # One-second grace for integrated S1 transcript readiness
+│   │   ├── RecordingMetadataSettlePolicy.swift # Realtime finalization and integrated S1 transcript grace
 │   │   ├── AppVocabulary.swift           # Accessibility-driven app vocabulary extraction
 │   │   ├── BrowserURLNormalization.swift # Browser URL normalization for trigger/url context
 │   │   ├── SmartInsertBoundary.swift     # Smart casing/punctuation/spacing boundary logic
@@ -198,7 +198,7 @@ regression runners](README.md#focused-regression-runners) for the commands.
   - `{{segments}}` for readable speaker-formatted transcript output
 
 #### Supporting Context Utilities
-- [src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift](../../src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift): identifies the integrated S1-Language/S1-Voice case that gets a one-second grace period for source-transcript readiness
+- [src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift](../../src/macrowhisper/Utils/RecordingMetadataSettlePolicy.swift) checks for final Realtime metadata and identifies when the integrated S1 pair gets a one-second grace period for source-transcript readiness
 - [src/macrowhisper/Utils/RecordingReferenceResolver.swift](../../src/macrowhisper/Utils/RecordingReferenceResolver.swift): resolves current/latest/prior recording folders for placeholders and CLI commands
 - [src/macrowhisper/Utils/AppVocabulary.swift](../../src/macrowhisper/Utils/AppVocabulary.swift): derives app-specific vocabulary from accessibility data
 - [src/macrowhisper/Utils/BrowserURLNormalization.swift](../../src/macrowhisper/Utils/BrowserURLNormalization.swift): normalizes browser URLs for trigger matching and placeholder use
