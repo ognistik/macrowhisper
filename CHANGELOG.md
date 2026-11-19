@@ -2,13 +2,17 @@
 
 ## UNRELEASED
 
+---
+## [v2.3.1](https://github.com/ognistik/macrowhisper/releases/tag/v2.3.1) - 2026/11/19
+
+Update to this release if you use voice-only Realtime dictation with Superwhisper 3.4.0 or later. Macrowhisper now waits for the final transcript before running an action, across voice models.
+
 ### Added
 * Added privacy-safe `[PasteDiagnostic]` logging for paste events, clipboard writes and restoration, timing, and bounded post-paste accessibility observations.
 * Added privacy-safe recording startup phase logs to help locate future daemon crashes, including native-object cleanup boundaries.
 * Added a single background file-URL readback check after clipboard attachment publication, with privacy-safe warnings when the URLs are unavailable or do not match the published list. Publication logs no longer imply that the receiving app successfully pasted the files.
 
 ### Fixed
-* Macrowhisper now waits for Superwhisper 3.4.0 or later to finish voice-only Realtime dictation before running an action.
 * Serialized native clipboard transactions and their temporary-object cleanup across watcher, polling, and CLI execution to prevent concurrent access to shared pasteboard state.
 * Fixed a clipboard-monitor teardown crash when its final reference was released on its own session queue.
 * Fixed late main-thread focus reads racing with callers that had already timed out.

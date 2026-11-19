@@ -1,4 +1,4 @@
 {
-  "description": "* Supports new Superwhisper audio; skips meetings.\n* New voice suffix commands and bug fixes.",
-  "version": "2.3.0"
+  "description": "Update required if you use voice-only Realtime dictation with Superwhisper 3.4.0 or later. Fixes Macrowhisper actions firing before you finish speaking.",
+  "version": "2.3.1"
 }
